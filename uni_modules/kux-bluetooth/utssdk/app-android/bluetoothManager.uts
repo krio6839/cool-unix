@@ -1,0 +1,1592 @@
+import Context from 'android.content.Context';
+import BluetoothAdapter from 'android.bluetooth.BluetoothAdapter';
+import BluetoothAdapterLeScanCallback from 'android.bluetooth.BluetoothAdapter.LeScanCallback';
+import Intent from 'android.content.Intent';
+import Handler from 'android.os.Handler';
+import { StartScanningCallback, ApiCommonOptions, ApiCommonSuccessCallback, StartBluetoothDevicesDiscoveryOptions, EnableBluetoothOptions, StartBluetoothDevicesDiscoverySuccess, DeviceInfo, StopBluetoothDevicesDiscoveryOptions, CreateBLEConnectionOptions, OnBLEConnectionStateChangeCallback, OnBLEConnectionStateChangeCallbackRes, CreateBLEConnectionSuccess, GetBLEDeviceServicesOptions, GetBLEDeviceServicesSuccessService, GetBLEDeviceServicesSuccess, OpenBluetoothAdapterOptions, OpenBluetoothAdapterSuccess, GetBluetoothAdapterStateOptions, BluetoothAdapterMode, ApiErrorGeneralOptions, ApiFail, ApiComplete, GetBluetoothAdapterStateSuccess, OnBluetoothDeviceFoundCallback, CloseBluetoothAdapterOptions, CloseBluetoothAdapterSuccess, InitConfig, GetBluetoothDevicesOptions, GetBluetoothDevicesSuccess, CloseBLEConnectionOptions, GetBLEDeviceCharacteristicsOptions, BLEDeviceCharacteristic, CharacteristicProperties, GetBLEDeviceCharacteristicsSuccess, ReadBLECharacteristicValueOptions, NotifyBLECharacteristicValueChangeOptions, OnBLECharacteristicValueChangeCallback, OnBLECharacteristicValueChangeRes, WriteBLECharacteristicValueOptions, OnReadBLECharacteristicValueCallback, OnWriteBLECharacteristicValueCallback, IBluetooth, OnBluetoothAdapterStateChangeCallback, OnBluetoothAdapterStateChangeRes } from '../interface';
+import { KuxBluetoothFailImpl } from '../unierror';
+import BluetoothDevice from 'android.bluetooth.BluetoothDevice';
+import Thread from 'java.lang.Thread';
+import BluetoothSocket from 'android.bluetooth.BluetoothSocket';
+import BluetoothServerSocket from 'android.bluetooth.BluetoothServerSocket';
+import IOException from 'java.io.IOException';
+import UUID from 'java.util.UUID';
+import BluetoothGatt from 'android.bluetooth.BluetoothGatt';
+import BluetoothGattCallback from 'android.bluetooth.BluetoothGattCallback';
+import BluetoothGattService from 'android.bluetooth.BluetoothGattService';
+import BluetoothGattCharacteristic from 'android.bluetooth.BluetoothGattCharacteristic';
+import LeScanCallback from 'android.bluetooth.BluetoothAdapter.LeScanCallback';
+import BluetoothProfile from 'android.bluetooth.BluetoothProfile';
+import ScanCallback from 'android.bluetooth.le.ScanCallback';
+import ScanResult from 'android.bluetooth.le.ScanResult';
+import ScanRecord from 'android.bluetooth.le.ScanRecord';
+import Build from 'android.os.Build';
+import BluetoothLeScanner from 'android.bluetooth.le.BluetoothLeScanner';
+import ArrayList from 'java.util.ArrayList';
+import SparseArray from 'android.util.SparseArray';
+import ByteBuffer from 'java.nio.ByteBuffer';
+import ParcelUuid from 'android.os.ParcelUuid';
+import List from 'java.util.List';
+import PackageManager from 'android.content.pm.PackageManager';
+import Pattern from 'java.util.regex.Pattern';
+import BluetoothGattDescriptor from 'android.bluetooth.BluetoothGattDescriptor';
+import ScanSettings from 'android.bluetooth.le.ScanSettings';
+import ScanFilter from 'android.bluetooth.le.ScanFilter';
+
+export class BluetoothManager implements IBluetooth {
+	private mContext : Context;
+	private mBluetoothAdapter : BluetoothAdapter | null;
+	private mHandler: Handler;
+	private scanning: boolean;
+	private mOnBluetoothAdapterStateChangeCallback: OnBluetoothAdapterStateChangeCallback | null;
+	private mLeScanCallback: BluetoothAdapterLeScanCallback | null;
+	private mScanCallback: ScanCallback | null;
+	private mOnfoundDevices: ArrayList<DeviceInfo>;
+	private mOnFundDeviceList: ArrayList<BluetoothDevice>;
+	private discoveredDevices: Map<string, BluetoothDevice>;
+	private mDiscoveredDevices: Map<string, DeviceInfo>;
+	private connectedDevices: Map<string, BluetoothGatt>;
+	private mConnectedDevices: Map<string, DeviceInfo>;
+	private BLEDiscoveredServices: Map<string, BluetoothGattService>;
+	private mBLEDiscoveredServices: Map<string, GetBLEDeviceServicesSuccessService[]>;
+	private BLEDeviceCharacteristics: Map<string, BluetoothGattCharacteristic>;
+	private mBLEDeviceCharacteristics: Map<string, BLEDeviceCharacteristic[]>;
+	private mServerSocket: BluetoothServerSocket | null;
+	private uuidString = "00001101-0000-1000-8000-00805F9B34FB";
+	private cccdUUID = "00002902-0000-1000-8000-00805f9b34fb";
+	private createBLEConnectionTimeout: number | null;
+	private mOnBluetoothDeviceFoundCallback: OnBluetoothDeviceFoundCallback | null;
+	private mOnBLEConnectionStateChangeCallback: OnBLEConnectionStateChangeCallback | null;
+	private mOnBLECharacteristicValueChangeCallback: OnBLECharacteristicValueChangeCallback | null;
+	private mOnReadBLECharacteristicValueCallback: OnReadBLECharacteristicValueCallback | null;
+	private mOnWriteBLECharacteristicValueCallback: OnWriteBLECharacteristicValueCallback | null;
+	private mBluetoothLeScanner: BluetoothLeScanner | null;
+	private currentApiLevel: Int | null;
+	private initConfig: InitConfig | null;
+	private MAC_ADDRESS_PATTERN: Pattern = Pattern.compile("^(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$|^(?:[0-9A-Fa-f]{2}-){5}[0-9A-Fa-f]{2}$");
+	private deviceId: string;
+	private serviceId: string;
+	private characteristicId: string;
+	private lastDeviceScanTime: number | null;
+
+	constructor(context ?: Context, initConfig ?: InitConfig) {
+		this.mContext = context!;
+		this.initConfig = null;
+		if (initConfig !== null) {
+			this.initConfig = initConfig!;
+		}
+		// this.mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+		this.mBluetoothAdapter = null;
+		this.mHandler = new Handler();
+		this.scanning = false;
+		this.mLeScanCallback = null;
+		this.mOnBluetoothAdapterStateChangeCallback = null;
+		this.mScanCallback = null;
+		this.mOnFundDeviceList = new ArrayList<BluetoothDevice>();
+		this.mOnfoundDevices = new ArrayList<DeviceInfo>();
+		this.discoveredDevices = new Map<string, BluetoothDevice>();
+		this.mDiscoveredDevices = new Map<string, DeviceInfo>();
+		this.mServerSocket = null;
+		this.connectedDevices = new Map<string, BluetoothGatt>();
+		this.mConnectedDevices = new Map<string, DeviceInfo>();
+		
+		this.createBLEConnectionTimeout = null;
+		this.mOnBLEConnectionStateChangeCallback = null;
+		this.BLEDiscoveredServices = new Map<string, BluetoothGattService>();
+		this.mBLEDiscoveredServices = new Map<string, GetBLEDeviceServicesSuccessService[]>();
+		this.BLEDeviceCharacteristics = new Map<string, BluetoothGattCharacteristic>();
+		this.mBLEDeviceCharacteristics = new Map<string, BLEDeviceCharacteristic[]>();
+		this.mBluetoothLeScanner = null;
+		this.mOnBluetoothDeviceFoundCallback = null;
+		this.mOnBLECharacteristicValueChangeCallback = null;
+		this.mOnReadBLECharacteristicValueCallback = null;
+		this.mOnWriteBLECharacteristicValueCallback = null;
+		this.currentApiLevel = Build.VERSION.SDK_INT;
+		this.deviceId = '';
+		this.serviceId = '';
+		this.characteristicId = '';
+		this.lastDeviceScanTime = null;
+	}
+	
+	private _isLollipop (): boolean {
+		return this.currentApiLevel! >= Build.VERSION_CODES.LOLLIPOP;
+	}
+	
+	private _checkBluetoothAdapterState(): boolean {
+		const pm: PackageManager = UTSAndroid.getAppContext()!.getPackageManager() as PackageManager;
+		return pm.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE) && this.mBluetoothAdapter!.isEnabled();
+	}
+	
+	/**
+	 * 检查蓝牙适配器是否可用
+	 */
+	private _checkBluetoothAdapter (fail?: ApiFail, complete?: ApiComplete) {
+		// 检查设备是否支持BLE
+		const pm: PackageManager = UTSAndroid.getAppContext()!.getPackageManager() as PackageManager;
+		const hasBLE: boolean = pm.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE);
+		if (!hasBLE) {
+			const res = new KuxBluetoothFailImpl(10009);
+			fail?.(res);
+			complete?.(res);
+			return;
+		}
+		if (this.mBluetoothAdapter === null) {
+			const res = new KuxBluetoothFailImpl(10000);
+			fail?.(res);
+			complete?.(res);
+			return;
+		} else if (!this.mBluetoothAdapter!.isEnabled()) {
+			const res = new KuxBluetoothFailImpl(10001);
+			fail?.(res);
+			complete?.(res);
+			return;
+		}
+	}
+	
+	/**
+	 * 检查是否为合法的mac地址
+	 */
+	private _checkMacAddress (macAddress: string, fail?: ApiFail, complete?: ApiComplete) {
+		if (!this.MAC_ADDRESS_PATTERN.matcher(macAddress).matches()) {
+			const res = new KuxBluetoothFailImpl(10013);
+			fail?.(res);
+			complete?.(res);
+			return;
+		}
+	}
+	
+	/**
+	 * 检查蓝牙设备是否存在
+	 */
+	private _checkDiscoveredDevices (deviceId: string, fail?: ApiFail, complete?: ApiComplete) {
+		this._checkMacAddress(deviceId, fail, complete);
+		
+		if (!this.mDiscoveredDevices.has(deviceId)) {
+			const res = new KuxBluetoothFailImpl(10002);
+			fail?.(res);
+			complete?.(res);
+			return;
+		}
+	}
+	
+	/**
+	 * 检查蓝牙设备是否连接
+	 */
+	private _checkConnctedDevices (deviceId: string, fail?: ApiFail, complete?: ApiComplete) {
+		if (!this.mConnectedDevices.has(deviceId) || !this.connectedDevices.has(deviceId)) {
+			const res = new KuxBluetoothFailImpl(10006);
+			fail?.(res);
+			complete?.(res);
+			return;
+		}
+	}
+	
+	/**
+	 * 检查蓝牙设备服务是否存在
+	 */
+	private _checkDiscoveredServices (deviceId: string, fail?: ApiFail, complete?: ApiComplete) {
+		if (!this.mBLEDiscoveredServices.has(deviceId)) {
+			const res = new KuxBluetoothFailImpl(10004);
+			fail?.(res);
+			complete?.(res);
+			return;
+		}
+	}
+	
+	/**
+	 * 检查服务是否存在
+	 */
+	private _checkBLEService (serviceId: string, fail?: ApiFail, complete?: ApiComplete) {
+		if (!this.BLEDiscoveredServices.has(serviceId)) {
+			const res = new KuxBluetoothFailImpl(10004);
+			fail?.(res);
+			complete?.(res);
+			return;
+		}
+	}
+	
+	/**
+	 * 检查服务特征是否存在
+	 */
+	private _checkServiceCharacteristic (characteristicId: string, fail?: ApiFail, complete?: ApiComplete) {
+		if (!this.BLEDeviceCharacteristics.has(characteristicId)) {
+			const res = new KuxBluetoothFailImpl(10005);
+			fail?.(res);
+			complete?.(res);
+			return;
+		}
+	}
+	
+	private _checkPermission (fail?: ApiFail, complete?: ApiComplete, callback?: () => void) {
+		try {
+			let permission = ['android.permission.BLUETOOTH', 'android.permission.BLUETOOTH_ADMIN', 'android.permission.BLUETOOTH_CONNECT', 'android.permission.BLUETOOTH_SCAN'];
+			// 判断是否需要地理位置权限
+			if (this.initConfig?.needLocation == true) {
+				permission.push('android.permission.ACCESS_FINE_LOCATION');
+				permission.push('android.permission.ACCESS_COARSE_LOCATION');
+			}
+			// 判断是否需要在后台访问位置信息
+			if (this.initConfig?.accessBackgroundLocation == true) {
+				permission.push('android.permission.ACCESS_BACKGROUND_LOCATION');
+			}
+			UTSAndroid.requestSystemPermission(UTSAndroid.getUniActivity()!, permission, (allRight : boolean, grantedList : string[]) => {
+				if (allRight) {
+					callback?.();
+				} else {
+					// 用户仅同意了 grantedList中的权限
+					callback?.();
+				}
+			}, (doNotAskAgain : boolean, grantedList : string[]) => {
+				// 用户拒绝了部分权限，仅允许了grantedList中的权限
+				if (doNotAskAgain) {
+					// 用户拒绝了权限，并且选择不再询问
+					const res = new KuxBluetoothFailImpl(10008);
+					fail?.(res);
+					complete?.(res);
+				}
+			})
+		} catch (e) {
+			const res = new KuxBluetoothFailImpl(10008);
+			res.cause = new SourceError(e.message ?? '系统异常');
+			fail?.(res);
+			complete?.(res);
+		}
+	}
+	
+	private _byteBufferToByteArray(byteBuffer: ByteBuffer): ByteArray {
+		// 确保 ByteBuffer 处于读模式
+		byteBuffer.flip();
+		// 创建一个新的字节数组来存储有效数据
+		const byteArray = new ByteArray(byteBuffer.remaining());
+		// 将 ByteBuffer 的数据读取到字节数组中
+		byteBuffer.get(byteArray);
+		
+		return byteArray;
+	}
+	
+	onBluetoothAdapterStateChange(callback: OnBluetoothAdapterStateChangeCallback) {
+		this.mOnBluetoothAdapterStateChangeCallback = callback;
+	}
+	
+	/**
+	 * 初始化蓝牙模块
+	 * @param { OpenBluetoothAdapterOptions } options 参数
+	 */
+	openBluetoothAdapter (options: OpenBluetoothAdapterOptions) {
+		try {
+			this._checkPermission(options?.fail, options?.complete, () => {
+				this.mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+				
+				this._checkBluetoothAdapter(options?.fail, options?.complete);
+				
+				const res: OpenBluetoothAdapterSuccess = {
+					errCode: 0,
+					errMsg: 'openBluetoothAdapter:ok'
+				};
+				this.mOnBluetoothAdapterStateChangeCallback?.({
+					discovering: false,
+					available: this._checkBluetoothAdapterState()
+				} as OnBluetoothAdapterStateChangeRes);
+				options?.success?.(res);
+				options?.complete?.(res);
+				return;
+			});
+		} catch (error) {
+			const res = new KuxBluetoothFailImpl(10008);
+			res.cause = new SourceError(error.message ?? '蓝牙模块初始化发生异常');
+			options?.fail?.(res);
+			options?.complete?.(res);
+		}
+	}
+	
+	/**
+	 * 关闭蓝牙模块。调用该方法将断开所有已建立的连接并释放系统资源。建议在使用蓝牙流程后，与 `openBluetoothAdapter` 成对调用。
+	 */
+	closeBluetoothAdapter (options: CloseBluetoothAdapterOptions) {
+		// 检查蓝牙适配器
+		this._checkBluetoothAdapter(options?.fail, options?.complete);
+		
+		try {
+			// 断开所有的连接
+			this.mBluetoothAdapter!.cancelDiscovery();
+			// 清空本地列表
+			this.mOnfoundDevices.clear();
+			this.discoveredDevices.clear();
+			this.mBLEDiscoveredServices.clear();
+			this.connectedDevices.clear();
+			this.mConnectedDevices.clear();
+			this.BLEDiscoveredServices.clear();
+			this.mBLEDiscoveredServices.clear();
+			this.BLEDeviceCharacteristics.clear();
+			this.mBLEDeviceCharacteristics.clear();
+			
+			this.mOnBluetoothAdapterStateChangeCallback?.({
+				discovering: false,
+				available: false
+			} as OnBluetoothAdapterStateChangeRes);
+			
+			const res: CloseBluetoothAdapterSuccess = {
+				errCode: 0,
+				errMsg: 'openBluetoothAdapter:ok'
+			};
+			options?.success?.(res);
+			options?.complete?.(res);
+		} catch (e) {
+			const res = new KuxBluetoothFailImpl(10008);
+			res.cause = new SourceError(e.message ?? '蓝牙模块关闭发生异常');
+			options?.fail?.(res);
+			options?.complete?.(res);
+		}
+	}
+	
+	/**
+	 * 获取本机蓝牙适配器状态
+	 * @param { GetBluetoothAdapterStateOptions } options 参数
+	 */
+	getBluetoothAdapterState (options: GetBluetoothAdapterStateOptions) {
+		try {
+			this._checkBluetoothAdapter(options?.fail, options?.complete);
+			
+			const res: GetBluetoothAdapterStateSuccess = {
+				discovering: this.scanning,
+				available: this.mBluetoothAdapter!.isEnabled()
+			};
+			
+			options?.success?.(res);
+			options?.complete?.(res);
+		} catch (error) {
+			const res = new KuxBluetoothFailImpl(10008);
+			res.cause = new SourceError(error.message ?? '蓝牙适配器状态获取发生异常');
+			options?.fail?.(res);
+			options?.complete?.(res);
+		}
+	}
+
+	/**
+	 * 蓝牙是否打开
+	 */
+	isEnabled() : boolean {
+		if (this.mBluetoothAdapter === null) {
+			const res = new KuxBluetoothFailImpl(10000);
+			throw res;
+		}
+		return this.mBluetoothAdapter!.isEnabled();
+	}
+	
+	private _enableBluetooth(options: EnableBluetoothOptions) {
+		if (!this.mBluetoothAdapter!.isEnabled()) {
+			try {
+				const enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+				enableBtIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+				this.mContext.startActivity(enableBtIntent);
+				const res: ApiCommonSuccessCallback = {
+					errCode: 0,
+					errMsg: 'enableBluetooth:ok',
+				};
+				options?.success?.(res);
+			} catch (e) {
+				const res = new KuxBluetoothFailImpl(10008);
+				res.cause = new SourceError(e.message ?? '打开蓝牙发生异常');
+				options?.fail?.(res);
+				options?.complete?.(res);
+			}
+		} else {
+			const res: ApiCommonSuccessCallback = {
+				errCode: 0,
+				errMsg: 'enableBluetooth:ok'
+			};
+			options?.success?.(res);
+			options?.complete?.(res);
+		}
+	}
+
+	/**
+	 * 打开蓝牙
+	 * @param {EnableBluetoothOptions} options 参数
+	 */
+	enableBluetooth(options: EnableBluetoothOptions) {
+		this._checkPermission(options?.fail, options?.complete, () => {
+			this._enableBluetooth(options);
+		});
+	}
+	
+	/**
+	 * 监听搜索到新设备的事件
+	 * @param { OnBluetoothDeviceFoundCallback } callback 回调事件
+	 */
+	onBluetoothDeviceFound (callback: OnBluetoothDeviceFoundCallback) {
+		this.mOnBluetoothDeviceFoundCallback = callback;
+	}
+	
+	/**
+	 * 移除搜索到新设备的事件的全部监听函数
+	 */
+	offBluetoothDeviceFound () {
+		this.mOnBluetoothDeviceFoundCallback = null;
+	}
+	
+	private _getDeviceInfo (device: BluetoothDevice, RSSI: number, scanRecord: ScanRecord): DeviceInfo {
+		const name = device.getName();
+		const deviceId = device.getAddress();
+		const advertisData: SparseArray<ByteArray> = scanRecord.getManufacturerSpecificData();
+		const advertisDataIsNull = advertisData == null;
+		let advertisDataBytes: number[] = [];
+		
+		if (advertisDataIsNull) {
+			// 计算所有制造商数据的总长度
+			let totalLength = 0;
+			const size = advertisData.size();
+			for (let i = 0; i < size; i++) {
+				const data: ByteArray = advertisData.valueAt(i.toInt());
+				totalLength += Array.fromNative(data).length;
+			}
+			
+			const byteBufferAdvertisData: ByteBuffer = ByteBuffer.allocate(totalLength.toInt());
+			for (let i = 0; i < size; i++) {
+				const data: ByteArray = advertisData.valueAt(i.toInt());
+				byteBufferAdvertisData.put(data);
+			}
+			advertisDataBytes = Array.fromNative(byteBufferAdvertisData.array());
+		}
+		
+		const advertisServiceUUIDsData: string[] = [];
+		if (scanRecord.getServiceUuids() != null) {
+			const advertisServiceUUIDs: List<ParcelUuid> = scanRecord.getServiceUuids().toList() as List<ParcelUuid>;
+			for (let i in advertisServiceUUIDs.indices) {
+				advertisServiceUUIDsData.push(advertisServiceUUIDs[i].toString());
+			}
+		}
+		
+		const localName = scanRecord.getDeviceName() ?? '';
+		const serviceData: any | null = scanRecord.getServiceData();
+		const connectable = (scanRecord.getAdvertiseFlags() & 0x01) == 0;
+		
+		// 判断安卓版本是否大于8
+		const isJellyBean = this.currentApiLevel! >= Build.VERSION_CODES.JELLY_BEAN;
+		
+		const deviceInfo: DeviceInfo = {
+			name: name ?? '',
+			deviceId: deviceId,
+			RSSI: RSSI,
+			advertisData: advertisDataBytes,
+			advertisServiceUUIDs: advertisServiceUUIDsData,
+			localName: localName ?? '',
+			serviceData: serviceData,
+			connectable: isJellyBean ? connectable : null
+		};
+		
+		return deviceInfo;
+	}
+	
+	private _startLeScanning(options: StartBluetoothDevicesDiscoveryOptions) {
+		// this.LeScanCallback = callback;
+		if (this.scanning) {
+			const res = new KuxBluetoothFailImpl(10008);
+			res.errMsg = '当前存在正在扫描的任务';
+			options?.fail?.(res);
+			return;
+		};
+		
+		this._checkBluetoothAdapter(options?.fail, options?.complete);
+		
+		this.scanning = true;
+		/**
+		 * 根据不同的安卓版本设置不同的扫描回调，安卓5以上版本使用扫描器方式扫描
+		 */
+		if (this._isLollipop()) {
+			// 创建蓝牙扫描器
+			this.mBluetoothLeScanner = this.mBluetoothAdapter!.getBluetoothLeScanner();
+			
+			// 设置扫描回调
+			this.mScanCallback = new BluetoothScanCallback((device: BluetoothDevice, RSSI: number, scanRecord: ScanRecord) => {
+				const deviceDddress = device.getAddress();
+				
+				if (!this.discoveredDevices.has(deviceDddress)) {
+					this.discoveredDevices.set(deviceDddress, device);
+					const name = device.getName();
+					const deviceId = device.getAddress();
+					const advertisData: SparseArray<ByteArray> = scanRecord.getManufacturerSpecificData();
+					const advertisDataIsNull = advertisData == null;
+					let advertisDataBytes: number[] = [];
+					
+					if (advertisDataIsNull) {
+						// 计算所有制造商数据的总长度
+						let totalLength = 0;
+						const size = advertisData.size();
+						for (let i = 0; i < size; i++) {
+							const data: ByteArray = advertisData.valueAt(i.toInt());
+							totalLength += Array.fromNative(data).length;
+						}
+						
+						const byteBufferAdvertisData: ByteBuffer = ByteBuffer.allocate(totalLength.toInt());
+						for (let i = 0; i < size; i++) {
+							const data: ByteArray = advertisData.valueAt(i.toInt());
+							byteBufferAdvertisData.put(data);
+						}
+						advertisDataBytes = Array.fromNative(byteBufferAdvertisData.array());
+					}
+					
+					const advertisServiceUUIDsData: string[] = [];
+					if (scanRecord.getServiceUuids() != null) {
+						const advertisServiceUUIDs: List<ParcelUuid> = scanRecord.getServiceUuids().toList() as List<ParcelUuid>;
+						for (let i in advertisServiceUUIDs.indices) {
+							advertisServiceUUIDsData.push(advertisServiceUUIDs[i].toString());
+						}
+					}
+					
+					const localName = scanRecord.getDeviceName() ?? '';
+					const serviceData: any | null = scanRecord.getServiceData();
+					const connectable = (scanRecord.getAdvertiseFlags() & 0x01) == 0;
+					
+					// 判断安卓版本是否大于8
+					const isJellyBean = this.currentApiLevel! >= Build.VERSION_CODES.JELLY_BEAN;
+					
+					if (this.mOnBluetoothDeviceFoundCallback != null) {
+						try {
+							const deviceInfo: DeviceInfo = {
+								name: name ?? '',
+								deviceId: deviceId,
+								RSSI: RSSI,
+								advertisData: advertisDataBytes,
+								advertisServiceUUIDs: advertisServiceUUIDsData,
+								localName: localName ?? '',
+								serviceData: serviceData,
+								connectable: isJellyBean ? connectable : null
+							};
+							this.mDiscoveredDevices.set(deviceId, deviceInfo);
+							// 判断是否设置了时间间隔
+							const currentTime = System.currentTimeMillis();
+							if (options.interval != null) {
+								if (this.lastDeviceScanTime == null || (currentTime - this.lastDeviceScanTime!) > options.interval!) {
+									this.lastDeviceScanTime = currentTime;
+									if (!this.mOnfoundDevices.contains(deviceInfo) && !this.mOnFundDeviceList.contains(device)) {
+										this.mOnfoundDevices.add(deviceInfo);
+										this.mOnFundDeviceList.add(device);
+										this.mOnBluetoothDeviceFoundCallback?.(Array.fromNative(this.mOnfoundDevices));
+									}
+								}
+							} else {
+								if (!this.mOnfoundDevices.contains(deviceInfo) && !this.mOnFundDeviceList.contains(device)) {
+									this.mOnfoundDevices.add(deviceInfo);
+									this.mOnFundDeviceList.add(device);
+									this.mOnBluetoothDeviceFoundCallback?.(Array.fromNative(this.mOnfoundDevices));
+								}
+							}
+						} catch (err) {
+							const res = new KuxBluetoothFailImpl(10008);
+							res.cause = new SourceError(`${err.message}`);
+							options?.fail?.(res);
+							options?.complete?.(res);
+							return;
+						}
+					}
+				} else {
+					// 判断是否允许上报同一设备
+					if (options?.allowDuplicatesKey != null && options!.allowDuplicatesKey == true) {
+						if (this.mOnBluetoothDeviceFoundCallback != null) {
+							try {
+								const index = this.mOnFundDeviceList.indexOf(device);
+								// 获取已存在的设备
+								let existingDevice: DeviceInfo = this.mOnfoundDevices.get(index);
+								// 判断是否设置了时间间隔
+								if (options.interval != null) {
+									const currentTime = System.currentTimeMillis();
+									if (this.lastDeviceScanTime == null || (currentTime - this.lastDeviceScanTime!) > options.interval!) {
+										this.lastDeviceScanTime = currentTime;
+										// 更新设备RSSI
+										existingDevice.RSSI = RSSI;
+										// 重新更新设备列表
+										this.mOnfoundDevices.set(index, existingDevice);
+										this.mOnBluetoothDeviceFoundCallback?.(Array.fromNative(this.mOnfoundDevices));
+									}
+								} else {
+									// 更新设备RSSI
+									existingDevice.RSSI = RSSI;
+									// 重新更新设备列表
+									this.mOnfoundDevices.set(index, existingDevice);
+									this.mOnBluetoothDeviceFoundCallback?.(Array.fromNative(this.mOnfoundDevices));
+								}
+							} catch (err) {
+								const res = new KuxBluetoothFailImpl(10008);
+								res.cause = new SourceError(`${err.message}`);
+								options?.fail?.(res);
+								options?.complete?.(res);
+								return;
+							}
+						}
+					}
+				}
+			});
+			
+			// 设置扫描模式
+			let setting = ScanSettings.SCAN_MODE_BALANCED;
+			if (options?.powerLevel === 'high') {
+				setting = ScanSettings.SCAN_MODE_LOW_LATENCY;
+			} else if (options?.powerLevel === 'low') {
+				setting = ScanSettings.SCAN_MODE_LOW_POWER;
+			}
+			
+			const settings: ScanSettings = new ScanSettings.Builder()
+				.setScanMode(setting)
+				.build();
+				
+			// 设置过滤器
+			const filters: ArrayList<ScanFilter> = new ArrayList<ScanFilter>();
+			const uuids: string[] = options.services ?? [];
+			
+			if (uuids.length > 0) {
+				uuids.forEach((item) => {
+					const filter: ScanFilter = new ScanFilter.Builder()
+						.setServiceUuid(ParcelUuid.fromString(item))
+						.build();
+					filters.add(filter);
+				})
+			}
+			
+			// 开启扫描
+			this.mBluetoothLeScanner!.startScan(filters, settings, this.mScanCallback!);
+		} else {
+			this.mLeScanCallback = new BluetoothLeScanCallback((device: BluetoothDevice, RSSI: number, scanRecord: ByteArray) => {
+				const deviceDddress = device.getAddress();
+				
+				if (!this.discoveredDevices.has(deviceDddress)) {
+					this.discoveredDevices.set(deviceDddress, device);
+					const name = device.getName();
+					const deviceId = device.getAddress();
+					const advertisData: number[] = [];
+					const advertisServiceUUIDs: string[] = [];
+					const localName = device.getName();
+					const serviceData = {} as UTSJSONObject;
+					
+					if (this.mOnBluetoothDeviceFoundCallback !== null) {
+						try {
+							const deviceInfo: DeviceInfo = {
+								name: name ?? '',
+								deviceId: deviceId,
+								RSSI: RSSI,
+								advertisData: advertisData,
+								advertisServiceUUIDs: advertisServiceUUIDs,
+								localName: localName ?? '',
+								serviceData: serviceData,
+								connectable: null
+							};
+							// this.mOnBluetoothDeviceFoundCallback!(deviceInfo);
+							this.mDiscoveredDevices.set(deviceId, deviceInfo);
+							// 判断是否设置了时间间隔
+							const currentTime = System.currentTimeMillis();
+							if (options.interval != null) {
+								if (this.lastDeviceScanTime == null || (currentTime - this.lastDeviceScanTime!) > options.interval!) {
+									this.lastDeviceScanTime = currentTime;
+									if (!this.mOnfoundDevices.contains(deviceInfo) && !this.mOnFundDeviceList.contains(device)) {
+										this.mOnfoundDevices.add(deviceInfo);
+										this.mOnFundDeviceList.add(device);
+										this.mOnBluetoothDeviceFoundCallback?.(Array.fromNative(this.mOnfoundDevices));
+									}
+								}
+							} else {
+								if (!this.mOnfoundDevices.contains(deviceInfo) && !this.mOnFundDeviceList.contains(device)) {
+									this.mOnfoundDevices.add(deviceInfo);
+									this.mOnFundDeviceList.add(device);
+									this.mOnBluetoothDeviceFoundCallback?.(Array.fromNative(this.mOnfoundDevices));
+								}
+							}
+						} catch (err) {
+							const res = new KuxBluetoothFailImpl(10008);
+							res.cause = new SourceError(`${err.message}`);
+							options?.fail?.(res);
+							options?.complete?.(res);
+							return;
+						}
+					}
+				} else {
+					// 判断是否允许上报同一设备
+					if (options?.allowDuplicatesKey != null && options!.allowDuplicatesKey == true) {
+						if (this.mOnBluetoothDeviceFoundCallback != null) {
+							try {
+								const index = this.mOnFundDeviceList.indexOf(device);
+								// 获取已存在的设备
+								let existingDevice: DeviceInfo = this.mOnfoundDevices.get(index);
+								// 判断是否设置了时间间隔
+								if (options.interval != null) {
+									const currentTime = System.currentTimeMillis();
+									if (this.lastDeviceScanTime == null || (currentTime - this.lastDeviceScanTime!) > options.interval!) {
+										this.lastDeviceScanTime = currentTime;
+										// 更新设备RSSI
+										existingDevice.RSSI = RSSI;
+										// 重新更新设备列表
+										this.mOnfoundDevices.set(index, existingDevice);
+										this.mOnBluetoothDeviceFoundCallback?.(Array.fromNative(this.mOnfoundDevices));
+									}
+								} else {
+									// 更新设备RSSI
+									existingDevice.RSSI = RSSI;
+									// 重新更新设备列表
+									this.mOnfoundDevices.set(index, existingDevice);
+									this.mOnBluetoothDeviceFoundCallback?.(Array.fromNative(this.mOnfoundDevices));
+								}
+							} catch (err) {
+								const res = new KuxBluetoothFailImpl(10008);
+								res.cause = new SourceError(`${err.message}`);
+								options?.fail?.(res);
+								options?.complete?.(res);
+								return;
+							}
+						}
+					}
+				}
+			});
+			
+			// 开启扫描
+			this.mBluetoothAdapter!.startLeScan(this.mLeScanCallback!);
+		}
+		
+		const res: ApiCommonSuccessCallback = {
+			errCode: 0,
+			errMsg: 'startBluetoothDevicesDiscovery:ok'
+		};
+		
+		options?.success?.(res);
+		options?.complete?.(res);
+		this.mOnBluetoothAdapterStateChangeCallback?.({
+			discovering: this.scanning,
+			available: this._checkBluetoothAdapterState()
+		} as OnBluetoothAdapterStateChangeRes)
+		
+		// 开启普通蓝牙，暂不支持
+		// this.startClassicBluetoothServer();
+	}
+	
+	/**
+	 * 开始搜寻附近的蓝牙外围设备。
+	 * + 此操作比较耗费系统资源，请在搜索到需要的设备后及时调用 `stopBluetoothDevicesDiscovery` 停止搜索。
+	 * @param { StartBluetoothDevicesDiscoveryOptions } options 参数
+	 */
+	startBluetoothDevicesDiscovery(options: StartBluetoothDevicesDiscoveryOptions) {
+		this._checkBluetoothAdapter(options?.fail, options?.complete);
+		
+		this._startLeScanning(options);
+	}
+	
+	private _stopLeScanning(options?: StopBluetoothDevicesDiscoveryOptions) {
+		// 检查蓝牙适配器
+		this._checkBluetoothAdapter(options?.fail, options?.complete);
+		
+		try {
+			/**
+			 * 判断安卓版本是否大于5，是的话通过创建的扫描器停止扫描
+			 */
+			if (this._isLollipop()) {
+				this.mBluetoothLeScanner!.stopScan(this.mScanCallback!);
+				this.mScanCallback = null;
+			} else {
+				this.mBluetoothAdapter!.stopLeScan(this.mLeScanCallback!);
+				this.mLeScanCallback = null;
+			}
+			this.scanning = false;
+			// 清空已发现的设备列表
+			// this.discoveredDevices.clear();
+			const res: ApiCommonSuccessCallback = {
+				errCode: 0,
+				errMsg: 'stopBluetoothDevicesDiscovery:ok'
+			};
+			options?.success?.(res);
+			options?.complete?.(res);
+			this.mOnBluetoothAdapterStateChangeCallback?.({
+				discovering: this.scanning,
+				available: this._checkBluetoothAdapterState()
+			} as OnBluetoothAdapterStateChangeRes)
+		} catch (e) {
+			const res = new KuxBluetoothFailImpl(10008);
+			res.cause = new SourceError(e.message ?? '停止扫描发生异常');
+			options?.fail?.(res);
+			options?.complete?.(res);
+		}
+	}
+	
+	/**
+	 * 获取在蓝牙模块生效期间所有搜索到的蓝牙设备。包括已经和本机处于连接状态的设备。
+	 * @param { GetBluetoothDevicesOptions } options 参数
+	 */
+	getBluetoothDevices (options: GetBluetoothDevicesOptions) {
+		try {
+			// 检查蓝牙适配器状态
+			this._checkBluetoothAdapter(options?.fail, options?.complete);
+			
+			const devices: DeviceInfo[] = [];
+			
+			this.mDiscoveredDevices.forEach((item: DeviceInfo) => {
+				devices.push(item);
+			});
+			
+			const res: GetBluetoothDevicesSuccess = {
+				devices: devices
+			};
+			
+			options?.success?.(res);
+			options?.complete?.(res);
+		} catch (err) {
+			const res = new KuxBluetoothFailImpl(10008);
+			res.cause = new SourceError(err.message ?? '获取蓝牙设备发生异常');
+			options?.fail?.(res);
+			options?.complete?.(res);
+		}
+	}
+	
+	private startClassicBluetoothServer () {
+		try {
+			this.mServerSocket = this.mBluetoothAdapter!.listenUsingInsecureRfcommWithServiceRecord("KuxBluetooth", UUID.fromString(this.uuidString));
+			// 接受连接
+			const acceptThread = new AcceptThread((socket) => {
+				this.manageConnectedSocket(socket);
+			}, this.mServerSocket!);
+			acceptThread.start();
+		} catch (e) {
+			console.log(e);
+		}
+	}
+	
+	private manageConnectedSocket (socket: BluetoothSocket) {
+		console.log(socket);
+	}
+	
+	/**
+	 * 停止搜寻附近的蓝牙外围设备。若已经找到需要的蓝牙设备并不需要继续搜索时，建议调用该接口停止蓝牙搜索。
+	 */
+	stopBluetoothDevicesDiscovery(options: StopBluetoothDevicesDiscoveryOptions) {
+		this._stopLeScanning(options);
+	}
+	
+	/**
+	 * 蓝牙低功耗连接状态改变事件的监听函数
+	 * @param { OnBLEConnectionStateChangeCallback } callback 回调
+	 */
+	onBLEConnectionStateChange (callback: OnBLEConnectionStateChangeCallback) {
+		this.mOnBLEConnectionStateChangeCallback = callback;
+	}
+	
+	/**
+	 * 连接蓝牙设备
+	 * @param { CreateBLEConnectionOptions } options 参数
+	 */
+	createBLEConnection (options: CreateBLEConnectionOptions) {
+		const deviceId = options.deviceId;
+		
+		// 检查蓝牙适配器
+		this._checkBluetoothAdapter(options?.fail, options?.complete);
+		
+		// 检查当前设备是否存在
+		this._checkDiscoveredDevices(deviceId, options?.fail, options?.complete);
+		
+		// 检查当前设备是否已连接
+		if (this.connectedDevices.has(deviceId)) {
+			const res = new KuxBluetoothFailImpl(-1);
+			options?.fail?.(res);
+			options?.complete?.(res);
+			return;
+		}
+		
+		const device: BluetoothDevice = this.discoveredDevices.get(deviceId)!;
+		const deviceInfo: DeviceInfo = this.mDiscoveredDevices.get(deviceId)!;
+		
+		try {
+			const callback = new GattCallback((connected: boolean, gatt: BluetoothGatt) => {
+				/**
+				 * 蓝牙连接状态变化回调处理
+				 */
+				let stateChangeCallbackRes: OnBLEConnectionStateChangeCallbackRes = {
+					deviceId,
+					connected
+				};
+				// stateChangeCallbackRes.connected = gatt.getConnectionState(device) === BluetoothProfile.STATE_CONNECTED;
+				// while (gatt.getConnectionState(device) != BluetoothProfile.STATE_DISCONNECTED) {
+				// 	stateChangeCallbackRes.connected = false;
+				// }
+				if (this.mOnBLEConnectionStateChangeCallback != null) {
+					this.mOnBLEConnectionStateChangeCallback?.(stateChangeCallbackRes);
+				}
+				if (stateChangeCallbackRes.connected) {
+					// 连接成功后清除计时器
+					if (this.createBLEConnectionTimeout != null) {
+						clearTimeout(this.createBLEConnectionTimeout as number);
+						this.createBLEConnectionTimeout = null;
+					}
+					if (!this.connectedDevices.has(deviceId)) {
+						this.connectedDevices.set(deviceId, gatt);
+						this.mConnectedDevices.set(deviceId, deviceInfo);
+						const res: CreateBLEConnectionSuccess = {
+							errCode: 0,
+							errMsg: 'createBLEConnection:ok'
+						};
+						options?.success?.(res);
+						options?.complete?.(res);
+					}
+				}
+			}, (services: ArrayList<BluetoothGattService> | null) => {
+				/**
+				 * 服务被发现时的回调处理
+				 */
+				if (services != null) {
+					const discoveredServices: GetBLEDeviceServicesSuccessService[] = [];
+					
+					services.forEach((item: BluetoothGattService) => {
+						const uuid = item.getUuid().toString();
+						const isPrimary = item.getType() === BluetoothGattService.SERVICE_TYPE_PRIMARY;
+						
+						discoveredServices.push({
+							uuid,
+							isPrimary
+						} as GetBLEDeviceServicesSuccessService);
+						
+						if (!this.BLEDiscoveredServices.has(uuid)) {
+							this.BLEDiscoveredServices.set(uuid, item);
+						}
+					});
+					
+					if (!this.mBLEDiscoveredServices.has(deviceId)) {
+						this.mBLEDiscoveredServices.set(deviceId, discoveredServices);
+					}
+				}
+			}, (data: ByteArray | null) => {
+				/**
+				 * 特征值变化时回调处理
+				 */
+				if (data != null) {
+					this.mOnBLECharacteristicValueChangeCallback?.({
+						deviceId: this.deviceId,
+						serviceId: this.serviceId,
+						characteristicId: this.characteristicId,
+						// value: Array.fromNative(data)
+						value: ArrayBuffer.fromByteBuffer(ByteBuffer.wrap(data))
+					} as OnBLECharacteristicValueChangeRes);
+				}
+			}, (data: ByteArray | null) => {
+				/**
+				 * 特征值读取时回调处理
+				 */
+				if (data != null) {
+					this.mOnReadBLECharacteristicValueCallback?.({
+						deviceId: this.deviceId,
+						serviceId: this.serviceId,
+						characteristicId: this.characteristicId,
+						// value: Array.fromNative(data)
+						value: ArrayBuffer.fromByteBuffer(ByteBuffer.wrap(data))
+					} as OnBLECharacteristicValueChangeRes);
+				}
+			}, (success: boolean) => {
+				/**
+				 * 特征值写入时回调处理
+				 */
+				this.mOnWriteBLECharacteristicValueCallback?.(success);
+			});
+			
+			const gatt = device.connectGatt(this.mContext, false, callback)!;
+			
+			gatt.connect();
+			
+			// 判断是否连接超时
+			if (options.timeout != null) {
+				this.createBLEConnectionTimeout = setTimeout(() => {
+					// 连接超时主动断开连接服务
+					gatt.disconnect();
+					const res = new KuxBluetoothFailImpl(10012);
+					options?.fail?.(res);
+					options?.complete?.(res);
+				}, options.timeout!);
+			}
+		} catch (error) {
+			const res = new KuxBluetoothFailImpl(10008);
+			res.cause = new SourceError(error.message ?? '连接设备发生异常');
+			options?.fail?.(res);
+			options?.complete?.(res);
+		}
+	}
+	
+	/**
+	 * 选择设备服务
+	 * @param { GetBLEDeviceServicesOptions } options 参数
+	 */
+	getBLEDeviceServices (options: GetBLEDeviceServicesOptions) {
+		// 检查蓝牙适配器
+		this._checkBluetoothAdapter(options?.fail, options?.complete);
+		
+		const deviceId = options.deviceId;
+		
+		// 检查设备是否存在
+		this._checkDiscoveredDevices(deviceId, options?.fail, options?.complete);
+		
+		// 检查设备是否连接
+		this._checkConnctedDevices(deviceId, options?.fail, options?.complete);
+		
+		let services: GetBLEDeviceServicesSuccessService[] = [];
+		
+		// 检查设备服务是否存在
+		this._checkDiscoveredServices(deviceId, options?.fail, options?.complete);
+		
+		services = this.mBLEDiscoveredServices.get(deviceId)!;
+		
+		const res: GetBLEDeviceServicesSuccess = {
+			errCode: 0,
+			errMsg: 'getBLEDeviceServices:ok',
+			services
+		};
+		
+		options?.success?.(res);
+		options?.complete?.(res);
+	}
+	
+	/**
+	 * 获取设备服务的特征值
+	 * @param { GetBLEDeviceCharacteristicsOptions } options 参数
+	 */
+	getBLEDeviceCharacteristics (options: GetBLEDeviceCharacteristicsOptions) {
+		try {
+			// 检查蓝牙适配器
+			this._checkBluetoothAdapter(options?.fail, options?.complete);
+			
+			const { deviceId, serviceId } = options;
+			
+			// 检查设备是否存在
+			this._checkDiscoveredDevices(deviceId, options?.fail, options?.complete);
+			
+			// 检查设备是否连接
+			this._checkConnctedDevices(deviceId, options?.fail, options?.complete);
+			
+			// 检查设备服务是否存在
+			this._checkDiscoveredServices(deviceId, options?.fail, options?.complete);
+			
+			// 检查服务是否存在
+			this._checkBLEService(serviceId, options?.fail, options?.complete);
+			
+			const service = this.BLEDiscoveredServices.get(serviceId)!;
+			const mCharacteristics: BLEDeviceCharacteristic[] = [];
+			const characteristics: ArrayList<BluetoothGattCharacteristic> | null = service.getCharacteristics() as ArrayList<BluetoothGattCharacteristic> | null;
+			
+			if (characteristics === null || characteristics.isEmpty()) {
+				const res = new KuxBluetoothFailImpl(10005);
+				options?.fail?.(res);
+				options?.complete?.(res);
+				return;
+			}
+			
+			characteristics.forEach((item: BluetoothGattCharacteristic) => {
+				const uuid = item.getUuid().toString();
+				// 是否支持read
+				let isReadable = false;
+				// 是否支持write
+				let isWritable = false;
+				// 是否支持notify
+				let isNotifiable = false;
+				// 是否支持indicate
+				let isIndicatable = false;
+				// 是否支持writeNoResponse
+				let isWriteNoResponsable = false;
+				// 是否支持writeDefault
+				let isWriteDefaultable = false;
+				const properties = item.getProperties();
+				if ((properties & BluetoothGattCharacteristic.PROPERTY_READ) != 0) {
+					isReadable = true;
+				}
+				if ((properties & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0) {
+					isWritable = true;
+				}
+				if ((properties & BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0) {
+					isNotifiable = true;
+				}
+				if ((properties & BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0) {
+					isIndicatable = true;
+				}
+				if ((properties & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0) {
+					isWriteNoResponsable = true;
+				}
+				if ((properties & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0) {
+					isWriteDefaultable = true;
+				}
+				
+				if (!this.BLEDeviceCharacteristics.has(uuid)) {
+					this.BLEDeviceCharacteristics.set(uuid, item);
+				}
+				
+				mCharacteristics.push({
+					uuid,
+					properties: {
+						read: isReadable,
+						write: isWritable,
+						notify: isNotifiable,
+						indicate: isIndicatable,
+						writeDefault: isWriteDefaultable,
+						writeNoResponse: isWriteNoResponsable
+					} as CharacteristicProperties
+				} as BLEDeviceCharacteristic);
+			});
+			
+			if (!this.mBLEDeviceCharacteristics.has(serviceId)) {
+				this.mBLEDeviceCharacteristics.set(serviceId, mCharacteristics);
+			}
+			
+			const res: GetBLEDeviceCharacteristicsSuccess = {
+				characteristics: mCharacteristics
+			};
+			
+			options?.success?.(res);
+			options?.complete?.(res);
+			return;
+		} catch (e) {
+			console.log(e);
+			const res = new KuxBluetoothFailImpl(10008);
+			res.cause = new SourceError(e.message ?? '获取设备服务特征值发生异常');
+			options?.fail?.(res);
+			options?.complete?.(res);
+			return;
+		}
+	}
+	
+	/**
+	 * 读取蓝牙低功耗设备特征值的二进制数据。注意：必须设备的特征支持 read 才可以成功调用。
+	 * @param { ReadBLECharacteristicValueOptions } options 参数
+	 */
+	readBLECharacteristicValue (options: ReadBLECharacteristicValueOptions) {
+		try {
+			// 检查蓝牙适配器
+			this._checkBluetoothAdapter(options?.fail, options?.complete);
+			
+			const { deviceId, serviceId, characteristicId } = options;
+			
+			// 检查设备是否存在
+			this._checkDiscoveredDevices(deviceId, options?.fail, options?.complete);
+			
+			// 检查设备是否连接
+			this._checkConnctedDevices(deviceId, options?.fail, options?.complete);
+			
+			// 检查设备服务是否存在
+			this._checkDiscoveredServices(deviceId, options?.fail, options?.complete);
+			
+			// 检查服务是否存在
+			this._checkBLEService(serviceId, options?.fail, options?.complete);
+			
+			// 检查服务特征是否存在
+			this._checkServiceCharacteristic(characteristicId, options?.fail, options?.complete);
+			
+			// 判断该特征是否可读
+			const characteristic = this.BLEDeviceCharacteristics.get(characteristicId)!;
+			const properties = characteristic.getProperties();
+			
+			if ((properties & BluetoothGattCharacteristic.PROPERTY_READ) == 0) {
+				const res = new KuxBluetoothFailImpl(10007);
+				options?.fail?.(res);
+				options?.complete?.(res);
+				return;
+			}
+			
+			const gatt = this.connectedDevices.get(deviceId)!;
+			
+			gatt.readCharacteristic(characteristic);
+			
+			// 记录当前订阅的设备服务特征ID，方便后面直接读取
+			this.deviceId = deviceId;
+			this.serviceId = serviceId;
+			this.characteristicId = characteristicId;
+			
+			const res: ApiCommonSuccessCallback = {
+				errCode: 0,
+				errMsg: 'readBLECharacteristicValue:ok'
+			};
+			
+			options?.success?.(res);
+			options?.complete?.(res);
+			return;
+		} catch (e) {
+			const res = new KuxBluetoothFailImpl(10008);
+			res.cause = new SourceError(e.message ?? '读取蓝牙低功耗设备特征值的二进制数据发生异常');
+			options?.fail?.(res);
+			options?.complete?.(res);
+			return;
+		}
+	}
+	
+	/**
+	 * 启用蓝牙低功耗设备特征值变化时的 notify 功能，订阅特征。注意：必须设备的特征支持 notify 或者 indicate 才可以成功调用。另外，必须先启用 notifyBLECharacteristicValueChange 才能监听到设备 characteristicValueChange 事件
+	 * @param { NotifyBLECharacteristicValueChangeOptions } options 参数
+	 */
+	notifyBLECharacteristicValueChange (options: NotifyBLECharacteristicValueChangeOptions) {
+		try {
+			// 检查蓝牙适配器
+			this._checkBluetoothAdapter(options?.fail, options?.complete);
+			
+			const { deviceId, serviceId, characteristicId, state } = options;
+			
+			// 检查设备是否存在
+			this._checkDiscoveredDevices(deviceId, options?.fail, options?.complete);
+			
+			// 检查设备是否连接
+			this._checkConnctedDevices(deviceId, options?.fail, options?.complete);
+			
+			// 检查设备服务是否存在
+			this._checkDiscoveredServices(deviceId, options?.fail, options?.complete);
+			
+			// 检查服务是否存在
+			this._checkBLEService(serviceId, options?.fail, options?.complete);
+			
+			// 检查服务特征是否存在
+			this._checkServiceCharacteristic(characteristicId, options?.fail, options?.complete);
+			
+			let type: ByteArray = BluetoothGattDescriptor.ENABLE_INDICATION_VALUE;
+			if (options?.type == 'notification') {
+				type = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE;
+			}
+			
+			// 判断该特征是否可操作
+			const characteristic = this.BLEDeviceCharacteristics.get(characteristicId)!;
+			const properties = characteristic.getProperties();
+			
+			if ((properties & BluetoothGattCharacteristic.PROPERTY_NOTIFY) == 0 && (properties & BluetoothGattCharacteristic.PROPERTY_INDICATE) == 0) {
+				const res = new KuxBluetoothFailImpl(10007);
+				options?.fail?.(res);
+				options?.complete?.(res);
+				return;
+			}
+			
+			const gatt = this.connectedDevices.get(deviceId)!;
+			
+			const enable = gatt.setCharacteristicNotification(characteristic, state);
+			if (!enable) {
+				const res = new KuxBluetoothFailImpl(10007);
+				options?.fail?.(res);
+				options?.complete?.(res);
+				return;
+			}
+			
+			// 获取特征描述符
+			const descriptors = characteristic.getDescriptors();
+			if (descriptors.isEmpty()) {
+				const res = new KuxBluetoothFailImpl(10007);
+				options?.fail?.(res);
+				options?.complete?.(res);
+				return;
+			}
+			
+			const descriptor = descriptors.get(0);
+			descriptor.setValue(type);
+			gatt.writeDescriptor(descriptor);
+			
+			// 记录当前订阅的设备服务特征ID，方便后面直接读取
+			this.deviceId = deviceId;
+			this.serviceId = serviceId;
+			this.characteristicId = characteristicId;
+			
+			const res: ApiCommonSuccessCallback = {
+				errCode: 0,
+				errMsg: 'notifyBLECharacteristicValueChange:ok'
+			};
+			
+			options.success?.(res);
+			options?.complete?.(res);
+			return;
+		} catch (e) {
+			const res = new KuxBluetoothFailImpl(10008);
+			res.cause = new SourceError(e.message ?? '启用蓝牙低功耗设备特征值变化时的 notify 功能发生异常');
+			options?.fail?.(res);
+			options?.complete?.(res);
+			return;
+		}
+	}
+	
+	/**
+	 * 监听蓝牙低功耗设备的特征值变化事件。必须先调用 notifyBLECharacteristicValueChange 接口才能接收到设备推送的 notification。
+	 * @param { OnBLECharacteristicValueChangeCallback } callback 回调
+	 */
+	onBLECharacteristicValueChange (callback: OnBLECharacteristicValueChangeCallback) {
+		this.mOnBLECharacteristicValueChangeCallback = callback;
+	}
+	
+	/**
+	 * 向蓝牙低功耗设备特征值中写入二进制数据。注意：必须设备的特征支持 write 才可以成功调用。
+	 * @param { WriteBLECharacteristicValueOptions } options 参数
+	 */
+	writeBLECharacteristicValue (options: WriteBLECharacteristicValueOptions) {
+		try {
+			// 检查蓝牙适配器
+			this._checkBluetoothAdapter(options?.fail, options?.complete);
+			
+			const { deviceId, serviceId, characteristicId, value } = options;
+			
+			// 检查设备是否存在
+			this._checkDiscoveredDevices(deviceId, options?.fail, options?.complete);
+			
+			// 检查设备是否连接
+			this._checkConnctedDevices(deviceId, options?.fail, options?.complete);
+			
+			// 检查设备服务是否存在
+			this._checkDiscoveredServices(deviceId, options?.fail, options?.complete);
+			
+			// 检查服务是否存在
+			this._checkBLEService(serviceId, options?.fail, options?.complete);
+			
+			// 检查服务特征是否存在
+			this._checkServiceCharacteristic(characteristicId, options?.fail, options?.complete);
+			
+			let writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE;
+			if (options?.writeType == 'write') {
+				writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT;
+			}
+			
+			// 判断该特征是否可操作
+			const characteristic = this.BLEDeviceCharacteristics.get(characteristicId)!;
+			const properties = characteristic.getProperties();
+			
+			if ((properties & BluetoothGattCharacteristic.PROPERTY_WRITE) == 0 || (properties & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) == 0) {
+				const res = new KuxBluetoothFailImpl(10007);
+				options?.fail?.(res);
+				options?.complete?.(res);
+				return;
+			}
+			
+			// characteristic.setValue(typedArrayToByteArray(value));
+			characteristic.setValue(this._byteBufferToByteArray(value.toByteBuffer()))
+			characteristic.setWriteType(writeType);
+			
+			const gatt = this.connectedDevices.get(deviceId)!;
+			gatt.writeCharacteristic(characteristic);
+			
+			// 记录当前订阅的设备服务特征ID，方便后面直接读取
+			this.deviceId = deviceId;
+			this.serviceId = serviceId;
+			this.characteristicId = characteristicId;
+			
+			const res: ApiCommonSuccessCallback = {
+				errCode: 0,
+				errMsg: 'writeBLECharacteristicValue:ok'
+			};
+			
+			options.success?.(res);
+			options?.complete?.(res);
+			return;
+		} catch (e) {
+			const res = new KuxBluetoothFailImpl(10008);
+			res.cause = new SourceError(e.message ?? '向蓝牙低功耗设备特征值中写入二进制数据发生异常');
+			options?.fail?.(res);
+			options?.complete?.(res);
+			return;
+		}
+	}
+	
+	/**
+	 * 监听读取蓝牙低功耗设备特征值的二进制数据的事件
+	 * @param { OnReadBLECharacteristicValueCallback } callback 回调事件
+	 */
+	onReadBLECharacteristicValue (callback: OnReadBLECharacteristicValueCallback) {
+		this.mOnReadBLECharacteristicValueCallback = callback;
+	}
+	
+	/**
+	 * 监听向蓝牙低功耗设备特征值中写入二进制数据的事件
+	 * @param { OnWriteBLECharacteristicValueCallback } callback 回调事件
+	 */
+	onWriteBLECharacteristicValue (callback: OnWriteBLECharacteristicValueCallback) {
+		this.mOnWriteBLECharacteristicValueCallback = callback;
+	}
+	
+	/**
+	 * 断开蓝牙设备
+	 * @param { CloseBLEConnectionOptions } options 参数
+	 */
+	closeBLEConnection (options: CloseBLEConnectionOptions) {
+		try {
+			// 检查蓝牙适配器
+			this._checkBluetoothAdapter(options?.fail, options?.complete);
+			
+			const deviceId = options.deviceId;
+			
+			// 检查设备是否存在
+			this._checkDiscoveredDevices(deviceId, options?.fail, options?.complete);
+			
+			// 检查设备是否连接
+			this._checkConnctedDevices(deviceId, options?.fail, options?.complete);
+			
+			const gatt = this.connectedDevices.get(deviceId)!;
+			
+			gatt.disconnect();
+			// 从已连接设备列表中删除
+			this.connectedDevices.delete(deviceId);
+			this.mConnectedDevices.delete(deviceId);
+			this.BLEDiscoveredServices.delete(deviceId);
+			this.mBLEDiscoveredServices.delete(deviceId);
+			this.BLEDeviceCharacteristics.delete(deviceId);
+			this.mBLEDeviceCharacteristics.delete(deviceId);
+			
+			const res: ApiCommonSuccessCallback = {
+				errCode: 0,
+				errMsg: 'closeBLEConnection:ok'
+			};
+			options?.success?.(res);
+			options?.complete?.(res);
+			return;
+		} catch (error) {
+			console.log(error);
+			const res = new KuxBluetoothFailImpl(10008);
+			res.cause = new SourceError(error.message ?? '断开蓝牙设备异常');
+			options?.fail?.(res);
+			options?.complete?.(res);
+		}
+	}
+}
+
+class AcceptThread extends Thread {
+	private callback: ((socket: BluetoothSocket) => void) | null;
+	private mServerSocket: BluetoothServerSocket | null;
+	
+	constructor (callback: ((socket: BluetoothSocket) => void) | null, serverSocket: BluetoothServerSocket) {
+		super();
+		this.callback = callback;
+		this.mServerSocket = serverSocket;
+	}
+	
+	override run () {
+		let socket: BluetoothSocket | null = null;
+		// 保持监听直到连接建立或发生异常
+		while (true) {
+			try {
+				socket = this.mServerSocket!.accept();
+				this.callback?.(socket);
+			} catch (e) {
+				break;
+			}
+		}
+	}
+}
+
+/**
+ * 安卓版本低于5时使用该回调扫描设备
+ */
+class BluetoothLeScanCallback extends LeScanCallback {
+	private callback: ((device: BluetoothDevice, RSSI: number, scanRecord: ByteArray) => void) | null;
+	
+	constructor (callback: ((device: BluetoothDevice, RSSI: number, scanRecord: ByteArray) => void) | null) {
+		super();
+		this.callback = callback;
+	}
+	
+	override onLeScan(device: BluetoothDevice, RSSI: Int, scanRecord: ByteArray) {
+		this.callback?.(device, Number.from(RSSI), scanRecord);
+	}
+}
+
+/**
+ * 安卓版本高于5时使用该回调扫描设备
+ */
+class BluetoothScanCallback extends ScanCallback {
+	private callback: (device: BluetoothDevice, RSSI: number, scanRecord: ScanRecord) => void | null;
+	constructor (callback: (device: BluetoothDevice, RSSI: number, scanRecord: ScanRecord) => void | null) {
+		super();
+		this.callback = callback;
+	}
+	
+	override onScanResult (callbackType: Int, result: ScanResult) {
+		const device = result.getDevice();
+		const scanRecord = result.getScanRecord();
+		const RSSI = result.getRssi();
+		
+		if (scanRecord != null) {
+			this.callback?.(device, Number.from(RSSI), scanRecord);
+		}
+	}
+}
+
+/**
+ * Gatt客户端回调实现
+ */
+class GattCallback extends BluetoothGattCallback {
+	private connectionStateChangecallback: (connected: boolean, gatt: BluetoothGatt) => void | null;
+	private servicesDiscoveredCallback: (services: ArrayList<BluetoothGattService> | null) => void | null;
+	private characteristicValueChangedCallback: (data: ByteArray | null) => void | null;
+	private characteristicReadCallback: (data: ByteArray | null) => void | null;
+	private characteristicWriteCallback: (success: boolean) => void | null;
+	
+	constructor (connectionStateChangecallback: (connected: boolean, gatt: BluetoothGatt) => void | null, servicesDiscoveredCallback: (services: ArrayList<BluetoothGattService> | null) => void | null, characteristicValueChangedCallback: (data: ByteArray | null) => void | null, characteristicReadCallback: (data: ByteArray | null) => void | null, characteristicWriteCallback: (success: boolean) => void | null) {
+		super();
+		this.connectionStateChangecallback = connectionStateChangecallback;
+		this.servicesDiscoveredCallback = servicesDiscoveredCallback;
+		this.characteristicValueChangedCallback = characteristicValueChangedCallback;
+		this.characteristicReadCallback = characteristicReadCallback;
+		this.characteristicWriteCallback = characteristicWriteCallback;
+	}
+	
+	override onConnectionStateChange (gatt: BluetoothGatt, status: Int, newState: Int): void {
+		console.log('连接状态变化回调');
+		if (newState === BluetoothProfile.STATE_CONNECTED) {
+			this.connectionStateChangecallback?.(true, gatt);
+			// 设备已连接，开始发现服务
+			gatt.discoverServices();
+		} else if (newState === BluetoothProfile.STATE_DISCONNECTED) {
+			// 再次检查设备连接状态
+			console.log('已断开连接');
+			this.connectionStateChangecallback?.(false, gatt);
+		}
+	}
+	
+	override onServicesDiscovered (gatt: BluetoothGatt, status: Int): void {
+		console.log('服务被发现回调');
+		if (status == BluetoothGatt.GATT_SUCCESS) {
+			// 服务发现成功，获取所有服务
+			const gattServices: ArrayList<BluetoothGattService> | null = gatt.getServices() as ArrayList<BluetoothGattService> | null;
+			if (gattServices != null && !gattServices.isEmpty()) {
+				this.servicesDiscoveredCallback?.(gattServices);
+			} else {
+				this.servicesDiscoveredCallback?.(null);
+			}
+		} else {
+			// 服务发现失败
+			this.servicesDiscoveredCallback?.(null);
+		}
+	}
+	
+	override onCharacteristicRead (gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int): void {
+		console.log('特征值读取回调');
+		if (status == BluetoothGatt.GATT_SUCCESS) {
+			const data: ByteArray | null = characteristic.getValue() as ByteArray | null;
+			if (data != null) {
+				this.characteristicReadCallback?.(data);
+			} else {
+				this.characteristicReadCallback?.(null);
+			}
+		} else {
+			this.characteristicReadCallback?.(null);
+		}
+	}
+	
+	override onCharacteristicWrite (gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int): void {
+		console.log('特征值写入回调');
+		if (status == BluetoothGatt.GATT_SUCCESS) {
+			this.characteristicWriteCallback?.(true);
+		} else {
+			this.characteristicWriteCallback?.(false);
+		}
+	}
+	
+	override onCharacteristicChanged (gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic): void {
+		console.log('特征值变化回调');
+		const data: ByteArray | null = characteristic.getValue() as ByteArray | null;
+		if (data != null) {
+			this.characteristicValueChangedCallback?.(data);
+		} else {
+			this.characteristicValueChangedCallback?.(null);
+		}
+	}
+}
+
+/**
+ * number数组转换为ByteArray
+ */
+function typedArrayToByteArray (arrayBuffer: number[]): ByteArray {
+	const length = arrayBuffer.length;
+	const byteArray: ByteArray = new ByteArray(length.toInt());
+	
+	// 遍历arrayBuffer并复制到byte数组
+	for (let i = 0; i < length; i++) {
+		// 获取每个字节的值
+		const value = arrayBuffer[i].toInt();
+		// 转换为byte并存储
+		byteArray[i.toInt()] = value.toByte();
+	}
+	
+	return byteArray;
+}

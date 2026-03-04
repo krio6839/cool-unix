@@ -1,0 +1,139 @@
+<template>
+	<view class="w-full max-w-[400px]">
+		<view class="mb-4 w-full">
+			<cl-input
+				v-model="form.phone"
+				prefix-icon="device-fill"
+				:placeholder="t('输入手机号')"
+				:border="false"
+				:pt="{
+					className: '!h-[50px] !rounded-xl !px-4 !bg-white/10 !text-white !text-base',
+					prefixIcon: {
+						className: 'mr-2 text-white'
+					}
+				}"
+			></cl-input>
+		</view>
+
+		<view class="mb-6 relative w-full">
+			<cl-input
+				v-model="form.smsCode"
+				prefix-icon="shield-check-fill"
+				:placeholder="t('输入验证码')"
+				:border="false"
+				:pt="{
+					className: '!h-[50px] !rounded-xl !px-4 !bg-white/10 !text-white !text-base',
+					prefixIcon: {
+						className: 'mr-2 text-white'
+					}
+				}"
+			>
+				<template #append>
+					<cl-text color="primary" :pt="{ className: 'font-bold' }" @tap="getSmsCode">{{
+						t("获取验证码")
+					}}</cl-text>
+				</template>
+			</cl-input>
+		</view>
+
+		<cl-button
+			:pt="{
+				className: '!h-[50px]'
+			}"
+			type="primary"
+			rounded
+			:disabled="disabled"
+			:loading="loading"
+			@tap="handleLogin"
+		>
+			{{ t("确认") }}
+		</cl-button>
+
+		<cl-button
+			:pt="{
+				className: '!h-[50px] !bg-transparent !text-white mt-4'
+			}"
+			rounded
+			@tap="switchMode('password')"
+		>
+			{{ t("账号密码登录") }}
+		</cl-button>
+	</view>
+</template>
+
+<script setup lang="ts">
+import { request, t, useRefs, type Response } from "@/.cool";
+import { computed, inject, reactive, ref, type PropType } from "vue";
+import type { LoginForm } from "../../types";
+import { useUi } from "@/uni_modules/cool-ui";
+
+const props = defineProps({
+	form: {
+		type: Object as PropType<LoginForm>,
+		default: () => ({})
+	}
+});
+
+const emit = defineEmits(["success", "switch"]);
+
+const ui = useUi();
+const refs = useRefs();
+
+// 是否同意
+const isAgree = inject("isAgree") as () => boolean;
+
+// 是否显示验证码
+const showCode = ref(false);
+
+// 是否加载中
+const loading = ref(false);
+
+// 是否禁用
+const disabled = computed(() => {
+	return props.form.phone == "" || props.form.smsCode == "";
+});
+
+async function handleLogin() {
+	if (!isAgree()) {
+		return;
+	}
+
+	const { phone, smsCode } = props.form;
+
+	loading.value = true;
+
+	await request({
+		url: "/app/user/login/phone",
+		method: "POST",
+		data: {
+			phone,
+			smsCode
+		}
+	})
+		.then((res) => {
+			emit("success", res);
+		})
+		.catch((err) => {
+			ui.showToast({
+				message: (err as Response).message!
+			});
+		});
+
+	loading.value = false;
+}
+
+function switchMode(mode: "password") {
+	emit("switch", mode);
+}
+
+function getSmsCode() {
+	if (props.form.phone == "") {
+		ui.showToast({ message: t("请输入手机号") });
+		return;
+	}
+	// 实际项目中这里应该调用获取验证码接口
+	ui.showToast({ message: t("验证码已发送") });
+}
+</script>
+
+<style lang="scss" scoped></style>

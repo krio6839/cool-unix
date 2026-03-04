@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools"
+	package="uts.sdk.modules.tKeepaliveApi">
+	<!-- 基础权限 -->
+	<uses-permission android:name="android.permission.INTERNET" />
+	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+	<uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
+	<!-- 保活相关权限 -->
+	<!-- 唤醒锁权限，防止设备进入深度睡眠 -->
+	<uses-permission android:name="android.permission.WAKE_LOCK" />
+
+	<!-- 前台服务权限 -->
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+	<!-- 忽略电池优化权限 -->
+	<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+	<!-- 系统弹窗权限（部分厂商需要） -->
+	<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+	<!-- 开机自启动权限 -->
+	<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+	<!-- 通知权限 -->
+	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+	<!-- 查询已安装应用权限（Android 11+） -->
+	<uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
+
+	<!-- 设备管理员权限（可选，增强保活效果） -->
+	<uses-permission android:name="android.permission.BIND_DEVICE_ADMIN" />
+
+	<!-- 写入系统设置权限（部分厂商跳转需要） -->
+	<uses-permission android:name="android.permission.WRITE_SETTINGS" />
+	
+	<!-- 闹钟权限 -->
+	<uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
+	<!-- 修改系统设置权限 -->
+	<uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
+	<!-- 厂商特殊权限查询 -->
+	<queries>
+		<!-- 小米 -->
+		<package android:name="com.miui.securitycenter" />
+		<!-- OPPO -->
+		<package android:name="com.coloros.safecenter" />
+		<package android:name="com.oppo.safe" />
+		<!-- VIVO -->
+		<package android:name="com.vivo.permissionmanager" />
+		<!-- 华为 -->
+		<package android:name="com.huawei.systemmanager" />
+		<!-- 荣耀 -->
+		<package android:name="com.hihonor.systemmanager" />
+		<!-- 魅族 -->
+		<package android:name="com.meizu.safe" />
+		<!-- 一加 -->
+		<package android:name="com.oneplus.security" />
+		<!-- 三星 -->
+		<package android:name="com.samsung.android.sm" />
+		<!-- 联想 -->
+		<package android:name="com.lenovo.safecenter" />
+	</queries>
+	<application>
+		<!-- 主Activity -->
+		<activity android:name="uts.sdk.modules.tKeepaliveApi.KeepAliveActivity" android:exported="true"></activity>
+
+		<!-- 1像素保活Activity -->
+<!-- 		<activity android:name="uts.sdk.modules.tKeepaliveApi.OnePixelActivity" android:excludeFromRecents="true" android:exported="false"
+			android:finishOnTaskLaunch="false" android:launchMode="singleInstance"
+			android:theme="@android:style/Theme.Translucent.NoTitleBar" /> -->
+<!-- 		<activity android:name="uts.sdk.modules.tKeepaliveApi.OnePixelActivity" android:excludeFromRecents="true" android:exported="false"
+			android:finishOnTaskLaunch="false" android:launchMode="singleInstance"
+			android:theme="@style/Theme.AppCompat.Translucent.NoTitleBar" /> -->
+			<activity android:name="uts.sdk.modules.tKeepaliveApi.OnePixelActivity" android:excludeFromRecents="true" android:exported="false"
+				android:finishOnTaskLaunch="false" android:launchMode="singleInstance"
+				android:theme="@style/TransparentTheme" />
+			
+		<!-- 保活服务 -->
+		<service android:name="uts.sdk.modules.tKeepaliveApi.KeepAliveService" />
+
+		<!-- 定时唤醒接收器 -->
+		<receiver android:name="uts.sdk.modules.tKeepaliveApi.AlarmReceiver" />
+
+		<!-- 开机启动接收器 -->
+		<receiver android:name="uts.sdk.modules.tKeepaliveApi.BootReceiver" android:enabled="true" android:exported="true">
+			<intent-filter>
+				<action android:name="android.intent.action.BOOT_COMPLETED" />
+				<action android:name="android.intent.action.QUICKBOOT_POWERON" />
+				<action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+			</intent-filter>
+		</receiver>
+	</application>
+</manifest>

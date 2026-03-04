@@ -1,106 +1,134 @@
 <template>
-	<cl-page>
-		<cl-topbar safe-area-top background-color="transparent"></cl-topbar>
+	<cl-page class="login-page">
+		<cl-topbar
+			safe-area-top
+			background-color="transparent"
+			left-icon="arrow-left"
+			@tap="goBack"
+		></cl-topbar>
 
-		<view class="px-10">
+		<view
+			class="relative z-1 px-5 flex-1 flex flex-col items-center justify-start w-full mt-20"
+		>
 			<!-- Logo -->
-			<view class="flex flex-col items-center justify-center py-20">
-				<view class="p-3 bg-white rounded-2xl">
-					<cl-image
-						src="/static/logo.png"
-						mode="widthFix"
-						:width="60"
-						:height="60"
-					></cl-image>
-				</view>
-
-				<cl-text :size="18" :pt="{ className: 'font-bold mt-4' }">{{
-					config.name
-				}}</cl-text>
+			<view class="flex justify-center">
+				<cl-text :size="36" :pt="{ className: 'logo' }">BOOM</cl-text>
 			</view>
 
-			<!-- 手机号登录 -->
-			<login-phone :form="form" @success="toLogin"></login-phone>
+			<!-- 本机号码一键登录 -->
+			<login-phone
+				v-if="loginMode === 'oneClick'"
+				:phone="phone"
+				@success="toLogin"
+				@switch="switchMode"
+			></login-phone>
 
-			<!-- 微信登录 -->
-			<login-wx :ref="refs.set('loginWx')"></login-wx>
+			<!-- 账号密码登录 -->
+			<login-password
+				v-else-if="loginMode === 'password'"
+				:form="form"
+				@success="toLogin"
+				@switch="switchMode"
+				@forgot="forgotPassword"
+			></login-password>
 
-			<!-- 协议 -->
-			<view class="mt-6 flex flex-row flex-wrap items-center justify-center">
-				<cl-checkbox
-					v-model="agree"
-					active-icon="checkbox-circle-fill"
-					inactive-icon="checkbox-blank-circle-line"
-					:pt="{
-						icon: {
-							size: 18
-						}
-					}"
-				>
-				</cl-checkbox>
-				<cl-text color="info" :size="12">{{ t("已阅读并同意") }}</cl-text>
-				<cl-text
-					:size="12"
-					:pt="{
-						className: 'font-bold'
-					}"
-					@tap.stop="toDoc(t('用户协议'), 'userAgreement')"
-				>
-					《{{ t("用户协议") }}》
-				</cl-text>
-				<cl-text color="info" :size="12">、</cl-text>
-				<cl-text
-					:size="12"
-					:pt="{
-						className: 'font-bold'
-					}"
-					@tap.stop="toDoc(t('隐私政策'), 'privacyPolicy')"
-				>
-					《{{ t("隐私政策") }}》
-				</cl-text>
-			</view>
+			<!-- 验证码登录 -->
+			<login-sms
+				v-else-if="loginMode === 'sms'"
+				:form="form"
+				@success="toLogin"
+				@switch="switchMode"
+			></login-sms>
+		</view>
 
-			<!-- 第三方登录 -->
-			<view class="flex flex-row justify-center mt-10 px-10">
-				<view
-					class="login-item"
-					:class="{
-						'is-dark': isDark
-					}"
-					@tap="refs.callMethod('loginWx', 'login')"
-				>
-					<cl-icon name="wechat-fill" :size="18" color="#00b223"></cl-icon>
-				</view>
-
-				<view class="login-item" :class="{ 'is-dark': isDark }">
-					<cl-icon name="apple-fill" :size="18"></cl-icon>
-				</view>
-			</view>
+		<!-- 协议 -->
+		<view
+			class="relative z-1 px-5 pb-5 flex flex-row items-center justify-center w-full mt-auto"
+		>
+			<cl-checkbox
+				v-model="agree"
+				active-icon="checkbox-circle-fill"
+				inactive-icon="checkbox-blank-circle-line"
+				:pt="{
+					icon: {
+						size: 16,
+						color: '#fff'
+					}
+				}"
+			>
+			</cl-checkbox>
+			<cl-text color="white" :size="12">{{ t("我已阅读并同意") }}</cl-text>
+			<cl-text
+				color="white"
+				:size="12"
+				:pt="{
+					className: 'font-bold'
+				}"
+				@tap.stop="toDoc(t('隐私政策'), 'privacyPolicy')"
+			>
+				《{{ t("隐私政策") }}》
+			</cl-text>
 		</view>
 	</cl-page>
 </template>
 
 <script setup lang="ts">
 import { config } from "@/config";
-import { isDark, parse, router, useRefs, useStore, type Token, t } from "@/.cool";
+import { isDark, parse, router, useRefs, useStore, type Token, t, request } from "@/.cool";
 import { provide, reactive, ref } from "vue";
-import type { LoginForm } from "./types";
+import type { LoginForm, LoginMode } from "./types";
 import { useUi } from "@/uni_modules/cool-ui";
 import LoginPhone from "./components/login/phone.uvue";
-import LoginWx from "./components/login/wx.uvue";
+import LoginPassword from "./components/login/password.uvue";
+import LoginSms from "./components/login/sms.uvue";
 
 const { user } = useStore();
 const ui = useUi();
 const refs = useRefs();
 
-// 表单
+// 登录模式: oneClick, password, sms
+const loginMode = ref<LoginMode>("oneClick");
+
+// 手机号
+const phone = ref("18000000000");
+
+// 是否同意
+const agree = ref(true);
+
+// 是否同意
+function isAgree() {
+	if (!agree.value) {
+		ui.showToast({
+			message: t("请先阅读并同意《隐私政策》")
+		});
+
+		return false;
+	}
+
+	return true;
+}
+
 const form = reactive<LoginForm>({
 	phone: "18000000000",
+	password: "",
 	smsCode: "6666"
 });
 
-// 是否同意
-const agree = ref(false);
+// 返回
+function goBack() {
+	router.back();
+}
+
+// 切换登录模式
+function switchMode(mode: LoginMode) {
+	loginMode.value = mode;
+}
+
+// 忘记密码
+function forgotPassword() {
+	// 实际项目中这里应该跳转到忘记密码页面
+	ui.showToast({ message: t("忘记密码功能") });
+}
 
 // 登录成功
 async function toLogin(res: any) {
@@ -110,30 +138,30 @@ async function toLogin(res: any) {
 }
 
 // 跳转文档
-function toDoc(name: string, path: string) {}
-
-// 是否同意
-function isAgree() {
-	if (!agree.value) {
-		ui.showToast({
-			message: t("请先阅读并同意《用户协议》和《隐私政策》")
-		});
-
-		return false;
-	}
-
-	return true;
+function toDoc(name: string, path: string) {
+	// 实际项目中这里应该跳转到相应的文档页面
+	ui.showToast({ message: t(name) });
 }
 
 provide("isAgree", isAgree);
 </script>
 
 <style lang="scss" scoped>
-.login-item {
-	@apply mx-2 p-2 flex items-center justify-center rounded-full bg-white border border-solid border-surface-100;
+.login-page {
+	background-color: #000;
+	position: relative;
+}
 
-	&.is-dark {
-		@apply border-surface-600 bg-surface-700;
-	}
+.logo {
+	font-family:
+		Plus Jakarta Sans,
+		Plus Jakarta Sans;
+	font-weight: bold;
+	font-size: 60px;
+	color: #ffffff;
+	text-align: center;
+	font-style: normal;
+	text-transform: none;
+	margin-bottom: 134px;
 }
 </style>

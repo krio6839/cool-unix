@@ -1,0 +1,4 @@
+export type TKeepAliasCallback = () => void;
+
+export declare function start(callback: TKeepAliasCallback): void;
+export declare function stop(callback: TKeepAliasCallback): void;

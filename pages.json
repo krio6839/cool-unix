@@ -17,6 +17,12 @@
 			"style": {
 				"navigationBarTitleText": "模板"
 			}
+		},
+		{
+			"path": "pages/index/charts",
+			"style": {
+				"navigationBarTitleText": "图表展示"
+			}
 		}
 	],
 	"subPackages": [
@@ -513,6 +519,29 @@
 					"style": {
 						"navigationBarTitleText": "SelectSeat 座位选择",
 						"disableScroll": true
+					}
+				}
+			]
+		},
+		{
+			"root": "pages/device",
+			"pages": [
+				{
+					"path": "connect",
+					"style": {
+						"navigationStyle": "custom"
+					},
+					"meta": {
+						"isAuth": true
+					}
+				},
+				{
+					"path": "unpaired",
+					"style": {
+						"navigationStyle": "custom"
+					},
+					"meta": {
+						"isAuth": true
 					}
 				}
 			]

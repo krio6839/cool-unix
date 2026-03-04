@@ -17,8 +17,18 @@ type primaryColor =
 	| "violet"
 	| "purple"
 	| "fuchsia"
-	| "pink";
-type surfaceColor = "slate" | "gray" | "zinc" | "neutral" | "stone" | "soho" | "viva" | "ocean";
+	| "pink"
+	| "custom";
+type surfaceColor =
+	| "slate"
+	| "gray"
+	| "zinc"
+	| "neutral"
+	| "stone"
+	| "soho"
+	| "viva"
+	| "ocean"
+	| "custom";
 
 /**
  * 主题主色调色板
@@ -263,6 +273,22 @@ export const PRIMARY_COLOR_PALETTES = [
 			900: "#831843",
 			950: "#500724"
 		}
+	},
+	{
+		name: "custom",
+		palette: {
+			50: "#f9ffeb",
+			100: "#f0ffd6",
+			200: "#e5ffb3",
+			300: "#d9ff8c",
+			400: "#d5ff6a",
+			500: "#d2ff5c",
+			600: "#c7ff3a",
+			700: "#b0e633",
+			800: "#8cc428",
+			900: "#6a9e1e",
+			950: "#2a4009"
+		}
 	}
 ];
 
@@ -405,6 +431,23 @@ export const SURFACE_PALETTES = [
 			900: "#183240",
 			950: "#0c1920"
 		}
+	},
+	{
+		name: "custom",
+		palette: {
+			0: "#060702",
+			50: "#101205",
+			100: "#1a1d09",
+			200: "#2e320f",
+			300: "#424816",
+			400: "#565e1c",
+			500: "#6a7423",
+			600: "#7e8a29",
+			700: "#92a030",
+			800: "#a6b636",
+			900: "#bacb3d",
+			950: "#cfdf43"
+		}
 	}
 ];
 
@@ -452,8 +495,8 @@ export default {
 	theme: {
 		extend: {
 			colors: {
-				...getPrimary("teal"),
-				...getSurface("zinc")
+				...getPrimary("custom"),
+				...getSurface("custom")
 			},
 			fontSize: {
 				md: ["1rem", "1.5rem"]

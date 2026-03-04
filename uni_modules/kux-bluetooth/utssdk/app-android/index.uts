@@ -1,0 +1,7 @@
+import { IBluetooth, InitConfig } from '../interface';
+import { BluetoothManager } from './bluetoothManager';
+
+export function useKuxBluetooth (options: InitConfig = {} as InitConfig) : IBluetooth {
+	return new BluetoothManager(UTSAndroid.getAppContext()!, options);
+}
+

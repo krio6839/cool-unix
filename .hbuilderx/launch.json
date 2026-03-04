@@ -15,7 +15,7 @@
             "certificateFile" : "/Users/jiangshuai/Desktop/coding/zyys/zyys/doc/ios/证书.p12",
             "certificateProfileFile" : "/Users/jiangshuai/Desktop/coding/zyys/zyys/doc/ios/zy.mobileprovision",
             "customPlaygroundType" : "device",
-            "playground" : "standard",
+            "playground" : "custom",
             "runSignStatus" : 0,
             "type" : "uni-app:app-ios"
         }

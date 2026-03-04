@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Turbo UI</string>
+    <string name="keep_alive_explanation">应用保活功能，保持应用在后台正常运行</string>
+    <string name="notification_channel_name">应用保活</string>
+    <string name="notification_channel_description">保持应用在后台运行的通知</string>
+    <string name="notification_title">应用保活中</string>
+    <string name="notification_content">应用正在后台运行</string>
+</resources>

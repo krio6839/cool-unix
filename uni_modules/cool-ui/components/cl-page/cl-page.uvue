@@ -7,7 +7,7 @@
 		@scroll="onScroll"
 	>
 		<cl-back-top v-if="backTop"></cl-back-top>
-		<theme></theme>
+		<!-- <theme></theme> -->
 		<ui></ui>
 		<slot></slot>
 	</scroll-view>
@@ -15,7 +15,7 @@
 
 	<!-- #ifndef APP -->
 	<cl-back-top v-if="backTop"></cl-back-top>
-	<theme></theme>
+	<!-- <theme></theme> -->
 	<ui></ui>
 	<slot></slot>
 	<!-- #endif -->
@@ -23,7 +23,7 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
-import Theme from "./theme.uvue";
+// import Theme from "./theme.uvue";
 import Ui from "./ui.uvue";
 import { config } from "@/config";
 import { scroller } from "@/.cool";

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- 后台模式配置 -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>audio</string>
+        <string>fetch</string>
+    </array>
+    
+    <!-- 网络传输安全 -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
+    
+    <!-- 权限描述 -->
+<!--    <key>NSMicrophoneUsageDescription</key>
+    <string>我们需要访问麦克风以提供音频服务</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>我们需要访问您的位置以提供持续服务</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>我们需要访问您的位置以提供最佳体验</string> -->
+</dict>
+</plist>

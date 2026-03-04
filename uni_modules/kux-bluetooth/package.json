@@ -1,0 +1,87 @@
+{
+  "id": "kux-bluetooth",
+  "displayName": "kux-bluetooth",
+  "version": "1.1.0",
+  "description": "`kux-bluetooth` 是一个完全按照微信小程序蓝牙API设计标准实现的一个蓝牙操作插件，帮助开发者简化开发过程中操作蓝牙相关的逻辑，让开发者专注业务开发。",
+  "keywords": [
+    "bluetooth",
+    "蓝牙",
+    "uts"
+],
+  "repository": "https://gitcode.com/uvuejs/kux-bluetooth",
+  "engines": {
+    "HBuilderX": "^3.91"
+  },
+  "dcloudext": {
+    "type": "uts",
+    "sale": {
+      "regular": {
+        "price": "0.00"
+      },
+      "sourcecode": {
+        "price": "0.00"
+      }
+    },
+    "contact": {
+      "qq": ""
+    },
+    "declaration": {
+      "ads": "无",
+      "data": "插件不采集任何数据",
+      "permissions": "蓝牙相关权限，位置权限"
+    },
+    "npmurl": ""
+  },
+  "uni_modules": {
+    "dependencies": [],
+    "encrypt": [],
+    "platforms": {
+      "cloud": {
+        "tcb": "y",
+        "aliyun": "y",
+        "alipay": "y"
+      },
+      "client": {
+        "Vue": {
+          "vue2": "n",
+          "vue3": "y"
+        },
+        "App": {
+            "app-android": {
+                "minVersion": "19"
+            },
+            "app-ios": "y",
+            "app-harmony": "u"
+        },
+        "H5-mobile": {
+          "Safari": "n",
+          "Android Browser": "n",
+          "微信浏览器(Android)": "n",
+          "QQ浏览器(Android)": "n"
+        },
+        "H5-pc": {
+          "Chrome": "n",
+          "IE": "n",
+          "Edge": "n",
+          "Firefox": "n",
+          "Safari": "n"
+        },
+        "小程序": {
+          "微信": "n",
+          "阿里": "n",
+          "百度": "n",
+          "字节跳动": "n",
+          "QQ": "n",
+          "钉钉": "n",
+          "快手": "n",
+          "飞书": "n",
+          "京东": "n"
+        },
+        "快应用": {
+          "华为": "n",
+          "联盟": "n"
+        }
+      }
+    }
+  }
+}

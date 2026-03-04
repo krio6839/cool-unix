@@ -1,0 +1,49 @@
+import Intent from 'android.content.Intent'
+import AppCompatActivity from 'androidx.appcompat.app.AppCompatActivity';
+import Bundle from 'android.os.Bundle';
+
+import { TKeepAliasCallback } from "../interface.uts"
+
+const context = UTSAndroid.getAppContext()!
+
+export class KeepAliveActivity extends AppCompatActivity {
+	constructor() {
+		super()
+	}
+	override onCreate(savedInstanceState ?: Bundle) {
+		super.onCreate(savedInstanceState)
+	}
+	override onActivityResult(requestCode : Int, resultCode : Int, data ?: Intent) {
+		super.onActivityResult(requestCode, resultCode, data)
+	}
+	override onDestroy() {
+		super.onDestroy()
+	}
+}
+
+export const start = function (callback: TKeepAliasCallback) {
+	KeepAliveManager.start(context, () => {
+		callback()
+	})
+}
+export const stop = function (callback: TKeepAliasCallback) {
+	KeepAliveManager.stop(context, () => {
+		callback()
+	})
+}
+// 忽略电池优化
+export const requestBatteryOptimizationPermission = function() {
+	KeepAliveManager.requestBatteryOptimizationPermission(context)
+}
+// 悬浮窗权限
+export const requestOverlayPermission = function() {
+	KeepAliveManager.requestOverlayPermission(context)
+}
+// 精确闹钟权限
+export const requestExactAlarmPermission = function() {
+	KeepAliveManager.requestExactAlarmPermission(context)
+}
+// 自启动权限
+export const showAutoStartGuide = function() {
+	KeepAliveManager.showAutoStartGuide(context)
+}

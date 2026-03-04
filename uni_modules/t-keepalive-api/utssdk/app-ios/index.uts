@@ -1,0 +1,9 @@
+import { TKeepAliasCallback } from '../interface.uts'
+export const start = function (callback: TKeepAliasCallback) {
+	KeepAliveManager.shared.start(withTask = () => {
+		callback()
+	})
+}
+export const stop = function (callback: TKeepAliasCallback) {
+	KeepAliveManager.shared.stop()
+}

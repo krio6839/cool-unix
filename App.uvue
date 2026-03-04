@@ -1,9 +1,41 @@
 <script lang="ts">
-import { useStore } from "./.cool";
+import { setTheme, useStore, router } from "./.cool";
 
 export default {
 	onLaunch: function () {
 		console.log("App Launch");
+		setTheme("dark");
+
+		// 应用启动时进行状态判断
+		const { user } = useStore();
+
+		// // 判断登录状态
+		// if (!user.token) {
+		// 	// 未登录，跳转到登录页
+		// 	router.push({
+		// 		path: "/pages/user/login",
+		// 		mode: "reLaunch"
+		// 	});
+		// } else {
+		// 	// 已登录，判断配对状态
+		// 	// 模拟实现：使用本地存储判断配对状态
+		// 	// 实际项目中应该从用户信息或设备状态中获取真实的配对状态
+		// 	const isPaired = false; // 假设未配对
+
+		// 	if (!isPaired) {
+		// 		// 未配对，跳转到配对页面
+		// 		router.push({
+		// 			path: "/pages/device/connect",
+		// 			mode: "reLaunch"
+		// 		});
+		// 	} else {
+		// 		// 已配对，跳转到首页
+		// 		router.push({
+		// 			path: "/pages/index/home",
+		// 			mode: "reLaunch"
+		// 		});
+		// 	}
+		// }
 	},
 	onShow: function () {
 		console.log("App Show");

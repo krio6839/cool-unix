@@ -501,6 +501,11 @@ const data = computed<Item[]>(() => {
 					label: t("选座"),
 					icon: "armchair-line",
 					path: "/pages/demo/other/select-seat"
+				},
+				{
+					label: t("图表"),
+					icon: "bar-chart-2-line",
+					path: "/pages/index/charts"
 				}
 			]
 		}

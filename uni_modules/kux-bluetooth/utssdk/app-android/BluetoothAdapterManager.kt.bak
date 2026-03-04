@@ -1,0 +1,293 @@
+import android.bluetooth.*
+import android.bluetooth.le.*
+import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+import java.util.*
+
+class BluetoothAdapterManager(private val context: Context) {
+	// 蓝牙适配器和扫描器
+	private var bluetoothAdapter: BluetoothAdapter? = null
+	private var bluetoothLeScanner: BluetoothLeScanner? = null
+	// 已发现的蓝牙设备列表
+	private var discoveredDevices = mutableListOf<BluetoothDevice>()
+	private var deviceList = mutableListOf<BluetoothDeviceInfo>()
+	// 已连接的设备集合
+	private var connectedDevices = mutableSetOf<String>()
+	// 存储每个设备的服务集合
+	private var deviceServices = mutableMapOf<String, List<BluetoothGattService>>()
+	// 存储特征 ID 到服务 ID 的映射
+	private var characteristicToServiceMap = mutableMapOf<String, String>()
+	// 存储当前获得的服务特征
+	private var currentCharacteristics = mutableMapOf<CharacteristicKey, BluetoothGattCharacteristic>()
+	// 回调函数，用于通知蓝牙适配器状态变化
+	private var onBluetoothAdapterStateChangeCallback: ((BluetoothAdapterState) -> Unit)? = null
+	private var onDeviceFoundCallback: ((BluetoothDeviceInfo) -> Unit)? = null
+	private var onBLEConnectionStateChangeCallback: ((BLEConnectionState) -> Unit)? = null
+	private var onCharacteristicValueChangeCallback: ((CharacteristicValueChange) -> Unit)? = null
+	// 蓝牙适配器状态
+	private var scanning = false
+	private var bluetoothAvailable = false
+	// 连接超时定时器
+	private var connectTimeoutTimer: Timer? = null
+	// 尝试连接的设备ID
+	private var deviceIdToConnect: String? = null
+	
+	init {
+		// 获取蓝牙管理器和适配器
+		val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+		bluetoothAdapter = bluetoothManager.adapter
+		bluetoothLeScanner = bluetoothAdapter?.bluetoothLeScanner
+
+		// 检查蓝牙是否可用
+		checkBluetoothAvailability()
+	}
+	
+	/**
+	 * 检查蓝牙是否可用
+	 */
+	private fun checkBluetoothAvailability() {
+		bluetoothAvailable = bluetoothAdapter != null && bluetoothAdapter!!.isEnabled
+		onBluetoothAdapterStateChangeCallback?.invoke(BluetoothAdapterState(scanning, bluetoothAvailable))
+	}
+	
+	/**
+	 * 设置蓝牙适配器状态变化回调
+	 */
+	fun onBluetoothAdapterStateChange(callback: (BluetoothAdapterState) -> Unit) {
+		onBluetoothAdapterStateChangeCallback = callback
+	}
+	
+	/**
+	 * 设置发现新设备的回调
+	 */
+	fun onDeviceFound(callback: (BluetoothDeviceInfo) -> Unit) {
+		onDeviceFoundCallback = callback
+	}
+	
+	/**
+	 * 设置蓝牙低功耗连接状态变化回调
+	 */
+	fun onBLEConnectionStateChange(callback: (BLEConnectionState) -> Unit) {
+		onBLEConnectionStateChangeCallback = callback
+	}
+	
+	/**
+	 * 设置特征值变化回调
+	 */
+	fun onBLECharacteristicValueChange(callback: (CharacteristicValueChange) -> Unit) {
+		onCharacteristicValueChangeCallback = callback
+	}
+	
+	/**
+	 * 开始扫描蓝牙设备
+	 */
+	fun startBluetoothDevicesDiscovery() {
+		if (bluetoothLeScanner == null) return
+
+		scanning = true
+		bluetoothLeScanner?.startScan(leScanCallback)
+		onBluetoothAdapterStateChangeCallback?.invoke(BluetoothAdapterState(scanning, bluetoothAvailable))
+	}
+	
+	/**
+	 * 停止扫描蓝牙设备
+	 */
+	fun stopBluetoothDevicesDiscovery() {
+		if (bluetoothLeScanner == null) return
+
+		scanning = false
+		bluetoothLeScanner?.stopScan(leScanCallback)
+		onBluetoothAdapterStateChangeCallback?.invoke(BluetoothAdapterState(scanning, bluetoothAvailable))
+	}
+	
+	/**
+	 * 创建蓝牙低功耗连接
+	 */
+	fun createBLEConnection(deviceId: String, timeout: Int?) {
+		deviceIdToConnect = deviceId
+		val device = bluetoothAdapter?.getRemoteDevice(deviceId) ?: run {
+			Log.e("BluetoothAdapterManager", "Device not found: $deviceId")
+			onBLEConnectionStateChangeCallback?.invoke(BLEConnectionState(deviceId, false, 1))
+			return
+		}
+
+		// 设置 GATT 回调
+		val gattCallback = object : BluetoothGattCallback() {
+			override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+				if (newState == BluetoothProfile.STATE_CONNECTED) {
+					connectTimeoutTimer?.cancel()
+					connectTimeoutTimer = null
+					gatt.discoverServices()
+					connectedDevices.add(deviceId)
+					onBLEConnectionStateChangeCallback?.invoke(BLEConnectionState(deviceId, true))
+				} else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+					connectedDevices.remove(deviceId)
+					onBLEConnectionStateChangeCallback?.invoke(BLEConnectionState(deviceId, false, 3))
+				}
+			}
+
+			override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+				if (status == BluetoothGatt.GATT_SUCCESS) {
+					deviceServices[deviceId] = gatt.services
+				}
+			}
+
+			override fun onCharacteristicRead(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+				if (status == BluetoothGatt.GATT_SUCCESS) {
+					val serviceId = characteristicToServiceMap[characteristic.uuid.toString()]
+					serviceId?.let {
+						val value = characteristic.value
+						onCharacteristicValueChangeCallback?.invoke(CharacteristicValueChange(deviceId, it, characteristic.uuid.toString(), value))
+					}
+				}
+			}
+
+			override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+				if (status == BluetoothGatt.GATT_SUCCESS) {
+					val serviceId = characteristicToServiceMap[characteristic.uuid.toString()]
+					serviceId?.let {
+						val value = characteristic.value
+						onCharacteristicValueChangeCallback?.invoke(CharacteristicValueChange(deviceId, it, characteristic.uuid.toString(), value))
+					}
+				}
+			}
+
+			override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+				val serviceId = characteristicToServiceMap[characteristic.uuid.toString()]
+				serviceId?.let {
+					val value = characteristic.value
+					onCharacteristicValueChangeCallback?.invoke(CharacteristicValueChange(deviceId, it, characteristic.uuid.toString(), value))
+				}
+			}
+		}
+
+		device.connectGatt(context, false, gattCallback)
+
+		timeout?.let { setConnectionTimeout(it) }
+	}
+	
+	/**
+	 * 设置连接超时
+	 */
+	private fun setConnectionTimeout(timeout: Int) {
+		connectTimeoutTimer?.cancel()
+		connectTimeoutTimer = Timer()
+		connectTimeoutTimer?.schedule(object : TimerTask() {
+			override fun run() {
+				Log.e("BluetoothAdapterManager", "Connection timeout")
+				val device = bluetoothAdapter?.getRemoteDevice(deviceIdToConnect)
+				device?.let {
+					bluetoothAdapter?.cancelDiscovery()
+					onBLEConnectionStateChangeCallback?.invoke(BLEConnectionState(deviceIdToConnect!!, false, 5))
+				}
+			}
+		}, timeout.toLong() * 1000)
+	}
+	
+	/**
+	 * 断开蓝牙低功耗连接
+	 */
+	fun closeBLEConnection(deviceId: String): Boolean {
+		val device = bluetoothAdapter?.getRemoteDevice(deviceId) ?: return false
+		val gatt = device.connectGatt(context, false, null)
+		gatt.close()
+		return true
+	}
+	
+	/**
+	 * 读取特征值
+	 */
+	fun readCharacteristicValue(deviceId: String, serviceId: String, characteristicId: String) {
+		val device = bluetoothAdapter?.getRemoteDevice(deviceId) ?: return
+		val gatt = device.connectGatt(context, false, null)
+		val service = gatt.getService(UUID.fromString(serviceId))
+		val characteristic = service.getCharacteristic(UUID.fromString(characteristicId))
+		gatt.readCharacteristic(characteristic)
+	}
+	
+	/**
+	 * 写入特征值
+	 */
+	fun writeBLECharacteristicValue(deviceId: String, serviceId: String, characteristicId: String, value: ByteArray) {
+		val device = bluetoothAdapter?.getRemoteDevice(deviceId) ?: return
+		val gatt = device.connectGatt(context, false, null)
+		val service = gatt.getService(UUID.fromString(serviceId))
+		val characteristic = service.getCharacteristic(UUID.fromString(characteristicId))
+		characteristic.value = value
+		gatt.writeCharacteristic(characteristic)
+	}
+	
+	/**
+	 * 扫描回调，处理扫描结果
+	 */
+	private val leScanCallback = object : ScanCallback() {
+		override fun onScanResult(callbackType: Int, result: ScanResult) {
+			val device = result.device
+			if (!discoveredDevices.contains(device)) {
+				discoveredDevices.add(device)
+				val deviceInfo = BluetoothDeviceInfo(
+					deviceId = device.address,
+					name = device.name ?: "Unknown",
+					rssi = result.rssi,
+					advertisementData = result.scanRecord?.bytes ?: byteArrayOf(),
+					advertisementServiceUUIDs = result.scanRecord?.serviceUuids?.map { it.toString() } ?: emptyList(),
+					serviceData = result.scanRecord?.serviceData?.mapValues { it.value.bytes } ?: emptyMap(),
+					connectable = true
+				)
+				deviceList.add(deviceInfo)
+				onDeviceFoundCallback?.invoke(deviceInfo)
+			}
+		}
+	}
+	
+	/**
+	 * 蓝牙设备信息数据类
+	 */
+	data class BluetoothDeviceInfo(
+		val deviceId: String,
+		val name: String,
+		val rssi: Int,
+		val advertisementData: ByteArray,
+		val advertisementServiceUUIDs: List<String>,
+		val serviceData: Map<String, ByteArray>,
+		val connectable: Boolean
+	)
+	
+	/**
+	 * 蓝牙适配器状态数据类
+	 */
+	data class BluetoothAdapterState(
+		val discovering: Boolean,
+		val available: Boolean
+	)
+	
+	/**
+	 * 蓝牙低功耗连接状态数据类
+	 */
+	data class BLEConnectionState(
+		val deviceId: String,
+		val connected: Boolean,
+		val connectionFailStatus: Int? = null
+	)
+	
+	/**
+	 * 特征值变化数据类
+	 */
+	data class CharacteristicValueChange(
+		val deviceId: String,
+		val serviceId: String,
+		val characteristicId: String,
+		val value: ByteArray
+	)
+	
+	/**
+	 * 特征键数据类，用于唯一标识特征
+	 */
+	data class CharacteristicKey(
+		val deviceId: String,
+		val serviceId: String,
+		val characteristicId: String
+	)
+}

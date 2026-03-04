@@ -1,0 +1,413 @@
+// #ifdef APP-ANDROID
+import BluetoothDevice from 'android.bluetooth.BluetoothDevice';
+
+export * from './app-android/bluetoothManager';
+// #endif
+
+export interface BluetoothStateListener {
+	onBluetoothStateChanged(state: number): void;
+	onDeviceFound(device: BluetoothDevice): void;
+	onDiscoveryStarted(): void;
+	onDiscoveryFinished(): void;
+}
+
+export interface BluetoothDeviceConnectCallback {
+	onDeviceConnected(device: BluetoothDevice): void;
+	onDeviceDisconnected(device: BluetoothDevice): void;
+	onDeviceConnectionFailed(): void;
+}
+
+export type StartScanningCallback = (device: BluetoothDevice, rssi: number, scanRecord: ByteArray) => void;
+
+/**
+ * 初始化配置项
+ */
+export type InitConfig = {
+	/**
+	 * 是否请求地理位置权限
+	 */
+	needLocation?: boolean;
+	/**
+	 * 是否需要在后台访问位置信息
+	 */
+	accessBackgroundLocation?: boolean;
+};
+
+export type ApiCommonSuccessCallback = {
+	errCode: number,
+	errMsg: string
+}
+
+export type ApiFail = (err: UniError) => void;
+
+export type ApiComplete = (res: any) => void;
+
+export type BluetoothAdapterMode = 'central' | 'peripheral';
+
+export type OpenBluetoothAdapterSuccess = ApiCommonSuccessCallback;
+
+export type OpenBluetoothAdapterOptions = {
+	mode?: BluetoothAdapterMode,
+	success?: (res: OpenBluetoothAdapterSuccess) => void,
+	fail?: ApiFail,
+	complete?: ApiComplete
+}
+
+export type CloseBluetoothAdapterSuccess = ApiCommonSuccessCallback;
+
+export type CloseBluetoothAdapterOptions = {
+	success?: (res: CloseBluetoothAdapterSuccess) => void,
+	fail?: ApiFail,
+	complete?: ApiComplete
+}
+
+export type GetBluetoothAdapterStateSuccess = {
+	discovering: boolean,
+	available: boolean
+}
+
+/**
+ * @since 1.1.0
+ */
+export type OnBluetoothAdapterStateChangeRes = {
+	discovering: boolean,
+	available: boolean
+}
+
+export type GetBluetoothAdapterStateOptions = {
+	success?: (res: GetBluetoothAdapterStateSuccess) => void,
+	fail?: ApiFail,
+	complete?: ApiComplete
+}
+
+export type DeviceInfo = {
+	deviceId: string,
+	name: string,
+	localName: string,
+	RSSI: number,
+	advertisData: number[],
+	advertisServiceUUIDs: string[],
+	serviceData: any | null,
+	connectable: boolean | null
+}
+
+export type EnableBluetoothOptions = {
+	success?: (res: ApiCommonSuccessCallback) => void,
+	fail?: ApiFail,
+	complete?: ApiComplete
+}
+
+export type StartBluetoothDevicesDiscoveryOptions = {
+	services?: string[],
+	allowDuplicatesKey?: boolean,
+	interval?: number,
+	powerLevel?: 'low' | 'medium' | 'high',
+	success?: (res: ApiCommonSuccessCallback) => void,
+	fail?: ApiFail,
+	complete?: ApiComplete
+}
+
+export type OnBluetoothDeviceFoundCallback = (devices: DeviceInfo[]) => void;
+
+export type ApiCommonOptions = {
+	success?: (res: ApiCommonSuccessCallback) => void,
+	fail?: ApiFail,
+	complete?: ApiComplete
+};
+
+export type StopBluetoothDevicesDiscoverySuccess = ApiCommonSuccessCallback;
+
+export type StopBluetoothDevicesDiscoveryOptions = {
+	success?: (res: StopBluetoothDevicesDiscoverySuccess) => void,
+	fail?: ApiFail,
+	complete?: ApiComplete
+};
+
+export type CreateBLEConnectionSuccess = ApiCommonSuccessCallback;
+
+export type CreateBLEConnectionOptions = {
+	deviceId: string,
+	timeout?: number,
+	success?: (res: CreateBLEConnectionSuccess) => void,
+	fail?: ApiFail,
+	complete?: ApiComplete
+}
+
+export type OnBLEConnectionStateChangeCallbackRes = {
+	deviceId: string,
+	connected: boolean
+}
+
+export type OnBLEConnectionStateChangeCallback = (res: OnBLEConnectionStateChangeCallbackRes) => void;
+
+export type GetBLEDeviceServicesSuccessService = {
+	uuid: string,
+	isPrimary: boolean
+}
+
+export type GetBLEDeviceServicesSuccess = {
+	errCode: number,
+	errMsg: string,
+	services: GetBLEDeviceServicesSuccessService[]
+}
+
+export type GetBLEDeviceServicesOptions = {
+	deviceId: string,
+	success?: (res: GetBLEDeviceServicesSuccess) => void,
+	fail?: ApiFail,
+	complete?: ApiComplete
+}
+
+export type GetBluetoothDevicesSuccess = {
+	devices: DeviceInfo[]
+}
+
+export type GetBluetoothDevicesOptions = {
+	success?: (res: GetBluetoothDevicesSuccess) => void,
+	fail?: ApiFail,
+	complete?: ApiComplete
+}
+
+export type CloseBLEConnectionOptions = {
+	deviceId: string,
+	success?: (res: ApiCommonSuccessCallback) => void,
+	fail?: ApiFail,
+	complete?: ApiComplete
+}
+
+export type CharacteristicProperties = {
+	read: boolean,
+	write: boolean,
+	notify: boolean,
+	indicate: boolean,
+	writeNoResponse: boolean,
+	writeDefault: boolean
+}
+
+export type BLEDeviceCharacteristic = {
+	uuid: string,
+	properties: CharacteristicProperties
+}
+
+export type GetBLEDeviceCharacteristicsSuccess = {
+	characteristics: BLEDeviceCharacteristic[]
+}
+
+export type GetBLEDeviceCharacteristicsOptions = {
+	deviceId: string,
+	serviceId: string,
+	success?: (res: GetBLEDeviceCharacteristicsSuccess) => void,
+	fail?: ApiFail,
+	complete?: ApiComplete
+}
+
+
+export type ReadBLECharacteristicValueOptions = {
+	deviceId: string,
+	serviceId: string,
+	characteristicId: string,
+	success?: (res: ApiCommonSuccessCallback) => void,
+	fail?: ApiFail,
+	complete?: ApiComplete
+}
+
+export type WriteBLECharacteristicValueOptions = {
+	deviceId: string,
+	serviceId: string,
+	characteristicId: string,
+	// // #ifdef APP-ANDROID
+	// value: number[],
+	// // #endif
+	// // #ifdef APP-IOS
+	// value: ArrayBuffer,
+	// // #endif
+	value: ArrayBuffer,
+	writeType?: 'write' | 'writeNoResponse',
+	success?: (res: ApiCommonSuccessCallback) => void,
+	fail?: ApiFail,
+	complete?: ApiComplete
+}
+
+export type NotifyBLECharacteristicValueChangeOptions = {
+	deviceId: string,
+	serviceId: string,
+	characteristicId: string,
+	state: boolean,
+	type?: 'notification' | 'indication',
+	success?: (res: ApiCommonSuccessCallback) => void,
+	fail?: ApiFail,
+	complete?: ApiComplete
+}
+
+export type OnBLECharacteristicValueChangeRes = {
+	deviceId: string,
+	serviceId: string,
+	characteristicId: string,
+	value: ArrayBuffer,
+	// // #ifdef APP-IOS
+	// value: ArrayBuffer,
+	// // #endif
+	// // #ifdef APP-ANDROID
+	// value: number[],
+	// // #endif
+}
+
+export type OnBluetoothAdapterStateChangeCallback = (res: OnBluetoothAdapterStateChangeRes) => void
+export type OnBLECharacteristicValueChangeCallback = (res: OnBLECharacteristicValueChangeRes) => void
+export type OnReadBLECharacteristicValueCallback = (res: OnBLECharacteristicValueChangeRes) => void
+export type OnWriteBLECharacteristicValueCallback = (success: boolean) => void
+
+export type KuxBluetoothErrorCode = 
+| -1
+| 10000
+| 10001
+| 10002
+| 10003
+| 10004
+| 10005
+| 10006
+| 10007
+| 10008
+| 10009
+| 10012
+| 10013
+| 9010001 
+| 9010002 
+| 9010003 
+| 9010004 
+| 9010005 
+| 9010006 
+| 9010007 
+| 9010008
+| 9010009
+| 9010010
+| 9010011
+
+/**
+ * 蓝牙适配器管理接口
+ * + `v1.0.1` 及以上版本支持。
+ */
+export interface IBluetooth {
+	/**
+	 * 初始化蓝牙模块。
+	 * @param { OpenBluetoothAdapterOptions } options 参数
+	 */
+	openBluetoothAdapter (options: OpenBluetoothAdapterOptions): void
+	
+	/**
+	 * 监听蓝牙适配器状态变化事件
+	 * @since 1.1.0
+	 */
+	onBluetoothAdapterStateChange (listener: OnBluetoothAdapterStateChangeCallback): void
+	
+	/**
+	 * 获取本机蓝牙适配器状态。
+	 * @param { GetBluetoothAdapterStateOptions } options 参数
+	 */
+	getBluetoothAdapterState (options: GetBluetoothAdapterStateOptions): void
+	
+	/**
+	 * 开始搜寻附近的蓝牙外围设备。<br/> **此操作比较耗费系统资源，请在搜索到需要的设备后及时调用 `stopBluetoothDevicesDiscovery` 停止搜索。**
+	 * @param { StartBluetoothDevicesDiscoveryOptions } options 参数
+	 */
+	startBluetoothDevicesDiscovery (options: StartBluetoothDevicesDiscoveryOptions): void
+	
+	/**
+	 * 监听搜索到新设备的事件
+	 * @param { OnBluetoothDeviceFoundCallback } listener 回调函数
+	 */
+	onBluetoothDeviceFound (listener: OnBluetoothDeviceFoundCallback): void
+	
+	/**
+	 * 获取在蓝牙模块生效期间所有搜索到的蓝牙设备。包括已经和本机处于连接状态的设备。
+	 * @param { GetBluetoothDevicesOptions } options 参数
+	 */
+	getBluetoothDevices (options: GetBluetoothDevicesOptions): void
+	
+	/**
+	 * 停止搜寻附近的蓝牙外围设备。若已经找到需要的蓝牙设备并不需要继续搜索时，建议调用该接口停止蓝牙搜索。
+	 * @param { StopBluetoothDevicesDiscoveryOptions } options 参数
+	 */
+	stopBluetoothDevicesDiscovery (options: StopBluetoothDevicesDiscoveryOptions): void
+	
+	/**
+	 * 移除搜索到新设备的事件的全部监听函数。
+	 */
+	offBluetoothDeviceFound (): void
+	
+	/**
+	 * 连接蓝牙低功耗设备。 若之前已有搜索过某个蓝牙设备，并成功建立连接，可直接传入之前搜索获取的 deviceId 直接尝试连接该设备，无需再次进行搜索操作。
+	 * @param { CreateBLEConnectionOptions } options 参数
+	 */
+	createBLEConnection (options: CreateBLEConnectionOptions): void
+	
+	/**
+	 * 断开与蓝牙低功耗设备的连接。
+	 * @param { CloseBLEConnectionOptions } options 参数
+	 */
+	closeBLEConnection (options: CloseBLEConnectionOptions): void
+	
+	/**
+	 * 监听蓝牙低功耗连接状态改变事件。包括开发者主动连接或断开连接，设备丢失，连接异常断开等等。
+	 * @param { OnBLEConnectionStateChangeCallback } listener 回调函数
+	 */
+	onBLEConnectionStateChange (listener: OnBLEConnectionStateChangeCallback): void
+	
+	/**
+	 * 获取蓝牙低功耗设备所有服务 (service)。
+	 * @param { GetBLEDeviceServicesOptions } options 参数
+	 */
+	getBLEDeviceServices (options: GetBLEDeviceServicesOptions): void
+	
+	/**
+	 * 获取蓝牙低功耗设备某个服务中所有特征 (characteristic)。
+	 * @param { GetBLEDeviceCharacteristicsOptions } options 参数
+	 */
+	getBLEDeviceCharacteristics (options: GetBLEDeviceCharacteristicsOptions): void
+	
+	/**
+	 * 读取蓝牙低功耗设备特征值的二进制数据。注意：必须设备的特征支持 read 才可以成功调用。
+	 * @param { ReadBLECharacteristicValueOptions } options 参数
+	 */
+	readBLECharacteristicValue (options: ReadBLECharacteristicValueOptions): void
+	
+	/**
+	 * 监听蓝牙低功耗设备的特征值变化事件。必须先调用 notifyBLECharacteristicValueChange 接口才能接收到设备推送的 notification。
+	 * @param { OnBLECharacteristicValueChangeCallback } listener 回调函数
+	 */
+	onBLECharacteristicValueChange (listener: OnBLECharacteristicValueChangeCallback): void
+	
+	/**
+	 * 启用蓝牙低功耗设备特征值变化时的 notify 功能，订阅特征。注意：必须设备的特征支持 notify 或者 indicate 才可以成功调用。另外，必须先启用 notifyBLECharacteristicValueChange 才能监听到设备 characteristicValueChange 事件
+	 * @param { NotifyBLECharacteristicValueChangeOptions } options 参数
+	 */
+	notifyBLECharacteristicValueChange (options: NotifyBLECharacteristicValueChangeOptions): void
+	
+	/**
+	 * 监听读取蓝牙低功耗设备特征值的二进制数据的事件。特征需支持 read 方可成功调用。
+	 * @param { OnReadBLECharacteristicValueCallback } callback 回调函数
+	 */
+	onReadBLECharacteristicValue (callback: OnReadBLECharacteristicValueCallback): void
+	
+	/**
+	 * 向蓝牙低功耗设备特征值中写入二进制数据。注意：必须设备的特征支持 write 才可以成功调用。
+	 * @param { WriteBLECharacteristicValueOptions } options 参数
+	 */
+	writeBLECharacteristicValue (options: WriteBLECharacteristicValueOptions): void
+	
+	/**
+	 * 监听写入蓝牙低功耗设备特征值的二进制数据的事件。特征需支持 write 方可成功调用
+	 * @param { OnWriteBLECharacteristicValueCallback } callback 回调函数
+	 */
+	onWriteBLECharacteristicValue (callback: OnWriteBLECharacteristicValueCallback): void
+	
+	/**
+	 * 关闭蓝牙模块。调用该方法将断开所有已建立的连接并释放系统资源。建议在使用蓝牙流程后，与 openBluetoothAdapter 成对调用。
+	 * @param { CloseBluetoothAdapterOptions } options 参数
+	 */
+	closeBluetoothAdapter (options: CloseBluetoothAdapterOptions): void
+}
+
+export interface KuxBluetoothFail extends IUniError {
+	errCode: KuxBluetoothErrorCode
+}

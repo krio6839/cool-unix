@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+	<dict>
+		<key>NSBluetoothAlwaysUsageDescription</key>
+		<string>我们需要蓝牙权限来连接到您的蓝牙设备</string>
+		<key>NSBluetoothPeripheralUsageDescription</key>
+		<string>我们需要蓝牙权限来广播和接收数据</string>
+	</dict>
+</plist>

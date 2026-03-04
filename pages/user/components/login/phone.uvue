@@ -1,113 +1,57 @@
 <template>
-	<view class="flex flex-col mb-5">
-		<cl-text :size="18" :pt="{ className: 'font-bold' }">{{ t("您好，欢迎登录！") }}</cl-text>
-		<cl-text :pt="{ className: 'mt-2' }" color="info">{{
-			t("首次登录将自动为您完成注册")
-		}}</cl-text>
-	</view>
-
-	<view class="flex flex-col">
-		<view class="mb-3 flex flex-row">
-			<cl-input
-				v-model="form.phone"
-				prefix-icon="device-fill"
-				:placeholder="t('请输入手机号')"
-				:border="false"
-				:pt="{
-					className: parseClass([
-						'!h-[45px] flex-1 !rounded-xl !px-4',
-						[isDark, '!bg-surface-70', '!bg-white']
-					]),
-					prefixIcon: {
-						className: 'mr-1'
-					}
-				}"
-			></cl-input>
-		</view>
-
-		<view class="relative flex flex-row items-center mb-5">
-			<cl-input
-				v-model="form.smsCode"
-				:clearable="false"
-				type="number"
-				prefix-icon="shield-check-fill"
-				:placeholder="t('请输入验证码')"
-				:maxlength="4"
-				:border="false"
-				:pt="{
-					className: parseClass([
-						'!h-[45px] flex-1 !rounded-xl !px-4',
-						[isDark, '!bg-surface-70', '!bg-white']
-					]),
-					prefixIcon: {
-						className: 'mr-1'
-					}
-				}"
-			>
-			</cl-input>
-
-			<view class="absolute right-0">
-				<sms-btn
-					:ref="refs.set('smsBtn')"
-					:phone="form.phone"
-					@success="showCode = true"
-				></sms-btn>
-			</view>
-		</view>
-
+	<view class="w-full">
+		<cl-text
+			:size="36"
+			type="phone"
+			mask
+			:value="phone"
+			:pt="{ className: 'one-click-phone' }"
+		></cl-text>
 		<cl-button
 			:pt="{
-				className: '!h-[45px] !rounded-xl'
+				className: '!h-[50px]'
 			}"
+			rounded
+			type="primary"
+			color="black"
 			:loading="loading"
-			:disabled="disabled"
-			@tap="toLogin"
+			@tap="handleLogin"
 		>
-			{{ t("登录") }}
+			{{ t("本机号码一键登录") }}
+		</cl-button>
+		<cl-button
+			:pt="{
+				className: '!h-[50px] !bg-transparent mt-4'
+			}"
+			rounded
+			@tap="switchMode('sms')"
+		>
+			{{ t("切换账号") }}
 		</cl-button>
 	</view>
 </template>
 
 <script setup lang="ts">
-import { computed, inject, ref, type PropType } from "vue";
-import type { LoginForm } from "../../types";
-import SmsBtn from "../sms-btn.uvue";
-import { isDark, parseClass, request, useRefs, type Response, t } from "@/.cool";
+import { request, t, type Response } from "@/.cool";
 import { useUi } from "@/uni_modules/cool-ui";
+import { inject, ref } from "vue";
 
-const props = defineProps({
-	form: {
-		type: Object as PropType<LoginForm>,
-		default: () => ({})
-	}
-});
+const props = defineProps<{
+	phone: string;
+}>();
 
-const emit = defineEmits(["success"]);
+const emit = defineEmits(["success", "switch"]);
 
 const ui = useUi();
-const refs = useRefs();
-
 // 是否同意
 const isAgree = inject("isAgree") as () => boolean;
 
-// 是否显示验证码
-const showCode = ref(false);
-
 // 是否加载中
 const loading = ref(false);
-
-// 是否禁用
-const disabled = computed(() => {
-	return props.form.phone == "" || props.form.smsCode == "";
-});
-
-// 登录
-async function toLogin() {
+async function handleLogin() {
 	if (!isAgree()) {
 		return;
 	}
-
-	const { phone, smsCode } = props.form;
 
 	loading.value = true;
 
@@ -115,8 +59,8 @@ async function toLogin() {
 		url: "/app/user/login/phone",
 		method: "POST",
 		data: {
-			phone,
-			smsCode
+			phone: 18000000000,
+			smsCode: "6666"
 		}
 	})
 		.then((res) => {
@@ -130,4 +74,23 @@ async function toLogin() {
 
 	loading.value = false;
 }
+
+function switchMode(mode: "sms") {
+	emit("switch", mode);
+}
 </script>
+
+<style lang="scss" scoped>
+.one-click-phone {
+	font-family:
+		Plus Jakarta Sans,
+		Plus Jakarta Sans;
+	font-weight: bold;
+	font-size: 60px;
+	color: #ffffff;
+	text-align: center;
+	font-style: normal;
+	text-transform: none;
+	margin-bottom: 50px;
+}
+</style>
