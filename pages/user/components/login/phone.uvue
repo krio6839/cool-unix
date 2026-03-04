@@ -9,11 +9,11 @@
 		></cl-text>
 		<cl-button
 			:pt="{
-				className: '!h-[50px]'
+				className: '!h-12'
 			}"
 			rounded
 			type="primary"
-			color="black"
+			color="#000"
 			:loading="loading"
 			@tap="handleLogin"
 		>
@@ -21,7 +21,7 @@
 		</cl-button>
 		<cl-button
 			:pt="{
-				className: '!h-[50px] !bg-transparent mt-4'
+				className: 'login-button-switch'
 			}"
 			rounded
 			@tap="switchMode('sms')"
@@ -79,18 +79,3 @@ function switchMode(mode: "sms") {
 	emit("switch", mode);
 }
 </script>
-
-<style lang="scss" scoped>
-.one-click-phone {
-	font-family:
-		Plus Jakarta Sans,
-		Plus Jakarta Sans;
-	font-weight: bold;
-	font-size: 60px;
-	color: #ffffff;
-	text-align: center;
-	font-style: normal;
-	text-transform: none;
-	margin-bottom: 50px;
-}
-</style>

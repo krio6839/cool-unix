@@ -1,0 +1,186 @@
+<template>
+	<view ref="pairingViewRef" class="flex-1 flex flex-col items-center justify-start px-8 pt-12">
+		<view class="text-center mb-12">
+			<cl-text color="white" :size="22" :pt="{ className: 'font-bold mb-6' }">{{
+				t("确认以下状态后开始配对")
+			}}</cl-text>
+			<view class="w-10 h-1 bg-primary rounded-full mx-auto mb-8"></view>
+			<cl-text color="white" :size="16" :pt="{ className: 'mb-3' }">{{
+				t("请确保已开机")
+			}}</cl-text>
+			<cl-text color="white" :size="16">{{
+				t("若蓝灯未闪烁，折叠，连续快按功能键3次")
+			}}</cl-text>
+		</view>
+
+		<view class="mb-16 relative">
+			<device-icon :searching="searching" ref="deviceIconRef"></device-icon>
+		</view>
+
+		<view class="w-full mb-8">
+			<cl-button
+				:pt="{
+					className: '!h-[56px] !bg-white/10 !rounded-xl'
+				}"
+				rounded
+				@tap="selectLocation"
+			>
+				<cl-text color="white" :size="16">{{ t("选择位置") }}</cl-text>
+				<cl-icon name="arrow-right" color="white" :size="16" />
+			</cl-button>
+		</view>
+
+		<cl-button
+			:pt="{
+				className: '!h-[56px] !rounded-xl'
+			}"
+			type="primary"
+			rounded
+			:loading="searching"
+			:disabled="searching"
+			@tap="startSearch"
+		>
+			{{ searching ? t("正在搜索...") : t("开始配对") }}
+		</cl-button>
+
+		<!-- 设备列表 -->
+		<view ref="deviceListRef" class="w-full mt-12" v-if="deviceList.length > 0">
+			<cl-text color="white" :size="16" :pt="{ className: 'mb-4' }">{{
+				t("可用设备")
+			}}</cl-text>
+			<view class="space-y-4">
+				<cl-button
+					v-for="(device, index) in deviceList"
+					:key="device.deviceId"
+					:ref="
+						(el) => {
+							if (el) deviceItemRefs[index] = el;
+						}
+					"
+					:pt="{
+						className: '!h-[56px] !bg-white/5 !rounded-xl !justify-start'
+					}"
+					rounded
+					@tap="connectDevice(device.deviceId)"
+				>
+					<view class="flex-1">
+						<cl-text color="white" :size="16">{{ getDeviceName(device) }}</cl-text>
+						<cl-text color="gray-400" :size="14" :pt="{ className: 'mt-1' }">
+							{{ device.deviceId }}
+						</cl-text>
+					</view>
+					<cl-icon name="arrow-right" color="white" :size="16" />
+				</cl-button>
+			</view>
+		</view>
+
+		<cl-text
+			color="gray-400"
+			:size="14"
+			:pt="{ className: 'mt-8' }"
+			v-if="!searching && deviceList.length == 0"
+		>
+			{{ t("点击开始配对按钮搜索设备") }}
+		</cl-text>
+	</view>
+</template>
+
+<script setup lang="ts">
+import { ref, watch, nextTick, computed, shallowRef } from "vue";
+import { t } from "@/.cool";
+import { createAnimation } from "@/.cool/animation";
+import DeviceIcon from "./device-icon.uvue";
+
+type DeviceInfo = {
+	deviceId: string;
+	name: string | null;
+	localName: string | null;
+};
+
+const props = defineProps<{
+	searching: boolean;
+	deviceList: Array<DeviceInfo>;
+}>();
+
+const emit = defineEmits(["startSearch", "connectDevice", "selectLocation"]);
+
+const pairingViewRef = ref<UniElement | null>(null);
+const deviceListRef = ref<UniElement | null>(null);
+const deviceIconRef = ref<UniElement | null>(null);
+// 使用 shallowRef 减少响应式开销
+const deviceItemRefs = shallowRef<(UniElement | null)[]>([]);
+
+// 计算属性：获取设备名称，避免在模板中进行复杂的逻辑判断
+const getDeviceName = (device: DeviceInfo) => {
+	if (device.name && device.name !== "") {
+		return device.name;
+	} else if (device.localName && device.localName !== "") {
+		return device.localName;
+	} else {
+		return t("未知设备");
+	}
+};
+
+function startSearch() {
+	emit("startSearch");
+	// 添加设备图标动画
+	animateDeviceIcon();
+}
+
+function connectDevice(deviceId: string) {
+	emit("connectDevice", deviceId);
+}
+
+function selectLocation() {
+	emit("selectLocation");
+}
+
+function animateDeviceIcon() {
+	if (deviceIconRef.value) {
+		createAnimation(deviceIconRef.value).bounce(600).play();
+	}
+}
+
+function animateDeviceList() {
+	nextTick(() => {
+		// 为设备列表容器添加淡入动画
+		if (deviceListRef.value) {
+			createAnimation(deviceListRef.value).fadeIn(300).play();
+		}
+
+		// 为每个设备项添加依次出现的动画
+		setTimeout(() => {
+			deviceItemRefs.value.forEach((item, index) => {
+				if (item) {
+					// 为每个设备项添加延迟动画，依次出现
+					setTimeout(() => {
+						createAnimation(item).slideInUp(300).play();
+					}, index * 80); // 减少延迟时间，提高动画流畅度
+				}
+			});
+		}, 80); // 减少延迟时间，提高动画流畅度
+	});
+}
+
+// 监听设备列表变化，添加动画
+watch(
+	() => props.deviceList.length,
+	(newLength) => {
+		if (newLength > 0) {
+			animateDeviceList();
+		}
+	}
+);
+
+// 监听搜索状态变化，添加动画
+watch(
+	() => props.searching,
+	(isSearching) => {
+		if (isSearching) {
+			animateDeviceIcon();
+		}
+	}
+);
+</script>
+
+<style lang="scss" scoped></style>

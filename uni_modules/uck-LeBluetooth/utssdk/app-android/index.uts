@@ -1,0 +1,919 @@
+/**
+ * 引用 Android 系统库，示例如下：
+ * import { Context } from "android.content.Context";
+ * [可选实现，按需引入]
+ */
+import Application from "android.app.Application";
+import UUID from "java.util.UUID";
+import Build from 'android.os.Build';
+import Charsets from "kotlin.text.Charsets";
+import BluetoothDevice from "android.bluetooth.BluetoothDevice";
+import BluetoothGatt from "android.bluetooth.BluetoothGatt";
+import BluetoothGattService from "android.bluetooth.BluetoothGattService";
+import BluetoothGattCharacteristic from "android.bluetooth.BluetoothGattCharacteristic";
+
+
+import BleManager from "com.clj.fastble.BleManager";
+import BleScanRuleConfig from "com.clj.fastble.scan.BleScanRuleConfig";
+import Builder from "com.clj.fastble.scan.BleScanRuleConfig.Builder";
+import BleScanCallback from 'com.clj.fastble.callback.BleScanCallback';
+import BleScanPresenterImp from "com.clj.fastble.callback.BleScanPresenterImp";
+import BleDevice from "com.clj.fastble.data.BleDevice";
+import BleGattCallback from "com.clj.fastble.callback.BleGattCallback";
+import BleException from "com.clj.fastble.exception.BleException";
+import BleNotifyCallback from "com.clj.fastble.callback.BleNotifyCallback";
+import BleIndicateCallback from "com.clj.fastble.callback.BleIndicateCallback";
+import BleWriteCallback from "com.clj.fastble.callback.BleWriteCallback";
+import BleReadCallback from "com.clj.fastble.callback.BleReadCallback";
+import BleRssiCallback from "com.clj.fastble.callback.BleRssiCallback";
+import HexUtil from "com.clj.fastble.utils.HexUtil";
+
+
+/* 引入 interface.uts 文件中定义的变量 */
+import { 
+	UInitConfig,
+	UBluetooth, 
+	UInitScanRuleOptions, 
+	ScanLeBluetoothOptions, 
+	UDevice, 
+	CreateUBLEConnectionOptions, 
+	NotifyBluetoothOptions, 
+	LeException, 
+	StopnotifyBluetoothOptions,
+	IndicateBluetoothOptions,
+	StopIndicateBluetoothOptions,
+	WriteBluetoothOptions,
+	ReadBluetoothOptions,
+	ReadRssiBluetoothOptions,
+	DisconnectBluetoothOptions,
+	GetBluetoothGattServicesOptions,
+	GetBluetoothGattCharacteristicsOptions,
+	GattCharacteristics,
+	RequestPermissionOptions,
+} from '../interface.uts';
+
+/* 引入 unierror.uts 文件中定义的变量 */
+// import { MyApiFailImpl } from '../unierror';
+
+// 引入类型
+import { 
+	UCKScanBluetoothCallbackOptions, 
+	UCKBleGattCallbackOptions,
+	UCKBleNotifyCallbackOptions,
+	UCKBleIndicateCallbackOptions,
+	UCKBleWriteCallbackOptions,
+	UCKBleReadCallbackOptions,
+	UCKBleRssiCallbackOptions
+} from './ExportType.uts';
+
+
+
+
+/**
+ * 初始化
+ */
+export function UckBluetoothConfig(options : UInitConfig = {} as UInitConfig) : UBluetooth {
+	return new UBluetoothManager(options);
+}
+
+/**
+ * 低功率蓝牙管理器
+ */
+class UBluetoothManager implements UBluetooth {
+
+	private initConfig: UInitConfig | null;
+	
+	
+	private myBluetoothDevice: Map<string, BleDevice>;						// 已连接上的蓝牙
+	private myBluetoothGatt: Map<string, BluetoothGatt>;					// 已连接上蓝牙的Gatt
+	
+	private myBluetoothGattServices: Map<string, BluetoothGattService>;		// 已连接上的所有Service [通过uuid获取]
+	
+	private myUCKScanBluetoothCallback: UCKScanBluetoothCallback | null;	// 扫描处理类
+	private myUCKBleGattCallback: UCKBleGattCallback | null;				// 蓝牙连接处理类
+	private myUCKBleNotifyCallback: UCKBleNotifyCallback | null;			// 订阅通知notify处理类
+	private myUCKBleIndicateCallback: UCKBleIndicateCallback | null;		// 订阅通知indicate处理类
+	private myUCKBleWriteCallback: UCKBleWriteCallback | null;				// 写处理类
+	private myUCKBleReadCallback: UCKBleReadCallback | null;				// 读处理类
+	private myRssiCallback: UCKBleRssiCallback | null;						// rssi回调
+	
+	
+	constructor(options?: UInitConfig) {
+		this.initConfig = options;
+		this.myBluetoothDevice = new Map<string, BleDevice>();
+		this.myBluetoothGatt = new Map<string, BluetoothGatt>();
+		this.myBluetoothGattServices = new Map<string, BluetoothGattService>();
+		this.myUCKScanBluetoothCallback = new UCKScanBluetoothCallback();
+		this.myUCKBleGattCallback = new UCKBleGattCallback();
+		this.myUCKBleNotifyCallback = new UCKBleNotifyCallback();
+		this.myUCKBleIndicateCallback = new UCKBleIndicateCallback();
+		this.myUCKBleWriteCallback = new UCKBleWriteCallback();
+		this.myUCKBleReadCallback = new UCKBleReadCallback();
+		this.myRssiCallback = new UCKBleRssiCallback();
+		
+		BleManager.getInstance().init(UTSAndroid.getAppContext() as Application);
+		BleManager.getInstance()
+			.enableLog(true)
+			.setReConnectCount(1, 5000)
+			.setSplitWriteNum(20)
+			.setConnectOverTime(10000)
+			.setOperateTimeout(5000);
+			
+		console.log("[UBLE] Config: ", this.initConfig?.type)
+	}
+	
+	/**
+	 * U: 获取已连接蓝牙
+	 */
+	private _getBluetoothDevice(device: string): BleDevice | null{
+		return this.myBluetoothDevice.get(device);
+	}
+	
+	/**
+	 * 初始化: 权限校验
+	 */
+	requestPermission(options: RequestPermissionOptions): void{
+		let permission: Array<string> = [];
+		// 处理蓝牙权限
+		if(!UTSAndroid.checkSystemPermissionGranted(UTSAndroid.getUniActivity()!,  ['android.permission.BLUETOOTH'])){
+			permission.push('android.permission.BLUETOOTH');
+		}
+		if(!UTSAndroid.checkSystemPermissionGranted(UTSAndroid.getUniActivity()!,  ['android.permission.BLUETOOTH_ADMIN'])){
+			permission.push('android.permission.BLUETOOTH_ADMIN');
+		}
+		// Android 12+ (API 31) 需要新增权限
+		if(Build.VERSION.SDK_INT >= 31){
+			if(!UTSAndroid.checkSystemPermissionGranted(UTSAndroid.getUniActivity()!,  ['android.permission.BLUETOOTH_SCAN'])){
+				permission.push('android.permission.BLUETOOTH_SCAN');
+			}
+			if(!UTSAndroid.checkSystemPermissionGranted(UTSAndroid.getUniActivity()!,  ['android.permission.BLUETOOTH_CONNECT'])){
+				permission.push('android.permission.BLUETOOTH_CONNECT');
+			}
+		}
+		// 判断蓝牙权限是否已授权
+		if(permission.length != 0){
+			UTSAndroid.requestSystemPermission(UTSAndroid.getUniActivity()!, permission, (allRight : boolean, grantedList : string[]) => {
+				if(!allRight){
+					this._showModal("蓝牙权限受限", options.bluetooth ?? "你拒接了蓝牙权限，无法使用蓝牙相关功能", grantedList);
+					return;
+				}
+				this._permissionLocation(options);
+			}, (_doNotAskAgain : boolean, grantedList : string[]) => {
+				this._showModal("蓝牙权限受限", options.bluetooth ?? "你拒接了蓝牙权限，无法使用蓝牙相关功能", grantedList);
+			})
+		}else{ this._permissionLocation(options); }		
+	}
+	
+	/**
+	 * 处理位置权限
+	 */
+	private _permissionLocation(options: RequestPermissionOptions){
+		let permission: Array<string> = [];
+		if(Build.VERSION.SDK_INT < 31){
+			if(!UTSAndroid.checkSystemPermissionGranted(UTSAndroid.getUniActivity()!,  ['android.permission.ACCESS_FINE_LOCATION'])){
+				console.log("当前不具备指定权限: ACCESS_FINE_LOCATION")
+				permission.push('android.permission.ACCESS_FINE_LOCATION');
+			}
+			if(!UTSAndroid.checkSystemPermissionGranted(UTSAndroid.getUniActivity()!,  ['android.permission.ACCESS_COARSE_LOCATION'])){
+				console.log("当前不具备指定权限: ACCESS_COARSE_LOCATION")
+				permission.push('android.permission.ACCESS_COARSE_LOCATION');
+			}
+		}
+		// Android 10+ 后台位置权限（按需开启）
+		if (Build.VERSION.SDK_INT >= 29) {
+			if(!UTSAndroid.checkSystemPermissionGranted(UTSAndroid.getUniActivity()!,  ['android.permission.ACCESS_BACKGROUND_LOCATION'])){
+				console.log("当前不具备指定权限: ACCESS_BACKGROUND_LOCATION")
+				permission.push('android.permission.ACCESS_BACKGROUND_LOCATION');
+			}
+		}
+		// 判断位置权限是否已授权
+		if(permission.length != 0){
+			UTSAndroid.requestSystemPermission(UTSAndroid.getUniActivity()!, permission, (allRight : boolean, grantedList : string[]) => {
+				if (!allRight) {
+					this._showModal("位置权限受限", options.location ?? "请改为 ‘始终允许’ 以保证后台搜索蓝牙功能正常", grantedList);
+					return;
+				}
+				options.callback?.();
+			}, (_doNotAskAgain : boolean, grantedList : string[]) => {
+				this._showModal("位置权限受限", "请改为 ‘始终允许’ 以保证后台搜索蓝牙功能正常", grantedList);
+			})
+		}else { options.callback?.(); }
+	}
+	
+	private _showModal(title: string, content: string, grantedList: string[]){
+		uni.showModal({
+			title: title,
+			content: content,
+			confirmText: "去授权",
+			success: (res) => {
+				if(res.confirm){
+					UTSAndroid.gotoSystemPermissionActivity(UTSAndroid.getUniActivity()!, grantedList);
+				}
+			}
+		})
+	}
+	
+	/**
+	 * 配置扫描规则
+	 */
+	initScanRule(options : UInitScanRuleOptions) {
+		let configBuilder : Builder = new BleScanRuleConfig.Builder();
+		
+		// 只扫描指定的服务的设备，可选
+		const uuids : string[] = options?.serviceUuids ?? [];
+		if (uuids.length > 0) {
+			console.log("[init] uuids");
+			const serviceUuids : Array<UUID> = [];
+			uuids.forEach((item : string) => {
+				let tempUuid : UUID = UUID.fromString(item);
+				serviceUuids.push(tempUuid);
+			});
+			configBuilder.setServiceUuids(serviceUuids.toTypedArray());
+		}
+		
+		// 只扫描指定广播名的设备，可选
+		// let deviceName : Array<string> = options.deviceName ?? [];
+		// let deviceName : Array<string> = ["BLE"];
+		// let deviceName: Array<string> =  ["aaa", "bb"];
+		// if (deviceName.length > 0) {
+		// 	console.log("[init] device_name");
+		// 	configBuilder.setDeviceName(true, deviceName.toTypedArray());
+		// }
+		
+		// 只扫描指定mac的设备，可选
+		let deviceMac : string | null = options.deviceMac ?? null;
+		if (deviceMac != null) {
+			console.log("[init] device_mac");
+			configBuilder.setDeviceMac(deviceMac);
+		}
+		
+		// 连接时的autoConnect参数，可选，默认false
+		let autoConnect : boolean = options.autoConnect ?? false;
+		console.log("[init] auto connect: ", autoConnect);
+		configBuilder.setAutoConnect(autoConnect);
+		
+		// 扫描超时时间，可选，默认10秒；小于等于0表示不限制扫描时间
+		let timeOut : number | null = options.scanTimeOut ?? null;
+		if (timeOut != null) {
+			console.log("[init] time out");
+			configBuilder.setScanTimeOut(timeOut.toLong());
+		}
+		
+		let scanRuleConfig : BleScanRuleConfig = configBuilder.build();
+		
+		BleManager.getInstance().initScanRule(scanRuleConfig);
+		
+		options?.initBallback?.();
+	}
+	
+	/**
+	 * 扫描低功耗蓝牙
+	 */
+	scanBluetooth(options: ScanLeBluetoothOptions) {
+		let callback = {
+			onScanStarted: (success : boolean) => { 
+				options?.onScanStarted?.(success); 
+			},
+			onScanning: (bleDevice : BleDevice) => {
+				let tempDevice: BluetoothDevice = bleDevice.getDevice();
+				let device: UDevice = {
+					name: bleDevice.getName() ?? null,
+					deviceId: bleDevice.getMac(),
+					localName: tempDevice.getName() ?? null,
+					RSSI: bleDevice.getRssi(),
+					advertisData: bleDevice.getScanRecord() != null ? Array.fromNative(bleDevice.getScanRecord()) : []
+				};
+				options?.onScanning?.(device);
+			},
+			onScanFinished: (scanResultList : List<BleDevice>) => {
+				let deviceList: Array<UDevice> = [];
+				for(let i: Int = 0; i < scanResultList.size; i++){
+					let tempDevice: BluetoothDevice = scanResultList[i].getDevice();
+					let device: UDevice = {
+						name: scanResultList[i].getName() ?? null,
+						deviceId: scanResultList[i].getMac(),
+						localName: tempDevice.getName() ?? null,
+						RSSI: scanResultList[i].getRssi(),
+						advertisData: Array.fromNative(scanResultList[i].getScanRecord()!)
+					};
+					deviceList.push(device);
+				}
+				options?.onScanFinished?.(deviceList);
+			}
+		} as UCKScanBluetoothCallbackOptions;
+		this.myUCKScanBluetoothCallback?.installOptions(callback);
+		BleManager.getInstance().scan(this.myUCKScanBluetoothCallback!);
+	}
+	
+	/**
+	 * 停止扫描低功率蓝牙
+	 */
+	cancelScanBluetooth(callback: () => void): void{
+		BleManager.getInstance().cancelScan();
+		callback?.();
+	}
+	
+	/**
+	 * 连接蓝牙
+	 */
+	createBluetoothConnection(options: CreateUBLEConnectionOptions) {
+		let callback = {
+			onStartConnect() {
+				options?.onStartConnect?.();
+			},
+			onConnectFail: (bleDevice: BleDevice, exception: BleException) => {
+				let tempDevice: BluetoothDevice = bleDevice.getDevice();
+				let device: UDevice = {
+					name: bleDevice.getName(),
+					deviceId: bleDevice.getMac(),
+					localName: tempDevice.getName(),
+					RSSI: bleDevice.getRssi(),
+					advertisData: bleDevice.getScanRecord() != null ? Array.fromNative(bleDevice.getScanRecord()) : []
+				};
+				let message: LeException = {
+					code: exception.getCode(),
+					description: exception.getDescription()
+				};
+				options?.onConnectFail?.(device, message);
+			},
+			onConnectSuccess: (bleDevice: BleDevice, gatt: BluetoothGatt, status: number) => {
+				let deviceId = options.deviceId;
+				if(!this.myBluetoothDevice.has(deviceId)){
+					this.myBluetoothDevice.set(deviceId, bleDevice);
+				}
+				if(!this.myBluetoothGatt.has(deviceId)){
+					this.myBluetoothGatt.set(deviceId, gatt);
+				}
+				let services: List<BluetoothGattService> | null = gatt.getServices();
+				if(services != null){
+					services.forEach((item: BluetoothGattService) => {
+						let uuid: string = item.getUuid().toString();
+						if(!this.myBluetoothGattServices.has(uuid)){
+							this.myBluetoothGattServices.set(uuid, item);
+						}
+					})
+				}
+				let tempDevice: BluetoothDevice = bleDevice.getDevice();
+				let device: UDevice = {
+					name: bleDevice.getName(),
+					deviceId: bleDevice.getMac(),
+					localName: tempDevice.getName(),
+					RSSI: bleDevice.getRssi(),
+					advertisData: bleDevice.getScanRecord() != null ? Array.fromNative(bleDevice.getScanRecord()) : []
+				};
+				options?.onConnectSuccess?.(device, status);
+			},
+			onDisConnected: (isActiveDisConnected: boolean, bleDevice: BleDevice, _gatt: BluetoothGatt, status: number) => {
+				this.myBluetoothDevice.delete(bleDevice.getMac());
+				let tempDevice: BluetoothDevice = bleDevice.getDevice(); 
+				let device: UDevice = {
+					name: bleDevice.getName(),
+					deviceId: bleDevice.getMac(),
+					localName: tempDevice.getName(),
+					RSSI: bleDevice.getRssi(),
+					advertisData: bleDevice.getScanRecord() != null ? Array.fromNative(bleDevice.getScanRecord()) : []
+				};
+				options?.onDisConnected?.(isActiveDisConnected, device, status);
+			}
+		} as UCKBleGattCallbackOptions;
+		this.myUCKBleGattCallback?.installOptions(callback)
+		BleManager.getInstance().connect(options.deviceId, this.myUCKBleGattCallback!);
+	}
+	
+	/**
+	 * 检测某个蓝牙是否已连接
+	 */
+	isCreateConnected(deviceId: string): boolean {
+		let device = this.myBluetoothDevice.get(deviceId);
+		return device != null ? true : false;
+	}
+	
+	/**
+	 * 获取某个已连接设备的所有Service
+	 */
+	getBluetoothGattServices(options: GetBluetoothGattServicesOptions) {
+		let device: BleDevice = this.myBluetoothDevice.get(options.deviceId)!;
+		let service: List<BluetoothGattService> = BleManager.getInstance().getBluetoothGattServices(device);
+		
+		let serviceArray = Array.fromNative(service);
+		
+		let serviceList: Array<string> = [];
+		for(let i = 0; i < serviceArray.length; i++){
+			serviceList.push(serviceArray[i].getUuid().toString());
+		}
+		
+		options?.success?.(serviceList);
+	}
+	
+	/**
+	 * 获取某个Service的所有Characteristic
+	 */
+	getBluetoothGattCharacteristics(options: GetBluetoothGattCharacteristicsOptions) {
+		const { serviceId } = options;
+		// TODO 校验蓝牙是否已连接
+		
+		let service: BluetoothGattService = this.myBluetoothGattServices.get(serviceId)!;
+		let myCharacteristics: GattCharacteristics[] = [];
+		let characteristics: List<BluetoothGattCharacteristic> | null = service.getCharacteristics() as List<BluetoothGattCharacteristic> | null;
+		if(characteristics === null || characteristics.isEmpty()){
+			options?.success?.(myCharacteristics);
+			return;
+		}
+		
+		characteristics.forEach((item: BluetoothGattCharacteristic) => {
+			const uuid = item.getUuid().toString();
+			// 是否支持read
+			let isReadable = false;
+			// 是否支持write
+			let isWritable = false;
+			// 是否支持notify
+			let isNotifiable = false;
+			// 是否支持indicate
+			let isIndicatable = false;
+			// 是否支持writeNoResponse
+			let isWriteNoResponsable = false;
+			// 是否支持writeDefault
+			let isWriteDefaultable = false;
+			const properties = item.getProperties();
+			if ((properties & BluetoothGattCharacteristic.PROPERTY_READ) != 0) {
+				isReadable = true;
+			}
+			if ((properties & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0) {
+				isWritable = true;
+			}
+			if ((properties & BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0) {
+				isNotifiable = true;
+			}
+			if ((properties & BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0) {
+				isIndicatable = true;
+			}
+			if ((properties & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0) {
+				isWriteNoResponsable = true;
+			}
+			if ((properties & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0) {
+				isWriteDefaultable = true;
+			}
+			
+			myCharacteristics.push({
+				uuid: uuid,
+				read: isReadable,
+				write: isWritable,
+				notify: isNotifiable,
+				indicate: isIndicatable,
+				writeDefault: isWriteDefaultable,
+				writeNoResponse: isWriteNoResponsable
+			} as GattCharacteristics);
+		})
+		
+		options?.success?.(myCharacteristics);
+	}
+	
+	
+	/**
+	 * 订阅通知notify
+	 */
+	notifyBluetooth(options: NotifyBluetoothOptions) {
+		
+		let device: BleDevice = this._getBluetoothDevice(options.deviceId)!;
+		
+		let callback = {
+			onNotifySuccess:() => {
+				options?.onNotifySuccess?.(options.deviceId);
+			},
+			onNotifyFailure: (exception: BleException) => {
+				let message: LeException = {
+					code: exception.getCode(),
+					description: exception.getDescription()
+				};
+				options?.onNotifyFailure?.(options.deviceId, message);
+			},
+			onCharacteristicChanged: (data: ByteArray) => {
+				let hexStr: string = HexUtil.formatHexString(data, true);
+				let value = hexStr.split(' ')
+					.map(hex => String.fromCharCode(parseInt(hex, 16)))
+					.join('');
+				let uniData = Array.fromNative(data);
+				options?.onCharacteristicChanged?.(options.deviceId, uniData, value);
+			}
+		} as UCKBleNotifyCallbackOptions;
+		this.myUCKBleNotifyCallback?.installOptions(callback);
+		BleManager.getInstance().notify(device, options.uuidService, options.uuidNotify, this.myUCKBleNotifyCallback!);
+	}
+	
+	/**
+	 * 取消订阅通知notify
+	 */
+	stopNotifyBluetooth(options: StopnotifyBluetoothOptions) {
+		let device: BleDevice = this._getBluetoothDevice(options.deviceId)!;
+		BleManager.getInstance().stopNotify(device, options.uuidService, options.uuidNotify);
+		options?.notifyCallback?.();
+	}
+	
+	/**
+	 * 订阅通知indicate
+	 */
+	indicateBluetooth(options: IndicateBluetoothOptions) {
+		let device: BleDevice = this._getBluetoothDevice(options.deviceId)!;
+		
+		let indicate = {
+			onIndicateSuccess: () => {
+				options?.onIndicateSuccess?.(options.deviceId);
+			},
+			onIndicateFailure: (exception: BleException) => {
+				let message: LeException = {
+					code: exception.getCode(),
+					description: exception.getDescription()
+				};
+				options?.onIndicateFailure?.(options.deviceId, message);
+			},
+			onCharacteristicChanged: (data: ByteArray) => {
+				let hexStr: string = HexUtil.formatHexString(data, true);
+				let value = hexStr.split(' ')
+					.map(hex => String.fromCharCode(parseInt(hex, 16)))
+					.join('');
+				let uniData = Array.fromNative(data);
+				options?.onCharacteristicChanged?.(options.deviceId, uniData, value);
+			}
+		} as UCKBleIndicateCallbackOptions;
+		this.myUCKBleIndicateCallback?.installOptions(indicate);
+		BleManager.getInstance().indicate(device, options.uuidService, options.uuidIndicate, this.myUCKBleIndicateCallback!);
+	}
+
+	/**
+	 * 取消订阅通知indicate
+	 */
+	stopIndicateBluetooth(options: StopIndicateBluetoothOptions) {
+		let device: BleDevice = this._getBluetoothDevice(options.deviceId)!;
+		BleManager.getInstance().stopIndicate(device, options.uuidService, options.uuidIndicate);
+		options?.indicateCallback?.();
+	}
+	
+	/**
+	 * 写
+	 */
+	writeBluetooth(options: WriteBluetoothOptions) {
+		let device: BleDevice = this._getBluetoothDevice(options.deviceId)!;
+		let myOptions = {
+			onWriteSuccess: (current: Int , total: Int, justWrite: ByteArray) => {
+				let hexStr: string = HexUtil.formatHexString(justWrite, true);
+				let writeData = hexStr.split(' ')
+					.map(hex => String.fromCharCode(parseInt(hex, 16)))
+					.join('');
+				let uniWrite = Array.fromNative(justWrite);
+				options?.onWriteSuccess?.(Number.from(current), Number.from(total), uniWrite, writeData);
+			},
+			onWriteFailure: (exception: BleException) => {
+				let message: LeException = {
+					code: exception.getCode(),
+					description: exception.getDescription()
+				};
+				options?.onWriteFailure?.(message);
+			}
+		} as UCKBleWriteCallbackOptions;
+		this.myUCKBleWriteCallback?.installOptions(myOptions);
+		let bytes: ByteArray = options.data.toByteArray(Charsets.UTF_8);
+		BleManager.getInstance().write(device, options.uuidService, options.uuidWrite, bytes, this.myUCKBleWriteCallback!);
+	}
+	
+	
+	/**
+	 * 读
+	 */
+	readBluetooth(options: ReadBluetoothOptions) {
+		let device: BleDevice = this._getBluetoothDevice(options.deviceId)!;
+		let params = {
+			onReadSuccess: (data: ByteArray) => {
+				let hexStr: string = HexUtil.formatHexString(data, true);
+				let writeData = hexStr.split(' ')
+					.map(hex => String.fromCharCode(parseInt(hex, 16)))
+					.join('');
+				let uniRead = Array.fromNative(data);
+				options?.onReadSuccess?.(options.deviceId, uniRead, writeData);
+			},
+			onReadFailure: (exception: BleException) => {
+				let message: LeException = {
+					code: exception.getCode(),
+					description: exception.getDescription()
+				};
+				options?.onReadFailure?.(options.deviceId, message);
+			}
+		} as UCKBleReadCallbackOptions;
+		this.myUCKBleReadCallback?.installOptions(params)
+		BleManager.getInstance().read(device, options.uuidService, options.uuidRead, this.myUCKBleReadCallback!);
+	}
+	
+	/**
+	 * 获取设备的信号强度Rssi
+	 */
+	readRssiBluetooth(options: ReadRssiBluetoothOptions) {
+		let device: BleDevice = this._getBluetoothDevice(options.deviceId)!;
+		let params = {
+			onRssiSuccess: (rssi: Int) => {
+				options?.onRssiSuccess?.(Number.from(rssi));
+			},
+			onRssiFailure: (exception: BleException) => {
+				let message: LeException = {
+					code: exception.getCode(),
+					description: exception.getDescription()
+				};
+				options?.onRssiFailure?.(message);
+			}
+		} as UCKBleRssiCallbackOptions;
+		this.myRssiCallback?.installOptions(params);
+		BleManager.getInstance().readRssi(device, this.myRssiCallback!);
+	}
+	
+	/**
+	 * 断开某个设备
+	 */
+	disconnectBluetooth(options: DisconnectBluetoothOptions){
+		let device: BleDevice = this._getBluetoothDevice(options.deviceId)!;
+		BleManager.getInstance().disconnect(device);
+		options?.callback?.();
+	}
+	
+	/**
+	 * 断开所有设备
+	 */
+	disconnectAllDeviceBluetooth(callback: () => void){
+		BleManager.getInstance().disconnectAllDevice();
+		callback?.();
+	}
+	
+	/**
+	 * 退出使用，清理资源
+	 */
+	destroyBluetooth(callback: () => void) {
+		BleManager.getInstance().destroy();
+		callback?.();
+	}
+	
+}
+
+
+
+
+/**
+ * 扫描处理类
+ */ 
+class UCKScanBluetoothCallback extends BleScanCallback implements BleScanPresenterImp {
+	
+	private options: UCKScanBluetoothCallbackOptions | null;
+	
+	constructor() {
+		super();
+		this.options = null;
+	}
+	
+	public installOptions(options: UCKScanBluetoothCallbackOptions): void {
+		this.options = options;
+	}
+
+	/**
+	 * 开始扫描
+	 */
+	override onScanStarted(success : boolean) : void {
+		this.options?.onScanStarted?.(success);
+	}
+
+	/**
+	 * 扫描到一个符合扫描规则的BLE设备
+	 */
+	override onScanning(bleDevice : BleDevice) : void {
+		this.options?.onScanning?.(bleDevice);
+	}
+
+	/**
+	 * 扫描结束，列出所有扫描到的符合扫描规则的BLE设备
+	 */
+	override onScanFinished(scanResultList : List<BleDevice>) : void {
+		this.options?.onScanFinished?.(scanResultList);
+	}
+	
+}
+
+/** 
+ * 蓝牙连接处理类
+ */
+class UCKBleGattCallback extends BleGattCallback {
+	
+	private options: UCKBleGattCallbackOptions | null;
+	
+	constructor(){
+		super();
+		this.options = null;
+	}
+	
+	public installOptions(options: UCKBleGattCallbackOptions): void {
+		this.options = options;
+	}
+	
+	/**
+	 * 开始连接
+	 */
+	public override onStartConnect(): void {	
+		console.log("UCK-开始连接")
+		this.options?.onStartConnect?.();
+	}
+	
+	/**
+	 * 连接失败
+	 */
+	public override onConnectFail(bleDevice: BleDevice, exception: BleException): void {
+		console.log("UCK-连接失败")
+		this.options?.onConnectFail?.(bleDevice, exception);
+	}
+	
+	/**
+	 * 连接成功，BleDevice即为所连接的BLE设备  
+	 */
+	public override onConnectSuccess(bleDevice: BleDevice, gatt: BluetoothGatt, status: Int): void {
+		console.log("UCK-连接成功")
+		this.options?.onConnectSuccess?.(bleDevice, gatt, Number.from(status));
+	}
+	
+	/**
+	 * 连接中断，isActiveDisConnected表示是否是主动调用了断开连接方法 
+	 */
+	public override onDisConnected(isActiveDisConnected: boolean, bleDevice: BleDevice, gatt: BluetoothGatt, status: Int): void {
+		console.log("UCK-连接中断")
+		this.options?.onDisConnected?.(isActiveDisConnected, bleDevice, gatt, Number.from(status));
+	}
+
+}
+
+/**
+ * 订阅通知notify处理类
+ */
+class UCKBleNotifyCallback extends BleNotifyCallback {
+	
+	private options: UCKBleNotifyCallbackOptions | null;
+	
+	constructor(){
+		super();
+		this.options = null;
+	}
+	
+	public installOptions(options: UCKBleNotifyCallbackOptions): void {
+		this.options = options;
+	}
+	
+	/**
+	 * 打开通知操作成功
+	 */
+	public override onNotifySuccess(): void {
+		this.options?.onNotifySuccess?.();
+	}
+	
+	/**
+	 * 打开通知操作失败
+	 */
+	public override onNotifyFailure(exception: BleException): void {
+		this.options?.onNotifyFailure?.(exception);
+	}
+	
+	/**
+	 * 打开通知后，设备发过来的数据将在这里出现
+	 */
+	public override onCharacteristicChanged(data: ByteArray) {
+		this.options?.onCharacteristicChanged?.(data);
+	}
+	
+}
+
+
+/**
+ * 订阅通知indicate处理类
+ */
+class UCKBleIndicateCallback extends BleIndicateCallback {
+	
+	private options: UCKBleIndicateCallbackOptions | null;
+	
+	constructor() {
+	    super();
+		this.options = null;
+	}
+	
+	public installOptions(options: UCKBleIndicateCallbackOptions): void {
+		this.options = options;
+	}
+	
+	/**
+	 * 打开通知操作成功
+	 */
+	public override onIndicateSuccess(): void {
+		this.options?.onIndicateSuccess?.();
+	}
+	
+	/**
+	 * 打开通知操作失败
+	 */
+	public override onIndicateFailure(exception: BleException): void {
+		this.options?.onIndicateFailure?.(exception);
+	}
+	
+	/**
+	 * 打开通知后，设备发过来的数据将在这里出现
+	 */
+	public override onCharacteristicChanged(data: ByteArray): void {
+	// public override onCharacteristicChanged(data: number[]): void {
+		this.options?.onCharacteristicChanged?.(data);
+	}
+	
+}
+
+/**
+ * 写处理类
+ */
+class UCKBleWriteCallback extends BleWriteCallback {
+	
+	private options: UCKBleWriteCallbackOptions | null;
+	
+	constructor(){
+		super();
+		this.options = null;
+	}
+	
+	public installOptions(options: UCKBleWriteCallbackOptions): void {
+		this.options = options;
+	}
+	
+	/**
+	 * 发送数据到设备成功
+	 */
+	public override	onWriteSuccess(current: Int, total: Int, justWrite: ByteArray): void {
+		this.options?.onWriteSuccess?.(current, total, justWrite);
+	}
+	
+	/**
+	 * 发送数据到设备失败
+	 */
+	public override onWriteFailure(exception: BleException): void{
+		this.options?.onWriteFailure?.(exception);
+	}
+	
+}
+
+/**
+ * 读处理类
+ */
+class UCKBleReadCallback extends BleReadCallback {
+	
+	private options: UCKBleReadCallbackOptions | null;
+	
+	constructor(){
+		super();
+		this.options = null;
+	}
+	
+	public installOptions(options: UCKBleReadCallbackOptions): void {
+		this.options = options;
+	}
+	
+	/**
+	 * 读特征值数据成功
+	 */
+	public override onReadSuccess(data: ByteArray): void{
+		this.options?.onReadSuccess?.(data);
+	}
+	
+	/**
+	 * 读特征值数据失败
+	 */
+	public override onReadFailure(exception: BleException): void{
+		this.options?.onReadFailure?.(exception);
+	}
+	
+}
+
+/**
+ * 获取设备的信号强度Rssi处理类
+ */
+class UCKBleRssiCallback extends BleRssiCallback {
+	
+	private options: UCKBleRssiCallbackOptions | null;
+	
+	constructor(){
+		super();
+		this.options = null;
+	}
+	
+	public installOptions(options: UCKBleRssiCallbackOptions): void {
+		this.options = options;
+	}
+	
+	/**
+	 * 读取设备的信号强度成功
+	 */
+	public override onRssiSuccess(rssi: Int): void{
+		this.options?.onRssiSuccess?.(rssi);
+	}
+	
+	/**
+	 * 读取设备的信号强度失败
+	 */
+	public override onRssiFailure(exception: BleException): void{
+		this.options?.onRssiFailure?.(exception);
+	}
+	
+}

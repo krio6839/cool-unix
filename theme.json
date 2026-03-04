@@ -10,13 +10,13 @@
 		"tabBgColor": "#ffffff"
 	},
 	"dark": {
-		"bgColor": "#191919",
-		"bgContentColor": "#191919",
-		"navBgColor": "#191919",
+		"bgColor": "#060702",
+		"bgContentColor": "#060702",
+		"navBgColor": "#060702",
 		"navTextStyle": "white",
 		"tabColor": "#cccccc",
 		"tabSelectedColor": "#ffffff",
 		"tabBorderStyle": "black",
-		"tabBgColor": "#191919"
+		"tabBgColor": "#060702"
 	}
 }

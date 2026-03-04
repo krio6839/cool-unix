@@ -56,33 +56,172 @@
 		</cl-topbar>
 
 		<view class="p-3">
-			<view class="group" v-for="item in data" :key="item.label">
-				<cl-text :size="12" :pt="{ className: '!text-surface-400 mb-2 ml-2' }"
-					>{{ item.label }}（{{ item.children?.length ?? 0 }}）</cl-text
-				>
+			<!-- 用户信息模块 -->
+			<view
+				class="user-info mb-4 rounded-xl bg-gradient-to-r from-primary-500 to-primary-600 p-4 text-white transition-all duration-300 hover:shadow-xl"
+			>
+				<view class="flex flex-row items-center">
+					<cl-avatar
+						:size="60"
+						:src="userInfo.avatar"
+						:show-loading="false"
+						class="transition-transform duration-300 hover:scale-110"
+					></cl-avatar>
+					<view class="ml-3 flex-1">
+						<cl-text :size="18" :pt="{ className: 'font-bold' }">{{
+							userInfo.name
+						}}</cl-text>
+						<cl-text :size="14" :pt="{ className: 'opacity-80 mt-1' }">{{
+							lastLoginTime
+						}}</cl-text>
+					</view>
+					<view
+						class="bg-white/20 rounded-full p-2 transition-all duration-300 hover:bg-white/30 hover:scale-110"
+						@tap="goToProfile"
+					>
+						<cl-icon name="settings-line" color="white" :size="20"></cl-icon>
+					</view>
+				</view>
+			</view>
 
-				<view class="list">
-					<cl-row :gutter="10">
-						<template v-for="child in item.children" :key="child.label">
-							<cl-col :span="6" v-if="child.hidden != true">
-								<view
-									class="item dark:!bg-surface-800"
-									hover-class="opacity-80"
-									:hover-stay-time="250"
-									@tap="toPath(child)"
-								>
-									<cl-icon :name="child.icon" :size="18"></cl-icon>
-									<cl-text
-										:size="12"
-										:pt="{
-											className: 'mt-2 text-center'
-										}"
-										>{{ child.label }}</cl-text
-									>
-								</view>
-							</cl-col>
-						</template>
-					</cl-row>
+			<!-- 健康状态模块 -->
+			<view class="health-status mb-4 rounded-xl bg-white p-4">
+				<cl-text :size="16" :pt="{ className: 'font-bold mb-3' }">健康状态</cl-text>
+				<cl-row :gutter="10">
+					<cl-col :span="6">
+						<view class="health-item flex flex-col items-center">
+							<cl-icon name="activity-line" color="#4CAF50" :size="24"></cl-icon>
+							<cl-text :size="14" :pt="{ className: 'mt-2 text-center' }"
+								>{{ healthStatus.heartRate }} BPM</cl-text
+							>
+							<cl-text :size="12" :pt="{ className: 'text-surface-400' }"
+								>心率</cl-text
+							>
+						</view>
+					</cl-col>
+					<cl-col :span="6">
+						<view class="health-item flex flex-col items-center">
+							<cl-icon name="droplets-line" color="#2196F3" :size="24"></cl-icon>
+							<cl-text :size="14" :pt="{ className: 'mt-2 text-center' }"
+								>{{ healthStatus.spO2 }}%</cl-text
+							>
+							<cl-text :size="12" :pt="{ className: 'text-surface-400' }"
+								>血氧</cl-text
+							>
+						</view>
+					</cl-col>
+					<cl-col :span="6">
+						<view class="health-item flex flex-col items-center">
+							<cl-icon name="thermometer-line" color="#FF9800" :size="24"></cl-icon>
+							<cl-text :size="14" :pt="{ className: 'mt-2 text-center' }"
+								>{{ healthStatus.temperature }}°C</cl-text
+							>
+							<cl-text :size="12" :pt="{ className: 'text-surface-400' }"
+								>体温</cl-text
+							>
+						</view>
+					</cl-col>
+					<cl-col :span="6">
+						<view class="health-item flex flex-col items-center">
+							<cl-icon name="moon-line" color="#9C27B0" :size="24"></cl-icon>
+							<cl-text :size="14" :pt="{ className: 'mt-2 text-center' }"
+								>{{ healthStatus.sleep }}h</cl-text
+							>
+							<cl-text :size="12" :pt="{ className: 'text-surface-400' }"
+								>睡眠</cl-text
+							>
+						</view>
+					</cl-col>
+				</cl-row>
+			</view>
+
+			<!-- 储能数据模块 -->
+			<view class="energy-storage mb-4 rounded-xl bg-white p-4">
+				<cl-text :size="16" :pt="{ className: 'font-bold mb-3' }">储能数据</cl-text>
+				<view class="energy-chart h-[200px] mb-3">
+					<l-echart ref="energyChart" :option="energyChartOption"></l-echart>
+				</view>
+				<cl-row :gutter="10">
+					<cl-col :span="8">
+						<view class="energy-item bg-surface-50 rounded-lg p-3">
+							<cl-text :size="12" :pt="{ className: 'text-surface-400' }"
+								>今日储能</cl-text
+							>
+							<cl-text :size="18" :pt="{ className: 'font-bold mt-1' }"
+								>{{ energyData.daily }} kJ</cl-text
+							>
+						</view>
+					</cl-col>
+					<cl-col :span="8">
+						<view class="energy-item bg-surface-50 rounded-lg p-3">
+							<cl-text :size="12" :pt="{ className: 'text-surface-400' }"
+								>本周储能</cl-text
+							>
+							<cl-text :size="18" :pt="{ className: 'font-bold mt-1' }"
+								>{{ energyData.weekly }} kJ</cl-text
+							>
+						</view>
+					</cl-col>
+					<cl-col :span="8">
+						<view class="energy-item bg-surface-50 rounded-lg p-3">
+							<cl-text :size="12" :pt="{ className: 'text-surface-400' }"
+								>月均储能</cl-text
+							>
+							<cl-text :size="18" :pt="{ className: 'font-bold mt-1' }"
+								>{{ energyData.monthly }} kJ</cl-text
+							>
+						</view>
+					</cl-col>
+				</cl-row>
+			</view>
+
+			<!-- 恢复建议模块 -->
+			<view class="recovery-suggestions mb-4 rounded-xl bg-white p-4">
+				<cl-text :size="16" :pt="{ className: 'font-bold mb-3' }">恢复建议</cl-text>
+				<view class="suggestion-item mb-3 p-3 bg-surface-50 rounded-lg">
+					<view class="flex flex-row items-start">
+						<view class="bg-primary-100 rounded-full p-2 mr-3">
+							<cl-icon name="droplets-line" color="primary" :size="20"></cl-icon>
+						</view>
+						<view class="flex-1">
+							<cl-text :size="14" :pt="{ className: 'font-medium' }">{{
+								suggestions[0].title
+							}}</cl-text>
+							<cl-text :size="12" :pt="{ className: 'text-surface-400 mt-1' }">{{
+								suggestions[0].content
+							}}</cl-text>
+						</view>
+					</view>
+				</view>
+				<view class="suggestion-item mb-3 p-3 bg-surface-50 rounded-lg">
+					<view class="flex flex-row items-start">
+						<view class="bg-primary-100 rounded-full p-2 mr-3">
+							<cl-icon name="moon-line" color="primary" :size="20"></cl-icon>
+						</view>
+						<view class="flex-1">
+							<cl-text :size="14" :pt="{ className: 'font-medium' }">{{
+								suggestions[1].title
+							}}</cl-text>
+							<cl-text :size="12" :pt="{ className: 'text-surface-400 mt-1' }">{{
+								suggestions[1].content
+							}}</cl-text>
+						</view>
+					</view>
+				</view>
+				<view class="suggestion-item p-3 bg-surface-50 rounded-lg">
+					<view class="flex flex-row items-start">
+						<view class="bg-primary-100 rounded-full p-2 mr-3">
+							<cl-icon name="activity-line" color="primary" :size="20"></cl-icon>
+						</view>
+						<view class="flex-1">
+							<cl-text :size="14" :pt="{ className: 'font-medium' }">{{
+								suggestions[2].title
+							}}</cl-text>
+							<cl-text :size="12" :pt="{ className: 'text-surface-400 mt-1' }">{{
+								suggestions[2].content
+							}}</cl-text>
+						</view>
+					</view>
 				</view>
 			</view>
 		</view>
@@ -99,8 +238,8 @@
 </template>
 
 <script lang="ts" setup>
-import { isApp, isMp, router, useRefs, t } from "@/.cool";
-import { computed } from "vue";
+import { isApp, isMp, useRefs, t } from "@/.cool";
+import { ref, onMounted } from "vue";
 import { useUi } from "@/uni_modules/cool-ui";
 import { config } from "@/config";
 import LocaleSet from "@/components/locale-set.uvue";
@@ -109,418 +248,90 @@ import CustomTabbar from "./components/tabbar.uvue";
 
 const ui = useUi();
 const refs = useRefs();
+const energyChart = ref<any>(null);
 
-type Item = {
-	label: string;
-	icon?: string;
-	path?: string;
-	disabled?: boolean;
-	hidden?: boolean;
-	children?: Item[];
-};
-
-const data = computed<Item[]>(() => {
-	return [
-		{
-			label: t("基础组件"),
-			children: [
-				{
-					label: t("文本"),
-					icon: "text",
-					path: "/pages/demo/basic/text"
-				},
-				{
-					label: t("按钮"),
-					icon: "mouse-line",
-					path: "/pages/demo/basic/button"
-				},
-				{
-					label: t("图片"),
-					icon: "image-line",
-					path: "/pages/demo/basic/image"
-				},
-				{
-					label: t("图标"),
-					icon: "puzzle-2-line",
-					path: "/pages/demo/basic/icon"
-				},
-				{
-					label: t("标签"),
-					icon: "price-tag-3-line",
-					path: "/pages/demo/basic/tag"
-				}
-			]
-		},
-		{
-			label: t("表单组件"),
-			children: [
-				{
-					label: t("表单验证"),
-					icon: "draft-line",
-					path: "/pages/demo/form/form"
-				},
-				{
-					label: t("输入框"),
-					icon: "input-field",
-					path: "/pages/demo/form/input"
-				},
-				{
-					label: t("文本域"),
-					icon: "text-block",
-					path: "/pages/demo/form/textarea"
-				},
-				{
-					label: t("计数器"),
-					icon: "increase-decrease-line",
-					path: "/pages/demo/form/input-number"
-				},
-				{
-					label: t("口令输入"),
-					icon: "input-method-line",
-					path: "/pages/demo/form/input-otp"
-				},
-				{
-					label: t("键盘"),
-					icon: "keyboard-box-line",
-					path: "/pages/demo/form/keyboard"
-				},
-				{
-					label: t("单选框"),
-					icon: "radio-button-line",
-					path: "/pages/demo/form/radio"
-				},
-				{
-					label: t("多选框"),
-					icon: "checkbox-line",
-					path: "/pages/demo/form/checkbox"
-				},
-				{
-					label: t("开关"),
-					icon: "toggle-line",
-					path: "/pages/demo/form/switch"
-				},
-				{
-					label: t("评分"),
-					icon: "star-line",
-					path: "/pages/demo/form/rate"
-				},
-				{
-					label: t("滑块"),
-					icon: "equalizer-2-line",
-					path: "/pages/demo/form/slider"
-				},
-				{
-					label: t("选择器"),
-					icon: "dropdown-list",
-					path: "/pages/demo/form/select"
-				},
-				{
-					label: t("日期选择器"),
-					icon: "calendar-line",
-					path: "/pages/demo/form/select-date"
-				},
-				{
-					label: t("时间选择器"),
-					icon: "time-line",
-					path: "/pages/demo/form/select-time"
-				},
-				{
-					label: t("级联选择器"),
-					icon: "stacked-view",
-					path: "/pages/demo/form/cascader"
-				},
-				{
-					label: t("文件上传"),
-					icon: "file-upload-line",
-					path: "/pages/demo/form/upload"
-				},
-				{
-					label: t("日历"),
-					icon: "calendar-line",
-					path: "/pages/demo/form/calendar"
-				}
-			]
-		},
-		{
-			label: t("布局组件"),
-			children: [
-				{
-					label: t("弹性布局"),
-					icon: "layout-2-line",
-					path: "/pages/demo/layout/flex"
-				},
-				{
-					label: t("标签页"),
-					icon: "function-add-line",
-					path: "/pages/demo/layout/tabs"
-				},
-				{
-					label: t("折叠面板"),
-					icon: "collapse-vertical-line",
-					path: "/pages/demo/layout/collapse"
-				},
-				{
-					label: t("吸顶"),
-					icon: "align-top",
-					path: "/pages/demo/layout/sticky"
-				},
-				{
-					label: t("导航栏"),
-					icon: "layout-top-line",
-					path: "/pages/demo/layout/topbar"
-				},
-				{
-					label: t("底部视图"),
-					icon: "layout-bottom-line",
-					path: "/pages/demo/layout/footer"
-				},
-				{
-					label: t("悬浮视图"),
-					icon: "picture-in-picture-line",
-					path: "/pages/demo/layout/float-view"
-				},
-				{
-					label: t("底部导航栏"),
-					icon: "layout-bottom-2-line",
-					path: "/pages/demo/layout/tabbar"
-				}
-			]
-		},
-		{
-			label: t("数据展示"),
-			children: [
-				{
-					label: t("头像"),
-					icon: "account-circle-line",
-					path: "/pages/demo/data/avatar"
-				},
-				{
-					label: t("查看更多"),
-					icon: "menu-add-line",
-					path: "/pages/demo/data/read-more"
-				},
-				{
-					label: t("列表"),
-					icon: "list-check",
-					path: "/pages/demo/data/list"
-				},
-				{
-					label: t("列表视图"),
-					icon: "list-view",
-					path: "/pages/demo/data/list-view"
-				},
-				{
-					label: t("列表刷新"),
-					icon: "refresh-line",
-					path: "/pages/demo/data/list-view-refresh",
-					disabled: false
-				},
-				{
-					label: t("瀑布流"),
-					icon: "layout-column-line",
-					path: "/pages/demo/data/waterfall"
-				},
-				{
-					label: t("轮播图"),
-					icon: "carousel-view",
-					path: "/pages/demo/data/banner"
-				},
-				{
-					label: t("跑马灯"),
-					icon: "film-line",
-					path: "/pages/demo/data/marquee"
-				},
-				{
-					label: t("分页"),
-					icon: "page-separator",
-					path: "/pages/demo/data/pagination"
-				},
-				{
-					label: t("时间轴"),
-					icon: "timeline-view",
-					path: "/pages/demo/data/timeline"
-				},
-				{
-					label: t("拖拽"),
-					icon: "drag-move-line",
-					path: "/pages/demo/data/draggable"
-				},
-				{
-					label: t("筛选栏"),
-					icon: "filter-line",
-					path: "/pages/demo/data/filter-bar"
-				},
-				{
-					label: t("树形结构"),
-					icon: "node-tree",
-					path: "/pages/demo/data/tree"
-				}
-			]
-		},
-		{
-			label: t("状态组件"),
-			children: [
-				{
-					label: t("角标"),
-					icon: "notification-badge-line",
-					path: "/pages/demo/status/badge"
-				},
-				{
-					label: t("通知栏"),
-					icon: "error-warning-line",
-					path: "/pages/demo/status/noticebar"
-				},
-				{
-					label: t("倒计时"),
-					icon: "timer-line",
-					path: "/pages/demo/status/countdown"
-				},
-				{
-					label: t("数字滚动"),
-					icon: "arrow-up-box-line",
-					path: "/pages/demo/status/rolling-number"
-				},
-				{
-					label: t("进度条"),
-					icon: "subtract-line",
-					path: "/pages/demo/status/progress"
-				},
-				{
-					label: t("圆形进度条"),
-					icon: "circle-line",
-					path: "/pages/demo/status/progress-circle"
-				},
-				{
-					label: t("骨架图"),
-					icon: "shadow-line",
-					path: "/pages/demo/status/skeleton"
-				},
-				{
-					label: t("加载更多"),
-					icon: "loader-4-line",
-					path: "/pages/demo/status/loadmore"
-				}
-			]
-		},
-		{
-			label: t("反馈组件"),
-			children: [
-				{
-					label: t("操作菜单"),
-					icon: "menu-line",
-					path: "/pages/demo/feedback/action-sheet"
-				},
-				{
-					label: t("弹窗"),
-					icon: "chat-4-line",
-					path: "/pages/demo/feedback/popup"
-				},
-				{
-					label: t("确认框"),
-					icon: "chat-check-line",
-					path: "/pages/demo/feedback/confirm"
-				},
-				{
-					label: t("提示框"),
-					icon: "message-2-line",
-					path: "/pages/demo/feedback/toast"
-				}
-			]
-		},
-		{
-			label: "其他",
-			children: [
-				{
-					label: "QRCode",
-					icon: "qr-code-line",
-					path: "/pages/demo/other/qrcode"
-				},
-				{
-					label: t("签名"),
-					icon: "sketching",
-					path: "/pages/demo/other/sign"
-				},
-				{
-					label: t("水印"),
-					icon: "copyright-line",
-					path: "/pages/demo/other/watermark"
-				},
-				{
-					label: t("图片裁剪"),
-					icon: "crop-line",
-					path: "/pages/demo/other/cropper"
-				},
-				{
-					label: t("Canvas"),
-					icon: "markup-line",
-					path: "/pages/demo/other/canvas"
-				},
-				{
-					label: t("富文本"),
-					icon: "text-snippet",
-					path: "/pages/demo/other/rict-text",
-					disabled: true
-				},
-				{
-					label: "DayUts",
-					icon: "timer-2-line",
-					path: "/pages/demo/other/day-uts"
-				},
-				{
-					label: "Vibrate",
-					icon: "volume-vibrate-line",
-					path: "/pages/demo/other/vibrate"
-				},
-				{
-					label: "SVG",
-					icon: "bubble-chart-line",
-					path: "/pages/demo/other/svg"
-				},
-				{
-					label: "SlideVerify",
-					icon: "contract-right-fill",
-					path: "/pages/demo/other/slide-verify"
-				},
-				{
-					label: "Animation",
-					icon: "instance-line",
-					path: "/pages/demo/other/animation"
-				},
-				{
-					label: "Router",
-					icon: "compass-discover-line",
-					path: "/pages/demo/other/router/index"
-				},
-				{
-					label: "Share",
-					icon: "share-line",
-					path: "/pages/demo/other/share",
-					hidden: !isApp()
-				},
-				{
-					label: t("选座"),
-					icon: "armchair-line",
-					path: "/pages/demo/other/select-seat"
-				},
-				{
-					label: t("图表"),
-					icon: "bar-chart-2-line",
-					path: "/pages/index/charts"
-				}
-			]
-		}
-	];
+// 用户信息
+const userInfo = ref({
+	name: "张三",
+	avatar: "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=professional%20user%20avatar%20portrait%20simple%20style&image_size=square"
 });
 
-function toPath(item: Item) {
-	if (item.disabled == true) {
-		return ui.showToast({
-			message: t("该功能正在开发中")
-		});
-	}
+// 计算上次登录时间
+const lastLoginTime = ref(() => {
+	const now = new Date();
+	const hours = now.getHours().toString().padStart(2, "0");
+	const minutes = now.getMinutes().toString().padStart(2, "0");
+	const seconds = now.getSeconds().toString().padStart(2, "0");
+	const year = now.getFullYear();
+	const month = (now.getMonth() + 1).toString().padStart(2, "0");
+	const day = now.getDate().toString().padStart(2, "0");
+	return `上次登录时间：${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+});
 
-	router.to(item.path!);
-}
+// 健康状态
+const healthStatus = ref({
+	heartRate: 72,
+	spO2: 98,
+	temperature: 36.5,
+	sleep: 7.5
+});
+
+// 储能数据
+const energyData = ref({
+	daily: 2500,
+	weekly: 17500,
+	monthly: 75000
+});
+
+// 恢复建议
+const suggestions = ref([
+	{
+		title: "补充水分",
+		content: "建议每天饮用2000ml以上的水，保持身体水分平衡"
+	},
+	{
+		title: "规律作息",
+		content: "建议每天保持7-8小时的睡眠时间，有助于身体恢复"
+	},
+	{
+		title: "适度运动",
+		content: "建议每天进行30分钟的中等强度运动，增强身体免疫力"
+	}
+]);
+
+// 储能数据图表配置
+const energyChartOption = ref({
+	title: {
+		text: "储能趋势",
+		left: "center",
+		textStyle: {
+			fontSize: 14
+		}
+	},
+	xAxis: {
+		type: "category",
+		data: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+	},
+	yAxis: {
+		type: "value",
+		name: "kJ"
+	},
+	series: [
+		{
+			data: [2200, 2400, 2600, 2300, 2500, 2800, 2500],
+			type: "line",
+			areaStyle: {
+				color: "rgba(76, 175, 80, 0.1)"
+			},
+			lineStyle: {
+				color: "#4CAF50"
+			},
+			itemStyle: {
+				color: "#4CAF50"
+			}
+		}
+	]
+});
 
 function setLocale() {
 	refs.open("localeSet");
@@ -529,20 +340,42 @@ function setLocale() {
 function setSize() {
 	refs.open("sizeSet");
 }
+
+function goToProfile() {
+	// 导航到个人资料页面
+	uni.navigateTo({
+		url: "/pages/user/edit"
+	});
+}
+
+onMounted(() => {
+	// 初始化图表
+	if (energyChart.value) {
+		// 图表已在模板中通过 ref 引用，会自动初始化
+	}
+});
 </script>
 
 <style lang="scss" scoped>
-.group {
-	@apply mb-10;
+.user-info {
+	@apply shadow-lg;
+}
 
-	.list {
-		.item {
-			@apply flex flex-col items-center;
-			@apply rounded-xl bg-white px-2;
-			height: 70px;
-			margin-bottom: 5px;
-			padding-top: 18px;
-		}
-	}
+.health-status,
+.energy-storage,
+.recovery-suggestions {
+	@apply shadow-md;
+}
+
+.health-item {
+	@apply p-2;
+}
+
+.energy-item {
+	@apply text-center;
+}
+
+.suggestion-item {
+	@apply transition-all duration-300 hover:bg-surface-100;
 }
 </style>

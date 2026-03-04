@@ -1,0 +1,79 @@
+<template>
+	<view ref="unpairedViewRef" class="flex-1 flex flex-col items-center justify-center px-8">
+		<view class="mb-20 relative">
+			<device-icon :searching="false" ref="deviceIconRef"></device-icon>
+		</view>
+
+		<view class="text-center mb-20">
+			<cl-text color="white" :size="16" :pt="{ className: 'mb-4' }">{{
+				t("未有设备连接，点击进入设备连接")
+			}}</cl-text>
+			<cl-text color="gray-400" :size="14" v-if="!bluetoothEnabled">
+				{{ t("请开启蓝牙后再进行配对") }}
+			</cl-text>
+		</view>
+
+		<cl-button
+			:pt="{
+				className: '!h-[56px] !rounded-xl'
+			}"
+			type="primary"
+			rounded
+			@tap="enterPairingMode"
+		>
+			{{ t("去配对") }}
+		</cl-button>
+
+		<cl-button
+			:pt="{
+				className: '!h-[56px] !rounded-xl !mt-6 !bg-white/10'
+			}"
+			rounded
+			@tap="checkBluetoothStatus"
+		>
+			{{ t("检查蓝牙状态") }}
+		</cl-button>
+	</view>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted, nextTick, shallowRef } from "vue";
+import { t } from "@/.cool";
+import { createAnimation } from "@/.cool/animation";
+import DeviceIcon from "./device-icon.uvue";
+
+const props = defineProps<{
+	bluetoothEnabled: boolean;
+}>();
+
+const emit = defineEmits<{
+	enterPairingMode: [];
+	checkBluetoothStatus: [];
+}>();
+
+// 使用 shallowRef 减少响应式开销
+const unpairedViewRef = shallowRef<UniElement | null>(null);
+const deviceIconRef = shallowRef<UniElement | null>(null);
+
+function enterPairingMode() {
+	emit("enterPairingMode");
+}
+
+function checkBluetoothStatus() {
+	emit("checkBluetoothStatus");
+}
+
+onMounted(() => {
+	// 页面加载动画
+	nextTick(() => {
+		if (unpairedViewRef.value) {
+			createAnimation(unpairedViewRef.value).fadeIn(400).play(); // 减少动画时间，提高响应速度
+		}
+		if (deviceIconRef.value) {
+			createAnimation(deviceIconRef.value).zoomIn(400).play(); // 减少动画时间，提高响应速度
+		}
+	});
+});
+</script>
+
+<style lang="scss" scoped></style>

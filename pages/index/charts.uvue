@@ -1,5 +1,5 @@
 <template>
-	<scroll-view style="flex: 1; padding: 20rpx; background-color: #f5f5f5">
+	<cl-page>
 		<view class="container">
 			<view class="chart-item">
 				<text class="chart-title">基本折线图</text>
@@ -46,11 +46,15 @@
 				</view>
 			</view>
 		</view>
-	</scroll-view>
+
+		<!-- 自定义底部导航栏 -->
+		<custom-tabbar></custom-tabbar>
+	</cl-page>
 </template>
 
 <script setup lang="uts">
 import { ref, onMounted } from 'vue';
+import CustomTabbar from "./components/tabbar.uvue";
 
 // 参考 lime-echart 组件的实现
 const chart1 = ref<LEchartComponentPublicInstance|null>(null);

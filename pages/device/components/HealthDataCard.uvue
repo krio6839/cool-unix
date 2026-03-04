@@ -1,0 +1,225 @@
+<template>
+	<view class="health-card">
+		<view class="card-header">
+			<cl-text color="white" :size="16" :pt="{ className: 'font-semibold' }"
+				>健康数据</cl-text
+			>
+			<cl-button text color="white" size="small" @tap="onRefresh">
+				<template #icon>
+					<cl-icon name="refresh-ccw" :size="16"></cl-icon>
+				</template>
+				刷新
+			</cl-button>
+		</view>
+
+		<view class="card-content">
+			<view class="health-item" @tap="onItemTap('heartRate')">
+				<view class="health-icon heart">
+					<cl-icon name="heart" :size="24" color="#F44336"></cl-icon>
+				</view>
+				<view class="health-info">
+					<cl-text color="gray-400" :size="12">心率</cl-text>
+					<cl-text color="white" :size="16" :pt="{ className: 'font-semibold mt-1' }" v-if="healthData?.heartRate">{{
+						healthData?.heartRate
+					}}</cl-text>
+					<cl-text color="gray-400" :size="16" :pt="{ className: 'font-semibold mt-1' }" v-else>--</cl-text>
+					<cl-text color="gray-400" :size="12" :pt="{ className: 'mt-1' }">{{ heartRateStatus }}</cl-text>
+				</view>
+			</view>
+
+			<view class="health-item" @tap="onItemTap('restingHeartRate')">
+				<view class="health-icon resting">
+					<cl-icon name="heart-pulse" :size="24" color="#E91E63"></cl-icon>
+				</view>
+				<view class="health-info">
+					<cl-text color="gray-400" :size="12">静息心率</cl-text>
+					<cl-text color="white" :size="16" :pt="{ className: 'font-semibold mt-1' }" v-if="healthData?.restingHeartRate">{{
+						healthData?.restingHeartRate
+					}}</cl-text>
+					<cl-text color="gray-400" :size="16" :pt="{ className: 'font-semibold mt-1' }" v-else>--</cl-text>
+					<cl-text color="gray-400" :size="12" :pt="{ className: 'mt-1' }">{{ restingHeartRateStatus }}</cl-text>
+				</view>
+			</view>
+
+			<view class="health-item" @tap="onItemTap('bloodOxygen')">
+				<view class="health-icon oxygen">
+					<cl-icon name="droplets" :size="24" color="#2196F3"></cl-icon>
+				</view>
+				<view class="health-info">
+					<cl-text color="gray-400" :size="12">血氧</cl-text>
+					<cl-text color="white" :size="16" :pt="{ className: 'font-semibold mt-1' }" v-if="healthData?.bloodOxygen">{{
+						healthData?.bloodOxygen
+					}}%</cl-text>
+					<cl-text color="gray-400" :size="16" :pt="{ className: 'font-semibold mt-1' }" v-else>--</cl-text>
+					<cl-text color="gray-400" :size="12" :pt="{ className: 'mt-1' }">{{ bloodOxygenStatus }}</cl-text>
+				</view>
+			</view>
+
+			<view class="health-item" @tap="onItemTap('heartRateVariability')">
+				<view class="health-icon hrv">
+					<cl-icon name="trending-up" :size="24" color="#4CAF50"></cl-icon>
+				</view>
+				<view class="health-info">
+					<cl-text color="gray-400" :size="12">心率变异</cl-text>
+					<cl-text color="white" :size="16" :pt="{ className: 'font-semibold mt-1' }" v-if="healthData?.heartRateVariability">{{
+						healthData?.heartRateVariability
+					}}</cl-text>
+					<cl-text color="gray-400" :size="16" :pt="{ className: 'font-semibold mt-1' }" v-else>--</cl-text>
+					<cl-text color="gray-400" :size="12" :pt="{ className: 'mt-1' }">{{ hrvStatus }}</cl-text>
+				</view>
+			</view>
+		</view>
+
+		<view class="card-footer">
+			<cl-text color="gray-400" :size="12">最后更新: {{ lastUpdated }}</cl-text>
+		</view>
+	</view>
+</template>
+
+<script setup lang="ts">
+import { computed, ref } from "vue";
+
+const props = defineProps<{
+	healthData: {
+		heartRate: number | null;
+		restingHeartRate: number | null;
+		bloodOxygen: number | null;
+		heartRateVariability: number | null;
+	};
+	lastUpdated: string;
+}>();
+
+const emit = defineEmits<{
+	refresh: [];
+	itemTap: [type: string];
+}>();
+
+// 心率状态
+const heartRateStatus = computed(() => {
+	const rate = props.healthData?.heartRate;
+	if (!rate) return "--";
+	if (rate < 60) return "偏低";
+	if (rate > 100) return "偏高";
+	return "正常";
+});
+
+// 静息心率状态
+const restingHeartRateStatus = computed(() => {
+	const rate = props.healthData?.restingHeartRate;
+	if (!rate) return "--";
+	if (rate < 60) return "优秀";
+	if (rate < 70) return "良好";
+	if (rate < 80) return "正常";
+	return "偏高";
+});
+
+// 血氧状态
+const bloodOxygenStatus = computed(() => {
+	const oxygen = props.healthData?.bloodOxygen;
+	if (!oxygen) return "--";
+	if (oxygen >= 98) return "优秀";
+	if (oxygen >= 95) return "良好";
+	if (oxygen >= 90) return "正常";
+	return "偏低";
+});
+
+// 心率变异状态
+const hrvStatus = computed(() => {
+	const hrv = props.healthData?.heartRateVariability;
+	if (!hrv) return "--";
+	if (hrv >= 60) return "优秀";
+	if (hrv >= 40) return "良好";
+	if (hrv >= 20) return "正常";
+	return "偏低";
+});
+
+function onRefresh() {
+	emit("refresh");
+}
+
+function onItemTap(type: string) {
+	emit("itemTap", type);
+}
+</script>
+
+<style lang="scss" scoped>
+.health-card {
+	background: rgba(255, 255, 255, 0.1);
+	border-radius: 16px;
+	padding: 20rpx;
+	backdrop-filter: blur(10px);
+	transition: all 0.3s ease;
+
+	&:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+	}
+
+	.card-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 20rpx;
+	}
+
+	.card-content {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 16rpx;
+		margin-bottom: 20rpx;
+
+		.health-item {
+			display: flex;
+			align-items: center;
+			padding: 16rpx;
+			border-radius: 12px;
+			background: rgba(255, 255, 255, 0.05);
+			transition: all 0.3s ease;
+			cursor: pointer;
+
+			&:hover {
+				background: rgba(255, 255, 255, 0.1);
+				transform: translateY(-2px);
+				box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+			}
+
+			.health-icon {
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				width: 56rpx;
+				height: 56rpx;
+				border-radius: 50%;
+				margin-right: 16rpx;
+
+				&.heart {
+					background: rgba(244, 67, 54, 0.2);
+				}
+
+				&.resting {
+					background: rgba(233, 30, 99, 0.2);
+				}
+
+				&.oxygen {
+					background: rgba(33, 150, 243, 0.2);
+				}
+
+				&.hrv {
+					background: rgba(76, 175, 80, 0.2);
+				}
+			}
+
+			.health-info {
+				display: flex;
+				flex-direction: column;
+			}
+		}
+	}
+
+	.card-footer {
+		margin-top: 10rpx;
+		display: flex;
+		justify-content: flex-end;
+	}
+}
+</style>

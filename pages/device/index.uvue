@@ -1,0 +1,219 @@
+<template>
+	<cl-page class="device-page">
+		<cl-topbar
+			safe-area-top
+			background-color="transparent"
+			left-icon="arrow-left"
+			@tap="goBack"
+		>
+			<template #title>
+				<cl-text color="white" :size="18">{{ titleText }}</cl-text>
+			</template>
+		</cl-topbar>
+
+		<!-- H5平台提示 -->
+		<!-- #ifdef H5 -->
+		<view class="flex-1 flex flex-col items-center justify-center px-8">
+			<view class="mb-12">
+				<cl-text color="white" :size="20" :pt="{ className: 'font-bold mb-6' }">{{
+					t("H5平台不支持蓝牙功能")
+				}}</cl-text>
+				<cl-text color="gray-400" :size="16">{{ t("请在APP端使用设备配对功能") }}</cl-text>
+			</view>
+			<cl-button
+				:pt="{
+					className: '!h-[56px] !rounded-xl'
+				}"
+				type="primary"
+				rounded
+				@tap="goBack"
+			>
+				{{ t("返回") }}
+			</cl-button>
+		</view>
+		<!-- #endif -->
+
+		<!-- 已连接状态 -->
+		<!-- #ifndef H5 -->
+		<view v-if="isConnected" class="flex-1 flex flex-col p-6">
+			<status-card :device-data="deviceData" @refresh="fetchDeviceData"></status-card>
+
+			<health-data-card
+				:health-data="healthData"
+				:last-updated="lastUpdated"
+				@refresh="fetchHealthData"
+				@item-tap="onHealthItemTap"
+			></health-data-card>
+
+			<view class="mt-8">
+				<cl-text color="white" :size="16" :pt="{ className: 'font-semibold mb-4' }"
+					>设备信息</cl-text
+				>
+
+				<view class="bg-white/10 rounded-12 p-4">
+					<cl-list-item
+						:title="t('设备名称')"
+						:value="connectedDeviceName"
+						:show-arrow="false"
+						:title-style="{ color: '#fff' }"
+						:value-style="{ color: '#aaa' }"
+					></cl-list-item>
+					<cl-list-item
+						:title="t('连接状态')"
+						:value-style="{ color: '#4CAF50' }"
+						:show-arrow="false"
+					>
+						<template #value>
+							<cl-text color="#4CAF50">{{ t("已连接") }}</cl-text>
+						</template>
+					</cl-list-item>
+				</view>
+			</view>
+
+			<cl-button
+				:pt="{ className: '!h-[56px] !rounded-xl mt-8' }"
+				type="danger"
+				rounded
+				@tap="disconnectDevice"
+			>
+				{{ t("断开连接") }}
+			</cl-button>
+		</view>
+
+		<!-- 未配对状态 -->
+		<unpaired-state
+			v-else-if="!isPairingMode"
+			:bluetooth-enabled="bluetoothEnabled"
+			@enter-pairing-mode="enterPairingMode"
+			@check-bluetooth-status="checkBluetoothStatus"
+		/>
+
+		<!-- 配对状态 -->
+		<pairing-state
+			v-else
+			:searching="searching"
+			:device-list="deviceList"
+			@start-search="startSearch"
+			@connect-device="connectDevice"
+			@select-location="selectLocation"
+		/>
+		<!-- #endif -->
+	</cl-page>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted, computed } from "vue";
+import { router, t } from "@/.cool";
+import { useUi } from "@/uni_modules/cool-ui";
+import PairingState from "./components/PairingState.uvue";
+import UnpairedState from "./components/UnpairedState.uvue";
+import StatusCard from "./components/StatusCard.uvue";
+import HealthDataCard from "./components/HealthDataCard.uvue";
+// #ifndef H5
+import { useBluetoothManager } from "./composables/useBluetoothManager";
+// #endif
+
+const ui = useUi();
+const isPairingMode = ref(false);
+const isConnected = ref(false);
+const connectedDeviceName = ref("Cool Unix 设备");
+
+// 计算属性：根据状态动态生成标题文本，避免在模板中进行复杂的逻辑判断
+const titleText = computed(() => {
+	if (isConnected.value) {
+		return t("设备详情");
+	} else if (isPairingMode.value) {
+		return t("产品配对");
+	} else {
+		return t("未配对");
+	}
+});
+
+// 使用蓝牙管理器
+const {
+	searching,
+	deviceList,
+	bluetoothEnabled,
+	deviceData,
+	healthData,
+	lastUpdated,
+	checkBluetoothStatus,
+	startSearch,
+	connectDevice: originalConnectDevice,
+	fetchDeviceData,
+	fetchHealthData,
+	setupConnectionCallback
+} = useBluetoothManager();
+
+// 包装连接设备函数，添加成功回调
+const connectDevice = (deviceId: string) => {
+	originalConnectDevice(deviceId, handleConnectSuccess);
+};
+
+function goBack() {
+	router.back();
+}
+
+function enterPairingMode() {
+	isPairingMode.value = true;
+}
+
+function selectLocation() {
+	ui.showToast({ message: t("选择位置功能") });
+}
+
+// 连接成功后处理
+function handleConnectSuccess() {
+	isConnected.value = true;
+	isPairingMode.value = false;
+	// 异步获取数据，避免阻塞UI
+	setTimeout(() => {
+		fetchDeviceData();
+		fetchHealthData();
+	}, 100);
+	ui.showToast({ message: t("连接成功"), type: "success" });
+}
+
+// 断开连接
+function disconnectDevice() {
+	isConnected.value = false;
+	ui.showToast({ message: t("已断开连接"), type: "warn" });
+}
+
+// 健康数据项点击处理
+function onHealthItemTap(type: string) {
+	switch (type) {
+		case "heartRate":
+			ui.showToast({ message: t("心率数据详情"), type: "info" });
+			break;
+		case "restingHeartRate":
+			ui.showToast({ message: t("静息心率数据详情"), type: "info" });
+			break;
+		case "bloodOxygen":
+			ui.showToast({ message: t("血氧数据详情"), type: "info" });
+			break;
+		case "heartRateVariability":
+			ui.showToast({ message: t("心率变异数据详情"), type: "info" });
+			break;
+		default:
+			break;
+	}
+}
+
+onMounted(() => {
+	// #ifndef H5
+	// 初始化蓝牙
+	// 检查蓝牙状态
+	checkBluetoothStatus();
+	// 设置连接状态回调
+	setupConnectionCallback();
+	// #endif
+});
+</script>
+
+<style lang="scss" scoped>
+.device-page {
+	background-color: #000;
+	position: relative;
+}
+</style>

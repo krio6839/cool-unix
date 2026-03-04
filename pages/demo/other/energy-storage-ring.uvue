@@ -1,0 +1,105 @@
+<template>
+  <cl-page title="储能环形图">
+    <scroll-view class="container" scroll-y>
+      <view class="section">
+        <cl-text type="title" class="section-title">基本用法</cl-text>
+        <view class="demo-item">
+          <energy-storage-ring :percentage="65"></energy-storage-ring>
+          <cl-text class="demo-desc">默认配置，65% 储能</cl-text>
+        </view>
+      </view>
+
+      <view class="section">
+        <cl-text type="title" class="section-title">不同大小</cl-text>
+        <view class="demo-grid">
+          <view class="demo-item">
+            <energy-storage-ring :percentage="30" :size="150"></energy-storage-ring>
+            <cl-text class="demo-desc">150px</cl-text>
+          </view>
+          <view class="demo-item">
+            <energy-storage-ring :percentage="75" :size="200"></energy-storage-ring>
+            <cl-text class="demo-desc">200px</cl-text>
+          </view>
+          <view class="demo-item">
+            <energy-storage-ring :percentage="45" :size="250"></energy-storage-ring>
+            <cl-text class="demo-desc">250px</cl-text>
+          </view>
+        </view>
+      </view>
+
+      <view class="section">
+        <cl-text type="title" class="section-title">不同颜色</cl-text>
+        <view class="demo-grid">
+          <view class="demo-item">
+            <energy-storage-ring :percentage="80" ring-color="#10B981"></energy-storage-ring>
+            <cl-text class="demo-desc">绿色</cl-text>
+          </view>
+          <view class="demo-item">
+            <energy-storage-ring :percentage="60" ring-color="#F59E0B"></energy-storage-ring>
+            <cl-text class="demo-desc">橙色</cl-text>
+          </view>
+          <view class="demo-item">
+            <energy-storage-ring :percentage="40" ring-color="#EF4444"></energy-storage-ring>
+            <cl-text class="demo-desc">红色</cl-text>
+          </view>
+        </view>
+      </view>
+
+      <view class="section">
+        <cl-text type="title" class="section-title">动态调整</cl-text>
+        <view class="demo-item">
+          <energy-storage-ring :percentage="dynamicPercentage" :stroke-width="20"></energy-storage-ring>
+          <cl-slider v-model="dynamicPercentage" :min="0" :max="100" class="slider"></cl-slider>
+          <cl-text class="demo-desc">滑动调整百分比: {{ dynamicPercentage }}%</cl-text>
+        </view>
+      </view>
+    </scroll-view>
+  </cl-page>
+</template>
+
+<script lang="ts" setup>
+  import { ref } from 'vue';
+  import energyStorageRing from '@/components/energy-storage-ring.uvue';
+
+  // 动态百分比
+  const dynamicPercentage = ref(50);
+</script>
+
+<style lang="scss" scoped>
+  .container {
+    flex: 1;
+    padding: 20rpx;
+  }
+
+  .section {
+    margin-bottom: 40rpx;
+  }
+
+  .section-title {
+    margin-bottom: 20rpx;
+  }
+
+  .demo-grid {
+    display: flex;
+    justify-content: space-around;
+    flex-wrap: wrap;
+  }
+
+  .demo-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 30rpx;
+  }
+
+  .demo-desc {
+    margin-top: 15rpx;
+    font-size: 28rpx;
+    color: #6B7280;
+  }
+
+  .slider {
+    width: 80%;
+    margin: 20rpx 0;
+  }
+</style>

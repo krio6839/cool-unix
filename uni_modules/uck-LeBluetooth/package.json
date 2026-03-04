@@ -1,0 +1,89 @@
+{
+  "id": "uck-LeBluetooth",
+  "displayName": "UCK-低功率蓝牙",
+  "version": "1.0.8",
+  "description": "uck-LeBluetooth 是一个低功率蓝牙解决方案实现，让开发者专注业务",
+  "keywords": [
+    "uck",
+    "bluetooth",
+    "蓝牙",
+    "uts",
+    ""
+],
+  "repository": "",
+  "engines": {
+    "HBuilderX": "^4.56"
+  },
+  "dcloudext": {
+    "type": "uts",
+    "sale": {
+      "regular": {
+        "price": "0.00"
+      },
+      "sourcecode": {
+        "price": "0.00"
+      }
+    },
+    "contact": {
+      "qq": "2623123406"
+    },
+    "declaration": {
+      "ads": "无",
+      "data": "插件不采集任何数据",
+      "permissions": "已内置到AndroidManifest.xml中，无需手动添加\n<uses-permission android:name=\"android.permission.BLUETOOTH\" />\n<uses-permission android:name=\"android.permission.BLUETOOTH_ADMIN\" />\n<uses-permission android:name=\"android.permission.BLUETOOTH_SCAN\" android:usesPermissionFlags=\"neverForLocation\" />\n<uses-permission android:name=\"android.permission.BLUETOOTH_ADVERTISE\" />\n\t<uses-permission android:name=\"android.permission.BLUETOOTH_CONNECT\" />\n<uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\" />\n<uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\" />\n<uses-permission android:name=\"android.permission.ACCESS_BACKGROUND_LOCATION\"></uses-permission>"
+    },
+    "npmurl": ""
+  },
+  "uni_modules": {
+    "dependencies": [],
+    "encrypt": [],
+    "platforms": {
+      "cloud": {
+        "tcb": "y",
+        "aliyun": "y",
+        "alipay": "y"
+      },
+      "client": {
+        "Vue": {
+          "vue2": "n",
+          "vue3": "y"
+        },
+        "App": {
+            "app-android": {
+                "minVersion": "23"
+            },
+            "app-ios": "n",
+            "app-harmony": "u"
+        },
+        "H5-mobile": {
+          "Safari": "n",
+          "Android Browser": "n",
+          "微信浏览器(Android)": "n",
+          "QQ浏览器(Android)": "n"
+        },
+        "H5-pc": {
+          "Chrome": "n",
+          "IE": "n",
+          "Edge": "n",
+          "Firefox": "n",
+          "Safari": "n"
+        },
+        "小程序": {
+          "微信": "n",
+          "阿里": "n",
+          "百度": "n",
+          "字节跳动": "n",
+          "QQ": "n",
+          "钉钉": "n",
+          "快手": "n",
+          "飞书": "n",
+          "京东": "n"
+        },
+        "快应用": {
+          "华为": "n",
+          "联盟": "n"
+        }
+      }
+    }
+  }
+}

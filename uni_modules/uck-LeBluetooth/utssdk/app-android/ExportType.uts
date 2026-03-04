@@ -1,0 +1,122 @@
+import BleDevice from "com.clj.fastble.data.BleDevice";
+import BleException from "com.clj.fastble.exception.BleException";
+import BluetoothGatt from "android.bluetooth.BluetoothGatt";
+// 类型定义
+
+/**
+ * 扫描低功耗蓝牙类型
+ */
+export type UCKScanBluetoothCallbackOptions = {
+	/**
+	 * 开始扫描
+	 */
+	onScanStarted: (success : boolean) => void,
+	/**
+	 * 扫描到一个符合扫描规则的BLE设备
+	 */
+	onScanning: (bleDevice : BleDevice) => void,
+	/**
+	 * 扫描结束，列出所有扫描到的符合扫描规则的BLE设备
+	 */
+	onScanFinished: (scanResultList : List<BleDevice>) => void
+}
+
+/**
+ * 蓝牙连接类型
+ */
+export type UCKBleGattCallbackOptions = {
+	/**
+	 * 开始连接
+	 */
+	onStartConnect: () => void,
+	/**
+	 * 连接失败
+	 */
+	onConnectFail: (bleDevice: BleDevice, exception: BleException) => void,
+	/**
+	 * 连接成功，BleDevice即为所连接的BLE设备
+	 */
+	onConnectSuccess: (bleDevice: BleDevice, gatt: BluetoothGatt, status: number) => void,
+	/**
+	 * 连接中断，isActiveDisConnected表示是否是主动调用了断开连接方法
+	 */
+	onDisConnected: (isActiveDisConnected: boolean, bleDevice: BleDevice, gatt: BluetoothGatt, status: number) => void 
+}
+
+/**
+ * 订阅通知notify类型
+ */
+export type UCKBleNotifyCallbackOptions = {
+	/**
+	 * 打开通知操作成功
+	 */
+	onNotifySuccess:() => void,
+	/**
+	 * 打开通知操作失败
+	 */
+	onNotifyFailure: (exception: BleException) => void,
+	/**
+	 * 打开通知后，设备发过来的数据将在这里出现
+	 */
+	onCharacteristicChanged: (data: ByteArray) => void
+}
+
+/**
+ * 订阅通知indicate类型
+ */
+export type UCKBleIndicateCallbackOptions = {
+	/**
+	 * 打开通知操作成功
+	 */
+	onIndicateSuccess: () => void,
+	/**
+	 * 打开通知操作失败
+	 */
+	onIndicateFailure: (exception: BleException) => void,
+	/**
+	 * 打开通知后，设备发过来的数据将在这里出现
+	 */
+	onCharacteristicChanged: (data: ByteArray) => void
+}
+
+/**
+ * 写类型
+ */
+export type UCKBleWriteCallbackOptions = {
+	/**
+	 * 发送数据到设备成功
+	 */
+	onWriteSuccess: (current: Int , total: Int, justWrite: ByteArray) => void,
+	/**
+	 * 发送数据到设备失败
+	 */
+	onWriteFailure: (exception: BleException) => void
+}
+
+/**
+ * 读类型
+ */
+export type UCKBleReadCallbackOptions = {
+	/**
+	 * 读特征值数据成功
+	 */
+	onReadSuccess: (data: ByteArray) => void,
+	/**
+	 * 读特征值数据失败
+	 */
+	onReadFailure: (exception: BleException) => void
+}
+
+/**
+ * 获取设备的信号强度Rssi类型
+ */
+export type UCKBleRssiCallbackOptions = {
+	/**
+	 * 读取设备的信号强度成功
+	 */
+	onRssiSuccess: (rssi: Int) => void,
+	/**
+	 * 读取设备的信号强度失败
+	 */
+	onRssiFailure: (exception: BleException) => void
+}

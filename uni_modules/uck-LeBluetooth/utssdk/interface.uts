@@ -1,0 +1,539 @@
+/**
+ * interface.uts
+ * uts插件接口定义文件，按规范定义接口文件可以在HBuilderX中更好的做到语法提示
+ */
+
+/**
+ * myApi 异步函数的参数，在type里定义函数需要的参数以及api成功、失败的相关回调函数。
+ */
+export type MyApiOptions = {
+  paramA : boolean
+  success ?: (res : MyApiResult) => void
+  fail ?: (res : MyApiFail) => void
+  complete ?: (res : any) => void
+}
+
+/**
+ * 函数返回结果
+ * 可以是void, 基本数据类型，自定义type, 或者其他类型。
+ * [可选实现]
+ */
+export type MyApiResult = {
+  fieldA : number,
+  fieldB : boolean,
+  fieldC : string
+}
+
+/**
+ * 错误码
+ * 根据uni错误码规范要求，建议错误码以90开头，以下是错误码示例：
+ * - 9010001 错误信息1
+ * - 9010002 错误信息2
+ */
+export type MyApiErrorCode = 9010001 | 9010002;
+/**
+ * myApi 的错误回调参数
+ */
+export interface MyApiFail extends IUniError {
+  errCode : MyApiErrorCode
+};
+
+/* 异步函数定义 */
+export type MyApi = (options : MyApiOptions) => void
+
+/* 同步函数定义 */
+export type MyApiSync = (paramA : boolean) => MyApiResult
+
+
+export type UFail = (err: UniError) => void;
+
+export type USuccessCalback = {
+	errCode: number,
+	errMsg: string
+}
+
+export type UComplete = (res: any) => void;
+
+export type LeException  = {
+	/**
+	 * 状态码
+	 */
+	code: number,
+	/**
+	 * 错误信息
+	 */
+	description: string
+}
+
+
+export type UDevice = {
+	/**
+	 * 设备名称
+	 */
+	name: string | null,
+	/**
+	 * 蓝牙地址
+	 */
+	deviceId: string,
+	/**
+	 * 蓝牙设备广播数据段中的 LocalName
+	 */
+	localName: string | null,
+	/**
+	 * 蓝牙设备的信号强度，单位dBm
+	 */
+	RSSI: number,
+	/**
+	 * 蓝牙设备广播数据段中的 ManufacturerData 
+	 */
+	advertisData: number[]
+}
+
+export type UInitConfig = {
+	type?: string
+}
+
+// 权限
+export type RequestPermissionOptions = {
+	/**
+	 * 蓝牙权限受限提示语
+	 */
+	bluetooth?: string,
+	/**
+	 * 位置授权提示语（在高版本的情况下使用到位置权限）
+	 */
+	location?: string,
+	/**
+	 * 权限已授权成功回调
+	 */
+	callback?: () => void,
+}
+
+
+export type UInitScanRuleOptions = {
+	/**
+	 * 只扫描指定的服务的设备，可选
+	 */
+	serviceUuids?: string[],
+	// /**
+	//  * 只扫描指定广播名的设备，可选
+	//  */
+	// deviceName?: string[],
+	/**
+	 * 只扫描指定mac的设备，可选
+	 */
+	deviceMac?: string,
+	/**
+	 * 连接时的autoConnect参数，可选，默认false
+	 */
+	autoConnect?: boolean,
+	/**
+	 * 扫描超时时间，可选，默认10秒；小于等于0表示不限制扫描时间
+	 */
+	scanTimeOut: number,
+	/**
+	 * 回调
+	 */
+	initBallback?: () => void
+}
+
+
+export type BLEScanCallbackOnScanStarted = {
+	success: boolean
+}
+
+export type BLEScanCallback = (onScanStarted: BLEScanCallbackOnScanStarted) => void
+
+
+/**
+ * 扫描低功率蓝牙
+ */
+export type ScanLeBluetoothOptions = {
+	/**
+	 * 开始扫描
+	 */
+	onScanStarted?: (success : boolean) => void,
+	/**
+	 * 扫描到一个符合扫描规则的BLE设备
+	 */
+	onScanning?: (device: UDevice) => void,
+	/**
+	 * 扫描结束，列出所有扫描到的符合扫描规则的BLE设备
+	 */
+	onScanFinished?: (deviceList: UDevice[]) => void
+}
+
+// 自定义蓝牙搜索器
+export type ScanRepeatBluetoothOptions = {
+	
+}
+
+
+
+// 连接蓝牙
+export type CreateUBLEConnectionOnConnectFailCallback = (device: UDevice, message: LeException) => void;
+export type CreateUBLEConnectionSuccess = USuccessCalback;
+export type CreateUBLEConnectionOptions = {
+	/**
+	 * 蓝牙地址
+	 */
+	deviceId: string,
+	/**
+	 * 开始连接
+	 */
+	onStartConnect?: () => void,
+	/**
+	 * 连接失败
+	 */
+	onConnectFail?: (device: UDevice, message: LeException) => void,
+	/**
+	 * 连接成功，BleDevice即为所连接的BLE设备
+	 */
+	onConnectSuccess?: (device: UDevice, status: number) => void,
+	/**
+	 * 连接中断，isActiveDisConnected表示是否是主动调用了断开连接方法
+	 */
+	onDisConnected?: (isActiveDisConnected: boolean, device: UDevice, status: number) => void
+}
+
+// 获取某个已连接设备的所有Service
+export type GetBluetoothGattServicesOptions = {
+	/**
+	 * 蓝牙地址
+	 */
+	deviceId: string,
+	/**
+	 * 设备服务列表
+	 */
+	success?: (services: string[]) => void
+}
+
+export type GattCharacteristics = {
+	/**
+	 * 蓝牙设备特征的 UUID
+	 */
+	uuid: string,
+	/**
+	 * 该特征是否支持 read 操作
+	 */
+	read: boolean,
+	/**
+	 * 该特征是否支持 write 操作
+	 */
+	write: boolean	
+	/**
+	 * 该特征是否支持 notify 操作
+	 */
+	notify: boolean	
+	/**
+	 * 该特征是否支持 indicate 操作
+	 */
+	indicate: boolean	
+	/**
+	 * 该特征是否支持无回复写操作
+	 */
+	writeNoResponse: boolean	
+	/**
+	 * 该特征是否支持有回复写操作
+	 */
+	writeDefault: boolean	
+}
+
+// 获取某个Service的所有Characteristic
+export type GetBluetoothGattCharacteristicsOptions = {
+	/**
+	 * 蓝牙地址
+	 */
+	deviceId: string,
+	/**
+	 * 服务uuid
+	 */
+	serviceId: string,
+	/**
+	 * 某service_uuid服务所有特征 (characteristic)
+	 */
+	success?: (res: GattCharacteristics[]) => void,
+	// /**
+	//  * 异常
+	//  */
+	// fail?: (error: UFail) => void
+}
+
+// 订阅通知notify 
+export type NotifyBluetoothOptions = {
+	/**
+	 * 蓝牙地址
+	 */
+	deviceId: string,
+	/**
+	 * 服务uuid
+	 */
+	uuidService: string,
+	/**
+	 * 通知uuid
+	 */
+	uuidNotify: string,
+	/**
+	 * 打开通知操作成功
+	 */
+	onNotifySuccess?: (deviceId: string) => void,
+	/**
+	 * 打开通知操作失败
+	 */
+	onNotifyFailure?: (deviceId: string, message: LeException) => void,
+	/**
+	 * 打开通知后，设备发过来的数据将在这里出现
+	 */
+	onCharacteristicChanged?: (deviceId: string, data: number[], value: string) => void,
+}
+
+// 取消订阅通知notify
+export type StopnotifyBluetoothOptions = {
+	/**
+	 * 蓝牙地址
+	 */
+	deviceId: string,
+	/**
+	 * 服务uuid
+	 */
+	uuidService: string,
+	/**
+	 * 订阅通知notify
+	 */
+	uuidNotify: string,
+	/**
+	 * 回调
+	 */
+	notifyCallback?: () => void
+}
+
+
+// 订阅通知indicate
+export type IndicateBluetoothOptions = {
+	/**
+	 * 蓝牙地址
+	 */
+	deviceId: string,
+	/**
+	 * 服务uuid
+	 */
+	uuidService: string,
+	/**
+	 * 订阅通知indicate
+	 */
+	uuidIndicate: string,
+	/**
+	 * 打开通知操作成功
+	 */
+	onIndicateSuccess?: (deviceId: string) => void,
+	/**
+	 * 打开通知操作失败
+	 */
+	onIndicateFailure?: (deviceId: string, message: LeException) => void,
+	/**
+	 * 打开通知后，设备发过来的数据将在这里出现
+	 */
+	onCharacteristicChanged?: (deviceId: string, data: number[], value: string) => void,
+}
+
+// 取消订阅通知indicate
+export type StopIndicateBluetoothOptions = {
+	/**
+	 * 蓝牙地址
+	 */
+	deviceId: string,
+	/**
+	 * 服务uuid
+	 */
+	uuidService: string,
+	/**
+	 * 订阅通知indicate
+	 */
+	uuidIndicate: string,
+	/**
+	 * 回调
+	 */
+	indicateCallback?: () => void
+}
+
+// 写
+export type WriteBluetoothOptions = {
+	/**
+	 * 蓝牙地址
+	 */
+	deviceId: string,
+	/**
+	 * 服务uuid
+	 */
+	uuidService: string,
+	/**
+	 * 写write
+	 */
+	uuidWrite: string,
+	/**
+	 * 写入数据
+	 */
+	data: string,
+	/**
+	 * 发送数据到设备成功
+	 */
+	onWriteSuccess?: (current: number, total: number, justWrite: number[], writeData: string) => void,
+	/**
+	 * 发送数据到设备失败
+	 */
+	onWriteFailure?: (message: LeException) => void
+}
+
+// 读
+export type ReadBluetoothOptions = {
+	/**
+	 * 蓝牙地址
+	 */
+	deviceId: string,
+	/**
+	 * 服务uuid
+	 */
+	uuidService: string,
+	/**
+	 * 写write
+	 */
+	uuidRead: string,
+	/**
+	 * 读特征值数据成功
+	 */
+	onReadSuccess?: (deviceId: string, data: number[], value: string) => void,
+	/**
+	 * 读特征值数据失败
+	 */
+	onReadFailure?: (deviceId: string, message: LeException) => void
+}
+
+// 获取设备的信号强度Rssi
+export type ReadRssiBluetoothOptions = {
+	/**
+	 * 蓝牙地址
+	 */
+	deviceId: string,
+	/**
+	 * 读取设备的信号强度失败
+	 */
+	onRssiFailure?: (message: LeException) => void,
+	/**
+	 * 读取设备的信号强度成功
+	 */
+	onRssiSuccess?: (rssi: number) => void
+}
+
+// 断开某个设备
+export type DisconnectBluetoothOptions = {
+	/**
+	 * 蓝牙地址
+	 */
+	deviceId: string,
+	/**
+	 * 回调
+	 */
+	callback?: () => void
+}
+
+
+/**
+ * 蓝牙适配器管理接口
+ */
+export interface UBluetooth {
+	
+	/**
+	 * 初始化: 权限校验
+	 */
+	requestPermission(options: RequestPermissionOptions): void,
+	
+	/**
+	 * 配置扫描规则
+	 */
+	initScanRule(options: UInitScanRuleOptions): void,
+	
+	/**
+	 * 开始扫描低功耗蓝牙
+	 */
+	scanBluetooth(options: ScanLeBluetoothOptions): void,
+	
+	// /**
+	//  * 开始扫描低功率蓝牙(允许重复上报)
+	//  */
+	// scanRepeatBluetooth(options: ScanRepeatBluetoothOptions): void,
+	
+	/**
+	 * 停止扫描低功率蓝牙
+	 */
+	cancelScanBluetooth(callback: () => void): void,
+	
+	/**
+	 * 连接蓝牙: 直接通过蓝牙连接
+	 */
+	createBluetoothConnection(options: CreateUBLEConnectionOptions): void,
+	
+	/**
+	 * 检测某个蓝牙是否已连接
+	 */
+	isCreateConnected(deviceId: string): boolean,
+	
+	/**
+	 * 获取某个已连接设备的所有Service
+	 */
+	getBluetoothGattServices(options: GetBluetoothGattServicesOptions): void,
+	
+	/**
+	 * 获取某个Service的所有Characteristic
+	 */
+	getBluetoothGattCharacteristics(options: GetBluetoothGattCharacteristicsOptions): void
+	
+	/**
+	 * 订阅通知notify
+	 */
+	notifyBluetooth(options: NotifyBluetoothOptions): void,
+	
+	/**
+	 * 取消订阅通知notify
+	 */
+	stopNotifyBluetooth(options: StopnotifyBluetoothOptions): void,
+	
+	/**
+	 * 订阅通知indicate
+	 */
+	indicateBluetooth(options: IndicateBluetoothOptions): void,
+	
+	/**
+	 * 取消订阅通知indicate
+	 */
+	stopIndicateBluetooth(options: StopIndicateBluetoothOptions): void,
+	
+	/**
+	 * 写
+	 */
+	writeBluetooth(options: WriteBluetoothOptions): void,
+	
+	/**
+	 * 读
+	 */
+	readBluetooth(options: ReadBluetoothOptions): void,
+	
+	/**
+	 * 获取设备的信号强度Rssi
+	 */
+	readRssiBluetooth(options: ReadRssiBluetoothOptions): void,
+	
+	/**
+	 * 断开某个设备
+	 */
+	disconnectBluetooth(options: DisconnectBluetoothOptions): void,
+	
+	/**
+	 * 断开所有设备
+	 */
+	disconnectAllDeviceBluetooth(callback: () => void): void,
+	
+	/**
+	 * 退出使用，清理资源
+	 */
+	destroyBluetooth(callback: () => void): void
+}

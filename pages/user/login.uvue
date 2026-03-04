@@ -146,7 +146,7 @@ function toDoc(name: string, path: string) {
 provide("isAgree", isAgree);
 </script>
 
-<style lang="scss" scoped>
+<style lang="scss">
 .login-page {
 	background-color: #000;
 	position: relative;
@@ -157,11 +157,36 @@ provide("isAgree", isAgree);
 		Plus Jakarta Sans,
 		Plus Jakarta Sans;
 	font-weight: bold;
-	font-size: 60px;
+	font-size: 30px;
 	color: #ffffff;
 	text-align: center;
 	font-style: normal;
 	text-transform: none;
-	margin-bottom: 134px;
+	margin-bottom: 39px;
+}
+.one-click-phone {
+	font-family:
+		Plus Jakarta Sans,
+		Plus Jakarta Sans;
+	font-weight: bold;
+	font-size: 30px;
+	color: #ffffff;
+	text-align: center;
+	font-style: normal;
+	text-transform: none;
+	margin-bottom: 25px;
+}
+
+.login-button-switch {
+	height: 45px;
+	margin-top: 20px;
+	background: rgba(255, 255, 255, 0.15);
+	border-radius: 50px 50px 50px 50px;
+}
+
+.login-input {
+	background: rgba(0, 0, 0, 0.6) !important;
+	border-radius: 50px 50px 50px 50px;
+	border: 1px solid rgba(255, 255, 255, 0.15);
 }
 </style>

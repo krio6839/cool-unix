@@ -1,0 +1,276 @@
+<template>
+	<view class="status-card">
+		<view class="card-header">
+			<cl-text color="white" :size="16" :pt="{ className: 'font-semibold' }"
+				>设备状态</cl-text
+			>
+			<cl-button text color="white" size="small" @tap="onRefresh">
+				<template #icon>
+					<cl-icon name="refresh-ccw" :size="16"></cl-icon>
+				</template>
+				刷新
+			</cl-button>
+		</view>
+
+		<view class="card-content">
+			<view class="status-item">
+				<view class="status-icon status">
+					<cl-icon name="activity" :size="24" color="#4CAF50"></cl-icon>
+				</view>
+				<view class="status-info">
+					<cl-text color="gray-400" :size="12">状态</cl-text>
+					<cl-text color="white" :size="16" :pt="{ className: 'font-semibold mt-1' }">{{
+						deviceData?.status
+					}}</cl-text>
+				</view>
+			</view>
+
+			<view class="status-item">
+				<view class="status-icon sleep">
+					<cl-icon name="moon" :size="24" color="#2196F3"></cl-icon>
+				</view>
+				<view class="status-info">
+					<cl-text color="gray-400" :size="12">睡眠</cl-text>
+					<cl-text color="white" :size="16" :pt="{ className: 'font-semibold mt-1' }"
+						>{{ deviceData?.sleep.toFixed(1) }} 小时</cl-text
+					>
+				</view>
+			</view>
+
+			<view class="status-item">
+				<view class="status-icon load">
+					<cl-icon name="zap" :size="24" color="#FF9800"></cl-icon>
+				</view>
+				<view class="status-info">
+					<cl-text color="gray-400" :size="12">负荷</cl-text>
+					<cl-text color="white" :size="16" :pt="{ className: 'font-semibold mt-1' }"
+						>{{ deviceData?.load.toFixed(0) }}%</cl-text
+					>
+				</view>
+			</view>
+		</view>
+
+		<!-- BOOM GO 区域 -->
+		<view class="boom-go-section">
+			<cl-text color="white" :size="14" :pt="{ className: 'font-semibold mb-3' }"
+				>BOOM GO 恢复建议</cl-text
+			>
+			<view class="advice-card">
+				<cl-icon name="star" :size="20" color="#FFD700" class="advice-icon"></cl-icon>
+				<cl-text color="white" :size="14">{{ deviceData?.recoveryAdvice }}</cl-text>
+			</view>
+		</view>
+
+		<!-- 超快恢复区域 -->
+		<view class="fast-recovery-section">
+			<cl-text color="white" :size="14" :pt="{ className: 'font-semibold mb-3' }"
+				>超快恢复</cl-text
+			>
+			<view class="recovery-card">
+				<cl-icon name="clock" :size="20" color="#9C27B0" class="recovery-icon"></cl-icon>
+				<cl-text color="white" :size="16" :pt="{ className: 'font-semibold' }">{{
+					deviceData?.recoveryTime
+				}}</cl-text>
+				<cl-text color="gray-400" :size="12" :pt="{ className: 'mt-1' }">恢复时间</cl-text>
+			</view>
+		</view>
+
+		<view class="card-footer">
+			<cl-progress
+				:percent="deviceData?.load || 0"
+				:height="6"
+				:show-text="false"
+				:color="loadColor"
+				:background-color="'#333'"
+			></cl-progress>
+			<cl-text color="gray-400" :size="12" :pt="{ className: 'mt-2' }">设备负荷</cl-text>
+		</view>
+	</view>
+</template>
+
+<script setup lang="ts">
+import { computed } from "vue";
+
+const props = defineProps({
+	deviceData: {
+		type: Object,
+		default: () => null
+	}
+});
+
+// 类型声明
+type DeviceData = {
+	status: string;
+	sleep: number;
+	load: number;
+	recoveryAdvice: string;
+	recoveryTime: string;
+} | null;
+
+const deviceData = props.deviceData as DeviceData;
+
+const emit = defineEmits<{
+	refresh: [];
+}>();
+
+const loadColor = computed(() => {
+	const load = deviceData?.load || 0;
+	if (load < 60) return "#4CAF50";
+	if (load < 80) return "#FF9800";
+	return "#F44336";
+});
+
+function onRefresh() {
+	emit("refresh");
+}
+</script>
+
+<style lang="scss" scoped>
+.status-card {
+	background: rgba(255, 255, 255, 0.1);
+	border-radius: 16px;
+	padding: 20rpx;
+	backdrop-filter: blur(10px);
+	transition: all 0.3s ease;
+
+	&:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+	}
+
+	.card-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 20rpx;
+	}
+
+	.card-content {
+		display: flex;
+		justify-content: space-around;
+		margin-bottom: 20rpx;
+
+		.status-item {
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			padding: 16rpx;
+			border-radius: 12px;
+			background: rgba(255, 255, 255, 0.05);
+			transition: all 0.3s ease;
+
+			&:hover {
+				background: rgba(255, 255, 255, 0.1);
+			}
+
+			.status-icon {
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				width: 56rpx;
+				height: 56rpx;
+				border-radius: 50%;
+				margin-bottom: 12rpx;
+
+				&.status {
+					background: rgba(76, 175, 80, 0.2);
+				}
+
+				&.sleep {
+					background: rgba(33, 150, 243, 0.2);
+				}
+
+				&.load {
+					background: rgba(255, 152, 0, 0.2);
+				}
+			}
+
+			.status-info {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+			}
+		}
+	}
+
+	// BOOM GO 区域样式
+	.boom-go-section {
+		margin: 20rpx 0;
+
+		.advice-card {
+			display: flex;
+			align-items: center;
+			padding: 16rpx;
+			border-radius: 12px;
+			background: linear-gradient(135deg, rgba(255, 215, 0, 0.1), rgba(255, 165, 0, 0.1));
+			border: 1px solid rgba(255, 215, 0, 0.2);
+			transition: all 0.3s ease;
+
+			&:hover {
+				transform: translateY(-2px);
+				box-shadow: 0 4px 12px rgba(255, 215, 0, 0.3);
+			}
+
+			.advice-icon {
+				margin-right: 12rpx;
+				animation: pulse 2s infinite;
+			}
+		}
+	}
+
+	// 超快恢复区域样式
+	.fast-recovery-section {
+		margin: 20rpx 0;
+
+		.recovery-card {
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			padding: 20rpx;
+			border-radius: 12px;
+			background: linear-gradient(135deg, rgba(156, 39, 176, 0.1), rgba(103, 58, 183, 0.1));
+			border: 1px solid rgba(156, 39, 176, 0.2);
+			transition: all 0.3s ease;
+
+			&:hover {
+				transform: translateY(-2px);
+				box-shadow: 0 4px 12px rgba(156, 39, 176, 0.3);
+			}
+
+			.recovery-icon {
+				margin-bottom: 12rpx;
+				animation: spin 4s linear infinite;
+			}
+		}
+	}
+
+	.card-footer {
+		margin-top: 10rpx;
+	}
+
+	// 动画效果
+	@keyframes pulse {
+		0% {
+			transform: scale(1);
+			opacity: 1;
+		}
+		50% {
+			transform: scale(1.1);
+			opacity: 0.8;
+		}
+		100% {
+			transform: scale(1);
+			opacity: 1;
+		}
+	}
+
+	@keyframes spin {
+		from {
+			transform: rotate(0deg);
+		}
+		to {
+			transform: rotate(360deg);
+		}
+	}
+}
+</style>

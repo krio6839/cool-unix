@@ -25,7 +25,7 @@ export default {
 		// 	if (!isPaired) {
 		// 		// 未配对，跳转到配对页面
 		// 		router.push({
-		// 			path: "/pages/device/connect",
+		// 			path: "/pages/device/index",
 		// 			mode: "reLaunch"
 		// 		});
 		// 	} else {

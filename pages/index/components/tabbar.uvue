@@ -1,14 +1,66 @@
 <template>
-	<cl-tabbar :model-value="path" :list="list" @select="onSelect"> </cl-tabbar>
+	<cl-footer
+		:height="height"
+		:pt="{
+			className: parseClass(['!bg-transparent']),
+			content: {
+				className: parseClass(['!p-5 !pt-0'])
+			}
+		}"
+	>
+		<view class="cl-tabbar" :style="tabbarStyle">
+			<view
+				class="cl-tabbar__item"
+				:class="[path == item.value ? 'active' : '']"
+				v-for="item in list"
+				:key="item.value"
+				@tap="onSelect(item)"
+			>
+				<cl-image
+					v-if="item.icon != null"
+					:src="path == item.value ? item.selectedIcon : item.icon"
+					:height="iconSize"
+					:width="iconSize"
+				></cl-image>
+
+				<cl-text
+					v-if="item.text != null && path == item.value"
+					:size="textSize"
+					:color="selectedColor"
+					:pt="{
+						className: parseClass([[item.icon != null, 'ml-1']])
+					}"
+					>{{ item.text }}</cl-text
+				>
+			</view>
+		</view>
+	</cl-footer>
 </template>
 
 <script setup lang="ts">
-import { ctx, getConfig, isDark, router, t } from "@/.cool";
-import type { ClTabbarItem } from "@/uni_modules/cool-ui";
+import { ctx, router, t, getColor, parseClass } from "@/.cool";
 import { computed } from "vue";
+import type { ClTabbarItem } from "@/uni_modules/cool-ui";
 
 defineOptions({
 	name: "custom-tabbar"
+});
+
+// 组件配置
+const height = 80;
+const iconSize = 21;
+const textSize = 14;
+const selectedColor = "#222222";
+
+// 计算样式
+const tabbarStyle = computed(() => {
+	return {
+		height: "55px",
+		backgroundColor: "#181814",
+		borderRadius: "92px",
+		margin: "0 20px",
+		boxShadow: "0px 2px 2px 0px rgba(0,0,0,0.25)"
+	};
 });
 
 // 当前路径
@@ -38,3 +90,30 @@ if (ctx.tabBar.list != null) {
 }
 // #endif
 </script>
+
+<style lang="scss" scoped>
+.cl-tabbar {
+	@apply flex flex-row items-center flex-1 px-4;
+
+	&__item {
+		@apply flex flex-row items-center justify-center flex-1 py-3 relative;
+
+		&.active {
+			height: 37px;
+			background-color: #d2ff5c;
+			border-radius: 50px;
+			margin: 0 2px;
+			padding: 3px 8px;
+
+			cl-image {
+				filter: brightness(0) invert(0);
+			}
+
+			cl-text {
+				color: #181814;
+				margin-left: 6px;
+			}
+		}
+	}
+}
+</style>
