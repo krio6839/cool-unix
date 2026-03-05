@@ -1,0 +1,146 @@
+<template>
+	<view class="energy-ring">
+		<cl-canvas
+			canvasId="energyRingCanvas"
+			:width="canvasWidth"
+			:height="canvasHeight"
+			@load="onCanvasLoad"
+		></cl-canvas>
+	</view>
+</template>
+
+<script setup lang="ts">
+import { ref, watch, onMounted } from "vue";
+import type { Canvas } from "@/uni_modules/cool-canvas/hooks";
+
+const props = defineProps({
+	percentage: {
+		type: Number,
+		description: "储能百分比，0-100",
+		default: 70
+	}
+});
+
+// 计算画布大小，根据屏幕宽度自适应
+const windowInfo = uni.getWindowInfo();
+const screenWidth = windowInfo.windowWidth;
+const canvasWidth = Math.min(screenWidth - 40, 350); // 最大宽度350，减去边距
+// 计算画布高度，基于半圆的半径
+const totalRadius = (canvasWidth - 40) / 2;
+const canvasHeight = totalRadius + 20;
+
+let canvas: Canvas | null = null;
+
+// 颜色配置（从外到内）
+const colors = [
+	"#D2FF5C", // 黄色（最外层）
+	"#49CFFD", // 蓝色
+	"#FF8C00", // 橙色
+	"#35D083" // 绿色（最内层）
+];
+
+// 绘制环形图
+function drawRings() {
+	if (!canvas) return;
+
+	// 清空画布，清除之前的绘制内容
+	canvas.ctx!.clearRect(0, 0, canvasWidth, canvasHeight);
+
+	// 计算总弧度（180度，即半圆）
+	const totalAngle = Math.PI;
+	// 根据百分比计算进度弧度
+	const progressAngle = (props.percentage / 100) * totalAngle;
+
+	// 绘制4个半圆环（从外到内）
+	for (let i = 0; i < 4; i++) {
+		const ringWidth = 15; // 圆环宽度
+		const ringGap = 13; // 环间距
+		const outerRadius = totalRadius - i * (ringWidth + ringGap); // 每个环的外半径
+
+		// 计算环的位置（下半圆）
+		const centerX = canvasWidth / 2; // 画布中心X坐标
+		const centerY = 10;
+
+		// 绘制背景半圆环
+		canvas.ctx!.save(); // 保存当前画布状态
+		canvas.ctx!.lineWidth = ringWidth; // 设置线条宽度
+		canvas.ctx!.strokeStyle = "rgba(255, 255, 255, 0.2)"; // 设置线条颜色为半透明白色
+		canvas.ctx!.lineCap = "round"; // 设置线条端点为圆形
+
+		// 绘制下半圆背景
+		canvas.ctx!.beginPath(); // 开始路径
+		// 绘制圆弧：中心坐标、半径、起始角度（π弧度，即180度）、结束角度（0弧度）
+		canvas.ctx!.arc(centerX, centerY, outerRadius, Math.PI, 0, true);
+		canvas.ctx!.stroke(); // 描边路径
+		canvas.ctx!.restore(); // 恢复之前保存的画布状态
+
+		// 绘制进度半圆环
+		canvas.ctx!.save(); // 保存当前画布状态
+		canvas.ctx!.lineWidth = ringWidth; // 设置线条宽度
+		canvas.ctx!.strokeStyle = colors[i]; // 设置线条颜色为当前环的颜色
+		canvas.ctx!.lineCap = "round"; // 设置线条端点为圆形
+
+		// 绘制下半圆进度
+		canvas.ctx!.beginPath(); // 开始路径
+		// 绘制圆弧：中心坐标、半径、起始角度（π弧度）、结束角度（π - 进度弧度）
+		canvas.ctx!.arc(centerX, centerY, outerRadius, Math.PI, Math.PI - progressAngle, true);
+		canvas.ctx!.stroke(); // 描边路径
+
+		canvas.ctx!.restore(); // 恢复之前保存的画布状态
+	}
+
+	// 绘制文字
+	drawText();
+}
+
+// 绘制文字
+function drawText() {
+	if (!canvas) return;
+
+	// 计算中心位置
+	const centerX = canvasWidth / 2; // 画布中心X坐标
+	const centerY = 30;
+
+	// 绘制百分比文字（放在最里面的环的中心）
+	canvas.ctx!.save(); // 保存当前画布状态
+	canvas.ctx!.font = "28px sans-serif"; // 设置字体大小和类型
+	canvas.ctx!.fillStyle = "#FFFFFF"; // 设置文字颜色为白色
+	canvas.ctx!.textAlign = "center"; // 设置文字水平对齐方式为居中
+	canvas.ctx!.textBaseline = "middle"; // 设置文字垂直对齐方式为居中
+	// 绘制百分比文字：内容、X坐标、Y坐标
+	canvas.ctx!.fillText(`${props.percentage}%`, centerX, centerY);
+	canvas.ctx!.restore(); // 恢复之前保存的画布状态
+}
+
+// 画布加载完成回调
+function onCanvasLoad(c: Canvas) {
+	canvas = c;
+	drawRings();
+}
+
+// 监听百分比变化
+watch(
+	() => props.percentage,
+	() => {
+		drawRings();
+	}
+);
+
+onMounted(() => {
+	// 组件挂载后绘制
+	if (canvas) {
+		drawRings();
+	}
+});
+</script>
+
+<style lang="scss">
+.energy-ring {
+	background-color: #000000;
+	width: 100%;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	padding: 20rpx;
+}
+</style>
