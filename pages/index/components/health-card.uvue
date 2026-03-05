@@ -1,0 +1,112 @@
+<template>
+	<view class="health-card-grid">
+		<view class="health-card" v-for="(item, index) in healthData" :key="index">
+			<text class="title-text">{{ item.title }}</text>
+			<view class="value-container">
+				<text class="value-text">{{ item.value }}</text>
+				<text class="unit-text">{{ item.unit }}</text>
+			</view>
+			<text class="change-text">{{ getChangeText(item.change) }}</text>
+			<cl-svg class="health-card-icon" :src="item.icon"></cl-svg>
+		</view>
+	</view>
+</template>
+
+<script lang="ts" setup>
+import { ref } from "vue";
+
+const healthData = ref([
+	{
+		title: "心率",
+		value: "73",
+		unit: "bpm",
+		change: 26,
+		icon: "/static/icon/heart-rate.svg"
+	},
+	{
+		title: "静息心率",
+		value: "73",
+		unit: "bpm",
+		change: 27,
+		icon: "/static/icon/heart-rate.svg"
+	},
+	{
+		title: "血氧",
+		value: "98",
+		unit: "%",
+		change: 0,
+		icon: "/static/icon/blood-oxygen.svg"
+	},
+	{
+		title: "心率变异性",
+		value: "80",
+		unit: "ms",
+		change: 18,
+		icon: "/static/icon/heart-rate-variability.svg"
+	}
+]);
+
+const getChangeText = (change: number) => {
+	if (change === 0) {
+		return "";
+	}
+	return `较上次 ${change}%`;
+};
+</script>
+
+<style lang="scss" scoped>
+.health-card-grid {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 12px;
+}
+
+.health-card {
+	height: 105px;
+	background: linear-gradient(270deg, #1a1a16 0%, #060702 100%);
+	border-radius: 16px;
+	border: 1px solid #25261f;
+	padding: 15px;
+	display: flex;
+	flex-direction: column;
+	justify-content: space-between;
+	position: relative;
+}
+
+.title-text {
+	font-size: 14px;
+	color: #6b7280;
+	opacity: 0.6;
+}
+
+.value-container {
+	display: flex;
+	flex-direction: row;
+	align-items: baseline;
+	gap: 4px;
+}
+
+.value-text {
+	font-size: 24px;
+	font-weight: bold;
+	color: #ffffff;
+}
+
+.unit-text {
+	font-size: 14px;
+	color: #9ca3af;
+}
+
+.change-text {
+	font-size: 12px;
+	color: #6b7280;
+}
+
+.health-card-icon {
+	position: absolute;
+	bottom: 20px;
+	right: 15px;
+	width: 30px;
+	height: 30px;
+}
+</style>

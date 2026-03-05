@@ -1,0 +1,128 @@
+<template>
+	<view class="health-status w-full h-20 mb-4 p-4 shadow-md">
+		<view class="flex flex-row items-center justify-around h-full">
+			<template v-for="(item, index) in healthItems" :key="index">
+				<view v-if="index != 0" class="divider"></view>
+				<view class="health-item">
+					<cl-text :size="13" :pt="{ className: 'label-text' }">{{ item.label }}</cl-text>
+					<view class="trend-container">
+						<cl-text :size="17" :pt="{ className: 'value-text' }">
+							{{ item.value }}
+						</cl-text>
+						<cl-icon
+							:name="getTrendIcon(item.trend)"
+							:color="getTrendColor(item.trend)"
+							:size="12"
+						></cl-icon>
+					</view>
+				</view>
+			</template>
+		</view>
+	</view>
+</template>
+
+<script lang="ts" setup>
+// 健康项目类型
+type HealthItem = {
+	label: string;
+	value: string | number;
+	trend: "up" | "down";
+};
+
+// 健康状态类型
+type HealthStatus = {
+	status: string;
+	statusValue: number;
+	statusTrend: "up" | "down";
+	sleep: string;
+	sleepValue: number;
+	sleepTrend: "up" | "down";
+	load: number;
+	loadValue: string;
+	loadTrend: "up" | "down";
+};
+
+import { computed } from "vue";
+
+const props = defineProps<{
+	healthStatus: HealthStatus;
+}>();
+
+// 计算健康项目列表
+const healthItems = computed<HealthItem[]>(() => [
+	{
+		label: props.healthStatus.status,
+		value: props.healthStatus.statusValue,
+		trend: props.healthStatus.statusTrend
+	},
+	{
+		label: props.healthStatus.sleep,
+		value: props.healthStatus.sleepValue,
+		trend: props.healthStatus.sleepTrend
+	},
+	{
+		label: props.healthStatus.loadValue,
+		value: props.healthStatus.load,
+		trend: props.healthStatus.loadTrend
+	}
+]);
+
+// 辅助函数：获取趋势图标
+function getTrendIcon(trend: "up" | "down"): string {
+	return trend === "up" ? "arrow-up-line" : "arrow-down-line";
+}
+
+// 辅助函数：获取趋势颜色
+function getTrendColor(trend: "up" | "down"): string {
+	return trend === "up" ? "#4CAF50" : "#FF5252";
+}
+</script>
+
+<style lang="scss" scoped>
+.health-status {
+	background: linear-gradient(90deg, #323941 0%, #494d58 100%);
+	border-radius: 16px;
+}
+
+.health-item {
+	@apply p-2 flex flex-col items-center flex-1;
+}
+
+.trend-container {
+	@apply flex flex-row items-center mt-1;
+
+	cl-icon {
+		@apply ml-1;
+	}
+}
+
+.label-text {
+	font-family:
+		PingFang SC,
+		PingFang SC;
+	font-weight: 500;
+	color: #ffffff;
+	text-align: left;
+	font-style: normal;
+	text-transform: none;
+	opacity: 0.6;
+}
+
+.value-text {
+	font-family: Manrope, Manrope;
+	font-weight: bold;
+	color: #ffffff;
+	line-height: 22px;
+	text-align: right;
+	font-style: normal;
+	text-transform: none;
+}
+
+.divider {
+	width: 1px;
+	height: 50px;
+	border-radius: 0px;
+	border: 1px solid #ffffff;
+	opacity: 0.1;
+}
+</style>
