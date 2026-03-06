@@ -520,12 +520,6 @@
 						"navigationBarTitleText": "SelectSeat 座位选择",
 						"disableScroll": true
 					}
-				},
-				{
-					"path": "other/energy-storage-ring",
-					"style": {
-						"navigationBarTitleText": "EnergyStorageRing 储能环形图"
-					}
 				}
 			]
 		},

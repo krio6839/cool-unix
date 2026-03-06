@@ -161,7 +161,7 @@ provide("isAgree", isAgree);
 	color: #ffffff;
 	text-align: center;
 	font-style: normal;
-	text-transform: none;
+
 	margin-bottom: 39px;
 }
 .one-click-phone {
@@ -173,7 +173,7 @@ provide("isAgree", isAgree);
 	color: #ffffff;
 	text-align: center;
 	font-style: normal;
-	text-transform: none;
+
 	margin-bottom: 25px;
 }
 

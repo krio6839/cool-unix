@@ -36,15 +36,6 @@
 		<!-- 已连接状态 -->
 		<!-- #ifndef H5 -->
 		<view v-if="isConnected" class="flex-1 flex flex-col p-6">
-			<status-card :device-data="deviceData" @refresh="fetchDeviceData"></status-card>
-
-			<health-data-card
-				:health-data="healthData"
-				:last-updated="lastUpdated"
-				@refresh="fetchHealthData"
-				@item-tap="onHealthItemTap"
-			></health-data-card>
-
 			<view class="mt-8">
 				<cl-text color="white" :size="16" :pt="{ className: 'font-semibold mb-4' }"
 					>设备信息</cl-text
@@ -72,7 +63,7 @@
 
 			<cl-button
 				:pt="{ className: '!h-[56px] !rounded-xl mt-8' }"
-				type="danger"
+				type="error"
 				rounded
 				@tap="disconnectDevice"
 			>
@@ -80,23 +71,6 @@
 			</cl-button>
 		</view>
 
-		<!-- 未配对状态 -->
-		<unpaired-state
-			v-else-if="!isPairingMode"
-			:bluetooth-enabled="bluetoothEnabled"
-			@enter-pairing-mode="enterPairingMode"
-			@check-bluetooth-status="checkBluetoothStatus"
-		/>
-
-		<!-- 配对状态 -->
-		<pairing-state
-			v-else
-			:searching="searching"
-			:device-list="deviceList"
-			@start-search="startSearch"
-			@connect-device="connectDevice"
-			@select-location="selectLocation"
-		/>
 		<!-- #endif -->
 	</cl-page>
 </template>
@@ -107,11 +81,6 @@ import { router, t } from "@/.cool";
 import { useUi } from "@/uni_modules/cool-ui";
 import PairingState from "./components/PairingState.uvue";
 import UnpairedState from "./components/UnpairedState.uvue";
-import StatusCard from "./components/StatusCard.uvue";
-import HealthDataCard from "./components/HealthDataCard.uvue";
-// #ifndef H5
-import { useBluetoothManager } from "./composables/useBluetoothManager";
-// #endif
 
 const ui = useUi();
 const isPairingMode = ref(false);
@@ -129,27 +98,6 @@ const titleText = computed(() => {
 	}
 });
 
-// 使用蓝牙管理器
-const {
-	searching,
-	deviceList,
-	bluetoothEnabled,
-	deviceData,
-	healthData,
-	lastUpdated,
-	checkBluetoothStatus,
-	startSearch,
-	connectDevice: originalConnectDevice,
-	fetchDeviceData,
-	fetchHealthData,
-	setupConnectionCallback
-} = useBluetoothManager();
-
-// 包装连接设备函数，添加成功回调
-const connectDevice = (deviceId: string) => {
-	originalConnectDevice(deviceId, handleConnectSuccess);
-};
-
 function goBack() {
 	router.back();
 }
@@ -166,11 +114,6 @@ function selectLocation() {
 function handleConnectSuccess() {
 	isConnected.value = true;
 	isPairingMode.value = false;
-	// 异步获取数据，避免阻塞UI
-	setTimeout(() => {
-		fetchDeviceData();
-		fetchHealthData();
-	}, 100);
 	ui.showToast({ message: t("连接成功"), type: "success" });
 }
 
@@ -180,33 +123,9 @@ function disconnectDevice() {
 	ui.showToast({ message: t("已断开连接"), type: "warn" });
 }
 
-// 健康数据项点击处理
-function onHealthItemTap(type: string) {
-	switch (type) {
-		case "heartRate":
-			ui.showToast({ message: t("心率数据详情"), type: "info" });
-			break;
-		case "restingHeartRate":
-			ui.showToast({ message: t("静息心率数据详情"), type: "info" });
-			break;
-		case "bloodOxygen":
-			ui.showToast({ message: t("血氧数据详情"), type: "info" });
-			break;
-		case "heartRateVariability":
-			ui.showToast({ message: t("心率变异数据详情"), type: "info" });
-			break;
-		default:
-			break;
-	}
-}
-
 onMounted(() => {
 	// #ifndef H5
 	// 初始化蓝牙
-	// 检查蓝牙状态
-	checkBluetoothStatus();
-	// 设置连接状态回调
-	setupConnectionCallback();
 	// #endif
 });
 </script>

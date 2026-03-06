@@ -1,5 +1,5 @@
 <template>
-	<view ref="pairingViewRef" class="flex-1 flex flex-col items-center justify-start px-8 pt-12">
+	<view class="flex-1 flex flex-col items-center justify-start px-8 pt-12">
 		<view class="text-center mb-12">
 			<cl-text color="white" :size="22" :pt="{ className: 'font-bold mb-6' }">{{
 				t("确认以下状态后开始配对")
@@ -44,7 +44,7 @@
 		</cl-button>
 
 		<!-- 设备列表 -->
-		<view ref="deviceListRef" class="w-full mt-12" v-if="deviceList.length > 0">
+		<view class="w-full mt-12" v-if="deviceList.length > 0">
 			<cl-text color="white" :size="16" :pt="{ className: 'mb-4' }">{{
 				t("可用设备")
 			}}</cl-text>
@@ -52,11 +52,6 @@
 				<cl-button
 					v-for="(device, index) in deviceList"
 					:key="device.deviceId"
-					:ref="
-						(el) => {
-							if (el) deviceItemRefs[index] = el;
-						}
-					"
 					:pt="{
 						className: '!h-[56px] !bg-white/5 !rounded-xl !justify-start'
 					}"
@@ -86,35 +81,23 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, computed, shallowRef } from "vue";
+import { ref, computed, shallowRef } from "vue";
 import { t } from "@/.cool";
-import { createAnimation } from "@/.cool/animation";
 import DeviceIcon from "./device-icon.uvue";
+import type { PairingStateProps, DeviceInfo } from "./types";
 
-type DeviceInfo = {
-	deviceId: string;
-	name: string | null;
-	localName: string | null;
-};
-
-const props = defineProps<{
-	searching: boolean;
-	deviceList: Array<DeviceInfo>;
-}>();
+const props = withDefaults(defineProps<PairingStateProps>(), {
+	searching: false,
+	deviceList: () => []
+});
 
 const emit = defineEmits(["startSearch", "connectDevice", "selectLocation"]);
 
-const pairingViewRef = ref<UniElement | null>(null);
-const deviceListRef = ref<UniElement | null>(null);
-const deviceIconRef = ref<UniElement | null>(null);
-// 使用 shallowRef 减少响应式开销
-const deviceItemRefs = shallowRef<(UniElement | null)[]>([]);
-
 // 计算属性：获取设备名称，避免在模板中进行复杂的逻辑判断
 const getDeviceName = (device: DeviceInfo) => {
-	if (device.name && device.name !== "") {
+	if (device.name != null && device.name != "") {
 		return device.name;
-	} else if (device.localName && device.localName !== "") {
+	} else if (device.localName != null && device.localName != "") {
 		return device.localName;
 	} else {
 		return t("未知设备");
@@ -123,8 +106,6 @@ const getDeviceName = (device: DeviceInfo) => {
 
 function startSearch() {
 	emit("startSearch");
-	// 添加设备图标动画
-	animateDeviceIcon();
 }
 
 function connectDevice(deviceId: string) {
@@ -134,53 +115,6 @@ function connectDevice(deviceId: string) {
 function selectLocation() {
 	emit("selectLocation");
 }
-
-function animateDeviceIcon() {
-	if (deviceIconRef.value) {
-		createAnimation(deviceIconRef.value).bounce(600).play();
-	}
-}
-
-function animateDeviceList() {
-	nextTick(() => {
-		// 为设备列表容器添加淡入动画
-		if (deviceListRef.value) {
-			createAnimation(deviceListRef.value).fadeIn(300).play();
-		}
-
-		// 为每个设备项添加依次出现的动画
-		setTimeout(() => {
-			deviceItemRefs.value.forEach((item, index) => {
-				if (item) {
-					// 为每个设备项添加延迟动画，依次出现
-					setTimeout(() => {
-						createAnimation(item).slideInUp(300).play();
-					}, index * 80); // 减少延迟时间，提高动画流畅度
-				}
-			});
-		}, 80); // 减少延迟时间，提高动画流畅度
-	});
-}
-
-// 监听设备列表变化，添加动画
-watch(
-	() => props.deviceList.length,
-	(newLength) => {
-		if (newLength > 0) {
-			animateDeviceList();
-		}
-	}
-);
-
-// 监听搜索状态变化，添加动画
-watch(
-	() => props.searching,
-	(isSearching) => {
-		if (isSearching) {
-			animateDeviceIcon();
-		}
-	}
-);
 </script>
 
 <style lang="scss" scoped></style>

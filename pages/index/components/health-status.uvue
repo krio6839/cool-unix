@@ -3,9 +3,9 @@
 		<view class="flex flex-row items-center justify-around h-full">
 			<template v-for="(item, index) in healthItems" :key="index">
 				<view v-if="index != 0" class="divider"></view>
-				<view class="health-item">
+				<view class="p-2 flex flex-col items-center flex-1">
 					<cl-text :size="13" :pt="{ className: 'label-text' }">{{ item.label }}</cl-text>
-					<view class="trend-container">
+					<view class="flex flex-row items-center mt-1">
 						<cl-text :size="17" :pt="{ className: 'value-text' }">
 							{{ item.value }}
 						</cl-text>
@@ -22,6 +22,8 @@
 </template>
 
 <script lang="ts" setup>
+import { reactive, watchEffect, computed } from "vue";
+
 // 健康项目类型
 type HealthItem = {
 	label: string;
@@ -29,43 +31,68 @@ type HealthItem = {
 	trend: "up" | "down";
 };
 
-// 健康状态类型
-type HealthStatus = {
-	status: string;
-	statusValue: number;
-	statusTrend: "up" | "down";
-	sleep: string;
-	sleepValue: number;
-	sleepTrend: "up" | "down";
+type Props = {
+	status: number;
+	sleep: number;
 	load: number;
-	loadValue: string;
-	loadTrend: "up" | "down";
 };
 
-import { computed } from "vue";
+const props = defineProps<Props>();
 
-const props = defineProps<{
-	healthStatus: HealthStatus;
-}>();
+// 存储上一次的数据
+const previousData = reactive<Props>({
+	status: props.status,
+	sleep: props.sleep,
+	load: props.load
+});
+
+const status = computed(() => props.status);
+const sleep = computed(() => props.sleep);
+const load = computed(() => props.load);
+
+// // 监听数据变化，更新上一次数据
+// watch(
+// 	computed(() => [props.status, props.sleep, props.load]),
+// 	(newVals: number[]) => {
+// 		previousData.value = {
+// 			status: newVals[0] as number,
+// 			sleep: newVals[1] as number,
+// 			load: newVals[2] as number
+// 		};
+// 	}
+// );
+
+watchEffect(() => {
+	previousData.status = status.value;
+	previousData.sleep = sleep.value;
+	previousData.load = load.value;
+});
 
 // 计算健康项目列表
-const healthItems = computed<HealthItem[]>(() => [
-	{
-		label: props.healthStatus.status,
-		value: props.healthStatus.statusValue,
-		trend: props.healthStatus.statusTrend
-	},
-	{
-		label: props.healthStatus.sleep,
-		value: props.healthStatus.sleepValue,
-		trend: props.healthStatus.sleepTrend
-	},
-	{
-		label: props.healthStatus.loadValue,
-		value: props.healthStatus.load,
-		trend: props.healthStatus.loadTrend
-	}
-]);
+const healthItems = computed<HealthItem[]>(() => {
+	// 计算趋势：与上一次数据比较
+	const getTrend = (current: number, previous: number): "up" | "down" => {
+		return current > previous ? "up" : "down";
+	};
+
+	return [
+		{
+			label: "状态",
+			value: status.value,
+			trend: getTrend(status.value, previousData.status)
+		},
+		{
+			label: "睡眠",
+			value: sleep.value,
+			trend: getTrend(sleep.value, previousData.sleep)
+		},
+		{
+			label: "负荷",
+			value: load.value,
+			trend: getTrend(load.value, previousData.load)
+		}
+	];
+});
 
 // 辅助函数：获取趋势图标
 function getTrendIcon(trend: "up" | "down"): string {
@@ -82,29 +109,17 @@ function getTrendColor(trend: "up" | "down"): string {
 .health-status {
 	background: linear-gradient(90deg, #323941 0%, #494d58 100%);
 	border-radius: 16px;
-}
-
-.health-item {
-	@apply p-2 flex flex-col items-center flex-1;
-}
-
-.trend-container {
-	@apply flex flex-row items-center mt-1;
-
-	cl-icon {
-		@apply ml-1;
-	}
+	backdrop-filter: blur(30px);
 }
 
 .label-text {
 	font-family:
 		PingFang SC,
 		PingFang SC;
-	font-weight: 500;
+	font-weight: bold;
 	color: #ffffff;
 	text-align: left;
 	font-style: normal;
-	text-transform: none;
 	opacity: 0.6;
 }
 
@@ -115,7 +130,6 @@ function getTrendColor(trend: "up" | "down"): string {
 	line-height: 22px;
 	text-align: right;
 	font-style: normal;
-	text-transform: none;
 }
 
 .divider {

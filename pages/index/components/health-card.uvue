@@ -1,21 +1,30 @@
 <template>
-	<view class="health-card-grid">
-		<view class="health-card" v-for="(item, index) in healthData" :key="index">
-			<text class="title-text">{{ item.title }}</text>
-			<view class="value-container">
-				<text class="value-text">{{ item.value }}</text>
-				<text class="unit-text">{{ item.unit }}</text>
+	<cl-row :gutter="12">
+		<cl-col :span="12" v-for="(item, index) in healthData" :key="index">
+			<view class="health-card">
+				<text class="title-text">{{ item.title }}</text>
+				<view class="value-container">
+					<text class="value-text">{{ item.value }}</text>
+					<text class="unit-text">{{ item.unit }}</text>
+				</view>
+				<text class="change-text">{{ getChangeText(item.change) }}</text>
+				<cl-svg class="health-card-icon" :src="item.icon"></cl-svg>
 			</view>
-			<text class="change-text">{{ getChangeText(item.change) }}</text>
-			<cl-svg class="health-card-icon" :src="item.icon"></cl-svg>
-		</view>
-	</view>
+		</cl-col>
+	</cl-row>
 </template>
 
 <script lang="ts" setup>
 import { ref } from "vue";
+type HealthDataItem = {
+	title: string;
+	value: string;
+	unit: string;
+	change: number;
+	icon: string;
+};
 
-const healthData = ref([
+const healthData = ref<HealthDataItem[]>([
 	{
 		title: "心率",
 		value: "73",
@@ -55,12 +64,6 @@ const getChangeText = (change: number) => {
 </script>
 
 <style lang="scss" scoped>
-.health-card-grid {
-	display: grid;
-	grid-template-columns: repeat(2, 1fr);
-	gap: 12px;
-}
-
 .health-card {
 	height: 105px;
 	background: linear-gradient(270deg, #1a1a16 0%, #060702 100%);
@@ -82,8 +85,10 @@ const getChangeText = (change: number) => {
 .value-container {
 	display: flex;
 	flex-direction: row;
-	align-items: baseline;
-	gap: 4px;
+	align-items: center;
+}
+.value-text {
+	margin-right: 4px;
 }
 
 .value-text {

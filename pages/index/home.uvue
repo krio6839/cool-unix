@@ -71,7 +71,7 @@
 			</view>
 
 			<!-- 健康状态模块 -->
-			<HealthStatus :health-status="healthStatus"></HealthStatus>
+			<HealthStatus :status="60" :sleep="70" :load="80"></HealthStatus>
 
 			<!-- 储能数据模块 -->
 			<view class="energy-storage mb-4 rounded-xl p-4">
@@ -137,41 +137,23 @@ import HealthStatus from "./components/health-status.uvue";
 
 const ui = useUi();
 const refs = useRefs();
-const energyPercentage = ref(70);
+const energyPercentage = ref<number>(70);
+
+// 定义用户类型
+type UserInfo = {
+	name: string;
+	avatar: string;
+};
 
 // 用户信息
-const userInfo = ref({
+const userInfo = ref<UserInfo>({
 	name: "张三",
 	avatar: "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=professional%20user%20avatar%20portrait%20simple%20style&image_size=square"
 });
 
-const text1 = ref(
+const text1 = ref<string>(
 	"前几天连续训练负荷较大，HRV较低但储能情况良好，预计明天HRV上升达到超量恢复黄金窗口。建议降低训练量，注意恢复调整"
 );
-// 计算上次登录时间
-const lastLoginTime = ref(() => {
-	const now = new Date();
-	const hours = now.getHours().toString().padStart(2, "0");
-	const minutes = now.getMinutes().toString().padStart(2, "0");
-	const seconds = now.getSeconds().toString().padStart(2, "0");
-	const year = now.getFullYear();
-	const month = (now.getMonth() + 1).toString().padStart(2, "0");
-	const day = now.getDate().toString().padStart(2, "0");
-	return `上次登录时间：${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-});
-
-// 健康状态
-const healthStatus = ref({
-	status: "良好",
-	statusValue: 85,
-	statusTrend: "up" as "up" | "down",
-	sleep: "睡眠",
-	sleepValue: 7.5,
-	sleepTrend: "up" as "up" | "down",
-	load: 65,
-	loadValue: "负荷",
-	loadTrend: "down" as "up" | "down"
-});
 
 function setLocale() {
 	refs.open("localeSet");

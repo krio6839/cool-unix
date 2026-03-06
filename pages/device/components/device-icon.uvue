@@ -1,111 +1,21 @@
 <template>
 	<view class="w-48 h-48 relative">
 		<view
-			ref="pingElement"
 			class="absolute inset-0 rounded-full border-8 border-gray-600"
 			v-if="searching"
 		></view>
 		<view
-			ref="pulseElement"
 			class="absolute inset-4 rounded-full border-4 border-gray-400"
 			v-if="searching"
 		></view>
-		<view
-			ref="centerElement"
-			class="absolute inset-0 m-auto w-16 h-16 bg-yellow-400 rounded-full"
-		></view>
+		<view class="absolute inset-0 m-auto w-16 h-16 bg-yellow-400 rounded-full"></view>
 	</view>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from "vue";
-import { createAnimation } from "@/.cool/animation";
+import type { DeviceIconProps } from "./types";
 
-const props = defineProps({
-	searching: {
-		type: Boolean,
-		description: "是否显示搜索中状态",
-		default: false
-	}
-});
-
-const pingElement = ref<UniElement | null>(null);
-const pulseElement = ref<UniElement | null>(null);
-const centerElement = ref<UniElement | null>(null);
-
-let pingAnimation: any = null;
-let pulseAnimation: any = null;
-let centerAnimation: any = null;
-
-function startAnimations() {
-	// Ping 动画 - 向外扩散效果
-	if (pingElement.value) {
-		pingAnimation = createAnimation(pingElement.value, {
-			duration: 2000,
-			loop: -1,
-			timingFunction: "ease-out"
-		});
-		pingAnimation.scale("1", "1.5").opacity("1", "0").play();
-	}
-
-	// Pulse 动画 - 脉冲效果
-	if (pulseElement.value) {
-		pulseAnimation = createAnimation(pulseElement.value, {
-			duration: 2000,
-			loop: -1,
-			alternate: true,
-			timingFunction: "ease-in-out"
-		});
-		pulseAnimation.opacity("1", "0.5").play();
-	}
-
-	// 中心元素脉冲效果
-	if (centerElement.value) {
-		centerAnimation = createAnimation(centerElement.value, {
-			duration: 2000,
-			loop: -1,
-			alternate: true,
-			timingFunction: "ease-in-out"
-		});
-		centerAnimation.opacity("1", "0.5").play();
-	}
-}
-
-function stopAnimations() {
-	if (pingAnimation) {
-		pingAnimation.stop();
-		pingAnimation = null;
-	}
-	if (pulseAnimation) {
-		pulseAnimation.stop();
-		pulseAnimation = null;
-	}
-	if (centerAnimation) {
-		centerAnimation.stop();
-		centerAnimation = null;
-	}
-}
-
-watch(
-	() => props.searching,
-	(newValue) => {
-		if (newValue) {
-			startAnimations();
-		} else {
-			stopAnimations();
-		}
-	}
-);
-
-onMounted(() => {
-	if (props.searching) {
-		startAnimations();
-	}
-});
-
-onUnmounted(() => {
-	stopAnimations();
+const props = withDefaults(defineProps<DeviceIconProps>(), {
+	searching: false
 });
 </script>
-
-<style lang="scss" scoped></style>

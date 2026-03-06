@@ -1,7 +1,7 @@
 <template>
-	<view ref="unpairedViewRef" class="flex-1 flex flex-col items-center justify-center px-8">
+	<view class="flex-1 flex flex-col items-center justify-center px-8">
 		<view class="mb-20 relative">
-			<device-icon :searching="false" ref="deviceIconRef"></device-icon>
+			<device-icon :searching="false"></device-icon>
 		</view>
 
 		<view class="text-center mb-20">
@@ -37,23 +37,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, shallowRef } from "vue";
+import { ref, onMounted, shallowRef } from "vue";
 import { t } from "@/.cool";
-import { createAnimation } from "@/.cool/animation";
 import DeviceIcon from "./device-icon.uvue";
+import type { UnpairedStateProps } from "./types";
 
-const props = defineProps<{
-	bluetoothEnabled: boolean;
-}>();
+const props = withDefaults(defineProps<UnpairedStateProps>(), {
+	bluetoothEnabled: false
+});
 
-const emit = defineEmits<{
-	enterPairingMode: [];
-	checkBluetoothStatus: [];
-}>();
-
-// 使用 shallowRef 减少响应式开销
-const unpairedViewRef = shallowRef<UniElement | null>(null);
-const deviceIconRef = shallowRef<UniElement | null>(null);
+const emit = defineEmits(["enterPairingMode", "checkBluetoothStatus"]);
 
 function enterPairingMode() {
 	emit("enterPairingMode");
@@ -64,15 +57,7 @@ function checkBluetoothStatus() {
 }
 
 onMounted(() => {
-	// 页面加载动画
-	nextTick(() => {
-		if (unpairedViewRef.value) {
-			createAnimation(unpairedViewRef.value).fadeIn(400).play(); // 减少动画时间，提高响应速度
-		}
-		if (deviceIconRef.value) {
-			createAnimation(deviceIconRef.value).zoomIn(400).play(); // 减少动画时间，提高响应速度
-		}
-	});
+	// 页面加载
 });
 </script>
 
