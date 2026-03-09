@@ -4,7 +4,7 @@
 		:pt="{
 			className: parseClass(['!bg-transparent']),
 			content: {
-				className: parseClass(['!p-5 !pt-0'])
+				className: parseClass(['!p-4 !pt-0'])
 			}
 		}"
 	>
@@ -58,7 +58,7 @@ const tabbarStyle = computed(() => {
 		height: "55px",
 		backgroundColor: "#181814",
 		borderRadius: "92px",
-		margin: "0 20px",
+		margin: "0 10px",
 		boxShadow: "0px 2px 2px 0px rgba(0,0,0,0.25)"
 	};
 });
@@ -96,7 +96,7 @@ if (ctx.tabBar.list != null) {
 	@apply flex flex-row items-center flex-1 px-4;
 
 	&__item {
-		@apply flex flex-row items-center justify-center flex-1 py-3 relative;
+		@apply flex flex-row items-center justify-center py-3 relative flex-1;
 
 		&.active {
 			height: 37px;
@@ -104,15 +104,8 @@ if (ctx.tabBar.list != null) {
 			border-radius: 50px;
 			margin: 0 2px;
 			padding: 3px 8px;
-
-			cl-image {
-				filter: brightness(0) invert(0);
-			}
-
-			cl-text {
-				color: #181814;
-				margin-left: 6px;
-			}
+			flex: 0 1 auto;
+			min-width: 60px;
 		}
 	}
 }

@@ -1,0 +1,311 @@
+<template>
+	<cl-page class="boom-coach-container">
+		<cl-topbar
+			fixed
+			:show-back="false"
+			safe-area-top
+			:height="isMp() ? null : 50"
+			:pt="{
+				className: '!z-50'
+			}"
+			background-color="transparent"
+		>
+			<view
+				class="flex flex-row items-center justify-between p-3 flex-1 w-full"
+				:class="{
+					'pt-0': isMp()
+				}"
+			>
+				<cl-svg src="/static/icon/coach/menu.svg" class="w-6 h-6"></cl-svg>
+				<cl-text :size="18" class="ml-2">BOOM COACH </cl-text>
+
+				<view class="flex flex-row">
+					<cl-svg src="/static/icon/coach/start.svg" class="w-6 h-6 mr-4"></cl-svg>
+					<cl-svg src="/static/icon/coach/chat-add.svg" class="w-6 h-6"></cl-svg>
+				</view>
+			</view>
+		</cl-topbar>
+
+		<!-- 对话区域 -->
+		<scroll-view class="chat-area" scroll-y>
+			<view v-if="messages.length === 0" class="greeting-section">
+				<text class="greeting-title">BOOM COACH</text>
+				<text class="greeting-message">昨天你睡的好吗？</text>
+			</view>
+
+			<view class="messages-container">
+				<block v-for="(msg, index) in messages" :key="index">
+					<!-- AI 消息 -->
+					<view v-if="msg.role === 'ai'" class="message-row ai">
+						<cl-svg src="/static/icon/coach/bot.svg" class="ai-avatar"></cl-svg>
+						<view class="message-bubble ai">
+							<text class="message-text">{{ msg.content }}</text>
+							<view v-if="msg.isTyping" class="typing-indicator">
+								<text class="dot"></text>
+								<text class="dot"></text>
+								<text class="dot"></text>
+							</view>
+						</view>
+					</view>
+
+					<!-- 用户消息 -->
+					<view v-else class="message-row user">
+						<view class="message-bubble user">
+							<text class="message-text">{{ msg.content }}</text>
+						</view>
+					</view>
+				</block>
+			</view>
+		</scroll-view>
+
+		<!-- 输入区域 -->
+		<view class="input-section">
+			<cl-textarea
+				v-model="inputValue"
+				placeholder="有问题可以问我..."
+				confirm-type="send"
+				autofocus
+				:showWordLimit="false"
+				@confirm="sendMessage"
+				:pt="{
+					className: 'chat-input bg-[#191915]',
+					inner: {
+						className: '!text-white'
+					}
+				}"
+			></cl-textarea>
+			<cl-svg
+				src="/static/icon/coach/voice.svg"
+				class="absolute right-[60px] bottom-5 w-6 h-6"
+			></cl-svg>
+			<cl-svg
+				src="/static/icon/coach/send.svg"
+				class="send-btn absolute right-5 bottom-5 w-6 h-6"
+				@tap="sendMessage"
+			></cl-svg>
+		</view>
+
+		<!-- 自定义底部导航栏 -->
+		<custom-tabbar></custom-tabbar>
+	</cl-page>
+</template>
+
+<script lang="ts" setup>
+import { isApp, isMp, useRefs, t, dayUts } from "@/.cool";
+import { ref, onMounted, nextTick } from "vue";
+import { useUi } from "@/uni_modules/cool-ui";
+import { config } from "@/config";
+import CustomTabbar from "./components/tabbar.uvue";
+
+const ui = useUi();
+const refs = useRefs();
+
+// 消息列表
+const messages = ref([
+	{
+		role: "user",
+		content: "AI提示词：需要浅色的空间感背景",
+		time: "",
+		isTyping: false
+	},
+	{
+		role: "ai",
+		content:
+			"1. 极简抽象风格\n\n浅色宇宙空间背景，柔和的淡蓝色与珍珠白渐变，漂浮着半透明的几何气泡，极简主义设计，低多边形风格，带有微妙的发光粒子，整体干净空旷，4K高清",
+		time: "",
+		isTyping: false
+	},
+	{
+		role: "ai",
+		content:
+			"2. 自然光感风格\n\n朦胧的晨雾空间，浅杏色与淡紫渐变，阳光透过薄云形成丁达尔效应，空中悬浮透明水晶碎片，柔和的光斑效果，治愈系氛围，景深模糊",
+		time: "",
+		isTyping: false
+	}
+]);
+
+// 输入框内容
+const inputValue = ref("");
+
+// 发送消息
+const sendMessage = () => {
+	console.log(inputValue.value);
+	if (!inputValue.value.trim()) return;
+
+	// 添加用户消息
+	messages.value.push({
+		role: "user",
+		content: inputValue.value,
+		time: "",
+		isTyping: false
+	});
+
+	inputValue.value = "";
+
+	// 模拟 AI 响应
+	setTimeout(() => {
+		// 添加 AI 消息
+		const aiMsgIndex =
+			messages.value.push({
+				role: "ai",
+				content: "",
+				time: "",
+				isTyping: true
+			}) - 1;
+
+		// 模拟打字机效果
+		simulateTyping(
+			aiMsgIndex,
+			"这是一个模拟的 AI 响应。我正在模拟打字机效果，一个字一个字地输出内容。"
+		);
+	}, 500);
+};
+
+// 模拟打字机效果
+const simulateTyping = (index: number, text: string) => {
+	let currentIndex = 0;
+	const typingSpeed = 50; // 打字速度
+
+	const typeNextChar = () => {
+		if (currentIndex < text.length) {
+			messages.value[index].content += text[currentIndex];
+			currentIndex++;
+			setTimeout(typeNextChar, typingSpeed);
+		} else {
+			messages.value[index].isTyping = false;
+		}
+	};
+
+	typeNextChar();
+};
+
+onMounted(() => {});
+</script>
+
+<style lang="scss" scoped>
+.boom-coach-container {
+	height: 100vh;
+	background-color: #000;
+	color: #fff;
+	display: flex;
+	flex-direction: column;
+}
+
+/* 对话区域 */
+.chat-area {
+	flex: 1;
+	padding: 20rpx;
+	overflow-y: auto;
+
+	.greeting-section {
+		text-align: center;
+		margin: 40rpx 0;
+
+		.greeting-title {
+			font-size: 40rpx;
+			font-weight: 700;
+			color: #fff;
+			margin-bottom: 10rpx;
+		}
+
+		.greeting-message {
+			font-size: 28rpx;
+			color: #999;
+		}
+	}
+
+	.messages-container {
+		padding-bottom: 20rpx;
+
+		.message-row {
+			margin-bottom: 30rpx;
+
+			&.ai {
+				display: flex;
+				align-items: flex-start;
+
+				.ai-avatar {
+					width: 70rpx;
+					height: 70rpx;
+					margin-right: 20rpx;
+					flex-shrink: 0;
+				}
+
+				.message-bubble {
+					background-color: #191915;
+					border-radius: 16rpx;
+					border: 1rpx solid #25261f;
+					padding: 24rpx;
+					max-width: 80%;
+
+					.message-text {
+						font-size: 28rpx;
+						line-height: 1.6;
+						color: #fff;
+					}
+				}
+			}
+
+			&.user {
+				display: flex;
+				justify-content: flex-end;
+
+				.message-bubble {
+					background: linear-gradient(to right, #ffcc00, #d2ff5c);
+					border-radius: 50rpx 50rpx 0 50rpx;
+					padding: 24rpx;
+					max-width: 80%;
+
+					.message-text {
+						font-family:
+							PingFang SC,
+							PingFang SC;
+						font-size: 15px;
+						color: #000000;
+					}
+				}
+			}
+		}
+
+		.typing-indicator {
+			display: flex;
+			gap: 8rpx;
+			margin-top: 16rpx;
+
+			.dot {
+				width: 12rpx;
+				height: 12rpx;
+				background-color: #999;
+				border-radius: 50%;
+				animation: bounce 1.4s infinite ease-in-out;
+
+				&:nth-child(1) {
+					animation-delay: -0.32s;
+				}
+
+				&:nth-child(2) {
+					animation-delay: -0.16s;
+				}
+			}
+		}
+	}
+}
+
+/* 输入区域 */
+.input-section {
+	position: relative;
+	padding: 15px;
+}
+
+/* 动画 */
+@keyframes bounce {
+	0%,
+	80%,
+	100% {
+		transform: scale(0);
+	}
+	40% {
+		transform: scale(1);
+	}
+}
+</style>

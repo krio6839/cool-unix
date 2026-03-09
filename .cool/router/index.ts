@@ -324,18 +324,6 @@ export class Router {
 
 	// 登录成功后跳转逻辑
 	nextLogin() {
-		// 模拟检查是否已配对（实际项目中应该从用户信息或设备状态中获取）
-		const isPaired = false; // 假设未配对
-		console.log("isPaired:", isPaired);
-		// 如果未配对，跳转到配对页面
-		if (!isPaired) {
-			this.push({
-				path: "/pages/device/connect",
-				mode: "reLaunch"
-			});
-			return;
-		}
-
 		const pages = this.getPages();
 
 		// 找到登录页的索引

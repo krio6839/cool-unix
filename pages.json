@@ -7,6 +7,12 @@
 			}
 		},
 		{
+			"path": "pages/index/coach",
+			"style": {
+				"navigationStyle": "custom"
+			}
+		},
+		{
 			"path": "pages/index/my",
 			"style": {
 				"navigationStyle": "custom"
@@ -16,12 +22,6 @@
 			"path": "pages/index/template",
 			"style": {
 				"navigationBarTitleText": "模板"
-			}
-		},
-		{
-			"path": "pages/index/charts",
-			"style": {
-				"navigationBarTitleText": "图表展示"
 			}
 		}
 	],
@@ -604,7 +604,7 @@
 				"text": "仪表"
 			},
 			{
-				"pagePath": "pages/index/charts",
+				"pagePath": "pages/index/coach",
 				"iconPath": "/static/icon/tabbar/coach.png",
 				"selectedIconPath": "/static/icon/tabbar/coach-active.png",
 				"text": "COACH"

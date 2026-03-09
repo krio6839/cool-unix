@@ -1,5 +1,6 @@
 <template>
-	<view class="energy-ring">
+	<view class="p-4">
+		<cl-text :size="15" :pt="{ className: 'text-center opacity-60' }" value="储能"></cl-text>
 		<cl-canvas
 			canvasId="energyRingCanvas"
 			:width="canvasWidth"
@@ -132,13 +133,4 @@ watch(
 );
 </script>
 
-<style lang="scss">
-.energy-ring {
-	background-color: #000000;
-	width: 100%;
-	display: flex;
-	justify-content: center;
-	align-items: center;
-	padding: 20rpx;
-}
-</style>
+<style lang="scss" scoped></style>

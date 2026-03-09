@@ -20,66 +20,65 @@
 					class="rounded-lg h-[32px] w-[32px] flex flex-row items-center justify-center"
 				>
 					<cl-image
-						src="/static/logo.png"
-						:width="18"
-						:height="18"
+						src="/static/icon/weather/thunder.svg"
+						:width="25"
+						:height="25"
 						:show-loading="false"
 					></cl-image>
 				</view>
 
-				<cl-text
-					:size="16"
-					:pt="{
-						className: 'mr-auto ml-2 flex-1 font-bold'
-					}"
-				>
-					{{ config.name }}
-				</cl-text>
-
-				<view
-					class="bg-surface-500 h-[32px] w-[32px] rounded-full flex flex-row items-center justify-center mr-3"
-					@tap="setSize"
-				>
-					<cl-icon name="font-size" color="white" :size="16"></cl-icon>
+				<view class="mr-auto ml-2 flex flex-row items-center">
+					<cl-text :size="22" :pt="{ className: 'mr-2' }"> 29℃ </cl-text>
+					<cl-text
+						:size="13"
+						:pt="{
+							className: 'opacity-60 mr-2'
+						}"
+					>
+						海淀区
+					</cl-text>
+					<cl-text
+						:size="13"
+						:pt="{
+							className: 'opacity-60'
+						}"
+					>
+						{{ currentDate }}
+					</cl-text>
 				</view>
 
 				<view
-					class="bg-primary-500 h-[32px] w-[32px] rounded-full flex flex-row items-center justify-center"
+					class="h-8 w-8 rounded-full border border-solid border-white opacity-60 flex flex-row items-center justify-center mr-3"
+					@tap="setSize"
+				>
+					<cl-icon name="link" color="white" :size="16"></cl-icon>
+				</view>
+
+				<view
+					class="h-8 w-8 rounded-full border border-solid border-white opacity-60 flex flex-row items-center justify-center"
 					:class="{
 						'mr-24': isMp()
 					}"
 					@tap="setLocale"
 				>
-					<cl-icon name="translate" color="white" :size="16"></cl-icon>
+					<cl-icon name="calendar-line" color="white" :size="16"></cl-icon>
 				</view>
 			</view>
 		</cl-topbar>
 
 		<view class="p-3">
 			<!-- 用户信息模块 -->
-			<view
-				class="user-info mb-4 rounded-xl bg-gradient-to-r from-primary-500 to-primary-600 p-4 text-white transition-all duration-300 hover:shadow-xl"
-			>
-				<view class="flex flex-row items-center">
-					<cl-avatar
-						:size="60"
-						:src="userInfo.avatar"
-						:show-loading="false"
-						class="transition-transform duration-300 hover:scale-110"
-					></cl-avatar>
+			<view class="relative">
+				<UserInfo :user-info="userInfo"></UserInfo>
+
+				<!-- 健康状态模块 -->
+				<view class="absolute bottom-0 left-0 right-0">
+					<HealthStatus :status="60" :sleep="70" :load="80"></HealthStatus>
 				</view>
 			</view>
-
-			<!-- 健康状态模块 -->
-			<HealthStatus :status="60" :sleep="70" :load="80"></HealthStatus>
 
 			<!-- 储能数据模块 -->
-			<view class="energy-storage mb-4 rounded-xl p-4">
-				<cl-text :size="16" :pt="{ className: 'font-bold mb-3' }" value="储能"></cl-text>
-				<view class="energy-chart w-full mb-3 bg-black rounded-lg">
-					<EnergyRing :percentage="energyPercentage"></EnergyRing>
-				</view>
-			</view>
+			<EnergyRing class="mb-4" :percentage="energyPercentage"></EnergyRing>
 
 			<!-- BOOM GO -->
 			<view
@@ -109,7 +108,7 @@
 					<view
 						class="bg-primary-500 h-10 w-10 rounded-full flex flex-row items-center justify-center"
 					>
-						<cl-icon name="arrow-right" color="white" :size="16"></cl-icon>
+						<cl-icon name="arrow-right-up-line" color="#000" :size="16"></cl-icon>
 					</view>
 				</view>
 			</view>
@@ -126,7 +125,7 @@
 </template>
 
 <script lang="ts" setup>
-import { isApp, isMp, useRefs, t } from "@/.cool";
+import { isApp, isMp, useRefs, t, dayUts } from "@/.cool";
 import { ref, onMounted } from "vue";
 import { useUi } from "@/uni_modules/cool-ui";
 import { config } from "@/config";
@@ -134,26 +133,37 @@ import CustomTabbar from "./components/tabbar.uvue";
 import EnergyRing from "./components/energy-ring.uvue";
 import HealthCard from "./components/health-card.uvue";
 import HealthStatus from "./components/health-status.uvue";
+import UserInfo from "./components/user-info.uvue";
 
 const ui = useUi();
 const refs = useRefs();
 const energyPercentage = ref<number>(70);
+const currentDate = ref<string>("");
 
-// 定义用户类型
-type UserInfo = {
-	name: string;
-	avatar: string;
+// 格式化当前日期
+function formatDate() {
+	const date = dayUts();
+	currentDate.value = `${date.format("MM月DD日")}`;
+}
+
+type UserInfoType = {
+	name?: string;
+	lastLoginTime?: string;
 };
 
 // 用户信息
-const userInfo = ref<UserInfo>({
-	name: "张三",
-	avatar: "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=professional%20user%20avatar%20portrait%20simple%20style&image_size=square"
+const userInfo = ref<UserInfoType>({
+	name: "张晓明",
+	lastLoginTime: "2026.01.15"
 });
 
 const text1 = ref<string>(
 	"前几天连续训练负荷较大，HRV较低但储能情况良好，预计明天HRV上升达到超量恢复黄金窗口。建议降低训练量，注意恢复调整"
 );
+
+onMounted(() => {
+	formatDate();
+});
 
 function setLocale() {
 	refs.open("localeSet");
@@ -167,13 +177,6 @@ function setSize() {
 <style lang="scss" scoped>
 .user-info {
 	@apply shadow-lg;
-}
-
-.energy-storage,
-.boom-go,
-.over-recovery,
-.recovery-suggestions {
-	@apply shadow-md;
 }
 
 .energy-item {

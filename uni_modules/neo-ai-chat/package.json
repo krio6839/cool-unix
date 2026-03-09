@@ -1,0 +1,90 @@
+{
+  "id": "neo-ai-chat",
+  "displayName": "Neo AI Chat - 企业级 AI 对话组件",
+  "version": "1.0.0",
+  "description": "专为 Uni-app 打造的高性能 AI 对话 UI 组件，支持流式响应、Markdown 渲染、代码高亮、原生代码块横向滚动。完美适配微信小程序。",
+  "keywords": [
+    "AI",
+    "ChatGPT",
+    "DeepSeek",
+    "LLM",
+    "流式响应"
+],
+  "repository": "",
+  "engines": {
+    "HBuilderX": "^3.0.0",
+    "uni-app": "^4.83"
+  },
+  "dcloudext": {
+    "type": "component-vue",
+    "sale": {
+      "regular": {
+        "price": "0.00"
+      },
+      "sourcecode": {
+        "price": "0.00"
+      }
+    },
+    "contact": {
+      "qq": ""
+    },
+    "declaration": {
+      "ads": "无",
+      "data": "无",
+      "permissions": "无"
+    },
+    "npmurl": "",
+    "darkmode": "x",
+    "i18n": "x",
+    "widescreen": "x"
+  },
+  "uni_modules": {
+    "dependencies": [],
+    "encrypt": [],
+    "platforms": {
+      "cloud": {
+        "tcb": "x",
+        "aliyun": "x",
+        "alipay": "x"
+      },
+      "client": {
+        "uni-app": {
+          "vue": {
+            "vue2": "x",
+            "vue3": "√"
+          },
+          "web": {
+            "safari": "√",
+            "chrome": "√"
+          },
+          "app": {
+            "vue": "√",
+            "nvue": "√",
+            "android": "√",
+            "ios": "√",
+            "harmony": "√"
+          },
+          "mp": {
+            "weixin": "√",
+            "alipay": "√",
+            "toutiao": "√",
+            "baidu": "√",
+            "kuaishou": "√",
+            "jd": "√",
+            "harmony": "√",
+            "qq": "√",
+            "lark": "√"
+          },
+          "quickapp": {
+            "huawei": "√",
+            "union": "√"
+          }
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "highlight.js": "^11.11.1",
+    "markdown-it": "^14.1.0"
+  }
+}

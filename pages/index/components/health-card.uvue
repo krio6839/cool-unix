@@ -66,7 +66,7 @@ const getChangeText = (change: number) => {
 <style lang="scss" scoped>
 .health-card {
 	height: 105px;
-	background: linear-gradient(270deg, #1a1a16 0%, #060702 100%);
+	background-image: linear-gradient(to left, #1a1a16, #060702);
 	border-radius: 16px;
 	border: 1px solid #25261f;
 	padding: 15px;
@@ -74,6 +74,7 @@ const getChangeText = (change: number) => {
 	flex-direction: column;
 	justify-content: space-between;
 	position: relative;
+	margin-bottom: 12px;
 }
 
 .title-text {
