@@ -1,0 +1,206 @@
+<template>
+	<cl-page>
+		<cl-topbar
+			fixed
+			:show-back="true"
+			safe-area-top
+			:height="isMp() ? null : 50"
+			background-color="transparent"
+		>
+			<view class="flex flex-row items-center justify-between w-full p-3">
+				<cl-icon name="arrow-left-line" color="white" :size="20" @tap="goBack"></cl-icon>
+				<cl-text :size="18" color="white">超量恢复黄金窗口</cl-text>
+				<view class="w-5"></view>
+			</view>
+		</cl-topbar>
+
+		<view class="p-3">
+			<!-- 顶部数据 -->
+			<view class="flex flex-row justify-between mb-6">
+				<view class="text-center">
+					<cl-text :size="14" color="rgba(255,255,255,0.6)" :pt="{ className: 'mb-1' }">TSB</cl-text>
+					<cl-text :size="24" color="white" :pt="{ className: 'font-bold' }">36</cl-text>
+				</view>
+				<view class="text-center">
+					<cl-text :size="14" color="rgba(255,255,255,0.6)" :pt="{ className: 'mb-1' }">短期负荷ATL</cl-text>
+					<cl-text :size="24" color="white" :pt="{ className: 'font-bold' }">37</cl-text>
+				</view>
+				<view class="text-center">
+					<cl-text :size="14" color="rgba(255,255,255,0.6)" :pt="{ className: 'mb-1' }">长期负荷CTL</cl-text>
+					<cl-text :size="24" color="white" :pt="{ className: 'font-bold' }">54</cl-text>
+				</view>
+			</view>
+
+			<!-- 指标标记 -->
+			<view class="flex flex-row mb-4">
+				<view class="flex flex-row items-center mr-4">
+					<view class="w-3 h-3 rounded-full bg-green-400 mr-2"></view>
+					<cl-text :size="14" color="rgba(255,255,255,0.6)">ATL</cl-text>
+				</view>
+				<view class="flex flex-row items-center">
+					<view class="w-3 h-3 rounded-full bg-orange-400 mr-2"></view>
+					<cl-text :size="14" color="rgba(255,255,255,0.6)">CTL</cl-text>
+				</view>
+			</view>
+
+			<!-- 趋势图表 -->
+			<view class="mb-6">
+				<l-echart ref="chart" :option="chartOption" style="width: 100%; height: 200px;"></l-echart>
+			</view>
+
+			<!-- 时间范围选择 -->
+			<view class="flex flex-row justify-between mb-6">
+				<view 
+					v-for="(item, index) in timeRanges" 
+					:key="index"
+					class="flex-1 text-center py-2 rounded-lg"
+					:class="{ 'bg-primary-500 text-black': activeTimeRange === item.value, 'bg-surface-700 text-white': activeTimeRange !== item.value }"
+					@tap="selectTimeRange(item.value)"
+				>
+					<cl-text :size="14">{{ item.label }}</cl-text>
+				</view>
+			</view>
+
+			<!-- TSB训练疲劳度参考表 -->
+			<view class="mb-6">
+				<view class="flex flex-row justify-between items-center mb-3">
+					<cl-text :size="16" color="white" :pt="{ className: 'font-bold' }">TSB训练疲劳度参考表</cl-text>
+					<cl-icon name="chevron-down" color="white" :size="16"></cl-icon>
+				</view>
+				<view class="bg-surface-800 rounded-lg p-3">
+					<view class="flex flex-row justify-between mb-2" v-for="(item, index) in tsbReference" :key="index">
+						<cl-text :size="14" color="rgba(255,255,255,0.8)">{{ item.range }}</cl-text>
+						<cl-text :size="14" color="rgba(255,255,255,0.6)">{{ item.status }}</cl-text>
+					</view>
+				</view>
+			</view>
+		</view>
+	</cl-page>
+</template>
+
+<script lang="ts" setup>
+import { isMp } from "@/.cool";
+import { ref, computed } from "vue";
+import type { ChartOption } from "./types";
+
+// 时间范围选项
+const timeRanges = [
+	{ label: "7天", value: "7d" },
+	{ label: "30天", value: "30d" },
+	{ label: "60天", value: "60d" }
+];
+
+// 当前选中的时间范围
+const activeTimeRange = ref<string>("7d");
+
+// TSB训练疲劳度参考表
+const tsbReference = [
+	{ range: "TSB>=-25", status: "状态下滑" },
+	{ range: "25>TSB>=-10", status: "恢复良好" },
+	{ range: "10>TSB>=-0", status: "轻度疲劳" },
+	{ range: "0>TSB>=-10", status: "稍高疲劳" },
+	{ range: "-10>TSB>=-25", status: "高度疲劳" },
+	{ range: "-25>TSB", status: "极度疲劳" }
+];
+
+// 图表配置
+const chartOption = computed<ChartOption>(() => ({
+	title: {
+		show: false
+	},
+	ttooltip: {
+		trigger: "axis",
+		textStyle: {
+			color: "#fff"
+		}
+	},
+	grid: {
+		left: 0,
+		right: 0,
+		top: 0,
+		bottom: 30,
+		containLabel: true
+	},
+	xAxis: {
+		type: "category",
+		data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
+		axisLabel: {
+			color: "rgba(255,255,255,0.6)"
+		},
+		axisLine: {
+			lineStyle: {
+				color: "rgba(255,255,255,0.2)"
+			}
+		}
+	},
+	yAxis: {
+		type: "value",
+		axisLine: {
+			show: false
+		},
+		axisLabel: {
+			show: false
+		},
+		splitLine: {
+			show: false
+		}
+	},
+	series: [
+		{
+			name: "ATL",
+			type: "line",
+			data: [32, 34, 33, 35, 36, 37, 38, 37],
+			itemStyle: {
+				color: "#D2FF5C"
+			},
+			lineStyle: {
+				width: 2
+			},
+			areaStyle: {
+				color: {
+					type: "linear",
+					x: 0,
+					y: 0,
+					x2: 0,
+					y2: 1,
+					colorStops: [
+						{
+							offset: 0,
+							color: "rgba(210, 255, 92, 0.3)"
+						},
+						{
+							offset: 1,
+							color: "rgba(210, 255, 92, 0)"
+						}
+					]
+				}
+			}
+		},
+		{
+			name: "CTL",
+			type: "line",
+			data: [48, 49, 50, 51, 52, 53, 54, 54],
+			itemStyle: {
+				color: "#FF9800"
+			},
+			lineStyle: {
+				width: 2
+			}
+		}
+	]
+}));
+
+// 选择时间范围
+function selectTimeRange(value: string) {
+	activeTimeRange.value = value;
+	// 这里可以根据选择的时间范围更新图表数据
+	console.log("选择时间范围:", value);
+}
+
+// 返回上一页
+function goBack() {
+	uni.navigateBack();
+}
+</script>
+
+<style lang="scss" scoped></style>

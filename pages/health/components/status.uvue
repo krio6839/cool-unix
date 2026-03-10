@@ -1,0 +1,69 @@
+<template>
+	<view class="health-status w-full h-20 mb-4 p-4 shadow-md">
+		<view class="flex flex-row items-center justify-around h-full">
+			<template v-for="(item, index) in props.items" :key="index">
+				<view v-if="index != 0" class="divider"></view>
+				<view class="p-2 flex flex-col items-center flex-1" @tap="item.onClick">
+					<cl-text :size="13" :pt="{ className: 'label-text' }">{{ item.label }}</cl-text>
+					<view class="flex flex-row items-center mt-1">
+						<cl-text :size="17" :pt="{ className: 'value-text' }">
+							{{ item.value }}
+						</cl-text>
+					</view>
+				</view>
+			</template>
+		</view>
+	</view>
+</template>
+
+<script lang="ts" setup>
+import type { HealthItem } from "../types";
+
+type Props = {
+	items: HealthItem[];
+};
+
+const props = defineProps<Props>();
+</script>
+
+<style lang="scss" scoped>
+.health-status {
+	background-image: linear-gradient(to right, rgba(50, 57, 65, 0.85), rgba(73, 77, 88, 0.85));
+	border-radius: 16px;
+	/* #ifndef APP-ANDROID */
+	backdrop-filter: blur(30px);
+	/* #endif */
+	/* #ifdef APP-ANDROID */
+	overflow: hidden;
+	position: relative;
+	/* #endif */
+}
+
+.label-text {
+	font-family:
+		PingFang SC,
+		PingFang SC;
+	font-weight: bold;
+	color: #ffffff;
+	text-align: left;
+	font-style: normal;
+	opacity: 0.6;
+}
+
+.value-text {
+	font-family: Manrope, Manrope;
+	font-weight: bold;
+	color: #ffffff;
+	line-height: 22px;
+	text-align: right;
+	font-style: normal;
+}
+
+.divider {
+	width: 1px;
+	height: 50px;
+	border-radius: 0px;
+	border: 1px solid #ffffff;
+	opacity: 0.1;
+}
+</style>

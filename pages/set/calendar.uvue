@@ -1,0 +1,163 @@
+<template>
+	<cl-page>
+		<view class="p-3">
+			<view class="flex flex-row justify-between items-center mb-5">
+				<view class="flex flex-row items-center">
+					<cl-icon
+						name="chevron-left"
+						:size="20"
+						color="white"
+						@click="gotoPrevMonth"
+					></cl-icon>
+					<cl-text class="text-xl ml-4">{{ currentYear }}</cl-text>
+					<cl-text class="text-xl ml-2">{{ currentMonth }}月</cl-text>
+					<cl-icon
+						name="chevron-right"
+						:size="20"
+						color="#fff"
+						@click="gotoNextMonth"
+					></cl-icon>
+				</view>
+				<cl-icon name="close" :size="20" color="#fff"></cl-icon>
+			</view>
+
+			<view class="flex flex-row flex-wrap justify-center space-x-2 mb-5">
+				<view
+					v-for="tab in tabs"
+					:key="tab.value"
+					class="type-tab"
+					:class="isActiveTab(tab.value) ? 'active-tab' : ''"
+					@click="activeTab = tab.value"
+				>
+					<text :class="isActiveTab(tab.value) ? 'active-text' : ''">
+						{{ tab.label }}
+					</text>
+				</view>
+			</view>
+
+			<cl-calendar
+				v-model="selectedDate"
+				mode="single"
+				:year="currentYear"
+				:month="currentMonth"
+				:show-header="false"
+				:show-weeks="true"
+				:show-other-month="true"
+				:text-color="'#fff'"
+				:text-other-month-color="'#666'"
+				:textSelectedColor="'#282828'"
+				:bgSelectedColor="'#D2FF5C'"
+				:date-config="dateConfig"
+				:pt="{ className: 'calendar' }"
+				@change="onChange"
+			></cl-calendar>
+
+			<view class="flex justify-center mt-8">
+				<cl-button @click="goToday" :color="'#333'" :text-color="'#fff'">
+					<cl-icon name="refresh" :size="16" color="#fff" class="mr-2"></cl-icon>
+					回今天
+				</cl-button>
+			</view>
+		</view>
+
+		<!-- 趋势图弹窗 -->
+		<chart-popup v-model:show="showPopup" :tab="activeTab" :date="selectedDate"></chart-popup>
+	</cl-page>
+</template>
+
+<script lang="ts" setup>
+import { ref, computed } from "vue";
+import { dayUts } from "@/.cool";
+import type { ClCalendarDateConfig } from "@/uni_modules/cool-ui";
+import ChartPopup from "./components/chart-popup.uvue";
+
+const currentYear = ref(2026);
+const currentMonth = ref(1);
+const selectedDate = ref<string>(dayUts().format("YYYY-MM-DD"));
+const activeTab = ref("energy");
+const showPopup = ref(false);
+
+type TabItem = {
+	label: string;
+	value: string;
+};
+
+const tabs: TabItem[] = [
+	{ label: "储能", value: "energy" },
+	{ label: "负荷", value: "load" },
+	{ label: "状态", value: "status" },
+	{ label: "睡眠", value: "sleep" },
+	{ label: "复盘", value: "review" }
+];
+
+const isActiveTab = (tabValue: string) => activeTab.value === tabValue;
+
+const dateConfig = ref<ClCalendarDateConfig[]>([]);
+
+function gotoPrevMonth() {
+	if (currentMonth.value === 1) {
+		currentMonth.value = 12;
+		currentYear.value--;
+	} else {
+		currentMonth.value--;
+	}
+}
+
+function gotoNextMonth() {
+	if (currentMonth.value === 12) {
+		currentMonth.value = 1;
+		currentYear.value++;
+	} else {
+		currentMonth.value++;
+	}
+}
+
+function goToday() {
+	const now = new Date();
+	currentYear.value = now.getFullYear();
+	currentMonth.value = now.getMonth() + 1;
+	selectedDate.value = dayUts().format("YYYY-MM-DD");
+}
+
+function onChange(event: any) {
+	console.log("日期变化:", event);
+	// 打开趋势图弹窗
+	showPopup.value = true;
+}
+</script>
+
+<style lang="scss">
+.cl-calendar {
+	background: #121212;
+	border-radius: 12px;
+	padding: 16px;
+
+	.cl-calendar__view {
+		.cl-calendar__view-cell {
+			background: #1c1c18;
+			border-radius: 8px 8px 8px 8px;
+			border: 1px solid #272722;
+		}
+	}
+}
+
+.type-tab {
+	flex: 1;
+	height: 40px;
+	background: #1f201b;
+	border-radius: 16px 16px 16px 16px;
+	color: #fff;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+}
+
+.active-tab {
+	background: #2f3914;
+}
+
+.active-text {
+	@apply text-primary-500;
+	opacity: 1;
+}
+</style>

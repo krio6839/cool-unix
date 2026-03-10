@@ -1,0 +1,54 @@
+<template>
+	<view class="container">
+		<!-- <cl-topbar
+			title="BOOM GO"
+			left-text=""
+			left-icon="arrow-left"
+			@click-left="back"
+		></cl-topbar> -->
+
+		<view class="flex flex-col items-center justify-center flex-1 px-6">
+			<view class="mt-20 icon-container">
+				<cl-image
+					src="/static/icon/boom-go.svg"
+					:width="150"
+					:height="120"
+					:show-loading="false"
+				></cl-image>
+			</view>
+
+			<view class="text-container">
+				<text class="title">为什么"训练准备度"和体感不符</text>
+				<text class="description"
+					>前几天连续训练负荷较大，HRV较低但储能情况良好，预计明天HRV上升达到超量恢复黄金窗口。建议降低训练量，注意恢复调整</text
+				>
+			</view>
+		</view>
+	</view>
+</template>
+
+<script lang="ts" setup>
+import { ref } from "vue";
+
+const back = () => {
+	uni.navigateBack();
+};
+</script>
+
+<style lang="scss" scoped>
+.icon-container {
+	@apply mb-12;
+}
+
+.text-container {
+	@apply text-center;
+}
+
+.title {
+	@apply text-xl font-bold mb-6 text-white text-center;
+}
+
+.description {
+	@apply text-gray-300 leading-relaxed;
+}
+</style>

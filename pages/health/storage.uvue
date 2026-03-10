@@ -1,0 +1,218 @@
+<template>
+	<cl-page>
+		<cl-topbar
+			fixed
+			:show-back="true"
+			safe-area-top
+			:height="isMp() ? null : 50"
+			background-color="transparent"
+		>
+			<view class="flex flex-row items-center justify-between w-full p-3">
+				<cl-icon name="arrow-left-line" color="white" :size="20" @tap="goBack"></cl-icon>
+				<cl-text :size="18" color="white">储能</cl-text>
+				<view class="w-5"></view>
+			</view>
+		</cl-topbar>
+
+		<view class="p-3">
+			<!-- 顶部日期和总储能 -->
+			<Header
+				:date="currentDate"
+				:label="'总储能'"
+				:value="totalEnergy"
+				:progress="energyProgress"
+				:config="{
+					backgroundColor: '#282828',
+					startColor: '#4CAF50',
+					endColor: '#FF5C5C',
+					dotColor: '#fff'
+				}"
+				@go-to-date-select="goToDateSelect"
+			></Header>
+
+			<!-- 储能数据概览 -->
+			<Status :items="energyItems"></Status>
+
+			<!-- 当日能量曲线 -->
+			<Chart
+				:title="'当日能量曲线'"
+				:option="energyChartOption"
+				:height="200"
+				:show-footer="false"
+			></Chart>
+
+			<!-- 身体储能趋势 -->
+			<Chart
+				:title="'身体储能趋势'"
+				:option="bodyEnergyChartOption"
+				:height="200"
+				:show-footer="false"
+			></Chart>
+		</view>
+	</cl-page>
+</template>
+
+<script lang="ts" setup>
+import { isMp } from "@/.cool";
+import { ref, computed } from "vue";
+import Header from "./components/header.uvue";
+import Status from "./components/status.uvue";
+//@ts-ignore
+import Chart from "./components/chart.uvue";
+import type { ChartOption } from "./types/chart";
+
+type EnergyItem = {
+	label: string;
+	value: number;
+};
+
+const currentDate = ref<string>("2025.10.14");
+const totalEnergy = ref<number>(958);
+const energyProgress = ref<number>(65);
+
+const energyItems = ref<EnergyItem[]>([
+	{
+		label: "总充能",
+		value: 3264
+	},
+	{
+		label: "总耗能",
+		value: 867
+	}
+]);
+
+const energyChartOption = computed<ChartOption>(() => {
+	return {
+		tooltip: {
+			trigger: "axis",
+			textStyle: {
+				color: "#fff"
+			}
+		},
+		grid: {
+			left: 0,
+			right: 0,
+			top: 0,
+			bottom: 0,
+			containLabel: true
+		},
+		xAxis: {
+			type: "category",
+			data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
+			axisLabel: {
+				color: "rgba(255,255,255,0.6)"
+			},
+			axisLine: {
+				lineStyle: {
+					color: "rgba(255,255,255,0.2)"
+				}
+			}
+		},
+		yAxis: {
+			type: "value",
+			axisLine: {
+				show: false
+			},
+			axisLabel: {
+				show: false
+			},
+			splitLine: {
+				show: false
+			}
+		},
+		series: [
+			{
+				name: "能量",
+				type: "line",
+				data: [120, 190, 150, 200, 250, 300, 280, 260],
+				smooth: true,
+				lineStyle: {
+					color: "#4CAF50",
+					width: 2
+				},
+				areaStyle: {
+					color: {
+						type: "linear",
+						x: 0,
+						y: 0,
+						x2: 0,
+						y2: 1,
+						colorStops: [
+							{
+								offset: 0,
+								color: "rgba(76, 175, 80, 0.3)"
+							},
+							{
+								offset: 1,
+								color: "rgba(76, 175, 80, 0.1)"
+							}
+						]
+					}
+				}
+			}
+		]
+	} as ChartOption;
+});
+
+const bodyEnergyChartOption = computed<ChartOption>(() => {
+	return {
+		tooltip: {
+			trigger: "axis",
+			textStyle: {
+				color: "#fff"
+			}
+		},
+		grid: {
+			left: 0,
+			right: 0,
+			top: 0,
+			bottom: 0,
+			containLabel: true
+		},
+		xAxis: {
+			type: "category",
+			data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
+			axisLabel: {
+				color: "rgba(255,255,255,0.6)"
+			},
+			axisLine: {
+				lineStyle: {
+					color: "rgba(255,255,255,0.2)"
+				}
+			}
+		},
+		yAxis: {
+			type: "value",
+			axisLine: {
+				show: false
+			},
+			axisLabel: {
+				show: false
+			},
+			splitLine: {
+				show: false
+			}
+		},
+		series: [
+			{
+				name: "身体储能",
+				type: "bar",
+				data: [60, 80, 70, 90, 85, 95, 100, 98],
+				itemStyle: {
+					color: "#FF9800"
+				}
+			}
+		]
+	} as ChartOption;
+});
+
+function goBack() {
+	uni.navigateBack();
+}
+
+function goToDateSelect() {
+	console.log("跳转到选择日期页面");
+}
+</script>
+
+<style lang="scss" scoped></style>

@@ -1,0 +1,230 @@
+<template>
+	<cl-page>
+		<cl-topbar
+			fixed
+			:show-back="true"
+			safe-area-top
+			:height="isMp() ? null : 50"
+			background-color="transparent"
+		>
+			<view class="flex flex-row items-center justify-between w-full p-3">
+				<cl-icon name="arrow-left-line" color="white" :size="20" @tap="goBack"></cl-icon>
+				<cl-text :size="18" color="white">状态</cl-text>
+				<view class="w-5"></view>
+			</view>
+		</cl-topbar>
+
+		<view class="p-3">
+			<!-- 顶部日期和状态 -->
+			<Header
+				:date="currentDate"
+				:label="'状态'"
+				:value="totalStatus"
+				:progress="statusProgress"
+				:config="{
+					backgroundColor: '#282828',
+					startColor: '#D2FF5C',
+					endColor: '#2FABCB',
+					dotColor: '#fff'
+				}"
+				@go-to-date-select="goToDateSelect"
+			></Header>
+
+			<!-- 健康数据概览 -->
+			<Status :items="healthItems"></Status>
+
+			<!-- 当日HRV变化趋势图 -->
+			<Chart :title="'当日HRV变化'" :option="hrvChartOption" :height="200"></Chart>
+
+			<!-- 训练准备度趋势图 -->
+			<Chart :title="'训练准备度趋势'" :option="readinessChartOption" :height="200"></Chart>
+		</view>
+	</cl-page>
+</template>
+
+<script lang="ts" setup>
+import { isMp, dayUts } from "@/.cool";
+import { ref, computed } from "vue";
+import Header from "./components/header.uvue";
+import Status from "./components/status.uvue";
+// @ts-ignore
+import Chart from "./components/chart.uvue";
+import type { HealthItem, ChartOption } from "./types";
+
+// 组件数据
+const currentDate = ref<string>("2025.10.14");
+const totalStatus = ref<number>(2654);
+const statusProgress = ref<number>(60);
+
+// 健康数据
+const healthItems = ref<HealthItem[]>([
+	{
+		label: "今日平均HRV",
+		value: 36
+	},
+	{
+		label: "静息心率",
+		value: 9587
+	},
+	{
+		label: "平均",
+		value: 36
+	},
+	{
+		label: "最高",
+		value: 37
+	},
+	{
+		label: "最低",
+		value: 37
+	}
+]);
+
+// 当日HRV变化趋势图配置
+const hrvChartOption = computed<ChartOption>(() => ({
+	tooltip: {
+		trigger: "axis",
+		textStyle: {
+			color: "#fff"
+		}
+	},
+	grid: {
+		left: 0,
+		right: 0,
+		top: 0,
+		bottom: 0,
+		containLabel: true
+	},
+	xAxis: {
+		type: "category",
+		data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
+		axisLabel: {
+			color: "rgba(255,255,255,0.6)"
+		},
+		axisLine: {
+			lineStyle: {
+				color: "rgba(255,255,255,0.2)"
+			}
+		}
+	},
+	yAxis: {
+		type: "value",
+		axisLine: {
+			show: false
+		},
+		axisLabel: {
+			show: false
+		},
+		splitLine: {
+			show: false
+		}
+	},
+	series: [
+		{
+			name: "HRV",
+			type: "bar",
+			data: [35, 38, 36, 34, 37, 35, 36, 38],
+			itemStyle: {
+				color: {
+					type: "linear",
+					x: 0,
+					y: 0,
+					x2: 0,
+					y2: 1,
+					colorStops: [
+						{
+							offset: 0,
+							color: "rgba(76, 175, 80, 0.8)"
+						},
+						{
+							offset: 1,
+							color: "rgba(76, 175, 80, 0.3)"
+						}
+					]
+				}
+			}
+		}
+	]
+}));
+
+// 训练准备度趋势图配置
+const readinessChartOption = computed<ChartOption>(() => ({
+	tooltip: {
+		trigger: "axis",
+		textStyle: {
+			color: "#fff"
+		}
+	},
+	grid: {
+		left: 0,
+		right: 0,
+		top: 0,
+		bottom: 0,
+		containLabel: true
+	},
+	xAxis: {
+		type: "category",
+		data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
+		axisLabel: {
+			color: "rgba(255,255,255,0.6)"
+		},
+		axisLine: {
+			lineStyle: {
+				color: "rgba(255,255,255,0.2)"
+			}
+		}
+	},
+	yAxis: {
+		type: "value",
+		axisLine: {
+			show: false
+		},
+		axisLabel: {
+			show: false
+		},
+		splitLine: {
+			show: false
+		}
+	},
+	series: [
+		{
+			name: "准备度",
+			type: "bar",
+			data: [230, 245, 260, 225, 235, 250, 240, 265],
+			itemStyle: {
+				color: {
+					type: "linear",
+					x: 0,
+					y: 0,
+					x2: 0,
+					y2: 1,
+					colorStops: [
+						{
+							offset: 0,
+							color: "rgba(255, 152, 0, 0.8)"
+						},
+						{
+							offset: 1,
+							color: "rgba(255, 152, 0, 0.3)"
+						}
+					]
+				}
+			}
+		}
+	]
+}));
+
+// 返回上一页
+function goBack() {
+	uni.navigateBack();
+}
+
+// 跳转到选择日期页面
+function goToDateSelect() {
+	// 这里可以添加跳转到日期选择页面的逻辑
+	console.log("跳转到选择日期页面");
+	// 示例：uni.navigateTo({ url: '/pages/date-select/date-select' });
+}
+</script>
+
+<style lang="scss" scoped></style>

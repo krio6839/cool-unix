@@ -1,0 +1,385 @@
+<template>
+	<cl-page>
+		<cl-topbar
+			fixed
+			:show-back="true"
+			safe-area-top
+			:height="isMp() ? null : 50"
+			background-color="transparent"
+		>
+			<view class="flex flex-row items-center justify-between w-full p-3">
+				<cl-icon name="arrow-left-line" color="white" :size="20" @tap="goBack"></cl-icon>
+				<cl-text :size="18" color="white">负荷</cl-text>
+				<view class="w-5"></view>
+			</view>
+		</cl-topbar>
+
+		<view class="p-3">
+			<!-- 顶部日期和总负荷 -->
+			<Header
+				:date="currentDate"
+				:label="'总负荷'"
+				:value="totalLoad"
+				:progress="loadProgress"
+				:config="{
+					backgroundColor: '#282828',
+					startColor: '#D2FF5C',
+					endColor: '#FF5C5C',
+					dotColor: '#fff'
+				}"
+				@go-to-date-select="goToDateSelect"
+			></Header>
+
+			<!-- 健康数据概览 -->
+			<Status :items="healthItems"></Status>
+
+			<!-- 当日实时负荷趋势图 -->
+			<Chart
+				:title="'当日实时负荷趋势图'"
+				:option="realtimeChartOption"
+				:height="200"
+			></Chart>
+
+			<!-- 压力负荷趋势图 -->
+			<Chart :title="'压力负荷趋势图'" :option="pressureChartOption" :height="200"></Chart>
+
+			<!-- 运动负荷趋势图 -->
+			<Chart :title="'运动负荷趋势图'" :option="exerciseChartOption" :height="200"></Chart>
+
+			<!-- 睡眠压力趋势图 -->
+			<Chart :title="'睡眠压力趋势图'" :option="sleepChartOption" :height="200"></Chart>
+
+			<!-- 心率区间趋势图 -->
+			<Chart :title="'心率区间趋势图'" :option="heartRateChartOption" :height="200"></Chart>
+		</view>
+	</cl-page>
+</template>
+
+<script lang="ts" setup>
+import { isMp } from "@/.cool";
+import { ref, computed } from "vue";
+import Header from "./components/header.uvue";
+import Status from "./components/status.uvue";
+// @ts-ignore
+import Chart from "./components/chart.uvue";
+import type { HealthItem, ChartOption } from "./types";
+
+// 组件数据
+const currentDate = ref<string>("2025.10.14");
+const totalLoad = ref<number>(7326);
+const loadProgress = ref<number>(60);
+
+// 健康数据
+const healthItems = ref<HealthItem[]>([
+	{
+		label: "平均负荷",
+		value: 36
+	},
+	{
+		label: "静态心率",
+		value: 78
+	},
+	{
+		label: "步数",
+		value: 9587
+	},
+	{
+		label: "卡路里",
+		value: 598
+	}
+]);
+
+// 当日实时负荷趋势图配置
+const realtimeChartOption = computed<ChartOption>(() => ({
+	tooltip: {
+		trigger: "axis",
+		textStyle: {
+			color: "#fff"
+		}
+	},
+	grid: {
+		left: 0,
+		right: 0,
+		top: 0,
+		bottom: 0,
+		containLabel: true
+	},
+	xAxis: {
+		type: "category",
+		data: ["00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00"],
+		axisLabel: {
+			color: "rgba(255,255,255,0.6)"
+		},
+		axisLine: {
+			lineStyle: {
+				color: "rgba(255,255,255,0.2)"
+			}
+		}
+	},
+	yAxis: {
+		type: "value",
+		axisLine: {
+			show: false
+		},
+		axisLabel: {
+			show: false
+		},
+		splitLine: {
+			show: false
+		}
+	},
+	series: [
+		{
+			name: "负荷",
+			type: "line",
+			data: [12, 19, 3, 5, 2, 3, 15, 20],
+			smooth: true,
+			lineStyle: {
+				color: "#4CAF50",
+				width: 2
+			},
+			areaStyle: {
+				color: {
+					type: "linear",
+					x: 0,
+					y: 0,
+					x2: 0,
+					y2: 1,
+					colorStops: [
+						{
+							offset: 0,
+							color: "rgba(76, 175, 80, 0.3)"
+						},
+						{
+							offset: 1,
+							color: "rgba(76, 175, 80, 0.1)"
+						}
+					]
+				}
+			}
+		}
+	]
+}));
+
+// 压力负荷趋势图配置
+const pressureChartOption = computed<ChartOption>(() => ({
+	tooltip: {
+		trigger: "axis",
+		textStyle: {
+			color: "#fff"
+		}
+	},
+	grid: {
+		left: 0,
+		right: 0,
+		top: 0,
+		bottom: 0,
+		containLabel: true
+	},
+	xAxis: {
+		type: "category",
+		data: ["10-20", "10-21", "10-22", "10-23", "10-24", "10-25", "10-26"],
+		axisLabel: {
+			color: "rgba(255,255,255,0.6)"
+		},
+		axisLine: {
+			lineStyle: {
+				color: "rgba(255,255,255,0.2)"
+			}
+		}
+	},
+	yAxis: {
+		type: "value",
+		axisLine: {
+			show: false
+		},
+		axisLabel: {
+			show: false
+		},
+		splitLine: {
+			show: false
+		}
+	},
+	series: [
+		{
+			name: "压力负荷",
+			type: "line",
+			data: [30, 40, 35, 45, 30, 50, 40],
+			smooth: true,
+			lineStyle: {
+				color: "#FF9800",
+				width: 2
+			}
+		}
+	]
+}));
+
+// 运动负荷趋势图配置
+const exerciseChartOption = computed<ChartOption>(() => ({
+	tooltip: {
+		trigger: "axis",
+		textStyle: {
+			color: "#fff"
+		}
+	},
+	grid: {
+		left: 0,
+		right: 0,
+		top: 0,
+		bottom: 0,
+		containLabel: true
+	},
+	xAxis: {
+		type: "category",
+		data: ["10-20", "10-21", "10-22", "10-23", "10-24", "10-25", "10-26"],
+		axisLabel: {
+			color: "rgba(255,255,255,0.6)"
+		},
+		axisLine: {
+			lineStyle: {
+				color: "rgba(255,255,255,0.2)"
+			}
+		}
+	},
+	yAxis: {
+		type: "value",
+		axisLine: {
+			show: false
+		},
+		axisLabel: {
+			show: false
+		},
+		splitLine: {
+			show: false
+		}
+	},
+	series: [
+		{
+			name: "运动负荷",
+			type: "line",
+			data: [50, 60, 45, 70, 55, 65, 50],
+			smooth: true,
+			lineStyle: {
+				color: "#2196F3",
+				width: 2
+			}
+		}
+	]
+}));
+
+// 睡眠压力趋势图配置
+const sleepChartOption = computed<ChartOption>(() => ({
+	tooltip: {
+		trigger: "axis",
+		textStyle: {
+			color: "#fff"
+		}
+	},
+	grid: {
+		left: 0,
+		right: 0,
+		top: 0,
+		bottom: 0,
+		containLabel: true
+	},
+	xAxis: {
+		type: "category",
+		data: ["10-20", "10-21", "10-22", "10-23", "10-24", "10-25", "10-26"],
+		axisLabel: {
+			color: "rgba(255,255,255,0.6)"
+		},
+		axisLine: {
+			lineStyle: {
+				color: "rgba(255,255,255,0.2)"
+			}
+		}
+	},
+	yAxis: {
+		type: "value",
+		axisLine: {
+			show: false
+		},
+		axisLabel: {
+			show: false
+		},
+		splitLine: {
+			show: false
+		}
+	},
+	series: [
+		{
+			name: "睡眠压力",
+			type: "bar",
+			data: [654, 780, 569, 720, 680, 750, 620],
+			itemStyle: {
+				color: "#9C27B0"
+			}
+		}
+	]
+}));
+
+// 心率区间趋势图配置
+const heartRateChartOption = computed<ChartOption>(() => ({
+	tooltip: {
+		trigger: "axis",
+		textStyle: {
+			color: "#fff"
+		}
+	},
+	grid: {
+		left: 0,
+		right: 0,
+		top: 0,
+		bottom: 0,
+		containLabel: true
+	},
+	xAxis: {
+		type: "category",
+		data: ["00:00", "04:00", "08:00", "12:00", "16:00", "20:00"],
+		axisLabel: {
+			color: "rgba(255,255,255,0.6)"
+		},
+		axisLine: {
+			lineStyle: {
+				color: "rgba(255,255,255,0.2)"
+			}
+		}
+	},
+	yAxis: {
+		type: "value",
+		axisLine: {
+			show: false
+		},
+		axisLabel: {
+			show: false
+		},
+		splitLine: {
+			show: false
+		}
+	},
+	series: [
+		{
+			name: "心率",
+			type: "bar",
+			data: [72, 118, 63, 85, 92, 78],
+			itemStyle: {
+				color: "#4CAF50"
+			}
+		}
+	]
+}));
+
+// 返回上一页
+function goBack() {
+	uni.navigateBack();
+}
+
+// 跳转到选择日期页面
+function goToDateSelect() {
+	// 这里可以添加跳转到日期选择页面的逻辑
+	console.log("跳转到选择日期页面");
+	// 示例：uni.navigateTo({ url: '/pages/date-select/date-select' });
+}
+</script>
+
+<style lang="scss" scoped></style>

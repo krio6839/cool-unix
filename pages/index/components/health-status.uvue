@@ -3,7 +3,10 @@
 		<view class="flex flex-row items-center justify-around h-full">
 			<template v-for="(item, index) in healthItems" :key="index">
 				<view v-if="index != 0" class="divider"></view>
-				<view class="p-2 flex flex-col items-center flex-1">
+				<view
+					class="p-2 flex flex-col items-center flex-1"
+					@tap="handleItemClick(item.label)"
+				>
 					<cl-text :size="13" :pt="{ className: 'label-text' }">{{ item.label }}</cl-text>
 					<view class="flex flex-row items-center mt-1">
 						<cl-text :size="17" :pt="{ className: 'value-text' }">
@@ -102,6 +105,23 @@ function getTrendIcon(trend: "up" | "down"): string {
 // 辅助函数：获取趋势颜色
 function getTrendColor(trend: "up" | "down"): string {
 	return trend === "up" ? "#4CAF50" : "#FF5252";
+}
+
+// 处理点击事件
+function handleItemClick(label: string) {
+	if (label === "负荷") {
+		uni.navigateTo({
+			url: "/pages/health/load"
+		});
+	} else if (label === "睡眠") {
+		uni.navigateTo({
+			url: "/pages/health/sleep"
+		});
+	} else if (label === "状态") {
+		uni.navigateTo({
+			url: "/pages/health/status"
+		});
+	}
 }
 </script>
 

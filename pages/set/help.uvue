@@ -1,0 +1,148 @@
+<template>
+	<cl-page>
+		<view class="p-3">
+			<cl-list>
+				<cl-list-item
+					:label="t('应用介绍')"
+					arrow
+					hoverable
+					@tap="scrollToSection('app-intro')"
+				></cl-list-item>
+				<cl-list-item
+					:label="t('功能指南')"
+					arrow
+					hoverable
+					@tap="scrollToSection('features')"
+				></cl-list-item>
+				<cl-list-item
+					:label="t('常见问题')"
+					arrow
+					hoverable
+					@tap="scrollToSection('faq')"
+				></cl-list-item>
+				<cl-list-item
+					:label="t('联系我们')"
+					arrow
+					hoverable
+					@tap="scrollToSection('contact')"
+				></cl-list-item>
+			</cl-list>
+
+			<view class="mt-4">
+				<view id="app-intro" class="mb-6">
+					<cl-text :size="18" :pt="{ className: 'font-bold mb-2' }">
+						{{ t("应用介绍") }}
+					</cl-text>
+					<cl-text :size="14" :pt="{ className: 'text-gray-600' }">
+						{{
+							t(
+								"cool-unix 是一款功能强大的健康管理应用，帮助您追踪和分析健康数据，包括睡眠、心率、血压等多项指标。通过直观的图表和分析，让您更好地了解自己的健康状况，制定科学的健康管理计划。"
+							)
+						}}
+					</cl-text>
+				</view>
+
+				<view id="features" class="mb-6">
+					<cl-text :size="18" :pt="{ className: 'font-bold mb-2' }">
+						{{ t("功能指南") }}
+					</cl-text>
+					<cl-text :size="14" :pt="{ className: 'text-gray-600 mb-2' }">
+						{{ t("仪表页面") }}：{{
+							t("查看健康数据概览，包括心率、睡眠、步数等核心指标。")
+						}}
+					</cl-text>
+					<cl-text :size="14" :pt="{ className: 'text-gray-600 mb-2' }">
+						{{ t("COACH 页面") }}：{{
+							t(
+								"获取个性化的健康建议和指导，根据您的健康数据提供科学的运动和生活建议。"
+							)
+						}}
+					</cl-text>
+					<cl-text :size="14" :pt="{ className: 'text-gray-600 mb-2' }">
+						{{ t("日志页面") }}：{{ t("记录和查看历史健康数据，追踪健康趋势和变化。") }}
+					</cl-text>
+					<cl-text :size="14" :pt="{ className: 'text-gray-600' }">
+						{{ t("团队页面") }}：{{ t("与家人和朋友分享健康数据，互相鼓励和监督。") }}
+					</cl-text>
+				</view>
+
+				<view id="faq" class="mb-6">
+					<cl-text :size="18" :pt="{ className: 'font-bold mb-2' }">
+						{{ t("常见问题") }}
+					</cl-text>
+					<view class="mb-3">
+						<cl-text :size="16" :pt="{ className: 'font-semibold mb-1' }">
+							{{ t("如何连接设备？") }}
+						</cl-text>
+						<cl-text :size="14" :pt="{ className: 'text-gray-600' }">
+							{{
+								t(
+									"在设备页面点击“添加设备”，按照提示步骤进行配对。确保设备处于可配对状态，并且蓝牙已开启。"
+								)
+							}}
+						</cl-text>
+					</view>
+					<view class="mb-3">
+						<cl-text :size="16" :pt="{ className: 'font-semibold mb-1' }">
+							{{ t("如何查看历史数据？") }}
+						</cl-text>
+						<cl-text :size="14" :pt="{ className: 'text-gray-600' }">
+							{{ t("在日志页面选择相应的日期范围，即可查看该时间段内的健康数据。") }}
+						</cl-text>
+					</view>
+					<view>
+						<cl-text :size="16" :pt="{ className: 'font-semibold mb-1' }">
+							{{ t("如何分享健康数据？") }}
+						</cl-text>
+						<cl-text :size="14" :pt="{ className: 'text-gray-600' }">
+							{{
+								t(
+									"在团队页面添加成员，然后在相应的健康数据页面点击分享按钮，选择要分享的成员即可。"
+								)
+							}}
+						</cl-text>
+					</view>
+				</view>
+
+				<view id="contact">
+					<cl-text :size="18" :pt="{ className: 'font-bold mb-2' }">
+						{{ t("联系我们") }}
+					</cl-text>
+					<cl-text :size="14" :pt="{ className: 'text-gray-600 mb-2' }">
+						{{ t("邮箱：") }} support@cool-unix.com
+					</cl-text>
+					<cl-text :size="14" :pt="{ className: 'text-gray-600 mb-2' }">
+						{{ t("电话：") }} 400-123-4567
+					</cl-text>
+					<cl-text :size="14" :pt="{ className: 'text-gray-600' }">
+						{{ t("工作时间：周一至周五 9:00-18:00") }}
+					</cl-text>
+				</view>
+			</view>
+		</view>
+	</cl-page>
+</template>
+
+<script setup lang="ts">
+import { t } from "@/.cool";
+
+onReady(() => {
+	uni.setNavigationBarTitle({
+		title: t("帮助")
+	});
+});
+
+function scrollToSection(id: string) {
+	uni.createSelectorQuery()
+		.select(`#${id}`)
+		.boundingClientRect()
+		.exec((res) => {
+			if (res[0]) {
+				uni.pageScrollTo({
+					scrollTop: res[0].top - 100,
+					duration: 300
+				});
+			}
+		});
+}
+</script>

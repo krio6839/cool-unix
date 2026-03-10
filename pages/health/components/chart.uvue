@@ -1,0 +1,136 @@
+<template>
+	<view class="chart-container">
+		<!-- 标题 -->
+		<cl-text :size="16" color="white" :pt="{ className: 'font-bold mb-3' }">
+			{{ title }}
+		</cl-text>
+		
+		<!-- 图表区域 -->
+		<view class="chart-wrapper" :style="{ width: '100%', height: height + 'px' }">
+			<l-echart ref="chartRef" @finished="initChart"></l-echart>
+		</view>
+		
+		<!-- 文字描述区域 -->
+		<view class="description-container" v-if="showFooter">
+			<view class="description-item">
+				<cl-text :size="14" color="rgba(255,255,255,0.6)">平均</cl-text>
+				<cl-text :size="20" color="white" :pt="{ className: 'font-bold' }">
+					{{ stats.average.toFixed(0) }}
+				</cl-text>
+			</view>
+			<view class="description-item">
+				<cl-text :size="14" color="rgba(255,255,255,0.6)">最高</cl-text>
+				<cl-text :size="20" color="white" :pt="{ className: 'font-bold' }">
+					{{ stats.max }}
+				</cl-text>
+				<cl-text :size="12" color="rgba(255,255,255,0.4)" v-if="isValidIndex(stats.maxIndex)">
+					{{ xAxisData[stats.maxIndex] }}
+				</cl-text>
+			</view>
+			<view class="description-item">
+				<cl-text :size="14" color="rgba(255,255,255,0.6)">最低</cl-text>
+				<cl-text :size="20" color="white" :pt="{ className: 'font-bold' }">
+					{{ stats.min }}
+				</cl-text>
+				<cl-text :size="12" color="rgba(255,255,255,0.4)" v-if="isValidIndex(stats.minIndex)">
+					{{ xAxisData[stats.minIndex] }}
+				</cl-text>
+			</view>
+		</view>
+	</view>
+</template>
+
+<script lang="uts" setup>
+import { ref, computed } from "vue";
+import type { ChartProps, ChartStats } from "../types/chart";
+
+// 组件属性
+const props = withDefaults(defineProps<ChartProps>(), {
+	showFooter: true
+});
+
+// 图表引用
+const chartRef = ref<LEchartComponentPublicInstance | null>(null);
+
+// #ifdef MP
+const echarts = require("../../../uni_modules/lime-echart/static/echarts.min.js");
+// #endif
+// #ifndef MP
+const echarts = null;
+// #endif
+
+// 获取X轴数据
+const xAxisData = computed(() => {
+	return props.option.xAxis?.data || [];
+});
+
+// 计算统计数据
+const stats = computed<ChartStats>(() => {
+	// 获取第一个系列的数据
+	const series = props.option.series[0];
+	const data = series?.data || [];
+	
+	if (data.length === 0) {
+		return {
+			average: 0,
+			max: 0,
+			maxIndex: 0,
+			min: 0,
+			minIndex: 0
+		};
+	}
+	
+	const sum = data.reduce((acc, val) => acc + val, 0);
+	const average = sum / data.length;
+	const max = Math.max(...data);
+	const maxIndex = data.indexOf(max);
+	const min = Math.min(...data);
+	const minIndex = data.indexOf(min);
+	
+	return {
+		average,
+		max,
+		maxIndex,
+		min,
+		minIndex
+	};
+});
+
+// 检查索引是否有效
+function isValidIndex(index: number): boolean {
+	return xAxisData.value.length > 0 && index >= 0 && index < xAxisData.value.length;
+}
+
+// 初始化图表
+async function initChart() {
+	if (chartRef.value == null) return;
+	const chart = await chartRef.value!.init(echarts);
+	chart.setOption(props.option);
+}
+</script>
+
+<style lang="scss" scoped>
+.chart-container {
+	width: 100%;
+	margin-bottom: 24px;
+}
+
+.chart-wrapper {
+	width: 100%;
+}
+
+.description-container {
+	display: flex;
+	flex-direction: row;
+	justify-content: space-between;
+	margin-top: 12px;
+	padding: 0 4px;
+}
+
+.description-item {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	flex: 1;
+}
+</style>

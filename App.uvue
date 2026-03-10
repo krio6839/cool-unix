@@ -10,7 +10,7 @@ export default {
 		const { user } = useStore();
 
 		// // 判断登录状态
-		// if (!user.token) {
+		// if (user.token == null) {
 		// 	// 未登录，跳转到登录页
 		// 	router.push({
 		// 		path: "/pages/user/login",
@@ -22,7 +22,7 @@ export default {
 		// 	// 实际项目中应该从用户信息或设备状态中获取真实的配对状态
 		// 	const isPaired = false; // 假设未配对
 
-		// 	if (!isPaired) {
+		// 	if (isPaired == false) {
 		// 		// 未配对，跳转到配对页面
 		// 		router.push({
 		// 			path: "/pages/device/index",

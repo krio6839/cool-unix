@@ -1,0 +1,127 @@
+<template>
+	<view class="sleep-progress mb-4">
+		<!-- 建议睡眠时长 -->
+		<view class="mb-4">
+			<cl-text :size="16" color="white" :pt="{ className: 'font-bold mb-3' }">
+				建议睡眠时长
+			</cl-text>
+
+			<view class="flex flex-row justify-between mb-3">
+				<view class="flex flex-col">
+					<cl-text :size="13" color="rgba(255,255,255,0.6)">放松</cl-text>
+					<cl-text :size="16" color="white">{{ relaxTime }}</cl-text>
+				</view>
+				<view class="flex flex-col">
+					<cl-text :size="13" color="rgba(255,255,255,0.6)">就寝</cl-text>
+					<cl-text :size="16" color="white">{{ sleepTime }}</cl-text>
+				</view>
+				<view class="flex flex-col" @click="handleWakeUpTimeClick">
+					<cl-text :size="13" color="rgba(255,255,255,0.6)">起床</cl-text>
+					<cl-text :size="16" color="white">{{ wakeUpTime }}</cl-text>
+				</view>
+			</view>
+
+			<!-- 睡眠进度条 -->
+			<view class="w-full relative">
+				<view class="w-full h-2 bg-surface-700 rounded-full mb-2"></view>
+				<view class="w-full h-2 bg-surface-700 rounded-full absolute top-0">
+					<view
+						class="h-2 bg-gradient-to-r from-yellow-400 to-green-500 rounded-full"
+						:style="{ width: sleepProgress + '%' }"
+					></view>
+				</view>
+				<view class="flex flex-row justify-between text-xs text-surface-400">
+					<cl-text>12:00</cl-text>
+					<cl-text>0:00</cl-text>
+					<cl-text>12:00</cl-text>
+				</view>
+			</view>
+		</view>
+
+		<!-- 建议睡眠时长和目标时长 -->
+		<view class="flex flex-row justify-between items-center mb-4">
+			<view>
+				<cl-text :size="13" color="rgba(255,255,255,0.6)">建议睡眠时长</cl-text>
+				<cl-text :size="16" color="white">{{ suggestedSleepTime }}</cl-text>
+			</view>
+			<view class="flex flex-row items-center">
+				<cl-text :size="14" color="white">目标时长+1分钟</cl-text>
+				<cl-icon name="arrow-right-line" color="white" :size="14" class="ml-1"></cl-icon>
+			</view>
+		</view>
+
+		<!-- 时间选择器 -->
+		<cl-select-time
+			ref="selectTimeRef"
+			v-model="selectedTime"
+			:show-trigger="false"
+			type="minute"
+			title="选择起床时间"
+			@change="handleTimeChange"
+		></cl-select-time>
+	</view>
+</template>
+
+<script lang="ts" setup>
+import { ref } from "vue";
+
+// 组件属性
+type Props = {
+	relaxTime?: string;
+	sleepTime?: string;
+	wakeUpTime?: string;
+	sleepProgress?: number;
+	suggestedSleepTime?: string;
+};
+
+// 组件参数
+const props = withDefaults(defineProps<Props>(), {
+	relaxTime: "23:28",
+	sleepTime: "23:58",
+	wakeUpTime: "07:30",
+	sleepProgress: 70,
+	suggestedSleepTime: "7小时31分钟"
+});
+
+// 定义事件
+const emit = defineEmits<{
+	(timeChange: "timeChange", time: string): void;
+}>();
+
+// 时间选择器引用
+const selectTimeRef = ref<any>(null);
+// 选中的时间
+const selectedTime = ref<string>(props.wakeUpTime);
+
+// 点击事件处理
+function handleWakeUpTimeClick() {
+	// 设置当前时间为默认值
+	selectedTime.value = props.wakeUpTime;
+	// 打开时间选择器
+	selectTimeRef.value?.open();
+}
+
+// 时间变更处理
+function handleTimeChange(value: string) {
+	selectedTime.value = value;
+	// 通知父组件时间变更
+	emit("timeChange", value);
+}
+</script>
+
+<style lang="scss" scoped>
+.sleep-progress {
+	background-image: linear-gradient(to right, rgba(50, 57, 65, 0.85), rgba(73, 77, 88, 0.85));
+	border-radius: 16px;
+	padding: 16px;
+	/* #ifndef APP-ANDROID */
+	backdrop-filter: blur(30px);
+	/* #endif */
+	/* #ifdef APP-ANDROID */
+	overflow: hidden;
+	position: relative;
+	/* #endif */
+}
+
+
+</style>

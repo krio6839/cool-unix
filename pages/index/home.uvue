@@ -59,7 +59,7 @@
 					:class="{
 						'mr-24': isMp()
 					}"
-					@tap="setLocale"
+					@tap="goToCalendar"
 				>
 					<cl-icon name="calendar-line" color="white" :size="16"></cl-icon>
 				</view>
@@ -78,11 +78,14 @@
 			</view>
 
 			<!-- 储能数据模块 -->
-			<EnergyRing class="mb-4" :percentage="energyPercentage"></EnergyRing>
+			<view @tap="goToEnergyStorage">
+				<EnergyRing class="mb-4" :percentage="energyPercentage"></EnergyRing>
+			</view>
 
 			<!-- BOOM GO -->
 			<view
 				class="boom-go mb-4 rounded-xl p-4 bg-gradient-to-r from-yellow-400 to-orange-500 text-white"
+				@tap="goToBoomGo"
 			>
 				<view class="flex flex-row items-center">
 					<cl-text :size="24" :pt="{ className: 'font-bold mb-2 mr-2' }"> BOOM </cl-text>
@@ -94,7 +97,7 @@
 			</view>
 
 			<!-- 超量恢复 -->
-			<view class="over-recovery mb-4 rounded-xl p-4 bg-black text-white">
+			<view class="over-recovery mb-4 rounded-xl p-4 bg-black text-white" @tap="goToRecovery">
 				<cl-text :size="16" :pt="{ className: 'font-bold mb-3' }">超量恢复</cl-text>
 				<cl-text :size="14" :pt="{ className: 'mb-3 text-surface-300' }"
 					>1月15日 14:00-16:00</cl-text
@@ -165,12 +168,32 @@ onMounted(() => {
 	formatDate();
 });
 
-function setLocale() {
-	refs.open("localeSet");
-}
-
 function setSize() {
 	refs.open("sizeSet");
+}
+
+function goToCalendar() {
+	uni.navigateTo({
+		url: "/pages/set/calendar"
+	});
+}
+
+function goToEnergyStorage() {
+	uni.navigateTo({
+		url: "/pages/health/storage"
+	});
+}
+
+function goToBoomGo() {
+	uni.navigateTo({
+		url: "/pages/boom-go/index"
+	});
+}
+
+function goToRecovery() {
+	uni.navigateTo({
+		url: "/pages/health/recovery"
+	});
 }
 </script>
 

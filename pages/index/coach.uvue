@@ -1,5 +1,5 @@
 <template>
-	<cl-page class="boom-coach-container">
+	<cl-page class="boom-coach-container" :back-top="false">
 		<cl-topbar
 			fixed
 			:show-back="false"
@@ -68,21 +68,18 @@
 				:showWordLimit="false"
 				@confirm="sendMessage"
 				:pt="{
-					className: 'chat-input bg-[#191915]',
+					className: 'chat-input !bg-[#191915]',
 					inner: {
 						className: '!text-white'
 					}
 				}"
 			></cl-textarea>
-			<cl-svg
-				src="/static/icon/coach/voice.svg"
-				class="absolute right-[60px] bottom-5 w-6 h-6"
-			></cl-svg>
-			<cl-svg
-				src="/static/icon/coach/send.svg"
-				class="send-btn absolute right-5 bottom-5 w-6 h-6"
-				@tap="sendMessage"
-			></cl-svg>
+			<view class="absolute right-[60px] bottom-5">
+				<cl-svg src="/static/icon/coach/voice.svg" class="w-6 h-6"></cl-svg>
+			</view>
+			<view class="absolute right-5 bottom-5" @tap="sendMessage">
+				<cl-svg src="/static/icon/coach/send.svg" class="w-6 h-6"></cl-svg>
+			</view>
 		</view>
 
 		<!-- 自定义底部导航栏 -->
@@ -100,8 +97,15 @@ import CustomTabbar from "./components/tabbar.uvue";
 const ui = useUi();
 const refs = useRefs();
 
+type MessageItem = {
+	role: string;
+	content: string;
+	time: string;
+	isTyping: boolean;
+};
+
 // 消息列表
-const messages = ref([
+const messages = ref<MessageItem[]>([
 	{
 		role: "user",
 		content: "AI提示词：需要浅色的空间感背景",
@@ -125,12 +129,30 @@ const messages = ref([
 ]);
 
 // 输入框内容
-const inputValue = ref("");
+const inputValue = ref<string>("");
+
+// 模拟打字机效果
+function simulateTyping(index: number, text: string) {
+	let currentIndex = 0;
+	const typingSpeed = 50; // 打字速度
+
+	function typeNextChar() {
+		if (currentIndex < text.length) {
+			messages.value[index].content += text[currentIndex];
+			currentIndex++;
+			setTimeout(() => typeNextChar(), typingSpeed);
+		} else {
+			messages.value[index].isTyping = false;
+		}
+	}
+
+	typeNextChar();
+}
 
 // 发送消息
 const sendMessage = () => {
 	console.log(inputValue.value);
-	if (!inputValue.value.trim()) return;
+	if (inputValue.value.trim().length == 0) return;
 
 	// 添加用户消息
 	messages.value.push({
@@ -138,7 +160,7 @@ const sendMessage = () => {
 		content: inputValue.value,
 		time: "",
 		isTyping: false
-	});
+	} as MessageItem);
 
 	inputValue.value = "";
 
@@ -151,7 +173,7 @@ const sendMessage = () => {
 				content: "",
 				time: "",
 				isTyping: true
-			}) - 1;
+			} as MessageItem) - 1;
 
 		// 模拟打字机效果
 		simulateTyping(
@@ -161,30 +183,12 @@ const sendMessage = () => {
 	}, 500);
 };
 
-// 模拟打字机效果
-const simulateTyping = (index: number, text: string) => {
-	let currentIndex = 0;
-	const typingSpeed = 50; // 打字速度
-
-	const typeNextChar = () => {
-		if (currentIndex < text.length) {
-			messages.value[index].content += text[currentIndex];
-			currentIndex++;
-			setTimeout(typeNextChar, typingSpeed);
-		} else {
-			messages.value[index].isTyping = false;
-		}
-	};
-
-	typeNextChar();
-};
-
 onMounted(() => {});
 </script>
 
-<style lang="scss" scoped>
+<style lang="scss">
 .boom-coach-container {
-	height: 100vh;
+	height: 100%;
 	background-color: #000;
 	color: #fff;
 	display: flex;
@@ -222,6 +226,7 @@ onMounted(() => {});
 
 			&.ai {
 				display: flex;
+				flex-direction: row;
 				align-items: flex-start;
 
 				.ai-avatar {
@@ -249,6 +254,7 @@ onMounted(() => {});
 			&.user {
 				display: flex;
 				justify-content: flex-end;
+				align-items: flex-end;
 
 				.message-bubble {
 					background: linear-gradient(to right, #ffcc00, #d2ff5c);
@@ -277,15 +283,6 @@ onMounted(() => {});
 				height: 12rpx;
 				background-color: #999;
 				border-radius: 50%;
-				animation: bounce 1.4s infinite ease-in-out;
-
-				&:nth-child(1) {
-					animation-delay: -0.32s;
-				}
-
-				&:nth-child(2) {
-					animation-delay: -0.16s;
-				}
 			}
 		}
 	}
@@ -295,17 +292,5 @@ onMounted(() => {});
 .input-section {
 	position: relative;
 	padding: 15px;
-}
-
-/* 动画 */
-@keyframes bounce {
-	0%,
-	80%,
-	100% {
-		transform: scale(0);
-	}
-	40% {
-		transform: scale(1);
-	}
 }
 </style>

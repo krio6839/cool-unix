@@ -1,0 +1,114 @@
+<template>
+	<cl-page>
+		<cl-topbar
+			fixed
+			:show-back="true"
+			safe-area-top
+			:height="isMp() ? null : 50"
+			background-color="transparent"
+		>
+			<view class="flex flex-row items-center justify-between w-full p-3">
+				<cl-icon name="arrow-left-line" color="white" :size="20" @tap="goBack"></cl-icon>
+				<cl-text :size="18" color="white">睡眠</cl-text>
+				<view class="w-5"></view>
+			</view>
+		</cl-topbar>
+
+		<view class="p-3">
+			<!-- 顶部日期和总睡眠 -->
+			<Header
+				:date="currentDate"
+				:label="'总睡眠'"
+				:value="totalSleep"
+				:progress="sleepProgress"
+				type="linear"
+				:config="{
+					backgroundColor: '#282828',
+					startColor: '#D2FF5C',
+					endColor: '#FF5C5C',
+					dotColor: '#fff'
+				}"
+				@go-to-date-select="goToDateSelect"
+			></Header>
+
+			<!-- 健康数据概览 -->
+			<Status :items="healthItems"></Status>
+
+			<!-- 睡眠进度和恢复性睡眠 -->
+			<SleepProgress></SleepProgress>
+
+			<!-- 恢复性睡眠 -->
+			<view class="mb-4">
+				<cl-text :size="16" color="white" :pt="{ className: 'font-bold mb-3' }">
+					恢复性睡眠
+				</cl-text>
+				<view class="flex flex-row">
+					<view class="flex flex-col mr-4">
+						<cl-text :size="13" color="rgba(255,255,255,0.6)">当日占比</cl-text>
+						<cl-text :size="16" color="white">{{ recoveryPercentage }}</cl-text>
+					</view>
+					<view class="flex flex-col ml-4">
+						<cl-text :size="13" color="rgba(255,255,255,0.6)">总时长</cl-text>
+						<cl-text :size="16" color="white">{{ recoveryDuration }}</cl-text>
+					</view>
+				</view>
+			</view>
+
+			<!-- 睡眠结构图 -->
+			<SleepWave></SleepWave>
+		</view>
+	</cl-page>
+</template>
+
+<script lang="ts" setup>
+import { isMp, dayUts } from "@/.cool";
+import { ref, computed } from "vue";
+import Header from "./components/header.uvue";
+import Status from "./components/status.uvue";
+import SleepWave from "@/components/sleep-wave/index.uvue";
+import SleepProgress from "./components/sleep-progress.uvue";
+import type { HealthItem } from "./types";
+
+// 组件数据
+const currentDate = ref<string>("2025.10.14");
+const totalSleep = ref<number>(3265);
+const sleepProgress = ref<number>(70);
+
+// 恢复性睡眠数据
+const recoveryPercentage = ref<string>("65%");
+const recoveryDuration = ref<string>("12.6");
+
+// 健康数据
+const healthItems = ref<HealthItem[]>([
+	{
+		label: "睡眠时长",
+		value: "11.2小时"
+	},
+	{
+		label: "睡眠质量",
+		value: 92
+	}
+	// {
+	// 	label: "深度睡眠",
+	// 	value: 126
+	// },
+	// {
+	// 	label: "浅度睡眠",
+	// 	value: 285
+	// }
+]);
+
+// 返回上一页
+function goBack() {
+	uni.navigateBack();
+}
+
+// 跳转到选择日期页面
+function goToDateSelect() {
+	// 这里可以添加跳转到日期选择页面的逻辑
+	console.log("跳转到选择日期页面");
+	// 示例：uni.navigateTo({ url: '/pages/date-select/date-select' });
+}
+</script>
+
+<style lang="scss" scoped></style>

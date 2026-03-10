@@ -1,0 +1,198 @@
+<template>
+	<cl-popup
+		v-model="show"
+		direction="center"
+		:title="formatDate(props.date)"
+		:show-header="true"
+		:show-close="true"
+		:show-mask="true"
+		:mask-closable="true"
+		:pt="{
+			className: 'chart-popup',
+			inner: { className: '!bg-[#181814]' },
+			header: { className: 'chart-popup-header' },
+			container: { className: 'chart-popup-container' }
+		}"
+	>
+		<view class="p-4">
+			<!-- 图表区域 -->
+			<view style="width: 100%; height: 300px">
+				<l-echart ref="chart" @finished="initChart"></l-echart>
+			</view>
+
+			<!-- 底部说明文字 -->
+			<view class="mt-4">
+				<text class="text-white text-sm">
+					你的身体电量充足，训练准备度适中（优先使用睡眠期间）
+				</text>
+				<text class="text-white text-sm mt-2 block"> HRV... </text>
+			</view>
+		</view>
+	</cl-popup>
+</template>
+
+<script setup lang="uts">
+import { ref, computed, watch } from "vue";
+
+const props = defineProps({
+	show: {
+		type: Boolean,
+		default: false
+	},
+	tab: {
+		type: String,
+		default: "energy"
+	},
+	date: {
+		type: String,
+		required: true
+	}
+});
+
+const emit = defineEmits(["update:show"]);
+
+// #ifdef MP
+// 引入小程序依赖包
+const echarts = require("../../../uni_modules/lime-echart/static/echarts.min.js");
+// #endif
+// #ifndef MP
+// 非小程序不需要引入
+const echarts = null;
+// #endif
+
+const show = ref(props.show);
+const chart = ref<LEchartComponentPublicInstance | null>(null);
+
+// 格式化日期显示
+function formatDate(dateStr: string): string {
+	const date = new Date(dateStr);
+	const month = date.getMonth() + 1;
+	const day = date.getDate();
+	return `${month}月${day}日`;
+}
+
+async function initChart() {
+	if (chart.value == null) return;
+	const chartInstance = await chart.value.init(echarts);
+	chartInstance.setOption({
+		backgroundColor: "transparent",
+		tooltip: {
+			trigger: "axis",
+			formatter: "{b}<br/>{c}%"
+		},
+		grid: {
+			left: 0,
+			right: 0,
+			top: 0,
+			bottom: 0,
+			containLabel: true
+		},
+		xAxis: {
+			type: "category",
+			data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00"],
+			axisLine: {
+				lineStyle: {
+					color: "#333"
+				}
+			},
+			axisLabel: {
+				color: "#666",
+				fontSize: 12
+			}
+		},
+		yAxis: {
+			type: "value",
+			min: 0,
+			max: 100,
+			axisLine: {
+				show: false
+			},
+			axisLabel: {
+				show: false
+			},
+			splitLine: {
+				show: false
+			}
+		},
+		series: [
+			{
+				data: [45, 50, 48, 62, 58, 60, 55],
+				type: "line",
+				smooth: true,
+				itemStyle: {
+					color: "#D2FF5C"
+				},
+				lineStyle: {
+					width: 3
+				},
+				markPoint: {
+					data: [
+						{
+							type: "max",
+							name: "最高",
+							itemStyle: {
+								color: "#D2FF5C"
+							},
+							label: {
+								color: "#fff",
+								formatter: "62%"
+							}
+						}
+					]
+				}
+			}
+		]
+	});
+}
+
+watch(
+	computed(() => props.show),
+	(newValue: boolean) => {
+		show.value = newValue;
+	}
+);
+
+watch(
+	computed(() => show.value),
+	(newValue: boolean) => {
+		emit("update:show", newValue);
+	}
+);
+
+watch(
+	computed(() => props.tab),
+	() => {
+		// 当标签变化时重新初始化图表
+		initChart();
+	}
+);
+
+watch(
+	computed(() => props.date),
+	() => {
+		// 当日期变化时重新初始化图表
+		initChart();
+	}
+);
+</script>
+
+<style lang="scss">
+/* 图表区域样式 */
+.chart-container {
+	position: relative;
+}
+
+.chart-popup-header {
+	.cl-icon {
+		color: #000 !important;
+	}
+}
+
+/* 自定义关闭按钮样式 */
+.close-btn {
+	position: absolute;
+	top: 20rpx;
+	right: 20rpx;
+	z-index: 10;
+}
+</style>

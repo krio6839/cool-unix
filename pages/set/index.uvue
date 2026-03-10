@@ -38,6 +38,15 @@
 				</cl-list-item>
 
 				<cl-list-item
+					:label="t('帮助')"
+					icon="help-circle-line"
+					arrow
+					hoverable
+					@tap="router.to('/pages/set/help')"
+				>
+				</cl-list-item>
+
+				<cl-list-item
 					:label="t('联系我们')"
 					icon="customer-service-line"
 					arrow

@@ -39,6 +39,15 @@
 					}
 				},
 				{
+					"path": "calendar",
+					"style": {
+						"navigationBarTitleText": ""
+					},
+					"meta": {
+						"isAuth": true
+					}
+				},
+				{
 					"path": "general",
 					"style": {
 						"navigationBarTitleText": "通用设置"
@@ -58,6 +67,15 @@
 				},
 				{
 					"path": "about",
+					"style": {
+						"navigationBarTitleText": ""
+					},
+					"meta": {
+						"isAuth": true
+					}
+				},
+				{
+					"path": "help",
 					"style": {
 						"navigationBarTitleText": ""
 					},
@@ -577,6 +595,52 @@
 					"path": "shop/address-edit",
 					"style": {
 						"navigationBarTitleText": "编辑地址"
+					}
+				}
+			]
+		},
+		{
+			"root": "pages/health",
+			"pages": [
+				{
+					"path": "load",
+					"style": {
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "status",
+					"style": {
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "sleep",
+					"style": {
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "storage",
+					"style": {
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "recovery",
+					"style": {
+						"navigationStyle": "custom"
+					}
+				}
+			]
+		},
+		{
+			"root": "pages/boom-go",
+			"pages": [
+				{
+					"path": "index",
+					"style": {
+						"navigationBarTitleText": "BOOM GO"
 					}
 				}
 			]
