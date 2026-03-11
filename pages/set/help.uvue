@@ -2,30 +2,10 @@
 	<cl-page>
 		<view class="p-3">
 			<cl-list>
-				<cl-list-item
-					:label="t('应用介绍')"
-					arrow
-					hoverable
-					@tap="scrollToSection('app-intro')"
-				></cl-list-item>
-				<cl-list-item
-					:label="t('功能指南')"
-					arrow
-					hoverable
-					@tap="scrollToSection('features')"
-				></cl-list-item>
-				<cl-list-item
-					:label="t('常见问题')"
-					arrow
-					hoverable
-					@tap="scrollToSection('faq')"
-				></cl-list-item>
-				<cl-list-item
-					:label="t('联系我们')"
-					arrow
-					hoverable
-					@tap="scrollToSection('contact')"
-				></cl-list-item>
+				<cl-list-item :label="t('应用介绍')" arrow hoverable></cl-list-item>
+				<cl-list-item :label="t('功能指南')" arrow hoverable></cl-list-item>
+				<cl-list-item :label="t('常见问题')" arrow hoverable></cl-list-item>
+				<cl-list-item :label="t('联系我们')" arrow hoverable></cl-list-item>
 			</cl-list>
 
 			<view class="mt-4">
@@ -125,24 +105,4 @@
 
 <script setup lang="ts">
 import { t } from "@/.cool";
-
-onReady(() => {
-	uni.setNavigationBarTitle({
-		title: t("帮助")
-	});
-});
-
-function scrollToSection(id: string) {
-	uni.createSelectorQuery()
-		.select(`#${id}`)
-		.boundingClientRect()
-		.exec((res) => {
-			if (res[0]) {
-				uni.pageScrollTo({
-					scrollTop: res[0].top - 100,
-					duration: 300
-				});
-			}
-		});
-}
 </script>

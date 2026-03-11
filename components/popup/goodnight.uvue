@@ -1,0 +1,54 @@
+<template>
+	<cl-popup v-model="show" mode="center" closeable="false" mask-closeable="false">
+		<view
+			class="w-[85vw] max-w-[400px] rounded-[33rpx] overflow-hidden bg-cover bg-center relative"
+			style="background-image: url(&quot;@/static/icon/popup-background.svg&quot;)"
+		>
+			<view
+				class="absolute top-[20rpx] right-[20rpx] w-[40rpx] h-[40rpx] flex items-center justify-center cursor-pointer"
+				@click="handleClose"
+			>
+				<cl-text :size="16" class="text-white">×</cl-text>
+			</view>
+			<view class="p-[60rpx_30rpx_40rpx]">
+				<view class="flex justify-center items-center mb-[30rpx] relative">
+					<cl-text :size="40" class="relative z-1">🌙</cl-text>
+					<cl-text :size="20" class="absolute ml-[60rpx] mt-[-20rpx] z-2">⭐</cl-text>
+				</view>
+				<view class="text-center mb-[30rpx]">
+					<cl-text :size="18" class="font-bold text-white">晚安</cl-text>
+				</view>
+				<view class="text-center">
+					<cl-text :size="12" class="block text-white leading-1.5 mb-[30rpx]"
+						>今天的努力，BOOM都看见啦。愿今晚的梦里没有负荷，只有轻盈。</cl-text
+					>
+					<cl-text :size="12" class="block text-white leading-1.5 mb-[40rpx]"
+						>明天的目标：比今天更放松一点。</cl-text
+					>
+					<cl-text :size="13" class="block font-bold text-white mb-[15rpx]"
+						>BOOM祝你</cl-text
+					>
+					<cl-text :size="14" class="block text-white italic"
+						>好梦相伴，恢复正好。</cl-text
+					>
+				</view>
+			</view>
+		</view>
+	</cl-popup>
+</template>
+
+<script lang="ts" setup>
+import { ref, defineProps, defineEmits } from "vue";
+
+const props = defineProps<{
+	show: boolean;
+}>();
+
+const emit = defineEmits(["update:show"]);
+
+const show = ref<boolean>(props.show);
+
+const handleClose = (): void => {
+	emit("update:show", false);
+};
+</script>

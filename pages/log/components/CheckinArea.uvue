@@ -1,0 +1,68 @@
+<template>
+	<view class="mt-3 grid grid-cols-3 gap-4 p-4">
+		<view class="bg-[#2a2a26] rounded-2xl p-4 flex flex-col items-center">
+			<cl-svg src="/static/icon/log/morning.svg" class="w-6 h-6"></cl-svg>
+			<cl-text :size="14" color="#ffffff" class="mt-2">早上打卡</cl-text>
+			<cl-button
+				size="small"
+				type="primary"
+				:color="checkinStatus.morning ? '#4CAF50' : '#282828'"
+				:text-color="'#181814'"
+				class="mt-4"
+				@tap="checkin('morning')"
+				icon="calendar-line"
+				:disabled="checkinStatus.morning"
+			>
+				{{ checkinStatus.morning ? "已打卡" : "去打卡" }}
+			</cl-button>
+		</view>
+		<view class="bg-[#2a2a26] rounded-2xl p-4 flex flex-col items-center">
+			<cl-svg src="/static/icon/log/noon.svg" class="w-6 h-6"></cl-svg>
+			<cl-text :size="14" color="#ffffff" class="mt-2">中午打卡</cl-text>
+			<cl-button
+				size="small"
+				type="primary"
+				:color="checkinStatus.noon ? 'primary' : '#282828'"
+				class="mt-4"
+				@tap="checkin('noon')"
+				icon="calendar-line"
+				:disabled="checkinStatus.noon"
+			>
+				{{ checkinStatus.noon ? "已打卡" : "去打卡" }}
+			</cl-button>
+		</view>
+		<view class="bg-[#2a2a26] rounded-2xl p-4 flex flex-col items-center">
+			<cl-svg src="/static/icon/log/evening.svg" class="w-6 h-6"></cl-svg>
+			<cl-text :size="14" color="#ffffff" class="mt-2">晚上打卡</cl-text>
+			<cl-button
+				size="small"
+				type="primary"
+				:color="checkinStatus.evening ? '#4CAF50' : '#282828'"
+				:text-color="'#181814'"
+				class="mt-4"
+				@tap="checkin('evening')"
+				icon="calendar-line"
+				:disabled="checkinStatus.evening"
+			>
+				{{ checkinStatus.evening ? "已打卡" : "去打卡" }}
+			</cl-button>
+		</view>
+	</view>
+</template>
+
+<script lang="ts" setup>
+import type { CheckinStatus } from "../types/index";
+
+// Props
+const props = defineProps<{
+	checkinStatus: CheckinStatus;
+}>();
+
+// Emits
+const emit = defineEmits(["checkin"]);
+
+// 打卡函数
+const checkin = (type: "morning" | "noon" | "evening") => {
+	emit("checkin", type);
+};
+</script>

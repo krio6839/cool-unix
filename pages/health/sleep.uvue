@@ -65,6 +65,7 @@ import { isMp, dayUts } from "@/.cool";
 import { ref, computed } from "vue";
 import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
+// @ts-ignore
 import SleepWave from "@/components/sleep-wave/index.uvue";
 import SleepProgress from "./components/sleep-progress.uvue";
 import type { HealthItem } from "./types";

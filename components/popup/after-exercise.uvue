@@ -1,0 +1,101 @@
+<template>
+	<cl-popup v-model="show" mode="center" closeable="false" mask-closeable="false">
+		<view
+			class="w-[85vw] max-w-[400px] rounded-[33rpx] overflow-hidden bg-cover bg-center"
+			style="background-image: url(&quot;@/static/icon/popup-background.svg&quot;)"
+		>
+			<view class="p-[40rpx_30rpx]">
+				<view class="text-center mb-[30rpx]">
+					<cl-text :size="32" class="font-bold text-white">运动后问卷</cl-text>
+				</view>
+				<view class="mb-[40rpx]">
+					<cl-text :size="12" class="block text-white leading-1.5 mb-[40rpx]"
+						>Hey! xx帅哥，早！又完成一次训练，真是了不起~</cl-text
+					>
+
+					<view class="mb-3">
+						<cl-text :size="13" class="block text-white mb-[20rpx]"
+							>本次运动的疲劳感如何？</cl-text
+						>
+						<view class="flex gap-[20rpx]">
+							<view
+								v-for="i in 5"
+								:key="'fatigue-' + i"
+								class="text-white/50 cursor-pointer transition-all duration-300"
+								:class="{ 'text-yellow-400': fatigueScore >= i }"
+								@click="setFatigueScore(i)"
+							>
+								★
+							</view>
+						</view>
+					</view>
+
+					<view class="mb-[30rpx]">
+						<cl-text :size="13" class="block text-white mb-[20rpx]"
+							>运动后状态怎么样？</cl-text
+						>
+						<view class="flex gap-[20rpx]">
+							<view
+								v-for="i in 5"
+								:key="'status-' + i"
+								class="text-white/50 cursor-pointer transition-all duration-300"
+								:class="{ 'text-yellow-400': statusScore >= i }"
+								@click="setStatusScore(i)"
+							>
+								★
+							</view>
+						</view>
+					</view>
+
+					<view class="mt-[30rpx] p-[20rpx] bg-white/10 rounded-[15rpx]">
+						<cl-text :size="10" class="mr-[8rpx]">✨</cl-text>
+						<cl-text :size="11" class="font-bold text-white mr-[10rpx]"
+							>BOOM小语</cl-text
+						>
+						<cl-text :size="10" class="block text-white/90 leading-1.4 mt-[10rpx]"
+							>恢复是成长的一部分，让身体的努力都有机会被吸收。</cl-text
+						>
+					</view>
+				</view>
+				<view class="flex justify-center">
+					<button
+						class="w-[240rpx] h-[80rpx] bg-yellow-400 border-none rounded-[40rpx] text-[28rpx] font-bold text-[#19494D] leading-[80rpx] text-center"
+						@click="handleConfirm"
+					>
+						知道啦
+					</button>
+				</view>
+			</view>
+		</view>
+	</cl-popup>
+</template>
+
+<script lang="ts" setup>
+import { ref, defineProps, defineEmits } from "vue";
+
+const props = defineProps<{
+	show: boolean;
+}>();
+
+const emit = defineEmits(["update:show", "confirm"]);
+
+const show = ref<boolean>(props.show);
+const fatigueScore = ref<number>(0);
+const statusScore = ref<number>(0);
+
+const setFatigueScore = (score: number): void => {
+	fatigueScore.value = score;
+};
+
+const setStatusScore = (score: number): void => {
+	statusScore.value = score;
+};
+
+const handleConfirm = (): void => {
+	emit("confirm", {
+		fatigueScore: fatigueScore.value,
+		statusScore: statusScore.value
+	});
+	emit("update:show", false);
+};
+</script>

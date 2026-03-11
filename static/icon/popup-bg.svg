@@ -1,0 +1,31 @@
+<svg width="654" height="764" viewBox="0 0 654 764" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Group 2085663413">
+<rect id="Rectangle 23881" x="1" y="1" width="652" height="762" rx="33" fill="url(#paint0_linear_1927_240)" stroke="url(#paint1_linear_1927_240)" stroke-width="2"/>
+<g id="Mask group">
+<mask id="mask0_1927_240" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="2" y="2" width="650" height="130">
+<rect id="Rectangle 23882" x="2" y="2" width="650" height="130" rx="32" fill="#19494D"/>
+</mask>
+<g mask="url(#mask0_1927_240)">
+<g id="Ellipse 1588" opacity="0.7" filter="url(#filter0_f_1927_240)">
+<ellipse cx="158" cy="25" rx="225" ry="25" fill="#0AF391"/>
+</g>
+</g>
+</g>
+</g>
+<defs>
+<filter id="filter0_f_1927_240" x="-167" y="-100" width="650" height="250" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+<feGaussianBlur stdDeviation="50" result="effect1_foregroundBlur_1927_240"/>
+</filter>
+<linearGradient id="paint0_linear_1927_240" x1="25.5" y1="13.6235" x2="549.154" y2="817.893" gradientUnits="userSpaceOnUse">
+<stop stop-color="#19494D"/>
+<stop offset="1" stop-color="#38504F"/>
+</linearGradient>
+<linearGradient id="paint1_linear_1927_240" x1="19" y1="15.8182" x2="537.125" y2="834.685" gradientUnits="userSpaceOnUse">
+<stop stop-color="#35B1B9"/>
+<stop offset="0.5" stop-color="#1E4A4D"/>
+<stop offset="1" stop-color="#7DB5A5"/>
+</linearGradient>
+</defs>
+</svg>

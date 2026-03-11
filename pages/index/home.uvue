@@ -128,7 +128,7 @@
 </template>
 
 <script lang="ts" setup>
-import { isApp, isMp, useRefs, t, dayUts } from "@/.cool";
+import { isApp, isMp, useRefs, t, dayUts, router } from "@/.cool";
 import { ref, onMounted } from "vue";
 import { useUi } from "@/uni_modules/cool-ui";
 import { config } from "@/config";
@@ -173,26 +173,26 @@ function setSize() {
 }
 
 function goToCalendar() {
-	uni.navigateTo({
-		url: "/pages/set/calendar"
+	router.push({
+		path: "/pages/set/calendar"
 	});
 }
 
 function goToEnergyStorage() {
-	uni.navigateTo({
-		url: "/pages/health/storage"
+	router.push({
+		path: "/pages/health/storage"
 	});
 }
 
 function goToBoomGo() {
-	uni.navigateTo({
-		url: "/pages/boom-go/index"
+	router.push({
+		path: "/pages/boom-go/index"
 	});
 }
 
 function goToRecovery() {
-	uni.navigateTo({
-		url: "/pages/health/recovery"
+	router.push({
+		path: "/pages/health/recovery"
 	});
 }
 </script>

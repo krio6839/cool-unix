@@ -16,40 +16,30 @@
 				@load="onCanvasLoad"
 			></cl-canvas>
 			<view
-				v-if="currentSegment != null"
+				v-if="currentSegment != null && currentSegment.rect != null"
 				class="position-indicator"
-				:style="{
-					left: currentSegment.rect!.x + 'px',
-					width: currentSegment.rect!.w + 'px',
-					backgroundColor: getIndicatorColor(currentSegment.state)
-				}"
+				:style="getStyle(currentSegment)"
 			>
 				<view
 					class="indicator-info"
 					:style="{
-						backgroundColor: colors[currentSegment.state]
+						backgroundColor: colors[currentSegment!.state]
 					}"
 				>
-					<text class="time_text">{{ formatTime(currentSegment.startTime) }} </text>
+					<text class="time_text">{{ formatTime(currentSegment!.startTime) }} </text>
 					<text class="time_text">|</text>
-					<text class="time_text">{{ formatTime(currentSegment.endTime) }}</text>
-					<text class="state_text">{{ status[currentSegment.state] }}</text>
+					<text class="time_text">{{ formatTime(currentSegment!.endTime) }}</text>
+					<text class="state_text">{{ status[currentSegment!.state] }}</text>
 				</view>
 			</view>
 		</view>
 	</view>
 </template>
 
-<script lang="uts" setup>
+<script lang="ts" setup>
 import { ref } from "vue";
 import { Canvas } from "@/uni_modules/cool-canvas";
-import type {
-	SleepSegment,
-	RectInfo,
-	LineInfo,
-	TouchValue,
-	CurrentSegment
-} from "./types";
+import type { SleepSegment, RectInfo, LineInfo, TouchValue, CurrentSegment } from "./types";
 
 const canvasId = "sleepWaveCanvas";
 const canvasWidth = ref(300);
@@ -116,12 +106,183 @@ const lastDrawData = ref<string>("");
 const isDrawing = ref<boolean>(false);
 const currentSegment = ref<CurrentSegment>(null);
 
-function onCanvasLoad(canvas: Canvas): void {
-	console.log("Canvas 加载完成");
-	canvasInstance = canvas;
-	canvas.width(canvasWidth.value);
-	canvas.height(canvasHeight.value);
-	init();
+function calculateDuration(state: number): string {
+	const totalDuration = sleepData.value.reduce((acc: number, curr: SleepSegment): number => {
+		if (curr.state === state) {
+			return acc + (curr.endTimestamp - curr.startTimestamp);
+		}
+		return acc;
+	}, 0);
+
+	const hours = Math.floor(totalDuration / (1000 * 60 * 60));
+	const minutes = Math.floor((totalDuration % (1000 * 60 * 60)) / (1000 * 60));
+
+	return hours + "h" + minutes + "m";
+}
+
+function formatTime(timeString: string): string {
+	const date = new Date(timeString);
+	const hours = date.getHours().toString().padStart(2, "0");
+	const minutes = date.getMinutes().toString().padStart(2, "0");
+	return hours + ":" + minutes;
+}
+
+function getIndicatorColor(state: number): string {
+	const hexColor = colors.value[state];
+	const r = parseInt(hexColor.slice(1, 3), 16);
+	const g = parseInt(hexColor.slice(3, 5), 16);
+	const b = parseInt(hexColor.slice(5, 7), 16);
+	return "rgba(" + r + ", " + g + ", " + b + ", 0.3)";
+}
+
+function getStyle(segment: CurrentSegment | null): UTSJSONObject {
+	if (segment == null || segment.rect == null) {
+		return new UTSJSONObject();
+	}
+	const obj = new UTSJSONObject();
+	obj["left"] = (segment.rect.x ?? 0) + "px";
+	obj["width"] = (segment.rect.w ?? 0) + "px";
+	obj["backgroundColor"] = getIndicatorColor(segment.state);
+	return obj;
+}
+
+function drawRectangle(
+	drawCtx: CanvasRenderingContext2D,
+	x: number,
+	y: number,
+	w: number,
+	h: number,
+	left: boolean,
+	right: boolean
+): void {
+	let rset = radius.value;
+	if (w < radius.value * 2) {
+		rset = w / 2;
+	}
+
+	const lr = left ? -1 * rset : rset;
+	const rr = right ? -1 * rset : rset;
+
+	const arr: Array<Array<number>> = [];
+	arr.push([x + rset, y + lr, Math.PI, left ? Math.PI / 2 : (Math.PI * 3) / 2]);
+	arr.push([x + w - rset, y]);
+	arr.push([x + w - rset, y + rr, right ? Math.PI / 2 : (Math.PI * 3) / 2, 0]);
+	arr.push([x + w, y + h + rr]);
+	arr.push([x + w - rset, y + h + rr, 0, right ? Math.PI / 2 : (Math.PI * 3) / 2]);
+	arr.push([x + rset, y + h]);
+	arr.push([x + rset, y + h + lr, left ? Math.PI / 2 : (Math.PI * 3) / 2, Math.PI]);
+	arr.push([x, y + rr]);
+
+	drawCtx.beginPath();
+
+	drawCtx.arc(arr[0][0], arr[0][1], rset, arr[0][2], arr[0][3], left);
+	drawCtx.lineTo(arr[1][0], arr[1][1]);
+	drawCtx.arc(arr[2][0], arr[2][1], rset, arr[2][2], arr[2][3], right);
+	drawCtx.lineTo(arr[3][0], arr[3][1]);
+	drawCtx.arc(arr[4][0], arr[4][1], rset, arr[4][2], arr[4][3], !right);
+	drawCtx.lineTo(arr[5][0], arr[5][1]);
+	drawCtx.arc(arr[6][0], arr[6][1], rset, arr[6][2], arr[6][3], !left);
+	drawCtx.lineTo(arr[7][0], arr[7][1]);
+
+	drawCtx.closePath();
+}
+
+function drawSleepData(drawCtx: CanvasRenderingContext2D): void {
+	for (let index = 0; index < sleepData.value.length; index++) {
+		const item = sleepData.value[index];
+		if (item == null || item.rect == null) {
+			continue;
+		}
+
+		drawCtx.beginPath();
+		drawRectangle(
+			drawCtx,
+			item.rect.x,
+			item.rect.y,
+			item.rect.w,
+			item.rect.h,
+			item.left ?? false,
+			item.right ?? false
+		);
+		drawCtx.fill();
+
+		if (index < sleepData.value.length - 1 && item.line != null) {
+			drawCtx.beginPath();
+			drawCtx.moveTo(item.line.x1, item.line.y1);
+			drawCtx.lineTo(item.line.x2, item.line.y2);
+			drawCtx.stroke();
+		}
+	}
+
+	if (touchValue.value.touchX > 0) {
+		const gline = drawCtx.createLinearGradient(0, 0, 0, canvasHeight.value);
+		gline.addColorStop(0, "rgba(241,244,245,0)");
+		gline.addColorStop(0.5, "rgba(241,244,245,1)");
+		gline.addColorStop(1, "rgba(241,244,245,0)");
+
+		drawCtx.strokeStyle = gline;
+		drawCtx.fillStyle = gline;
+		drawCtx.fillRect(touchValue.value.touchX, 0, 0.5, canvasHeight.value);
+		drawCtx.fill();
+	}
+}
+
+function draft(): void {
+	if (canvasInstance == null) {
+		console.error("Canvas 实例未初始化");
+		return;
+	}
+
+	if (isDrawing.value) {
+		return;
+	}
+	isDrawing.value = true;
+
+	try {
+		const currentData = JSON.stringify(sleepData.value);
+		if (lastDrawData.value === currentData && touchValue.value.touchX === 0) {
+			isDrawing.value = false;
+			return;
+		}
+		lastDrawData.value = currentData;
+
+		const ctx = canvasInstance!.context;
+		if (ctx == null) {
+			console.error("Canvas context 未初始化");
+			isDrawing.value = false;
+			return;
+		}
+
+		const ctx2d = ctx.getContext("2d");
+		if (ctx2d == null) {
+			console.error("Canvas 2D context 未初始化");
+			isDrawing.value = false;
+			return;
+		}
+
+		ctx2d.clearRect(0, 0, canvasWidth.value, canvasHeight.value);
+
+		const gradientStartY = Math.max(0, canvasHeight.value - 110);
+		const gradientEndY = Math.max(0, canvasHeight.value - 20);
+		const gradient = ctx2d.createLinearGradient(0, gradientStartY, 0, gradientEndY);
+
+		gradient.addColorStop(0, colors.value[0]);
+		gradient.addColorStop(0.33, colors.value[1]);
+		gradient.addColorStop(0.66, colors.value[2]);
+		gradient.addColorStop(1, colors.value[3]);
+
+		ctx2d.lineWidth = 1;
+		ctx2d.strokeStyle = gradient;
+		ctx2d.fillStyle = gradient;
+
+		drawSleepData(ctx2d);
+
+		canvasInstance!.draw();
+		isDrawing.value = false;
+	} catch (error) {
+		console.error("绘制失败:", error);
+		isDrawing.value = false;
+	}
 }
 
 function init(): void {
@@ -173,13 +334,9 @@ function init(): void {
 			const nextState = sleepData.value[index + 1].state;
 			const line: LineInfo = {
 				x1: xValue + xWidth,
-				y1:
-					yValue[state] +
-					(state > nextState ? yHeight - radius.value : radius.value),
+				y1: yValue[state] + (state > nextState ? yHeight - radius.value : radius.value),
 				x2: xValue + xWidth,
-				y2:
-					yValue[nextState] +
-					(state > nextState ? radius.value : yHeight - radius.value)
+				y2: yValue[nextState] + (state > nextState ? radius.value : yHeight - radius.value)
 			};
 			item.line = line;
 		}
@@ -190,10 +347,7 @@ function init(): void {
 	for (let index = 0; index < sleepData.value.length; index++) {
 		const item = sleepData.value[index];
 		const upOne = index > 0 ? sleepData.value[index - 1] : null;
-		const nextOne =
-			index < sleepData.value.length - 1
-				? sleepData.value[index + 1]
-				: null;
+		const nextOne = index < sleepData.value.length - 1 ? sleepData.value[index + 1] : null;
 
 		item.left = upOne != null ? upOne.state < item.state : false;
 		item.right = nextOne != null ? item.state > nextOne.state : false;
@@ -202,187 +356,14 @@ function init(): void {
 	draft();
 }
 
-function draft(): void {
-	if (canvasInstance == null) {
-		console.error("Canvas 实例未初始化");
-		return;
-	}
-
-	if (isDrawing.value) {
-		return;
-	}
-	isDrawing.value = true;
-
-	try {
-		const currentData = JSON.stringify(sleepData.value);
-		if (lastDrawData.value === currentData && touchValue.value.touchX === 0) {
-			isDrawing.value = false;
-			return;
-		}
-		lastDrawData.value = currentData;
-
-		const ctx = canvasInstance!.context;
-		if (ctx == null) {
-			console.error("Canvas context 未初始化");
-			isDrawing.value = false;
-			return;
-		}
-
-		const ctx2d = ctx.getContext("2d");
-		if (ctx2d == null) {
-			console.error("Canvas 2D context 未初始化");
-			isDrawing.value = false;
-			return;
-		}
-
-		ctx2d.clearRect(0, 0, canvasWidth.value, canvasHeight.value);
-
-		const gradientStartY = Math.max(0, canvasHeight.value - 110);
-		const gradientEndY = Math.max(0, canvasHeight.value - 20);
-		const gradient = ctx2d.createLinearGradient(
-			0,
-			gradientStartY,
-			0,
-			gradientEndY
-		);
-
-		gradient.addColorStop(0, colors.value[0]);
-		gradient.addColorStop(0.33, colors.value[1]);
-		gradient.addColorStop(0.66, colors.value[2]);
-		gradient.addColorStop(1, colors.value[3]);
-
-		ctx2d.lineWidth = 1;
-		ctx2d.strokeStyle = gradient;
-		ctx2d.fillStyle = gradient;
-
-		drawSleepData(ctx2d);
-
-		canvasInstance!.context.draw(true, () => {
-			isDrawing.value = false;
-		});
-	} catch (error) {
-		console.error("绘制失败:", error);
-		isDrawing.value = false;
-	}
-}
-
-function drawSleepData(drawCtx: CanvasRenderingContext2D): void {
-	for (let index = 0; index < sleepData.value.length; index++) {
-		const item = sleepData.value[index];
-		if (item == null || item.rect == null) {
-			continue;
-		}
-
-		drawCtx.beginPath();
-		drawRectangle(
-			drawCtx,
-			item.rect.x,
-			item.rect.y,
-			item.rect.w,
-			item.rect.h,
-			item.left ?? false,
-			item.right ?? false
-		);
-		drawCtx.fill();
-
-		if (index < sleepData.value.length - 1 && item.line != null) {
-			drawCtx.beginPath();
-			drawCtx.moveTo(item.line.x1, item.line.y1);
-			drawCtx.lineTo(item.line.x2, item.line.y2);
-			drawCtx.stroke();
-		}
-	}
-
-	if (touchValue.value.touchX > 0) {
-		const gline = drawCtx.createLinearGradient(0, 0, 0, canvasHeight.value);
-		gline.addColorStop(0, "rgba(241,244,245,0)");
-		gline.addColorStop(0.5, "rgba(241,244,245,1)");
-		gline.addColorStop(1, "rgba(241,244,245,0)");
-
-		drawCtx.strokeStyle = gline;
-		drawCtx.fillStyle = gline;
-		drawCtx.fillRect(touchValue.value.touchX, 0, 0.5, canvasHeight.value);
-		drawCtx.fill();
-	}
-}
-
-function drawRectangle(
-	drawCtx: CanvasRenderingContext2D,
-	x: number,
-	y: number,
-	w: number,
-	h: number,
-	left: boolean,
-	right: boolean
-): void {
-	let rset = radius.value;
-	if (w < radius.value * 2) {
-		rset = w / 2;
-	}
-
-	const lr = left ? -1 * rset : rset;
-	const rr = right ? -1 * rset : rset;
-
-	type ArcPoint = [number, number, number, number];
-	const arr: ArcPoint[] = [];
-	arr.push([x + rset, y + lr, Math.PI, left ? Math.PI / 2 : (Math.PI * 3) / 2]);
-	arr.push([x + w - rset, y]);
-	arr.push([
-		x + w - rset,
-		y + rr,
-		right ? Math.PI / 2 : (Math.PI * 3) / 2,
-		0
-	]);
-	arr.push([x + w, y + h + rr]);
-	arr.push([
-		x + w - rset,
-		y + h + rr,
-		0,
-		right ? Math.PI / 2 : (Math.PI * 3) / 2
-	]);
-	arr.push([x + rset, y + h]);
-	arr.push([
-		x + rset,
-		y + h + lr,
-		left ? Math.PI / 2 : (Math.PI * 3) / 2,
-		Math.PI
-	]);
-	arr.push([x, y + rr]);
-
-	drawCtx.beginPath();
-
-	drawCtx.arc(arr[0][0], arr[0][1], rset, arr[0][2], arr[0][3], left);
-	drawCtx.lineTo(arr[1][0], arr[1][1]);
-	drawCtx.arc(arr[2][0], arr[2][1], rset, arr[2][2], arr[2][3], right);
-	drawCtx.lineTo(arr[3][0], arr[3][1]);
-	drawCtx.arc(arr[4][0], arr[4][1], rset, arr[4][2], arr[4][3], !right);
-	drawCtx.lineTo(arr[5][0], arr[5][1]);
-	drawCtx.arc(arr[6][0], arr[6][1], rset, arr[6][2], arr[6][3], !left);
-	drawCtx.lineTo(arr[7][0], arr[7][1]);
-
-	drawCtx.closePath();
-}
-
-function calculateDuration(state: number): string {
-	const totalDuration = sleepData.value.reduce((acc: number, curr: SleepSegment): number => {
-		if (curr.state === state) {
-			return acc + (curr.endTimestamp - curr.startTimestamp);
-		}
-		return acc;
-	}, 0);
-
-	const hours = Math.floor(totalDuration / (1000 * 60 * 60));
-	const minutes = Math.floor((totalDuration % (1000 * 60 * 60)) / (1000 * 60));
-
-	return hours + "h" + minutes + "m";
-}
-
-function onCanvasTap(e:UTSJSONObject): void {
+function onCanvasTap(e: UTSJSONObject): void {
 	if (sleepData.value.length === 0) {
 		return;
 	}
 
-	const touchX = Number(e.touches[0].clientX) - Number(e.currentTarget.offsetLeft);
+	const touches = e["touches"] as UTSJSONObject[];
+	const currentTarget = e["currentTarget"] as UTSJSONObject;
+	const touchX = (touches[0]["clientX"] as number) - (currentTarget["offsetLeft"] as number);
 
 	let found = false;
 	for (let i = 0; i < sleepData.value.length; i++) {
@@ -395,13 +376,14 @@ function onCanvasTap(e:UTSJSONObject): void {
 		) {
 			found = true;
 			currentSegment.value = item;
-			touchValue.value = {
+			const newTouchValue: TouchValue = {
 				startTime: formatTime(item.startTime),
 				endTime: formatTime(item.endTime),
 				sleepState: item.state,
 				sleepStateText: status.value[item.state],
 				touchX: touchX
 			};
+			touchValue.value = newTouchValue;
 		}
 	}
 
@@ -412,25 +394,17 @@ function onCanvasTap(e:UTSJSONObject): void {
 	draft();
 }
 
-function formatTime(timeString: string): string {
-	const date = new Date(timeString);
-	const hours = date.getHours().toString().padStart(2, "0");
-	const minutes = date.getMinutes().toString().padStart(2, "0");
-	return hours + ":" + minutes;
-}
-
-function getIndicatorColor(state: number): string {
-	const hexColor = colors.value[state];
-	const r = parseInt(hexColor.slice(1, 3), 16);
-	const g = parseInt(hexColor.slice(3, 5), 16);
-	const b = parseInt(hexColor.slice(5, 7), 16);
-	return "rgba(" + r + ", " + g + ", " + b + ", 0.3)";
+function onCanvasLoad(canvas: Canvas): void {
+	console.log("Canvas 加载完成");
+	canvasInstance = canvas;
+	canvas.width(canvasWidth.value);
+	canvas.height(canvasHeight.value);
+	init();
 }
 </script>
 
 <style>
 .chartBox {
-	background-color: #ffffff;
 	border-radius: 16rpx;
 	box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
 	padding: 30rpx;

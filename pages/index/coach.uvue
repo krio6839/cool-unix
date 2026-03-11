@@ -199,7 +199,7 @@ onMounted(() => {});
 .chat-area {
 	flex: 1;
 	padding: 20rpx;
-	overflow-y: auto;
+	overflow: auto;
 
 	.greeting-section {
 		text-align: center;
@@ -241,7 +241,7 @@ onMounted(() => {});
 					border-radius: 16rpx;
 					border: 1rpx solid #25261f;
 					padding: 24rpx;
-					max-width: 80%;
+					max-width: 600rpx;
 
 					.message-text {
 						font-size: 28rpx;
@@ -260,7 +260,7 @@ onMounted(() => {});
 					background: linear-gradient(to right, #ffcc00, #d2ff5c);
 					border-radius: 50rpx 50rpx 0 50rpx;
 					padding: 24rpx;
-					max-width: 80%;
+					max-width: 600rpx;
 
 					.message-text {
 						font-family:
@@ -275,14 +275,17 @@ onMounted(() => {});
 
 		.typing-indicator {
 			display: flex;
-			gap: 8rpx;
 			margin-top: 16rpx;
 
 			.dot {
 				width: 12rpx;
 				height: 12rpx;
 				background-color: #999;
-				border-radius: 50%;
+				border-radius: 6rpx;
+				margin-right: 8rpx;
+			}
+			.dot:last-child {
+				margin-right: 0;
 			}
 		}
 	}

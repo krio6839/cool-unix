@@ -35,8 +35,9 @@
 </template>
 
 <script lang="ts" setup>
-import { watch, ref, computed } from "vue";
+import { watch, ref, computed, onMounted } from "vue";
 import { Canvas } from "@/uni_modules/cool-canvas";
+import type { CanvasConfig } from "../types";
 
 type Config = {
 	backgroundColor?: string;
@@ -65,11 +66,27 @@ const emit = defineEmits(["date"]);
 
 // 计算画布大小
 const windowInfo = uni.getWindowInfo();
-const screenWidth = windowInfo.windowWidth;
-const canvasWidth = screenWidth - 20; // 减去边距
-const canvasHeight = computed(() => (props.type === "linear" ? 20 : 100)); // 直线进度条高度20，弧形100
+const screenWidth = ref<number>(0);
+const canvasWidth = ref<number>(0);
+
+onMounted(() => {
+	screenWidth.value = windowInfo.windowWidth;
+	canvasWidth.value = screenWidth.value - 20;
+});
+
+const canvasHeight = computed(() => (props.type === "linear" ? 20 : 100));
 
 const canvasRef = ref<Canvas | null>(null);
+
+const canvasConfig = computed(() => {
+	return {
+		backgroundColor:
+			props.config.backgroundColor != null ? props.config.backgroundColor : "#374151",
+		startColor: props.config.startColor != null ? props.config.startColor : "#10B981",
+		endColor: props.config.endColor != null ? props.config.endColor : "#F59E0B",
+		dotColor: props.config.dotColor != null ? props.config.dotColor : "#000"
+	} as CanvasConfig;
+});
 
 // 绘制直线进度条
 function drawLinearProgress() {
@@ -77,19 +94,20 @@ function drawLinearProgress() {
 	if (c == null || c.ctx == null) return;
 
 	// 清空画布
-	c.ctx.clearRect(0, 0, canvasWidth, canvasHeight.value);
+	c.ctx.clearRect(0, 0, canvasWidth.value, canvasHeight.value);
 
 	// 计算参数
 	const height = Math.min(20, canvasHeight.value - 4); // 进度条高度，确保不超出画布
 	const y = (canvasHeight.value - height) / 2; // 垂直居中
 	const padding = 2; // 左右边距
-	const maxWidth = canvasWidth - padding * 2; // 最大宽度
-	console.log(maxWidth);
+	const maxWidth = canvasWidth.value - padding * 2; // 最大宽度
 
 	// 绘制背景条
 	c.ctx.save();
-	c.ctx.fillStyle = props.config?.backgroundColor || "#374151"; // 灰色背景
-	c.ctx.roundRect(padding, y, maxWidth, height, 5);
+	c.ctx.fillStyle = canvasConfig.value.backgroundColor;
+	// 使用普通矩形代替roundRect，因为UTS中CanvasRenderingContext2D没有roundRect方法
+	c.ctx.beginPath();
+	c.ctx.rect(padding, y, maxWidth, height);
 	c.ctx.fill();
 	c.ctx.restore();
 
@@ -100,15 +118,80 @@ function drawLinearProgress() {
 
 		c.ctx.save();
 		c.ctx.beginPath();
-		c.ctx.roundRect(padding, y, progressWidth, height, 5);
+		// 使用普通矩形代替roundRect，因为UTS中CanvasRenderingContext2D没有roundRect方法
+		c.ctx.rect(padding, y, progressWidth, height);
 		c.ctx.clip();
 
 		const gradient = c.ctx.createLinearGradient(padding, y, padding + maxWidth, y);
-		gradient.addColorStop(0, props.config?.startColor || "#10B981");
-		gradient.addColorStop(1, props.config?.endColor || "#F59E0B");
+		gradient.addColorStop(0, canvasConfig.value.startColor);
+		gradient.addColorStop(1, canvasConfig.value.endColor);
 
 		c.ctx.fillStyle = gradient;
 		c.ctx.fillRect(padding, y, maxWidth, height);
+		c.ctx.restore();
+	}
+}
+
+function drawArcProgress() {
+	const c = canvasRef.value;
+	if (c == null || c.ctx == null) return;
+
+	// 清空画布
+	c.ctx.clearRect(0, 0, canvasWidth.value, canvasHeight.value);
+
+	// 计算参数
+	const centerX = canvasWidth.value / 2;
+	const centerY = canvasHeight.value + 140; // 圆心在画布底部下方120px
+	const radius = canvasWidth.value / 2 + 40; // 半径
+	const lineWidth = 20; // 进度条宽度
+
+	// 绘制背景弧
+	c.ctx.save();
+	c.ctx.lineWidth = lineWidth;
+	c.ctx.strokeStyle = canvasConfig.value.backgroundColor;
+	c.ctx.lineCap = "round";
+	c.ctx.beginPath();
+	// 1/4圆，从225度到315度（顺时针）
+	const startAngle = (5 * Math.PI) / 4; // 225度
+	const endAngleFull = (7 * Math.PI) / 4; // 315度
+	c.ctx.arc(centerX, centerY, radius, startAngle, endAngleFull, false);
+	c.ctx.stroke();
+	c.ctx.restore();
+
+	// 绘制进度弧
+	if (props.progress > 0) {
+		const progress = Math.max(0, Math.min(100, props.progress)) / 100;
+		// 计算结束角度，从225度开始，顺时针绘制到315度
+		const endAngle = startAngle + progress * (Math.PI / 2);
+
+		// 创建渐变
+		const gradient = c.ctx.createLinearGradient(
+			centerX - radius * Math.sin(Math.PI / 4),
+			centerY + radius * Math.cos(Math.PI / 4),
+			centerX + radius * Math.sin(Math.PI / 4),
+			centerY + radius * Math.cos(Math.PI / 4)
+		);
+		gradient.addColorStop(0, canvasConfig.value.startColor);
+		gradient.addColorStop(1, canvasConfig.value.endColor);
+
+		c.ctx.save();
+		c.ctx.lineWidth = lineWidth;
+		c.ctx.strokeStyle = gradient;
+		c.ctx.lineCap = "round";
+		c.ctx.beginPath();
+		c.ctx.arc(centerX, centerY, radius, startAngle, endAngle, false);
+		c.ctx.stroke();
+		c.ctx.restore();
+
+		// 绘制中间的圆点
+		const dotX = centerX + Math.cos(endAngle) * radius;
+		const dotY = centerY + Math.sin(endAngle) * radius;
+
+		c.ctx.save();
+		c.ctx.fillStyle = canvasConfig.value.dotColor;
+		c.ctx.beginPath();
+		c.ctx.arc(dotX, dotY, 6, 0, 2 * Math.PI);
+		c.ctx.fill();
 		c.ctx.restore();
 	}
 }
@@ -118,67 +201,7 @@ function drawProgress() {
 	if (props.type === "linear") {
 		drawLinearProgress();
 	} else {
-		const c = canvasRef.value;
-		if (c == null || c.ctx == null) return;
-
-		// 清空画布
-		c.ctx.clearRect(0, 0, canvasWidth, canvasHeight.value);
-
-		// 计算参数
-		const centerX = canvasWidth / 2;
-		const centerY = canvasHeight.value + 140; // 圆心在画布底部下方120px
-		const radius = canvasWidth / 2 + 40; // 半径
-		const lineWidth = 20; // 进度条宽度
-
-		// 绘制背景弧
-		c.ctx.save();
-		c.ctx.lineWidth = lineWidth;
-		c.ctx.strokeStyle = props.config?.backgroundColor || "#374151"; // 灰色背景
-		c.ctx.lineCap = "round";
-		c.ctx.beginPath();
-		// 1/4圆，旋转180度后，从225度到315度（顺时针）
-		const startAngle = (5 * Math.PI) / 4; // 225度
-		const endAngleFull = (7 * Math.PI) / 4; // 315度
-		c.ctx.arc(centerX, centerY, radius, startAngle, endAngleFull, false);
-		c.ctx.stroke();
-		c.ctx.restore();
-
-		// 绘制进度弧
-		if (props.progress > 0) {
-			const progress = Math.max(0, Math.min(100, props.progress)) / 100;
-			// 计算结束角度，从225度开始，顺时针绘制到315度
-			const endAngle = startAngle + progress * (Math.PI / 2);
-
-			// 创建渐变
-			const gradient = c.ctx.createLinearGradient(
-				centerX - radius * Math.sin(Math.PI / 4),
-				centerY + radius * Math.cos(Math.PI / 4),
-				centerX + radius * Math.sin(Math.PI / 4),
-				centerY + radius * Math.cos(Math.PI / 4)
-			);
-			gradient.addColorStop(0, props.config?.startColor || "#10B981"); // 绿色
-			gradient.addColorStop(1, props.config?.endColor || "#F59E0B"); // 黄色
-
-			c.ctx.save();
-			c.ctx.lineWidth = lineWidth;
-			c.ctx.strokeStyle = gradient;
-			c.ctx.lineCap = "round";
-			c.ctx.beginPath();
-			c.ctx.arc(centerX, centerY, radius, startAngle, endAngle, false);
-			c.ctx.stroke();
-			c.ctx.restore();
-
-			// 绘制中间的圆点
-			const dotX = centerX + Math.cos(endAngle) * radius;
-			const dotY = centerY + Math.sin(endAngle) * radius;
-
-			c.ctx.save();
-			c.ctx.fillStyle = props.config?.dotColor || "#000000"; // 黑色圆点
-			c.ctx.beginPath();
-			c.ctx.arc(dotX, dotY, 6, 0, 2 * Math.PI);
-			c.ctx.fill();
-			c.ctx.restore();
-		}
+		drawArcProgress();
 	}
 }
 

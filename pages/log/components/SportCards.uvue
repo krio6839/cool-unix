@@ -1,0 +1,46 @@
+<template>
+	<cl-row class="p-4" :gutter="16">
+		<cl-col :span="12">
+			<view class="sport-card bg-[#2a2a26] rounded-2xl p-4">
+				<cl-text :size="14" color="#ffffff99">运动时长</cl-text>
+				<cl-text :size="24" color="#ffffff" class="mt-2">73 min</cl-text>
+				<cl-text :size="12" color="#d2ff5c" class="mt-1">较上次 26%</cl-text>
+				<cl-icon name="clock" color="#ffffff99" :size="20" class="mt-3"></cl-icon>
+			</view>
+		</cl-col>
+		<cl-col :span="12">
+			<view class="sport-card bg-[#2a2a26] rounded-2xl p-4">
+				<cl-text :size="14" color="#ffffff99">卡路里</cl-text>
+				<cl-text :size="24" color="#ffffff" class="mt-2">73 b</cl-text>
+				<cl-text :size="12" color="#d2ff5c" class="mt-1">较上次 27%</cl-text>
+				<cl-icon name="fire" color="#ffffff99" :size="20" class="mt-3"></cl-icon>
+			</view>
+		</cl-col>
+		<cl-col :span="12">
+			<view class="sport-card bg-[#2a2a26] rounded-2xl p-4">
+				<cl-text :size="14" color="#ffffff99">负荷</cl-text>
+				<cl-text :size="24" color="#ffffff" class="mt-2">98 %</cl-text>
+				<cl-text :size="12" color="#d2ff5c" class="mt-1">较上次 26%</cl-text>
+				<cl-icon name="activity" color="#ffffff99" :size="20" class="mt-3"></cl-icon>
+			</view>
+		</cl-col>
+		<cl-col :span="12">
+			<view class="sport-card bg-[#2a2a26] rounded-2xl p-4">
+				<cl-text :size="14" color="#ffffff99">次数</cl-text>
+				<cl-text :size="24" color="#ffffff" class="mt-2">80</cl-text>
+				<cl-text :size="12" color="#d2ff5c" class="mt-1">较上次 18%</cl-text>
+				<cl-icon name="heart" color="#ffffff99" :size="20" class="mt-3"></cl-icon>
+			</view>
+		</cl-col>
+	</cl-row>
+</template>
+
+<script setup lang="ts">
+// 无 props 和 emits，直接显示静态数据
+</script>
+
+<style lang="scss" scoped>
+.sport-card {
+	@apply shadow-md;
+}
+</style>

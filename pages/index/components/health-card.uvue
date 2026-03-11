@@ -1,7 +1,7 @@
 <template>
 	<cl-row :gutter="12">
 		<cl-col :span="12" v-for="(item, index) in healthData" :key="index">
-			<view class="health-card">
+			<view class="health-card" @tap="goToMetrics(item.title)">
 				<text class="title-text">{{ item.title }}</text>
 				<view class="value-container">
 					<text class="value-text">{{ item.value }}</text>
@@ -15,6 +15,7 @@
 </template>
 
 <script lang="ts" setup>
+import { router } from "@/.cool";
 import { ref } from "vue";
 type HealthDataItem = {
 	title: string;
@@ -30,28 +31,28 @@ const healthData = ref<HealthDataItem[]>([
 		value: "73",
 		unit: "bpm",
 		change: 26,
-		icon: "/static/icon/heart-rate.svg"
+		icon: "/static/icon/health/heart-rate.svg"
 	},
 	{
 		title: "静息心率",
 		value: "73",
 		unit: "bpm",
 		change: 27,
-		icon: "/static/icon/heart-rate.svg"
+		icon: "/static/icon/health/heart-rate.svg"
 	},
 	{
 		title: "血氧",
 		value: "98",
 		unit: "%",
 		change: 0,
-		icon: "/static/icon/blood-oxygen.svg"
+		icon: "/static/icon/health/spo2.svg"
 	},
 	{
 		title: "心率变异性",
 		value: "80",
 		unit: "ms",
 		change: 18,
-		icon: "/static/icon/heart-rate-variability.svg"
+		icon: "/static/icon/health/hrv.svg"
 	}
 ]);
 
@@ -61,6 +62,27 @@ const getChangeText = (change: number) => {
 	}
 	return `较上次 ${change}%`;
 };
+
+function goToMetrics(title: string) {
+	let metric = "heartRate";
+	switch (title) {
+		case "心率":
+			metric = "heartRate";
+			break;
+		case "静息心率":
+			metric = "restingHeartRate";
+			break;
+		case "血氧":
+			metric = "bloodOxygen";
+			break;
+		case "心率变异性":
+			metric = "hrv";
+			break;
+	}
+	router.push({
+		path: `/pages/health/metrics?metric=${metric}`
+	});
+}
 </script>
 
 <style lang="scss" scoped>

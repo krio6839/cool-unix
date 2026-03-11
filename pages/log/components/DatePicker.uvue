@@ -1,0 +1,85 @@
+<template>
+	<view class="date-picker flex flex-row items-center justify-between p-4">
+		<view class="flex flex-row items-center">
+			<view
+				v-for="(day, index) in dateList"
+				:key="index"
+				class="date-item flex flex-col items-center mx-2"
+				:class="{ active: selectedDate == day.date }"
+				@tap="selectDate(day.date)"
+			>
+				<cl-text :size="12" :color="selectedDate == day.date ? '#181814' : '#ffffff'">
+					{{ day.week }}
+				</cl-text>
+				<cl-text :size="14" :color="selectedDate == day.date ? '#181814' : '#ffffff'">
+					{{ day.date }}
+				</cl-text>
+			</view>
+		</view>
+		<cl-icon name="calendar" color="#ffffff" :size="20"></cl-icon>
+	</view>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted } from "vue";
+import type { DateItem } from "../types";
+
+// Props
+const props = defineProps<{
+	selectedDate: string;
+}>();
+
+// Emits
+const emit = defineEmits(["select"]);
+
+// 日期列表
+const dateList = ref<DateItem[]>([]);
+
+// 生成日期列表
+const generateDateList = () => {
+	const now = new Date();
+	const dates: DateItem[] = [];
+	const weekDays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+
+	for (let i = 0; i < 5; i++) {
+		const date = new Date(now);
+		date.setDate(now.getDate() + i);
+
+		const month = date.getMonth() + 1;
+		const day = date.getDate();
+		const weekDay = weekDays[date.getDay()];
+
+		dates.push({
+			week: i === 0 ? "今天" : weekDay,
+			date: `${month}/${day}`,
+			timestamp: date.getTime()
+		});
+	}
+
+	dateList.value = dates;
+};
+
+// 选择日期
+const selectDate = (date: string) => {
+	emit("select", date);
+};
+
+// 初始化
+onMounted(() => {
+	generateDateList();
+});
+</script>
+
+<style lang="scss" scoped>
+.date-picker {
+	@apply bg-[#2a2a26] rounded-2xl my-3;
+}
+
+.date-item {
+	@apply py-2 px-3 rounded-xl;
+
+	&.active {
+		@apply bg-[#d2ff5c] scale-105;
+	}
+}
+</style>

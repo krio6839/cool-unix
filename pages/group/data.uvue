@@ -1,0 +1,99 @@
+<template>
+	<view class="flex flex-col h-full bg-black">
+		<!-- 顶部导航栏 -->
+		<view class="flex items-center justify-between p-4 border-b border-gray-800">
+			<cl-icon name="arrow-left" :size="24" color="#fff" @click="onBack" />
+			<text class="text-white text-lg font-medium">团队数据</text>
+			<cl-icon name="ellipsis" :size="24" color="#fff" />
+		</view>
+
+		<!-- 小组信息 -->
+		<view class="p-4 border-b border-gray-800">
+			<view class="flex items-center justify-between mb-2">
+				<text class="text-white text-lg font-medium">{{ group.name }}</text>
+				<cl-icon name="message" :size="24" color="#fff" />
+			</view>
+			<cl-tag size="small" type="success">组长{{ group.leader }}</cl-tag>
+		</view>
+
+		<!-- 成员列表 -->
+		<scroll-view class="flex-1" style="flex: 1">
+			<view class="space-y-3 p-4">
+				<view
+					v-for="member in group.members"
+					:key="member.id"
+					class="bg-gray-800 rounded-lg p-4 flex items-center justify-between"
+				>
+					<text class="text-white">{{ member.name }}</text>
+					<view class="flex items-center space-x-4">
+						<text class="text-gray-400">储能值 {{ member.energy }}</text>
+						<text class="text-gray-400">风险指数 {{ member.riskIndex }}</text>
+						<cl-icon
+							name="delete"
+							:size="20"
+							color="#ff4d4f"
+							@click="onDeleteMember(member.id)"
+						/>
+					</view>
+				</view>
+			</view>
+		</scroll-view>
+
+		<!-- 底部按钮 -->
+		<view class="flex justify-between p-4 border-t border-gray-800 mb-20">
+			<cl-button size="large" class="w-24 h-12 rounded-full">
+				<cl-icon name="menu" :size="24" />
+			</cl-button>
+			<cl-button type="primary" size="large" class="w-24 h-12 rounded-full">
+				<cl-icon name="plus" :size="24" />
+			</cl-button>
+		</view>
+	</view>
+</template>
+
+<script lang="ts" setup>
+import { computed, ref, watch } from "vue";
+import type { TeamGroup } from "./types";
+
+const props = defineProps<{
+	group?: string;
+}>();
+
+const group = ref<TeamGroup>({
+	id: "",
+	name: "",
+	leader: "",
+	memberCount: 0,
+	members: []
+});
+
+watch(
+	computed(() => props.group),
+	(groupData: string | undefined) => {
+		if (groupData != null && groupData !== "") {
+			group.value = JSON.parse(groupData) as TeamGroup;
+		}
+	},
+	{
+		immediate: true
+	}
+);
+
+const onBack = () => {
+	uni.navigateBack();
+};
+
+const onDeleteMember = (memberId: string) => {
+	// 实现删除成员逻辑
+	group.value.members = group.value.members.filter((member) => member.id !== memberId);
+	group.value.memberCount = group.value.members.length;
+	uni.showToast({
+		title: "删除成功",
+		icon: "success"
+	});
+};
+</script>
+
+<style lang="scss" scoped>
+/* 组件样式 */
+</style>

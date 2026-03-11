@@ -1,0 +1,52 @@
+<template>
+	<view class="mt-4 p-4">
+		<view class="date-info mb-4">
+			<cl-text :size="14" color="#ffffff">{{ selectedDateInfo }}</cl-text>
+			<cl-text :size="12" color="#ffffff99" class="mt-1">
+				已记录9条行为标签，包括2条自动标签
+			</cl-text>
+		</view>
+
+		<cl-list>
+			<cl-list-item
+				v-for="(item, index) in logItems"
+				:key="index"
+				:label="item.title"
+				:icon="item.icon"
+				:pt="{
+					className: 'bg-[#2a2a26] rounded-2xl mb-3 border border-[#354A00]',
+					inner: {
+						className: 'flex justify-between items-center'
+					},
+					icon: {
+						color: item.iconColor,
+						size: 20
+					},
+					label: {
+						color: '#ffffff',
+						size: 14
+					}
+				}"
+			>
+				<template #default>
+					<view class="flex items-center">
+						<cl-text :size="12" color="#d2ff5c" class="mr-2" v-if="item.isAuto"
+							>自动</cl-text
+						>
+						<cl-text :size="12" color="#ffffff99">{{ item.time }}</cl-text>
+					</view>
+				</template>
+			</cl-list-item>
+		</cl-list>
+	</view>
+</template>
+
+<script setup lang="ts">
+import type { LogItem } from "../types";
+
+// Props
+const props = defineProps<{
+	logItems: LogItem[];
+	selectedDateInfo: string;
+}>();
+</script>

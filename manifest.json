@@ -70,7 +70,11 @@
 	},
 	"app-android": {
 		"distribute": {
-			"modules": {},
+			"modules": {
+				"uni-location": {
+					"system": {}
+				}
+			},
 			"icons": {
 				"hdpi": "static/logo.png",
 				"xhdpi": "static/logo.png",

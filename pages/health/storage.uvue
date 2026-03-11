@@ -60,11 +60,7 @@ import Status from "./components/status.uvue";
 //@ts-ignore
 import Chart from "./components/chart.uvue";
 import type { ChartOption } from "./types/chart";
-
-type EnergyItem = {
-	label: string;
-	value: number;
-};
+import type { EnergyItem } from "./types";
 
 const currentDate = ref<string>("2025.10.14");
 const totalEnergy = ref<number>(958);
@@ -81,8 +77,8 @@ const energyItems = ref<EnergyItem[]>([
 	}
 ]);
 
-const energyChartOption = computed<ChartOption>(() => {
-	return {
+const energyChartOption = computed(() => {
+	let option: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
 			textStyle: {
@@ -151,11 +147,12 @@ const energyChartOption = computed<ChartOption>(() => {
 				}
 			}
 		]
-	} as ChartOption;
+	};
+	return JSON.stringify(option);
 });
 
-const bodyEnergyChartOption = computed<ChartOption>(() => {
-	return {
+const bodyEnergyChartOption = computed(() => {
+	let option: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
 			textStyle: {
@@ -203,7 +200,8 @@ const bodyEnergyChartOption = computed<ChartOption>(() => {
 				}
 			}
 		]
-	} as ChartOption;
+	};
+	return JSON.stringify(option);
 });
 
 function goBack() {

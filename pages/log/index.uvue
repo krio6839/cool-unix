@@ -1,0 +1,273 @@
+<template>
+	<cl-page>
+		<!-- 顶部导航栏 -->
+		<cl-topbar
+			fixed
+			:show-back="false"
+			safe-area-top
+			:height="isMp() ? null : 50"
+			:pt="{
+				className: '!z-50'
+			}"
+			background-color="transparent"
+		>
+			<view
+				class="flex flex-row justify-between items-center p-3 w-full"
+				:class="{
+					'pt-0': isMp()
+				}"
+			>
+				<cl-tabs v-model="activeTab" :list="tabList"></cl-tabs>
+
+				<cl-icon name="more-line" color="white" :size="16"></cl-icon>
+			</view>
+		</cl-topbar>
+
+		<!-- 内容区域 -->
+		<view class="flex-1" @tap="closeMenu">
+			<!-- 行为页面 -->
+			<view v-if="activeTab == 'behavior'">
+				<!-- 日期选择器 -->
+				<DatePicker :selectedDate="selectedDate" @select="selectDate"></DatePicker>
+
+				<!-- 打卡区域 -->
+				<CheckinArea :checkinStatus="checkinStatus" @checkin="checkin"></CheckinArea>
+
+				<!-- 日志列表 -->
+				<LogList :logItems="logItems" :selectedDateInfo="selectedDateInfo"></LogList>
+			</view>
+
+			<!-- 运动页面 -->
+			<view v-else-if="activeTab == 'sport'">
+				<!-- 日期选择器 -->
+				<DatePicker :selectedDate="selectedDate" @select="selectDate"></DatePicker>
+
+				<!-- 峰值时刻 -->
+				<SportChart
+					:sportData="sportData"
+					@timeRangeChange="handleTimeRangeChange"
+				></SportChart>
+
+				<!-- 运动数据卡片 -->
+				<SportCards></SportCards>
+			</view>
+		</view>
+
+		<!-- 右下角加号按钮 -->
+		<cl-float-view :left="330" :bottom="100" :size="45" v-if="activeTab == 'behavior'">
+			<view
+				class="w-[45px] h-[45px] rounded-full bg-primary-500 flex flex-row items-center justify-center"
+				@click="showDefaultItemsPopup = true"
+			>
+				<cl-icon name="add-line" color="#000" :size="28"></cl-icon>
+			</view>
+		</cl-float-view>
+
+		<!-- 底部导航栏 -->
+		<tabbar></tabbar>
+
+		<!-- 设置默认条目弹窗 -->
+		<DefaultItemsPopup
+			v-model:show="showDefaultItemsPopup"
+			:defaultItems="defaultItems"
+			@close="showDefaultItemsPopup = false"
+			@save="saveDefaultItems"
+		></DefaultItemsPopup>
+	</cl-page>
+</template>
+
+<script setup lang="ts">
+import { ref, computed } from "vue";
+import { isMp } from "@/.cool";
+
+import tabbar from "@/pages/index/components/tabbar.uvue";
+
+// 导入组件
+import DatePicker from "./components/DatePicker.uvue";
+import CheckinArea from "./components/CheckinArea.uvue";
+import LogList from "./components/LogList.uvue";
+import SportChart from "./components/SportChart.uvue";
+// import SportCards from "./components/SportCards.uvue";
+// import DefaultItemsPopup from "./components/DefaultItemsPopup.uvue";
+
+// 导入类型
+import type {
+	TabType,
+	CheckinStatus,
+	LogItem,
+	SportData,
+	DefaultItem,
+	TimeRange,
+	DateItem
+} from "./types";
+import { useUi, type ClTabsItem } from "@/uni_modules/cool-ui";
+
+const ui = useUi();
+// 顶部标签
+const activeTab = ref<TabType>("behavior");
+
+// 日期选择
+const selectedDate = ref<string>("");
+
+const tabList = ref<ClTabsItem[]>([
+	{ label: "行为", value: "behavior" },
+	{ label: "运动", value: "sport" }
+]);
+
+// 生成日期列表
+const generateDateList = (): void => {
+	const now = new Date();
+	const dates: DateItem[] = [];
+	const weekDays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+
+	for (let i = 0; i < 5; i++) {
+		const date = new Date(now);
+		date.setDate(now.getDate() + i);
+
+		const month = date.getMonth() + 1;
+		const day = date.getDate();
+		const weekDay = weekDays[date.getDay()];
+
+		dates.push({
+			week: i === 0 ? "今天" : weekDay,
+			date: `${month}/${day}`,
+			timestamp: date.getTime()
+		} as DateItem);
+	}
+
+	selectedDate.value = dates[0].date;
+};
+
+// 初始化日期列表
+generateDateList();
+
+// 选中日期的完整信息
+const selectedDateInfo = computed<string>(() => {
+	const now = new Date();
+	const year = now.getFullYear();
+	const month = now.getMonth() + 1;
+	const day = now.getDate();
+	const weekDays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+	const weekDay = weekDays[now.getDay()];
+	return `${year}年${month}月${day}日，${weekDay}`;
+});
+
+// 打卡状态
+const checkinStatus = ref<CheckinStatus>({
+	morning: false,
+	noon: false,
+	evening: false
+});
+
+// 打卡函数
+const checkin = (type: "morning" | "noon" | "evening"): void => {
+	if (type == "morning") {
+		checkinStatus.value.morning = true;
+	} else if (type == "noon") {
+		checkinStatus.value.noon = true;
+	} else if (type == "evening") {
+		checkinStatus.value.evening = true;
+	}
+};
+
+// 日志列表数据
+const logItems = ref<LogItem[]>([
+	{ title: "午睡", icon: "bed", iconColor: "#4CAF50", isAuto: true, time: "" },
+	{ title: "步数5000+", icon: "footprints", iconColor: "#2196F3", isAuto: true, time: "" },
+	{ title: "闹钟吵醒", icon: "bell", iconColor: "#FF9800", isAuto: false, time: "08:14" },
+	{ title: "开车上班", icon: "car", iconColor: "#9C27B0", isAuto: false, time: "09:19" },
+	{ title: "咖啡 300ml", icon: "coffee", iconColor: "#795548", isAuto: false, time: "08:14" },
+	{ title: "又开周会了", icon: "users", iconColor: "#F44336", isAuto: false, time: "09:19" }
+]);
+
+// 根据日期获取日志数据
+const getLogItemsByDate = (date: string): LogItem[] => {
+	return logItems.value;
+};
+
+// 选择日期
+const selectDate = (date: string): void => {
+	selectedDate.value = date;
+	logItems.value = getLogItemsByDate(date);
+};
+
+// 菜单
+const showMenu = ref<boolean>(false);
+const closeMenu = (): void => {
+	showMenu.value = false;
+};
+
+// 运动数据
+const sportData = ref<SportData>({
+	peakMoments: [
+		{ time: "08:00", value: 30 },
+		{ time: "09:00", value: 60 },
+		{ time: "10:00", value: 45 },
+		{ time: "11:00", value: 80 },
+		{ time: "12:00", value: 50 },
+		{ time: "13:00", value: 30 },
+		{ time: "14:00", value: 60 },
+		{ time: "15:00", value: 70 },
+		{ time: "16:00", value: 90 },
+		{ time: "17:00", value: 65 },
+		{ time: "18:00", value: 85 },
+		{ time: "19:00", value: 40 }
+	],
+	data: {
+		steps: "5000+",
+		calories: "300kcal",
+		distance: "3.5km",
+		averagePace: "10'00\""
+	}
+});
+
+// 时间范围变化处理
+const handleTimeRangeChange = (range: TimeRange): void => {
+	// 这里可以根据时间范围更新运动数据
+	console.log("Time range changed:", range);
+};
+
+// 设置默认条目弹窗
+const showDefaultItemsPopup = ref<boolean>(false);
+const defaultItems = ref<DefaultItem[]>([
+	{ id: 1, name: "酒", value: "0.0份饮料", type: "drink" },
+	{ id: 2, name: "在床上使用设备", value: 0, type: "boolean", enabled: false },
+	{ id: 3, name: "补水", value: "0.0 ml", type: "volume" },
+	{ id: 4, name: "咖啡因", value: "0.0 mg", type: "amount" },
+	{ id: 5, name: "低碳水化合物", value: 0, type: "boolean", enabled: true },
+	{ id: 6, name: "睡前餐", value: 0, type: "boolean", enabled: true },
+	{ id: 7, name: "添加糖", value: 0, type: "boolean", enabled: true },
+	{ id: 8, name: "生酮饮食", value: 0, type: "boolean", enabled: true }
+]);
+
+const setAutoTags = (): void => {
+	// 打开设置自动标签弹窗
+	showDefaultItemsPopup.value = true;
+};
+
+const saveDefaultItems = (items: DefaultItem[]): void => {
+	showDefaultItemsPopup.value = false;
+	ui.showToast({
+		message: "保存成功",
+		type: "success"
+	});
+};
+
+const addCustomTag = (): void => {
+	// 打开添加自定义标签弹窗
+	// 这里可以添加打开弹窗的逻辑
+	ui.showToast({
+		message: "添加自定义标签",
+		type: "success"
+	});
+};
+
+const aboutBehaviorLog = (): void => {
+	// 打开关于行为日志弹窗
+	// 这里可以添加打开弹窗的逻辑
+	ui.showToast({
+		message: "关于行为日志",
+		type: "success"
+	});
+};
+</script>

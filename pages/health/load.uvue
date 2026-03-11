@@ -50,7 +50,11 @@
 			<Chart :title="'睡眠压力趋势图'" :option="sleepChartOption" :height="200"></Chart>
 
 			<!-- 心率区间趋势图 -->
-			<Chart :title="'心率区间趋势图'" :option="heartRateChartOption" :height="200"></Chart>
+			<Chart
+				:title="'心率区间趋势图'"
+				:option="JSON.stringify(heartRateChartOption)"
+				:height="200"
+			></Chart>
 		</view>
 	</cl-page>
 </template>
@@ -90,284 +94,303 @@ const healthItems = ref<HealthItem[]>([
 ]);
 
 // 当日实时负荷趋势图配置
-const realtimeChartOption = computed<ChartOption>(() => ({
-	tooltip: {
-		trigger: "axis",
-		textStyle: {
-			color: "#fff"
-		}
-	},
-	grid: {
-		left: 0,
-		right: 0,
-		top: 0,
-		bottom: 0,
-		containLabel: true
-	},
-	xAxis: {
-		type: "category",
-		data: ["00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00"],
-		axisLabel: {
-			color: "rgba(255,255,255,0.6)"
-		},
-		axisLine: {
-			lineStyle: {
-				color: "rgba(255,255,255,0.2)"
+const realtimeChartOption = computed(() => {
+	const option: UTSJSONObject = {
+		tooltip: {
+			trigger: "axis",
+			textStyle: {
+				color: "#fff"
 			}
-		}
-	},
-	yAxis: {
-		type: "value",
-		axisLine: {
-			show: false
 		},
-		axisLabel: {
-			show: false
+		grid: {
+			left: 0,
+			right: 0,
+			top: 0,
+			bottom: 0,
+			containLabel: true
 		},
-		splitLine: {
-			show: false
-		}
-	},
-	series: [
-		{
-			name: "负荷",
-			type: "line",
-			data: [12, 19, 3, 5, 2, 3, 15, 20],
-			smooth: true,
-			lineStyle: {
-				color: "#4CAF50",
-				width: 2
+		xAxis: {
+			type: "category",
+			data: ["00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00"],
+			axisLabel: {
+				color: "rgba(255,255,255,0.6)"
 			},
-			areaStyle: {
-				color: {
-					type: "linear",
-					x: 0,
-					y: 0,
-					x2: 0,
-					y2: 1,
-					colorStops: [
-						{
-							offset: 0,
-							color: "rgba(76, 175, 80, 0.3)"
-						},
-						{
-							offset: 1,
-							color: "rgba(76, 175, 80, 0.1)"
-						}
-					]
+			axisLine: {
+				lineStyle: {
+					color: "rgba(255,255,255,0.2)"
 				}
 			}
-		}
-	]
-}));
+		},
+		yAxis: {
+			type: "value",
+			axisLine: {
+				show: false
+			},
+			axisLabel: {
+				show: false
+			},
+			splitLine: {
+				show: false
+			}
+		},
+		series: [
+			{
+				name: "负荷",
+				type: "line",
+				data: [12, 19, 3, 5, 2, 3, 15, 20],
+				smooth: true,
+				lineStyle: {
+					color: "#4CAF50",
+					width: 2
+				},
+				areaStyle: {
+					color: {
+						type: "linear",
+						x: 0,
+						y: 0,
+						x2: 0,
+						y2: 1,
+						colorStops: [
+							{
+								offset: 0,
+								color: "rgba(76, 175, 80, 0.3)"
+							},
+							{
+								offset: 1,
+								color: "rgba(76, 175, 80, 0.1)"
+							}
+						]
+					}
+				}
+			}
+		]
+	};
+
+	return JSON.stringify(option);
+});
 
 // 压力负荷趋势图配置
-const pressureChartOption = computed<ChartOption>(() => ({
-	tooltip: {
-		trigger: "axis",
-		textStyle: {
-			color: "#fff"
-		}
-	},
-	grid: {
-		left: 0,
-		right: 0,
-		top: 0,
-		bottom: 0,
-		containLabel: true
-	},
-	xAxis: {
-		type: "category",
-		data: ["10-20", "10-21", "10-22", "10-23", "10-24", "10-25", "10-26"],
-		axisLabel: {
-			color: "rgba(255,255,255,0.6)"
-		},
-		axisLine: {
-			lineStyle: {
-				color: "rgba(255,255,255,0.2)"
+const pressureChartOption = computed(() => {
+	const options: UTSJSONObject = {
+		tooltip: {
+			trigger: "axis",
+			textStyle: {
+				color: "#fff"
 			}
-		}
-	},
-	yAxis: {
-		type: "value",
-		axisLine: {
-			show: false
 		},
-		axisLabel: {
-			show: false
+		grid: {
+			left: 0,
+			right: 0,
+			top: 0,
+			bottom: 0,
+			containLabel: true
 		},
-		splitLine: {
-			show: false
-		}
-	},
-	series: [
-		{
-			name: "压力负荷",
-			type: "line",
-			data: [30, 40, 35, 45, 30, 50, 40],
-			smooth: true,
-			lineStyle: {
-				color: "#FF9800",
-				width: 2
+		xAxis: {
+			type: "category",
+			data: ["10-20", "10-21", "10-22", "10-23", "10-24", "10-25", "10-26"],
+			axisLabel: {
+				color: "rgba(255,255,255,0.6)"
+			},
+			axisLine: {
+				lineStyle: {
+					color: "rgba(255,255,255,0.2)"
+				}
 			}
-		}
-	]
-}));
+		},
+		yAxis: {
+			type: "value",
+			axisLine: {
+				show: false
+			},
+			axisLabel: {
+				show: false
+			},
+			splitLine: {
+				show: false
+			}
+		},
+		series: [
+			{
+				name: "压力负荷",
+				type: "line",
+				data: [30, 40, 35, 45, 30, 50, 40],
+				smooth: true,
+				lineStyle: {
+					color: "#FF9800",
+					width: 2
+				}
+			}
+		]
+	};
+	return JSON.stringify(options);
+});
 
 // 运动负荷趋势图配置
-const exerciseChartOption = computed<ChartOption>(() => ({
-	tooltip: {
-		trigger: "axis",
-		textStyle: {
-			color: "#fff"
-		}
-	},
-	grid: {
-		left: 0,
-		right: 0,
-		top: 0,
-		bottom: 0,
-		containLabel: true
-	},
-	xAxis: {
-		type: "category",
-		data: ["10-20", "10-21", "10-22", "10-23", "10-24", "10-25", "10-26"],
-		axisLabel: {
-			color: "rgba(255,255,255,0.6)"
-		},
-		axisLine: {
-			lineStyle: {
-				color: "rgba(255,255,255,0.2)"
+const exerciseChartOption = computed(() => {
+	const options: UTSJSONObject = {
+		tooltip: {
+			trigger: "axis",
+			textStyle: {
+				color: "#fff"
 			}
-		}
-	},
-	yAxis: {
-		type: "value",
-		axisLine: {
-			show: false
 		},
-		axisLabel: {
-			show: false
+		grid: {
+			left: 0,
+			right: 0,
+			top: 0,
+			bottom: 0,
+			containLabel: true
 		},
-		splitLine: {
-			show: false
-		}
-	},
-	series: [
-		{
-			name: "运动负荷",
-			type: "line",
-			data: [50, 60, 45, 70, 55, 65, 50],
-			smooth: true,
-			lineStyle: {
-				color: "#2196F3",
-				width: 2
+		xAxis: {
+			type: "category",
+			data: ["10-20", "10-21", "10-22", "10-23", "10-24", "10-25", "10-26"],
+			axisLabel: {
+				color: "rgba(255,255,255,0.6)"
+			},
+			axisLine: {
+				lineStyle: {
+					color: "rgba(255,255,255,0.2)"
+				}
 			}
-		}
-	]
-}));
+		},
+		yAxis: {
+			type: "value",
+			axisLine: {
+				show: false
+			},
+			axisLabel: {
+				show: false
+			},
+			splitLine: {
+				show: false
+			}
+		},
+		series: [
+			{
+				name: "运动负荷",
+				type: "line",
+				data: [50, 60, 45, 70, 55, 65, 50],
+				smooth: true,
+				lineStyle: {
+					color: "#2196F3",
+					width: 2
+				}
+			}
+		]
+	};
+
+	return JSON.stringify(options);
+});
 
 // 睡眠压力趋势图配置
-const sleepChartOption = computed<ChartOption>(() => ({
-	tooltip: {
-		trigger: "axis",
-		textStyle: {
-			color: "#fff"
-		}
-	},
-	grid: {
-		left: 0,
-		right: 0,
-		top: 0,
-		bottom: 0,
-		containLabel: true
-	},
-	xAxis: {
-		type: "category",
-		data: ["10-20", "10-21", "10-22", "10-23", "10-24", "10-25", "10-26"],
-		axisLabel: {
-			color: "rgba(255,255,255,0.6)"
-		},
-		axisLine: {
-			lineStyle: {
-				color: "rgba(255,255,255,0.2)"
+const sleepChartOption = computed(() => {
+	const options: UTSJSONObject = {
+		tooltip: {
+			trigger: "axis",
+			textStyle: {
+				color: "#fff"
 			}
-		}
-	},
-	yAxis: {
-		type: "value",
-		axisLine: {
-			show: false
 		},
-		axisLabel: {
-			show: false
+		grid: {
+			left: 0,
+			right: 0,
+			top: 0,
+			bottom: 0,
+			containLabel: true
 		},
-		splitLine: {
-			show: false
-		}
-	},
-	series: [
-		{
-			name: "睡眠压力",
-			type: "bar",
-			data: [654, 780, 569, 720, 680, 750, 620],
-			itemStyle: {
-				color: "#9C27B0"
+		xAxis: {
+			type: "category",
+			data: ["10-20", "10-21", "10-22", "10-23", "10-24", "10-25", "10-26"],
+			axisLabel: {
+				color: "rgba(255,255,255,0.6)"
+			},
+			axisLine: {
+				lineStyle: {
+					color: "rgba(255,255,255,0.2)"
+				}
 			}
-		}
-	]
-}));
+		},
+		yAxis: {
+			type: "value",
+			axisLine: {
+				show: false
+			},
+			axisLabel: {
+				show: false
+			},
+			splitLine: {
+				show: false
+			}
+		},
+		series: [
+			{
+				name: "睡眠压力",
+				type: "bar",
+				data: [654, 780, 569, 720, 680, 750, 620],
+				itemStyle: {
+					color: "#9C27B0"
+				}
+			}
+		]
+	};
+
+	return JSON.stringify(options);
+});
 
 // 心率区间趋势图配置
-const heartRateChartOption = computed<ChartOption>(() => ({
-	tooltip: {
-		trigger: "axis",
-		textStyle: {
-			color: "#fff"
-		}
-	},
-	grid: {
-		left: 0,
-		right: 0,
-		top: 0,
-		bottom: 0,
-		containLabel: true
-	},
-	xAxis: {
-		type: "category",
-		data: ["00:00", "04:00", "08:00", "12:00", "16:00", "20:00"],
-		axisLabel: {
-			color: "rgba(255,255,255,0.6)"
-		},
-		axisLine: {
-			lineStyle: {
-				color: "rgba(255,255,255,0.2)"
+const heartRateChartOption = computed(() => {
+	const options: UTSJSONObject = {
+		tooltip: {
+			trigger: "axis",
+			textStyle: {
+				color: "#fff"
 			}
-		}
-	},
-	yAxis: {
-		type: "value",
-		axisLine: {
-			show: false
 		},
-		axisLabel: {
-			show: false
+		grid: {
+			left: 0,
+			right: 0,
+			top: 0,
+			bottom: 0,
+			containLabel: true
 		},
-		splitLine: {
-			show: false
-		}
-	},
-	series: [
-		{
-			name: "心率",
-			type: "bar",
-			data: [72, 118, 63, 85, 92, 78],
-			itemStyle: {
-				color: "#4CAF50"
+		xAxis: {
+			type: "category",
+			data: ["00:00", "04:00", "08:00", "12:00", "16:00", "20:00"],
+			axisLabel: {
+				color: "rgba(255,255,255,0.6)"
+			},
+			axisLine: {
+				lineStyle: {
+					color: "rgba(255,255,255,0.2)"
+				}
 			}
-		}
-	]
-}));
+		},
+		yAxis: {
+			type: "value",
+			axisLine: {
+				show: false
+			},
+			axisLabel: {
+				show: false
+			},
+			splitLine: {
+				show: false
+			}
+		},
+		series: [
+			{
+				name: "心率",
+				type: "bar",
+				data: [72, 118, 63, 85, 92, 78],
+				itemStyle: {
+					color: "#4CAF50"
+				}
+			}
+		]
+	};
+
+	return JSON.stringify(options);
+});
 
 // 返回上一页
 function goBack() {

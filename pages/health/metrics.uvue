@@ -1,0 +1,306 @@
+<template>
+	<cl-page>
+		<cl-topbar
+			fixed
+			:show-back="true"
+			safe-area-top
+			:height="isMp() ? null : 50"
+			background-color="transparent"
+		>
+			<view class="flex flex-row items-center justify-between w-full p-3">
+				<cl-icon name="arrow-left-line" color="white" :size="20" @tap="goBack"></cl-icon>
+				<cl-text :size="18" color="white">身体指标</cl-text>
+				<cl-icon name="more-vertical" color="white" :size="20"></cl-icon>
+			</view>
+		</cl-topbar>
+
+		<view class="p-3">
+			<!-- 指标切换 -->
+			<view class="mb-6">
+				<cl-row :gutter="12">
+					<cl-col :span="12" v-for="(item, index) in metrics" :key="index">
+						<view
+							class="h-12 mb-3 rounded-lg flex flex-row items-center justify-between px-4"
+							:class="{
+								'bg-[rgba(210,255,92,0.2)]': activeMetric == item.value,
+								'bg-[rgba(255,255,255,0.1)]': activeMetric != item.value
+							}"
+							@tap="selectMetric(item.value)"
+						>
+							<cl-text
+								:size="14"
+								:color="activeMetric == item.value ? 'primary' : 'white'"
+							>
+								{{ item.label }}
+							</cl-text>
+							<cl-svg
+								v-if="activeMetric == item.value"
+								:src="item.activeIconPath"
+								class="w-6 h-6"
+							></cl-svg>
+							<cl-svg v-else :src="item.iconPath" class="w-6 h-6"></cl-svg>
+						</view>
+					</cl-col>
+				</cl-row>
+			</view>
+
+			<!-- 当前数据和正常范围 -->
+			<view class="flex flex-row justify-between mb-6">
+				<view>
+					<cl-text :size="14" color="rgba(255,255,255,0.6)" :pt="{ className: 'mb-1' }"
+						>当前数据</cl-text
+					>
+					<cl-text :size="24" color="white" :pt="{ className: 'font-bold opacity-70' }">{{
+						currentData
+					}}</cl-text>
+				</view>
+				<view>
+					<cl-text :size="14" color="rgba(255,255,255,0.6)" :pt="{ className: 'mb-1' }"
+						>正常范围</cl-text
+					>
+					<cl-text :size="24" color="white" :pt="{ className: 'font-bold opacity-70' }">{{
+						normalRange
+					}}</cl-text>
+				</view>
+			</view>
+
+			<!-- 趋势图表 -->
+			<Chart :option="chartOption" :height="200" :showFooter="false"></Chart>
+
+			<!-- 时间范围选择 -->
+			<cl-tabs
+				v-model="activeTimeRange"
+				:list="timeRanges"
+				fill
+				showSlider
+				:pt="{
+					className: 'mb-6 !bg-[#1C1C1E] rounded-lg',
+					slider: { className: '!bg-[#49494B]' }
+				}"
+				@change="selectTimeRange"
+			></cl-tabs>
+
+			<!-- 数据更新时间 -->
+			<view class="mb-3">
+				<cl-text :size="12" color="rgba(255,255,255,0.6)">
+					数据更新于 {{ updateTime }}
+				</cl-text>
+			</view>
+
+			<!-- 分析建议 -->
+			<view class="p-3">
+				<cl-text :size="14" color="rgba(255,255,255,0.75)">{{ analysisText }}</cl-text>
+			</view>
+		</view>
+	</cl-page>
+</template>
+
+<script lang="ts" setup>
+import { isMp } from "@/.cool";
+import { ref, computed } from "vue";
+import type { ChartOption, MetricItem } from "./types";
+import type { ClTabsItem } from "@/uni_modules/cool-ui";
+// @ts-ignore
+import Chart from "./components/chart.uvue";
+
+// 页面参数
+interface Props {
+	metric: string;
+}
+
+const props = withDefaults(defineProps<Props>(), {
+	metric: "heartRate"
+});
+
+// 指标选项
+const metrics: MetricItem[] = [
+	{
+		label: "心率",
+		value: "heartRate",
+		iconPath: "/static/icon/health/heart-rate.svg",
+		activeIconPath: "/static/icon/health/heart-rate-active.svg"
+	},
+	{
+		label: "静息心率",
+		value: "restingHeartRate",
+		iconPath: "/static/icon/health/heart-rate.svg",
+		activeIconPath: "/static/icon/health/heart-rate-active.svg"
+	},
+	{
+		label: "血氧",
+		value: "bloodOxygen",
+		iconPath: "/static/icon/health/spo2.svg",
+		activeIconPath: "/static/icon/health/spo2-active.svg"
+	},
+	{
+		label: "心率变异性",
+		value: "hrv",
+		iconPath: "/static/icon/health/hrv.svg",
+		activeIconPath: "/static/icon/health/hrv-active.svg"
+	}
+];
+
+// 当前选中的指标
+const activeMetric = ref<string>(props.metric);
+
+// 时间范围选项
+const timeRanges = ref<ClTabsItem[]>([
+	{ label: "7天", value: "7d" },
+	{ label: "30天", value: "30d" },
+	{ label: "60天", value: "60d" }
+]);
+
+// 当前选中的时间范围
+const activeTimeRange = ref<string>("7d");
+
+// 数据更新时间
+const updateTime = ref<string>("09:32");
+
+// 当前数据
+const currentData = computed(() => {
+	switch (activeMetric.value) {
+		case "heartRate":
+			return "59bpm";
+		case "restingHeartRate":
+			return "62bpm";
+		case "bloodOxygen":
+			return "98%";
+		case "hrv":
+			return "65ms";
+		default:
+			return "59bpm";
+	}
+});
+
+// 正常范围
+const normalRange = computed(() => {
+	switch (activeMetric.value) {
+		case "heartRate":
+			return "64-71bpm";
+		case "restingHeartRate":
+			return "55-65bpm";
+		case "bloodOxygen":
+			return "95-100%";
+		case "hrv":
+			return "40-100ms";
+		default:
+			return "64-71bpm";
+	}
+});
+
+// 图表配置
+const chartOption = computed(() => {
+	const option: UTSJSONObject = {
+		title: {
+			show: false
+		},
+		tooltip: {
+			trigger: "axis",
+			textStyle: {
+				color: "#fff"
+			}
+		},
+		grid: {
+			left: 0,
+			right: 0,
+			top: 0,
+			bottom: 30,
+			containLabel: true
+		},
+		xAxis: {
+			type: "category",
+			data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
+			axisLabel: {
+				color: "rgba(255,255,255,0.6)"
+			},
+			axisLine: {
+				lineStyle: {
+					color: "rgba(255,255,255,0.2)"
+				}
+			}
+		},
+		yAxis: {
+			type: "value",
+			axisLine: {
+				show: false
+			},
+			axisLabel: {
+				show: false
+			},
+			splitLine: {
+				show: false
+			}
+		},
+		series: [
+			{
+				name: "当前值",
+				type: "line",
+				data: [62, 60, 58, 57, 59, 61, 60, 59],
+				itemStyle: {
+					color: "#D2FF5C"
+				},
+				lineStyle: {
+					width: 2
+				},
+				areaStyle: {
+					color: {
+						type: "linear",
+						x: 0,
+						y: 0,
+						x2: 0,
+						y2: 1,
+						colorStops: [
+							{
+								offset: 0,
+								color: "rgba(210, 255, 92, 0.3)"
+							},
+							{
+								offset: 1,
+								color: "rgba(210, 255, 92, 0)"
+							}
+						]
+					}
+				}
+			},
+			{
+				name: "正常范围",
+				type: "line",
+				data: [67, 66, 65, 65, 67, 68, 67, 66],
+				itemStyle: {
+					color: "#FF9800"
+				},
+				lineStyle: {
+					width: 2
+				}
+			}
+		]
+	};
+	return JSON.stringify(option);
+});
+
+// 分析文本
+const analysisText = ref<string>(
+	"前几天连续训练负荷较大，HRV较低但储能情况良好，预计明天HRV上升达到超量恢复黄金窗口。建议降低训练量，注意恢复调整前几天连续训练负荷较大，HRV较低但储能情况良好，预计明天HRV上升达到超量恢复黄金窗口。建议降低训练量，注意恢复调整"
+);
+
+// 选择指标
+function selectMetric(value: string) {
+	activeMetric.value = value;
+	// 这里可以根据选择的指标更新数据
+	console.log("选择指标:", value);
+}
+
+// 选择时间范围
+function selectTimeRange(value: string) {
+	activeTimeRange.value = value;
+	// 这里可以根据选择的时间范围更新图表数据
+	console.log("选择时间范围:", value);
+}
+
+// 返回上一页
+function goBack() {
+	uni.navigateBack();
+}
+</script>
+
+<style lang="scss" scoped></style>

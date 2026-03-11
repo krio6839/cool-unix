@@ -89,7 +89,7 @@ const emit = defineEmits<{
 }>();
 
 // 时间选择器引用
-const selectTimeRef = ref<any>(null);
+const selectTimeRef = ref<ClSelectTimeComponentPublicInstance | null>(null);
 // 选中的时间
 const selectedTime = ref<string>(props.wakeUpTime);
 
@@ -98,7 +98,7 @@ function handleWakeUpTimeClick() {
 	// 设置当前时间为默认值
 	selectedTime.value = props.wakeUpTime;
 	// 打开时间选择器
-	selectTimeRef.value?.open();
+	selectTimeRef.value?.open(null);
 }
 
 // 时间变更处理
@@ -122,6 +122,4 @@ function handleTimeChange(value: string) {
 	position: relative;
 	/* #endif */
 }
-
-
 </style>

@@ -1,0 +1,99 @@
+<template>
+	<cl-popup v-model="show" mode="center" closeable="false" mask-closeable="false">
+		<view
+			class="w-[85vw] max-w-[400px] rounded-[33rpx] overflow-hidden bg-cover bg-center"
+			style="background-image: url(&quot;@/static/icon/popup-background.svg&quot;)"
+		>
+			<view class="p-[40rpx_30rpx]">
+				<view class="text-center mb-[30rpx]">
+					<cl-text :size="16" class="font-bold text-white">早起问卷</cl-text>
+				</view>
+				<view class="mb-[40rpx]">
+					<cl-text :size="12" class="block text-white leading-1.5 mb-[40rpx]"
+						>Hey! xx帅哥，早安！全新的一天又开始啦~</cl-text
+					>
+
+					<view class="mb-[30rpx]">
+						<cl-text :size="13" class="block text-white mb-[20rpx]"
+							>昨晚睡得怎么样？</cl-text
+						>
+						<view class="flex gap-[20rpx]">
+							<view
+								v-for="i in 5"
+								:key="'sleep-' + i"
+								class="text-[40rpx] text-white/50 cursor-pointer transition-all duration-300"
+								:class="{ 'text-yellow-400': sleepScore >= i }"
+								@click="setSleepScore(i)"
+							>
+								★
+							</view>
+						</view>
+					</view>
+
+					<view class="mb-[30rpx]">
+						<cl-text :size="13" class="block text-white mb-[20rpx]"
+							>醒来后的能量状态如何？</cl-text
+						>
+						<view class="flex gap-[20rpx]">
+							<view
+								v-for="i in 5"
+								:key="'energy-' + i"
+								class="text-[40rpx] text-white/50 cursor-pointer transition-all duration-300"
+								:class="{ 'text-yellow-400': energyScore >= i }"
+								@click="setEnergyScore(i)"
+							>
+								★
+							</view>
+						</view>
+					</view>
+
+					<view class="mt-[30rpx] p-[20rpx] bg-white/10 rounded-[15rpx]">
+						<cl-text :size="10" class="mr-[8rpx]">☀️</cl-text>
+						<cl-text :size="11" class="font-bold text-white mr-[10rpx]">小提示</cl-text>
+						<cl-text :size="10" class="block text-white/90 leading-1.4 mt-[10rpx]"
+							>感受一下身体的节奏，今天也要和自己好好相处哦~</cl-text
+						>
+					</view>
+				</view>
+				<view class="flex justify-center">
+					<button
+						class="w-[240rpx] h-[80rpx] bg-yellow-400 border-none rounded-[40rpx] text-[28rpx] font-bold text-[#19494D] leading-[80rpx] text-center"
+						@click="handleConfirm"
+					>
+						知道啦
+					</button>
+				</view>
+			</view>
+		</view>
+	</cl-popup>
+</template>
+
+<script lang="ts" setup>
+import { ref, defineProps, defineEmits } from "vue";
+
+const props = defineProps<{
+	show: boolean;
+}>();
+
+const emit = defineEmits(["update:show", "confirm"]);
+
+const show = ref<boolean>(props.show);
+const sleepScore = ref<number>(0);
+const energyScore = ref<number>(0);
+
+const setSleepScore = (score: number): void => {
+	sleepScore.value = score;
+};
+
+const setEnergyScore = (score: number): void => {
+	energyScore.value = score;
+};
+
+const handleConfirm = (): void => {
+	emit("confirm", {
+		sleepScore: sleepScore.value,
+		energyScore: energyScore.value
+	});
+	emit("update:show", false);
+};
+</script>

@@ -496,7 +496,7 @@ export default {
 		extend: {
 			colors: {
 				...getPrimary("custom"),
-				...getSurface("custom")
+				...getSurface("neutral")
 			},
 			fontSize: {
 				md: ["1rem", "1.5rem"]

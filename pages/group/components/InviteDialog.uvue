@@ -1,0 +1,71 @@
+<template>
+	<cl-popup v-model="visible" position="bottom" round>
+		<view class="p-4">
+			<view class="flex justify-between items-center mb-4">
+				<text class="text-white text-lg font-medium">邀请</text>
+				<cl-icon name="close" size="24" color="#fff" @click="onCancel" />
+			</view>
+			<cl-input
+				v-model="inviteCode as string"
+				placeholder="请输入编号..."
+				class="w-full mb-6"
+			></cl-input>
+			<view class="flex space-x-4">
+				<cl-button type="default" size="large" class="flex-1" @click="onCancel"
+					>取消</cl-button
+				>
+				<cl-button type="primary" size="large" class="flex-1" @click="onConfirm"
+					>确定</cl-button
+				>
+			</view>
+		</view>
+	</cl-popup>
+</template>
+
+<script lang="ts" setup>
+import { ref } from "vue";
+
+const visible = ref(false);
+const inviteCode = ref("");
+
+const emit = defineEmits<{
+	(e: "confirm", code: string): void;
+	(e: "cancel"): void;
+}>();
+
+const show = () => {
+	visible.value = true;
+};
+
+const hide = () => {
+	visible.value = false;
+	inviteCode.value = "";
+};
+
+const onConfirm = () => {
+	if (inviteCode.value != null && inviteCode.value !== "") {
+		emit("confirm", inviteCode.value);
+		hide();
+	} else {
+		uni.showToast({
+			title: "请输入编号",
+			icon: "none"
+		});
+	}
+};
+
+const onCancel = () => {
+	emit("cancel");
+	hide();
+};
+
+// 暴露方法给父组件
+defineExpose({
+	show,
+	hide
+});
+</script>
+
+<style lang="scss" scoped>
+/* 组件样式 */
+</style>

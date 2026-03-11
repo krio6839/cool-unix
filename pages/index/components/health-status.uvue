@@ -25,6 +25,7 @@
 </template>
 
 <script lang="ts" setup>
+import { router } from "@/.cool";
 import { reactive, watchEffect, computed } from "vue";
 
 // 健康项目类型
@@ -110,16 +111,16 @@ function getTrendColor(trend: "up" | "down"): string {
 // 处理点击事件
 function handleItemClick(label: string) {
 	if (label === "负荷") {
-		uni.navigateTo({
-			url: "/pages/health/load"
+		router.push({
+			path: "/pages/health/load"
 		});
 	} else if (label === "睡眠") {
-		uni.navigateTo({
-			url: "/pages/health/sleep"
+		router.push({
+			path: "/pages/health/sleep"
 		});
 	} else if (label === "状态") {
-		uni.navigateTo({
-			url: "/pages/health/status"
+		router.push({
+			path: "/pages/health/status"
 		});
 	}
 }

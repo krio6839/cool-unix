@@ -1,0 +1,140 @@
+<template>
+	<cl-popup v-model="show" position="bottom" :overlay="true" :round="true" :overlay-close="false">
+		<view class="p-5 w-[90%]">
+			<view class="flex justify-between items-center mb-5">
+				<cl-text :size="18" color="#ffffff">设置默认条目</cl-text>
+				<cl-icon name="close" color="#ffffff" :size="20" @tap="close"></cl-icon>
+			</view>
+
+			<cl-text :size="14" color="#ffffff99" class="mb-4"> 默认条目 </cl-text>
+			<cl-text :size="12" color="#ffffff99" class="mb-6">
+				每天，"手记"将从下面设置的默认状态开始。
+			</cl-text>
+
+			<cl-list class="mb-6">
+				<cl-list-item
+					v-for="item in defaultItems"
+					:key="item.id"
+					:pt="{
+						label: {
+							className: 'flex items-center'
+						}
+					}"
+				>
+					<template #label>
+						<cl-icon
+							:name="
+								item.type === 'drink'
+									? 'wine'
+									: item.type === 'boolean'
+										? 'smartphone'
+										: item.type === 'volume'
+											? 'droplet'
+											: 'coffee'
+							"
+							color="#ffffff"
+							:size="20"
+							class="mr-3"
+						></cl-icon>
+						<cl-text :size="14" color="#ffffff">{{ item.name }}</cl-text>
+					</template>
+					<template #extra>
+						<view v-if="item.type === 'boolean'" class="flex items-center">
+							<cl-icon
+								name="x"
+								color="#ffffff99"
+								:size="20"
+								class="mr-3"
+								@tap="toggleDefaultItem(item.id)"
+								:class="{ 'text-[#d2ff5c]': !item.enabled }"
+							></cl-icon>
+							<cl-icon
+								name="minus"
+								color="#ffffff99"
+								:size="20"
+								class="mr-3"
+							></cl-icon>
+							<cl-icon
+								name="check"
+								color="#ffffff99"
+								:size="20"
+								@tap="toggleDefaultItem(item.id)"
+								:class="{ 'text-[#d2ff5c]': item.enabled }"
+							></cl-icon>
+						</view>
+						<view v-else class="flex items-center">
+							<cl-text :size="14" color="#ffffff">{{ item.value }}</cl-text>
+							<cl-icon
+								name="chevron-right"
+								color="#ffffff99"
+								:size="20"
+								class="ml-2"
+							></cl-icon>
+						</view>
+					</template>
+				</cl-list-item>
+			</cl-list>
+
+			<cl-text :size="12" color="#d2ff5c" class="text-center mb-4" @tap="resetDefaultItems">
+				全部重置为默认设置
+			</cl-text>
+
+			<cl-button
+				type="primary"
+				:color="'#d2ff5c'"
+				:text-color="'#181814'"
+				class="w-full"
+				@tap="saveDefaultItems"
+			>
+				保存
+			</cl-button>
+		</view>
+	</cl-popup>
+</template>
+
+<script setup lang="ts">
+import type { DefaultItem } from "../types";
+
+// Props
+const props = defineProps<{
+	defaultItems: DefaultItem[];
+}>();
+
+// Emits
+const emit = defineEmits(["close", "save"]);
+
+const show = defineModel("show", {
+	default: false,
+	type: Boolean
+});
+
+// 关闭弹窗
+const close = () => {
+	emit("close");
+};
+
+// 切换默认条目状态
+const toggleDefaultItem = (id: number) => {
+	const item = props.defaultItems.find((item) => item.id === id);
+	if (item != null && item.type === "boolean") {
+		item.enabled = !item.enabled;
+	}
+};
+
+// 重置默认条目
+const resetDefaultItems = () => {
+	props.defaultItems.forEach((item) => {
+		if (item.type === "boolean") {
+			item.enabled = false;
+		} else {
+			item.value =
+				item.type === "drink" ? "0.0份饮料" : item.type === "volume" ? "0.0 ml" : "0.0 mg";
+		}
+	});
+};
+
+// 保存默认条目
+const saveDefaultItems = () => {
+	emit("save", props.defaultItems);
+};
+</script>
