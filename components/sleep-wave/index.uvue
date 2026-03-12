@@ -137,9 +137,9 @@ function getIndicatorColor(state: number): string {
 
 function getStyle(segment: CurrentSegment | null): UTSJSONObject {
 	if (segment == null || segment.rect == null) {
-		return new UTSJSONObject();
+		return {} as UTSJSONObject;
 	}
-	const obj = new UTSJSONObject();
+	const obj = {} as UTSJSONObject;
 	obj["left"] = (segment.rect.x ?? 0) + "px";
 	obj["width"] = (segment.rect.w ?? 0) + "px";
 	obj["backgroundColor"] = getIndicatorColor(segment.state);

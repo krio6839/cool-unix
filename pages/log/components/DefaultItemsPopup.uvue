@@ -15,63 +15,48 @@
 				<cl-list-item
 					v-for="item in defaultItems"
 					:key="item.id"
+					:label="item.name"
+					:icon="
+						item.type === 'drink'
+							? 'wine'
+							: item.type === 'boolean'
+								? 'smartphone'
+								: item.type === 'volume'
+									? 'droplet'
+									: 'coffee'
+					"
 					:pt="{
-						label: {
-							className: 'flex items-center'
+						icon: {
+							size: 20,
+							color: '#ffffff'
 						}
 					}"
 				>
-					<template #label>
+					<view v-if="item.type === 'boolean'" class="flex items-center">
 						<cl-icon
-							:name="
-								item.type === 'drink'
-									? 'wine'
-									: item.type === 'boolean'
-										? 'smartphone'
-										: item.type === 'volume'
-											? 'droplet'
-											: 'coffee'
-							"
-							color="#ffffff"
+							name="x"
+							color="#ffffff99"
 							:size="20"
 							class="mr-3"
+							@click="toggleDefaultItem(item.id)"
 						></cl-icon>
-						<cl-text :size="14" color="#ffffff">{{ item.name }}</cl-text>
-					</template>
-					<template #extra>
-						<view v-if="item.type === 'boolean'" class="flex items-center">
-							<cl-icon
-								name="x"
-								color="#ffffff99"
-								:size="20"
-								class="mr-3"
-								@tap="toggleDefaultItem(item.id)"
-								:class="{ 'text-[#d2ff5c]': !item.enabled }"
-							></cl-icon>
-							<cl-icon
-								name="minus"
-								color="#ffffff99"
-								:size="20"
-								class="mr-3"
-							></cl-icon>
-							<cl-icon
-								name="check"
-								color="#ffffff99"
-								:size="20"
-								@tap="toggleDefaultItem(item.id)"
-								:class="{ 'text-[#d2ff5c]': item.enabled }"
-							></cl-icon>
-						</view>
-						<view v-else class="flex items-center">
-							<cl-text :size="14" color="#ffffff">{{ item.value }}</cl-text>
-							<cl-icon
-								name="chevron-right"
-								color="#ffffff99"
-								:size="20"
-								class="ml-2"
-							></cl-icon>
-						</view>
-					</template>
+						<cl-icon name="minus" color="#ffffff99" :size="20" class="mr-3"></cl-icon>
+						<cl-icon
+							name="check"
+							color="#ffffff99"
+							:size="20"
+							@click="toggleDefaultItem(item.id)"
+						></cl-icon>
+					</view>
+					<view v-else class="flex items-center">
+						<cl-text :size="14" color="#ffffff">{{ item.value }}</cl-text>
+						<cl-icon
+							name="chevron-right"
+							color="#ffffff99"
+							:size="20"
+							class="ml-2"
+						></cl-icon>
+					</view>
 				</cl-list-item>
 			</cl-list>
 

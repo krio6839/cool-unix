@@ -27,7 +27,12 @@
 		</cl-topbar>
 
 		<!-- 对话区域 -->
-		<scroll-view class="chat-area" scroll-y>
+		<scroll-view
+			class="chat-area"
+			style="flex: 1"
+			:direction="isApp() ? 'vertical' : 'none'"
+			:scroll-y="!isApp()"
+		>
 			<view v-if="messages.length === 0" class="greeting-section">
 				<text class="greeting-title">BOOM COACH</text>
 				<text class="greeting-message">昨天你睡的好吗？</text>
@@ -64,7 +69,7 @@
 				v-model="inputValue"
 				placeholder="有问题可以问我..."
 				confirm-type="send"
-				autofocus
+				:autofocus="false"
 				:showWordLimit="false"
 				@confirm="sendMessage"
 				:pt="{

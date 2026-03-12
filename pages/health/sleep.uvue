@@ -25,8 +25,7 @@
 				:config="{
 					backgroundColor: '#282828',
 					startColor: '#D2FF5C',
-					endColor: '#FF5C5C',
-					dotColor: '#fff'
+					endColor: '#FF5C5C'
 				}"
 				@go-to-date-select="goToDateSelect"
 			></Header>

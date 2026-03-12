@@ -1,0 +1,46 @@
+<template>
+	<view class="w-full mb-4">
+		<!-- 标题 -->
+		<cl-text v-if="title" :size="16" color="white" :pt="{ className: 'font-bold mb-3' }">
+			{{ title }}
+		</cl-text>
+
+		<!-- 图表区域 -->
+		<view :style="{ width: '100%', height: (height ?? 0) + 'px' }">
+			<l-echart ref="chartRef" @finished="initChart"></l-echart>
+		</view>
+	</view>
+</template>
+
+<script lang="ts" setup>
+import { ref, computed } from "vue";
+
+// 图表组件属性类型
+type ChartProps = {
+	title?: string;
+	option: string;
+	height?: number;
+};
+
+const props = withDefaults(defineProps<ChartProps>(), {});
+
+//@ts-ignore
+const chartRef = ref<LEchartComponentPublicInstance | null>(null);
+
+const echarts = null;
+
+const optionObj = computed((): UTSJSONObject => {
+	if (props.option == null || props.option === "") {
+		return {} as UTSJSONObject;
+	}
+	return JSON.parse(props.option) as UTSJSONObject;
+});
+
+async function initChart() {
+	if (chartRef.value == null) return;
+	const chart = await chartRef.value!.init(echarts);
+	chart.setOption(optionObj.value);
+}
+</script>
+
+<style lang="scss" scoped></style>

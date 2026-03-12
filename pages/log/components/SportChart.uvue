@@ -8,6 +8,11 @@
 					:list="timeRangeList"
 					:show-line="false"
 					:height="32"
+					show-slider
+					:pt="{
+						className: 'mb-6 !bg-[#1C1C1E] rounded-lg',
+						slider: { className: '!bg-[#49494B]' }
+					}"
 				></cl-tabs>
 			</view>
 		</view>

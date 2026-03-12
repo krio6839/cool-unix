@@ -54,7 +54,12 @@
 		</view>
 
 		<!-- 右下角加号按钮 -->
-		<cl-float-view :left="330" :bottom="100" :size="45" v-if="activeTab == 'behavior'">
+		<cl-float-view
+			:left="floatButtonLeft"
+			:bottom="70"
+			:size="45"
+			v-if="activeTab == 'behavior'"
+		>
 			<view
 				class="w-[45px] h-[45px] rounded-full bg-primary-500 flex flex-row items-center justify-center"
 				@click="showDefaultItemsPopup = true"
@@ -103,6 +108,11 @@ import type {
 import { useUi, type ClTabsItem } from "@/uni_modules/cool-ui";
 
 const ui = useUi();
+
+// 计算右下角加号按钮位置
+const windowInfo = uni.getWindowInfo();
+const floatButtonLeft = windowInfo.windowWidth - 60;
+
 // 顶部标签
 const activeTab = ref<TabType>("behavior");
 

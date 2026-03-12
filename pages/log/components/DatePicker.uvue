@@ -1,5 +1,5 @@
 <template>
-	<view class="date-picker flex flex-row items-center justify-between p-4">
+	<view class="date-picker flex flex-row items-center justify-between p-2">
 		<view class="flex flex-row items-center">
 			<view
 				v-for="(day, index) in dateList"

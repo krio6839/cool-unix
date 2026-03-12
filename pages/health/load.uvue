@@ -25,7 +25,7 @@
 					backgroundColor: '#282828',
 					startColor: '#D2FF5C',
 					endColor: '#FF5C5C',
-					dotColor: '#fff'
+					dotColor: '#000'
 				}"
 				@go-to-date-select="goToDateSelect"
 			></Header>

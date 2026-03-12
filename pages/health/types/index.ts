@@ -6,11 +6,12 @@ export type HealthItem = {
 };
 
 export type CanvasConfig = {
-	backgroundColor: string;
-	startColor: string;
-	endColor: string;
-	dotColor: string;
+	backgroundColor?: string;
+	startColor?: string;
+	endColor?: string;
+	dotColor?: string;
 };
+
 export type EnergyItem = {
 	label: string;
 	value: number;

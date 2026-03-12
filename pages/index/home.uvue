@@ -1,5 +1,5 @@
 <template>
-	<cl-page>
+	<cl-page :backTop="false">
 		<cl-topbar
 			fixed
 			:show-back="false"
@@ -68,8 +68,11 @@
 
 		<view class="p-3">
 			<!-- 用户信息模块 -->
-			<view class="relative">
-				<UserInfo :user-info="userInfo"></UserInfo>
+			<view class="relative h-[280px]">
+				<UserInfo
+					:name="userInfo.name"
+					:last-login-time="userInfo.lastLoginTime"
+				></UserInfo>
 
 				<!-- 健康状态模块 -->
 				<view class="absolute bottom-0 left-0 right-0">
@@ -84,7 +87,7 @@
 
 			<!-- BOOM GO -->
 			<view
-				class="boom-go mb-4 rounded-xl p-4 bg-gradient-to-r from-yellow-400 to-orange-500 text-white"
+				class="boom-go mb-4 rounded-xl p-4 bg-gradient-to-r from-yellow-400 to-orange-500"
 				@tap="goToBoomGo"
 			>
 				<view class="flex flex-row items-center">
@@ -97,7 +100,7 @@
 			</view>
 
 			<!-- 超量恢复 -->
-			<view class="over-recovery mb-4 rounded-xl p-4 bg-black text-white" @tap="goToRecovery">
+			<view class="over-recovery mb-4 rounded-xl p-4 bg-black" @tap="goToRecovery">
 				<cl-text :size="16" :pt="{ className: 'font-bold mb-3' }">超量恢复</cl-text>
 				<cl-text :size="14" :pt="{ className: 'mb-3 text-surface-300' }"
 					>1月15日 14:00-16:00</cl-text
@@ -129,7 +132,7 @@
 
 <script lang="ts" setup>
 import { isApp, isMp, useRefs, t, dayUts, router } from "@/.cool";
-import { ref, onMounted } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useUi } from "@/uni_modules/cool-ui";
 import { config } from "@/config";
 import CustomTabbar from "./components/tabbar.uvue";
