@@ -3,7 +3,7 @@
 		<view class="py-2">
 			<cl-waterfall ref="waterfallRef" :column="2">
 				<template #item="{ item, index }">
-					<view class="bg-white mb-2 rounded-xl dark:!bg-gray-800 relative">
+					<view class="bg-white mb-2 rounded-xl dark:!bg-[#1A1A16] relative">
 						<image
 							:src="item['image']"
 							mode="widthFix"

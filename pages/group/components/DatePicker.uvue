@@ -1,0 +1,47 @@
+<template>
+	<view class="px-4 mb-4">
+		<view class="flex flex-row items-center justify-between">
+			<view class="flex flex-row space-x-4">
+				<text
+					v-for="(day, index) in days"
+					:key="index"
+					class="text-white"
+					:class="{ 'text-primary-400 font-medium': selectedDay != null && selectedDay == index }"
+					@click="onDayClick(index)"
+				>
+					{{ day.label }}
+					<text v-if="day.date" class="block text-xs text-gray-400">{{ day.date }}</text>
+				</text>
+			</view>
+			<cl-icon name="calendar-line" color="#fff" :size="20" @click="onCalendarClick" />
+		</view>
+	</view>
+</template>
+
+<script lang="ts" setup>
+import { ref, defineProps, defineEmits } from "vue";
+
+// 日期数据
+const days = [
+	{ label: "今天", date: "12/10" },
+	{ label: "周四", date: "12/11" },
+	{ label: "周五", date: "12/12" },
+	{ label: "周六", date: "12/13" },
+	{ label: "周日", date: "12/14" }
+];
+
+// 选中的日期
+const selectedDay = ref<number | null>(null);
+
+// 日期点击事件
+const onDayClick = (index: number) => {
+	selectedDay.value = index;
+};
+
+// 日历图标点击事件
+const onCalendarClick = () => {};
+</script>
+
+<style lang="scss" scoped>
+/* 组件样式 */
+</style>

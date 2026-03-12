@@ -1,9 +1,23 @@
 <template>
-	<cl-popup v-model="show" mode="center" closeable="false" mask-closeable="false">
-		<view
-			class="w-[85vw] max-w-[400px] rounded-[33rpx] overflow-hidden bg-cover bg-center relative"
-			style="background-image: url(&quot;@/static/icon/popup-background.svg&quot;)"
-		>
+	<cl-popup
+		v-model="show"
+		:pt="{
+			className: '',
+			inner: {
+				className: '!bg-transparent'
+			}
+		}"
+		direction="center"
+		:size="325"
+		:showHeader="false"
+		:maskClosable="true"
+	>
+		<view class="relative">
+			<image
+				class="absolute top-0 left-0 w-full h-full"
+				src="/static/icon/popup-background.svg"
+				mode="aspectFill"
+			></image>
 			<view
 				class="absolute top-[20rpx] right-[20rpx] w-[40rpx] h-[40rpx] flex items-center justify-center cursor-pointer"
 				@click="handleClose"
@@ -38,17 +52,12 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, defineProps, defineEmits } from "vue";
-
-const props = defineProps<{
-	show: boolean;
-}>();
-
-const emit = defineEmits(["update:show"]);
-
-const show = ref<boolean>(props.show);
+const show = defineModel("show", {
+	default: false,
+	type: Boolean
+});
 
 const handleClose = (): void => {
-	emit("update:show", false);
+	show.value = false;
 };
 </script>

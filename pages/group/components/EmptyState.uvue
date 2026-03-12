@@ -1,31 +1,37 @@
 <template>
-  <view class="flex flex-col items-center justify-center h-full">
-    <view class="w-32 h-32 flex items-center justify-center mb-8">
-      <svg width="128" height="128" viewBox="0 0 128 128" fill="none">
-        <rect x="44" y="36" width="40" height="48" rx="4" stroke="#999" stroke-width="4"/>
-        <rect x="52" y="44" width="24" height="32" rx="2" stroke="#999" stroke-width="2"/>
-        <circle cx="64" cy="72" r="8" stroke="#999" stroke-width="2"/>
-        <circle cx="52" cy="28" r="4" fill="#999"/>
-        <circle cx="76" cy="28" r="4" fill="#999"/>
-        <circle cx="44" cy="44" r="4" fill="#999"/>
-        <circle cx="84" cy="44" r="4" fill="#999"/>
-      </svg>
-    </view>
-    <text class="text-gray-400 text-lg mb-8">暂无数据</text>
-    <cl-button type="primary" size="large" class="w-64" @click="onCreateTeam">创建团队</cl-button>
-  </view>
+	<view class="flex flex-col items-center justify-center h-full">
+		<view class="w-32 h-32 flex items-center justify-center mb-8">
+			<svg width="128" height="128" viewBox="0 0 128 128" fill="none">
+				<rect x="44" y="36" width="40" height="48" rx="4" stroke="#999" stroke-width="4" />
+				<rect x="52" y="44" width="24" height="32" rx="2" stroke="#999" stroke-width="2" />
+				<circle cx="64" cy="72" r="8" stroke="#999" stroke-width="2" />
+				<circle cx="52" cy="28" r="4" fill="#999" />
+				<circle cx="76" cy="28" r="4" fill="#999" />
+				<circle cx="44" cy="44" r="4" fill="#999" />
+				<circle cx="84" cy="44" r="4" fill="#999" />
+			</svg>
+		</view>
+		<text class="text-gray-400 text-lg mb-8">暂无数据</text>
+		<cl-button type="primary" size="large" class="w-64" @click="onCreateTeam"
+			>创建团队</cl-button
+		>
+	</view>
 </template>
 
 <script lang="ts" setup>
-  const onCreateTeam = () => {
-    // 触发创建团队事件
-    uni.showToast({
-      title: '创建团队',
-      icon: 'none'
-    });
-  };
+import { useUi } from "@/uni_modules/cool-ui";
+
+const ui = useUi();
+
+const onCreateTeam = () => {
+	// 触发创建团队事件
+	ui.showToast({
+		message: "创建团队",
+		type: "success"
+	});
+};
 </script>
 
 <style lang="scss" scoped>
-  /* 组件样式 */
+/* 组件样式 */
 </style>

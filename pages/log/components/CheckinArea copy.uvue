@@ -1,0 +1,125 @@
+<template>
+	<cl-row class="mt-3 p-3" :gutter="16">
+		<cl-col :span="8">
+			<view class="bg-[#2a2a26] rounded-2xl p-4 flex flex-col items-center">
+				<cl-svg src="/static/icon/log/morning.svg" class="w-6 h-6"></cl-svg>
+				<cl-text :size="14" color="#ffffff" class="mt-2">早上打卡</cl-text>
+				<cl-button
+					size="small"
+					type="primary"
+					:color="props.noon ? 'primary' : '#282828'"
+					:text-color="'#181814'"
+					class="mt-4"
+					@tap="checkin('morning')"
+					icon="calendar-line"
+					:disabled="props.morning"
+				>
+					{{ props.morning ? "已打卡" : "去打卡" }}
+				</cl-button>
+			</view>
+		</cl-col>
+		<cl-col :span="8">
+			<view class="bg-[#2a2a26] rounded-2xl p-4 flex flex-col items-center">
+				<cl-svg src="/static/icon/log/noon.svg" class="w-6 h-6"></cl-svg>
+				<cl-text :size="14" color="#ffffff" class="mt-2">中午打卡</cl-text>
+				<cl-button
+					size="small"
+					type="primary"
+					:color="props.noon ? 'primary' : '#282828'"
+					class="mt-4"
+					@tap="checkin('noon')"
+					icon="calendar-line"
+					:disabled="props.noon"
+				>
+					{{ props.noon ? "已打卡" : "去打卡" }}
+				</cl-button>
+			</view>
+		</cl-col>
+		<cl-col :span="8">
+			<view class="bg-[#2a2a26] rounded-2xl p-4 flex flex-col items-center">
+				<cl-svg src="/static/icon/log/evening.svg" class="w-6 h-6"></cl-svg>
+				<cl-text :size="14" color="#ffffff" class="mt-2">晚上打卡</cl-text>
+				<cl-button
+					size="small"
+					type="primary"
+					:color="props.noon ? 'primary' : '#282828'"
+					:text-color="'#181814'"
+					class="mt-4"
+					@tap="checkin('evening')"
+					icon="calendar-line"
+					:disabled="props.evening"
+				>
+					{{ props.evening ? "已打卡" : "去打卡" }}
+				</cl-button>
+			</view>
+		</cl-col>
+	</cl-row>
+	<MorningPopup v-model:show="morningShow" @confirm="handleMorningConfirm"></MorningPopup>
+	<AfternoonPopup v-model:show="afternoonShow" @confirm="handleAfternoonConfirm"></AfternoonPopup>
+	<GoodnightPopup
+		v-model:show="goodnightShow"
+		@update:show="handleGoodnightClose"
+	></GoodnightPopup>
+</template>
+
+<script lang="ts" setup>
+import { ref } from "vue";
+import type { CheckinStatus } from "../types/index";
+// import MorningPopup from "@/components/popup/morning.uvue";
+// import AfternoonPopup from "@/components/popup/afternoon.uvue";
+// import GoodnightPopup from "@/components/popup/goodnight.uvue";
+
+const props = defineProps({
+	morning: {
+		type: Boolean,
+		default: false
+	},
+	noon: {
+		type: Boolean,
+		default: false
+	},
+	evening: {
+		type: Boolean,
+		default: false
+	}
+});
+
+const emit = defineEmits(["checkin"]);
+
+const morningShow = ref<boolean>(false);
+const afternoonShow = ref<boolean>(false);
+const goodnightShow = ref<boolean>(false);
+
+const checkin = (type: "morning" | "noon" | "evening") => {
+	if (type === "morning") {
+		morningShow.value = true;
+	} else if (type === "noon") {
+		afternoonShow.value = true;
+	} else if (type === "evening") {
+		goodnightShow.value = true;
+	}
+	emit("checkin", type);
+};
+
+type MorningData = {
+	sleepScore: number;
+	energyScore: number;
+};
+const handleMorningConfirm = (data: MorningData) => {
+	console.log("早起问卷数据:", data);
+	morningShow.value = false;
+};
+
+type AfternoonData = {
+	fatigueScore: number;
+	statusScore: number;
+};
+const handleAfternoonConfirm = (data: AfternoonData) => {
+	console.log("运动后问卷数据:", data);
+	afternoonShow.value = false;
+};
+
+const handleGoodnightClose = () => {
+	goodnightShow.value = false;
+};
+</script>

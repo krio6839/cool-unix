@@ -45,8 +45,9 @@ export type SportData = {
 export type DefaultItem = {
 	id: number;
 	name: string;
-	value: string | number;
+	value: string | number | boolean;
 	type: "drink" | "boolean" | "volume" | "amount";
+	icon?: string;
 	enabled?: boolean;
 };
 

@@ -1,0 +1,190 @@
+<template>
+	<cl-page>
+		<!-- 顶部导航 -->
+		<view class="flex flex-row items-center justify-between p-4">
+			<cl-icon name="arrow-left-line" color="#fff" :size="24" @click="onBack" />
+			<text class="text-white text-lg font-medium">数据</text>
+			<view class="w-6"></view>
+		</view>
+
+		<!-- 日期选择器 -->
+		<DatePicker v-model:selectedDay="selectedDay" />
+
+		<!-- 内容区域 -->
+		<scroll-view class="flex-1" style="flex: 1">
+			<view class="px-4">
+				<!-- 团队整体储能趋势图 -->
+				<Chart title="团队整体储能趋势图" :option="energyTrendOption" :height="200" />
+
+				<!-- 统计数据 -->
+				<view class="flex flex-row justify-between my-4">
+					<view class="flex flex-col items-center">
+						<text class="text-white text-2xl font-bold">82</text>
+						<text class="text-primary-400 text-sm">平均储能值</text>
+						<text class="text-green-400 text-xs">+3%</text>
+					</view>
+					<view class="flex flex-col items-center">
+						<text class="text-white text-2xl font-bold">265</text>
+						<text class="text-primary-400 text-sm">疲劳预警人数</text>
+						<text class="text-red-400 text-xs">-4</text>
+					</view>
+				</view>
+
+				<!-- 小组对比柱状图 -->
+				<Chart title="小组对比" :option="groupComparisonOption" :height="200" />
+
+				<!-- 组织疲劳风险地图 -->
+				<Chart title="组织疲劳风险地图" :option="fatigueRiskOption" :height="200" />
+			</view>
+		</scroll-view>
+	</cl-page>
+</template>
+
+<script lang="ts" setup>
+import { ref, computed } from "vue";
+import Chart from "@/components/chart.uvue";
+import DatePicker from "./components/DatePicker.uvue";
+
+// 日期选择
+const selectedDay = ref(0);
+
+// 团队整体储能趋势图配置
+const energyTrendOption = computed(() => {
+	return JSON.stringify({
+		color: ["#76EEC6"],
+		title: {
+			show: false
+		},
+		grid: { left: 0, right: 0, top: 0, bottom: 0, containLabel: true },
+		xAxis: {
+			type: "category",
+			data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
+			axisLabel: {
+				color: "#999"
+			},
+			axisLine: {
+				lineStyle: {
+					color: "#333"
+				}
+			}
+		},
+		yAxis: {
+			type: "value",
+			axisLine: { show: false },
+			axisLabel: { show: false },
+			splitLine: { show: false }
+		},
+		series: [
+			{
+				data: [65, 78, 60, 81, 76, 85, 90, 78],
+				type: "line",
+				areaStyle: {
+					color: {
+						type: "linear",
+						x: 0,
+						y: 0,
+						x2: 0,
+						y2: 1,
+						colorStops: [
+							{
+								offset: 0,
+								color: "rgba(118, 238, 198, 0.3)"
+							},
+							{
+								offset: 1,
+								color: "rgba(118, 238, 198, 0)"
+							}
+						]
+					}
+				},
+				lineStyle: {
+					width: 2
+				},
+				smooth: true
+			}
+		]
+	});
+});
+
+// 小组对比柱状图配置
+const groupComparisonOption = computed(() => {
+	return JSON.stringify({
+		color: ["#CD853F"],
+		title: {
+			show: false
+		},
+		grid: { left: 0, right: 0, top: 0, bottom: 0, containLabel: true },
+		xAxis: {
+			type: "category",
+			data: ["小组1", "小组2", "小组3", "小组4", "小组5", "小组6", "小组7", "小组8"],
+			axisLabel: {
+				color: "#999",
+				rotate: 45
+			},
+			axisLine: {
+				lineStyle: {
+					color: "#333"
+				}
+			}
+		},
+		yAxis: {
+			type: "value",
+			axisLine: { show: false },
+			axisLabel: { show: false },
+			splitLine: { show: false }
+		},
+		series: [
+			{
+				data: [65, 59, 80, 81, 56, 55, 40, 70],
+				type: "bar",
+				barWidth: "60%"
+			}
+		]
+	});
+});
+
+// 组织疲劳风险地图配置
+const fatigueRiskOption = computed(() => {
+	return JSON.stringify({
+		color: ["#FFD700", "#FFA500"],
+		title: {
+			show: false
+		},
+		grid: { left: 0, right: 0, top: 0, bottom: 0, containLabel: true },
+		xAxis: {
+			type: "category",
+			data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
+			axisLabel: {
+				color: "#999"
+			},
+			axisLine: {
+				lineStyle: {
+					color: "#333"
+				}
+			}
+		},
+		yAxis: {
+			type: "value",
+			axisLine: { show: false },
+			axisLabel: { show: false },
+			splitLine: { show: false }
+		},
+		series: [
+			{
+				data: [120, 132, 101, 134, 90, 230, 210, 180],
+				type: "bar",
+				barWidth: "40%"
+			}
+		]
+	});
+});
+
+// 返回按钮事件
+const onBack = () => {
+	uni.navigateBack();
+};
+</script>
+
+<style lang="scss" scoped>
+/* 页面样式 */
+</style>

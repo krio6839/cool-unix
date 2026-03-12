@@ -189,6 +189,41 @@
 					}
 				}
 			]
+		},
+		{
+			"root": "pages/group",
+			"pages": [
+				{
+					"path": "data",
+					"style": {
+						"navigationBarTitleText": "团队小组"
+					}
+				},
+				{
+					"path": "overview",
+					"style": {
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "group-chart",
+					"style": {
+						"navigationStyle": "custom"
+					}
+				},
+				{
+					"path": "coach-advice",
+					"style": {
+						"navigationBarTitleText": "AI COACH建议"
+					}
+				},
+				{
+					"path": "daily-plan",
+					"style": {
+						"navigationBarTitleText": "今日运动计划"
+					}
+				}
+			]
 		}
 	],
 	"globalStyle": {

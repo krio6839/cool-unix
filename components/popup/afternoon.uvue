@@ -1,0 +1,91 @@
+<template>
+	<cl-popup
+		v-model="show"
+		direction="center"
+		:size="325"
+		:showHeader="false"
+		:maskClosable="false"
+	>
+		<view class="p-[40rpx_30rpx]">
+			<view class="mb-3">
+				<cl-text :size="20" class="text-center font-bold text-white">运动后问卷</cl-text>
+			</view>
+			<view class="mb-4">
+				<cl-text :size="12" class="block text-white leading-1.5 mb-[40rpx]"
+					>Hey! xx帅哥，早！又完成一次训练，真是了不起~</cl-text
+				>
+
+				<view class="mb-3">
+					<cl-text :size="13" class="block text-white mb-[20rpx]"
+						>本次运动的疲劳感如何？</cl-text
+					>
+					<cl-rate
+						v-model="fatigueScore"
+						:size="40"
+						:max="5"
+						color="#fbbf24"
+						void-color="#ffffff50"
+					></cl-rate>
+				</view>
+
+				<view class="mb-3">
+					<cl-text :size="13" class="block text-white mb-[20rpx]"
+						>运动后状态怎么样？</cl-text
+					>
+					<cl-rate
+						v-model="statusScore"
+						:size="40"
+						:max="5"
+						color="#fbbf24"
+						void-color="#ffffff50"
+					></cl-rate>
+				</view>
+
+				<view class="mt-3 p-3 bg-white/10 rounded-lg">
+					<view class="flex flex-row">
+						<cl-text :size="10" class="mr-[8rpx]">✨</cl-text>
+						<cl-text :size="11" class="font-bold text-white mr-[10rpx]">
+							BOOM小语
+						</cl-text>
+					</view>
+					<cl-text :size="10" class="block text-white/90 leading-1.4 mt-[10rpx]"
+						>恢复是成长的一部分，让身体的努力都有机会被吸收。</cl-text
+					>
+				</view>
+			</view>
+			<view class="flex justify-center">
+				<cl-button
+					color="#000"
+					rounded
+					:pt="{
+						className: '!w-30 !h-10'
+					}"
+					@click="handleConfirm"
+				>
+					知道啦
+				</cl-button>
+			</view>
+		</view>
+	</cl-popup>
+</template>
+
+<script lang="ts" setup>
+import { ref } from "vue";
+
+const show = defineModel("show", {
+	default: false,
+	type: Boolean
+});
+
+const fatigueScore = ref<number>(0);
+const statusScore = ref<number>(0);
+
+const handleConfirm = (): void => {
+	show.value = false;
+};
+</script>
+<style scoped lang="scss">
+:deep(.cl-popup__inner) {
+	background-image: url("/static/icon/popup-background.svg");
+}
+</style>

@@ -1,0 +1,321 @@
+<template>
+	<cl-page>
+		<!-- 状态信息卡片 -->
+		<view class="px-4 mb-4">
+			<view class="flex flex-row gap-4">
+				<view class="bg-[#1A1A16] rounded-2xl p-4 flex-1">
+					<text class="text-gray-400 text-sm mb-1 block">恢复得分</text>
+					<text class="text-white text-2xl font-bold">{{ recoveryScore }}</text>
+				</view>
+				<view class="bg-[#1A1A16] rounded-2xl p-4 flex-1">
+					<text class="text-gray-400 text-sm mb-1 block">今日状态</text>
+					<text class="text-white text-xl font-medium">{{ todayStatus }}</text>
+				</view>
+			</view>
+		</view>
+
+		<!-- 恢复窗口和目标 -->
+		<view class="px-4 mb-4">
+			<view class="flex flex-row gap-4">
+				<view class="bg-[#1A1A16] rounded-2xl p-4 flex-1">
+					<text class="text-gray-400 text-sm mb-1 block">超量恢复窗口</text>
+					<text class="text-white text-sm">{{ recoveryWindow }}</text>
+				</view>
+				<view class="bg-[#1A1A16] rounded-2xl p-4 flex-1">
+					<text class="text-gray-400 text-sm mb-1 block">今日目标</text>
+					<text class="text-white text-sm">{{ todayGoal }}</text>
+				</view>
+			</view>
+		</view>
+
+		<!-- 运动方案 -->
+		<view class="px-4 mb-4">
+			<view class="bg-[#1A1A16] rounded-2xl p-4">
+				<view class="flex flex-row justify-between items-center mb-4">
+					<text class="text-white font-medium">方案：{{ workoutPlan }}</text>
+					<text class="text-green-400 text-sm">(推荐)</text>
+				</view>
+
+				<view class="space-y-3">
+					<view class="flex flex-row justify-between items-center">
+						<text class="text-gray-400 text-sm">类型</text>
+						<text class="text-white text-sm">{{ workoutType }}</text>
+					</view>
+					<view class="flex flex-row justify-between items-center">
+						<text class="text-gray-400 text-sm">心率</text>
+						<text class="text-white text-sm">{{ heartRate }}</text>
+					</view>
+					<view class="flex flex-row justify-between items-center">
+						<text class="text-gray-400 text-sm">组间休息</text>
+						<text class="text-white text-sm">{{ restTime }}</text>
+					</view>
+					<view class="flex flex-row justify-between items-center">
+						<text class="text-gray-400 text-sm">总负荷</text>
+						<text class="text-white text-sm">+{{ totalLoad }} · 预计提升VO2max</text>
+					</view>
+				</view>
+			</view>
+		</view>
+
+		<!-- 操作按钮 -->
+		<view class="px-4 mb-6">
+			<view class="flex flex-row gap-4">
+				<cl-button
+					type="primary"
+					rounded
+					color="#333"
+					:pt="{ className: '!flex-1 !py-4' }"
+					@click="startTraining"
+				>
+					开始训练
+				</cl-button>
+				<cl-button
+					rounded
+					@click="remindLater"
+					:pt="{ className: '!bg-gray-700 !flex-1 !py-4' }"
+				>
+					稍后提醒
+				</cl-button>
+			</view>
+		</view>
+
+		<!-- 决策依据 -->
+		<view class="px-4 mb-4">
+			<view class="flex flex-row items-center justify-between mb-3">
+				<text class="text-white text-lg font-medium">决策依据</text>
+				<cl-icon name="chevron-down" color="#fff" :size="20"></cl-icon>
+			</view>
+
+			<view class="flex flex-row flex-wrap gap-4">
+				<!-- 储能曲线 -->
+				<view class="bg-[#1A1A16] rounded-2xl p-4 flex-1 min-w-[calc(50%-0.5rem)]">
+					<text class="text-gray-400 text-sm mb-3 block">储能曲线</text>
+					<text class="text-white text-2xl font-bold mb-3">{{ energyScore }}</text>
+					<chart :option="energyChartOption" :height="96"></chart>
+				</view>
+
+				<!-- HRV -->
+				<view class="bg-[#1A1A16] rounded-2xl p-4 flex-1 min-w-[calc(50%-0.5rem)]">
+					<text class="text-gray-400 text-sm mb-3 block">HRV</text>
+					<text class="text-white text-lg font-medium mb-3">{{ hrvStatus }}</text>
+					<chart :option="hrvChartOption" :height="96"></chart>
+				</view>
+
+				<!-- 睡眠 -->
+				<view class="bg-[#1A1A16] rounded-2xl p-4 flex-1 min-w-[calc(50%-0.5rem)]">
+					<text class="text-gray-400 text-sm mb-3 block">睡眠</text>
+					<text class="text-white text-sm mb-2">{{ sleepDuration }}</text>
+					<cl-progress
+						:value="70"
+						:stroke-width="8"
+						:show-text="false"
+						color="linear-gradient(90deg, #4ade80, #60a5fa, #a78bfa)"
+						un-color="#4b5563"
+					></cl-progress>
+				</view>
+
+				<!-- 负荷趋势 -->
+				<view class="bg-[#1A1A16] rounded-2xl p-4 flex-1 min-w-[calc(50%-0.5rem)]">
+					<text class="text-gray-400 text-sm mb-3 block">负荷趋势</text>
+					<text class="text-white text-sm mb-3">{{ loadTrend }}</text>
+					<chart :option="loadChartOption" :height="96"></chart>
+				</view>
+			</view>
+		</view>
+
+		<!-- 推荐合适度 -->
+		<cl-footer>
+			<text class="text-white text-lg font-medium mb-3 block">这个推荐合适吗？</text>
+			<view class="flex flex-row justify-between">
+				<cl-button
+					rounded
+					@click="feedback('合适')"
+					color="primary"
+					:pt="{ className: '!bg-[#2F3914]' }"
+				>
+					非常合适
+				</cl-button>
+				<cl-button
+					rounded
+					color="primary"
+					@click="feedback('偏高')"
+					:pt="{ className: '!bg-[#2F3914]' }"
+				>
+					强度偏高
+				</cl-button>
+				<cl-button
+					rounded
+					color="primary"
+					@click="feedback('偏低')"
+					:pt="{ className: '!bg-[#2F3914]' }"
+				>
+					强度偏低
+				</cl-button>
+			</view>
+		</cl-footer>
+	</cl-page>
+</template>
+
+<script lang="ts" setup>
+import { ref, onMounted } from "vue";
+import { useUi } from "@/uni_modules/cool-ui";
+import Chart from "@/components/chart.uvue";
+
+const ui = useUi();
+
+const props = defineProps<{
+	memberId?: string;
+	groupId?: string;
+}>();
+
+// 模拟数据
+const recoveryScore = ref(82);
+const todayStatus = ref("极佳");
+const recoveryWindow = ref("16:30-18:00");
+const todayGoal = ref("提升阈值耐力");
+const workoutPlan = ref("阈值强化");
+const workoutType = ref("3组×8分钟");
+const heartRate = ref("3区心率/配速4:20-4:30");
+const restTime = ref("3分钟 主动恢复");
+const totalLoad = ref(28);
+const energyScore = ref(74);
+const hrvStatus = ref("平衡(+3%)");
+const sleepDuration = ref("8.2h · 深度睡眠1.8h");
+const loadTrend = ref("适中");
+
+// 图表配置
+const energyChartOption = ref(
+	JSON.stringify({
+		grid: {
+			left: "5%",
+			right: "5%",
+			top: "10%",
+			bottom: "10%",
+			containLabel: true
+		},
+
+		xAxis: {
+			type: "category",
+			data: ["", "", "", "", "", ""],
+			show: false
+		},
+
+		yAxis: {
+			type: "value",
+			show: false
+		},
+
+		series: [
+			{
+				data: [30, 35, 25, 40, 35, 50],
+				type: "line",
+				smooth: true,
+				lineStyle: {
+					color: "#4ade80",
+					width: 2
+				},
+				showSymbol: false
+			}
+		]
+	})
+);
+
+const hrvChartOption = ref(
+	JSON.stringify({
+		grid: {
+			left: "5%",
+			right: "5%",
+			top: "10%",
+			bottom: "10%",
+			containLabel: true
+		},
+
+		xAxis: {
+			type: "category",
+			data: ["", "", "", "", "", "", ""],
+			show: false
+		},
+
+		yAxis: {
+			type: "value",
+			show: false
+		},
+
+		series: [
+			{
+				data: [20, 25, 30, 22, 28, 32, 25],
+				type: "bar",
+				itemStyle: {
+					color: "#4ade80"
+				},
+				barWidth: "40%"
+			}
+		]
+	})
+);
+
+const loadChartOption = ref(
+	JSON.stringify({
+		grid: {
+			left: "5%",
+			right: "5%",
+			top: "10%",
+			bottom: "10%",
+			containLabel: true
+		},
+
+		xAxis: {
+			type: "category",
+			data: ["", "", "", "", "", ""],
+			show: false
+		},
+
+		yAxis: {
+			type: "value",
+			show: false
+		},
+
+		series: [
+			{
+				data: [30, 35, 25, 30, 28, 32],
+				type: "line",
+				smooth: true,
+				lineStyle: {
+					color: "#facc15",
+					width: 2
+				},
+				showSymbol: false
+			}
+		]
+	})
+);
+
+const onBack = () => {
+	uni.navigateBack();
+};
+
+const startTraining = () => {
+	ui.showToast({
+		message: "开始训练",
+		type: "success"
+	});
+};
+
+const remindLater = () => {
+	ui.showToast({
+		message: "稍后提醒",
+		type: "success"
+	});
+};
+
+const feedback = (type: string) => {
+	ui.showToast({
+		message: `反馈：${type}`,
+		type: "success"
+	});
+};
+</script>
+
+<style lang="scss" scoped>
+/* 组件样式 */
+</style>

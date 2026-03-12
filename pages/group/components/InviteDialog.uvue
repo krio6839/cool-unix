@@ -3,7 +3,7 @@
 		<view class="p-4">
 			<view class="flex justify-between items-center mb-4">
 				<text class="text-white text-lg font-medium">邀请</text>
-				<cl-icon name="close" size="24" color="#fff" @click="onCancel" />
+				<cl-icon name="close" :size="24" color="#fff" @click="onCancel" />
 			</view>
 			<cl-input
 				v-model="inviteCode as string"
@@ -11,9 +11,7 @@
 				class="w-full mb-6"
 			></cl-input>
 			<view class="flex space-x-4">
-				<cl-button type="default" size="large" class="flex-1" @click="onCancel"
-					>取消</cl-button
-				>
+				<cl-button size="large" class="flex-1" @click="onCancel">取消</cl-button>
 				<cl-button type="primary" size="large" class="flex-1" @click="onConfirm"
 					>确定</cl-button
 				>
@@ -24,6 +22,9 @@
 
 <script lang="ts" setup>
 import { ref } from "vue";
+import { useUi } from "@/uni_modules/cool-ui";
+
+const ui = useUi();
 
 const visible = ref(false);
 const inviteCode = ref("");
@@ -47,9 +48,9 @@ const onConfirm = () => {
 		emit("confirm", inviteCode.value);
 		hide();
 	} else {
-		uni.showToast({
-			title: "请输入编号",
-			icon: "none"
+		ui.showToast({
+			message: "请输入编号",
+			type: "success"
 		});
 	}
 };

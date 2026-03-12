@@ -1,0 +1,157 @@
+<template>
+	<cl-page>
+		<!-- 顶部导航 -->
+		<view class="flex flex-row items-center justify-between p-4">
+			<cl-icon name="arrow-left-line" color="#fff" :size="24" @click="onBack" />
+			<text class="text-white text-lg font-medium">小组数据</text>
+			<view class="w-6"></view>
+		</view>
+
+		<!-- 日期选择器 -->
+		<DatePicker v-model:selectedDay="selectedDay" />
+
+		<!-- 内容区域 -->
+		<scroll-view class="flex-1" style="flex: 1">
+			<view class="px-4">
+				<!-- 团队整体储能趋势图 -->
+				<Chart title="团队整体储能趋势图" :option="energyTrendOption" :height="200" />
+
+				<!-- 成员储能对比柱状图 -->
+				<Chart title="成员储能对比" :option="memberComparisonOption" :height="200" />
+
+				<!-- 小组平均训练负荷趋势图 -->
+				<Chart title="小组平均训练负荷趋势" :option="trainingLoadOption" :height="200" />
+			</view>
+		</scroll-view>
+	</cl-page>
+</template>
+
+<script lang="ts" setup>
+import { ref, computed } from "vue";
+import Chart from "@/components/chart.uvue";
+import DatePicker from "./components/DatePicker.uvue";
+
+// 日期选择
+const selectedDay = ref(0);
+
+// 团队整体储能趋势图配置
+const energyTrendOption = computed(() => {
+	return JSON.stringify({
+		color: ["#1E90FF"],
+		title: {
+			show: false
+		},
+		grid: { left: 0, right: 0, top: 0, bottom: 0, containLabel: true },
+		xAxis: {
+			type: "category",
+			data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
+			axisLabel: {
+				color: "#999"
+			},
+			axisLine: {
+				lineStyle: {
+					color: "#333"
+				}
+			}
+		},
+		yAxis: {
+			type: "value",
+			axisLine: { show: false },
+			axisLabel: { show: false },
+			splitLine: { show: false }
+		},
+		series: [
+			{
+				data: [40, 50, 60, 75, 80, 70, 65, 70],
+				type: "line",
+				lineStyle: {
+					width: 2
+				},
+				smooth: true
+			}
+		]
+	});
+});
+
+// 成员储能对比柱状图配置
+const memberComparisonOption = computed(() => {
+	return JSON.stringify({
+		color: ["#90EE90"],
+		title: {
+			show: false
+		},
+		grid: { left: 0, right: 0, top: 0, bottom: 0, containLabel: true },
+		xAxis: {
+			type: "category",
+			data: ["张三", "张三", "张三", "张三", "张三", "张三", "张三", "张三"],
+			axisLabel: {
+				color: "#999",
+				rotate: 45
+			},
+			axisLine: {
+				lineStyle: {
+					color: "#333"
+				}
+			}
+		},
+		yAxis: {
+			type: "value",
+			axisLine: { show: false },
+			axisLabel: { show: false },
+			splitLine: { show: false }
+		},
+		series: [
+			{
+				data: [65, 70, 80, 60, 75, 85, 70, 90],
+				type: "bar",
+				barWidth: "60%"
+			}
+		]
+	});
+});
+
+// 小组平均训练负荷趋势图配置
+const trainingLoadOption = computed(() => {
+	return JSON.stringify({
+		color: ["#FFA500", "#D3D3D3"],
+		title: {
+			show: false
+		},
+		grid: { left: 0, right: 0, top: 0, bottom: 0, containLabel: true },
+		xAxis: {
+			type: "category",
+			data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
+			axisLabel: {
+				color: "#999"
+			},
+			axisLine: {
+				lineStyle: {
+					color: "#333"
+				}
+			}
+		},
+		yAxis: {
+			type: "value",
+			axisLine: { show: false },
+			axisLabel: { show: false },
+			splitLine: { show: false }
+		},
+		series: [
+			{
+				data: [120, 132, 101, 134, 90, 230, 210, 180],
+				type: "bar",
+				barWidth: "40%"
+			}
+		]
+	});
+});
+
+// 返回按钮事件
+const onBack = () => {
+	uni.navigateBack();
+};
+</script>
+
+<style lang="scss" scoped>
+/* 页面样式 */
+</style>

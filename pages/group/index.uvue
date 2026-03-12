@@ -1,113 +1,77 @@
 <template>
-  <view class="flex flex-col h-full bg-black">
-    <!-- 主内容区域 -->
-    <scroll-view class="flex-1" style="flex:1">
-      <view class="p-4">
-        <!-- 空状态 -->
-        <EmptyState v-if="!hasTeam" />
-        
-        <!-- 团队列表 -->
-        <TeamList 
-          v-else 
-          :team="team" 
-          @groupClick="onGroupClick"
-          @inviteMember="onInviteMember"
-          @teamSettings="onTeamSettings"
-        />
-      </view>
-    </scroll-view>
+	<cl-page>
+		<!-- 主内容区域 -->
+		<scroll-view class="flex-1" style="flex: 1">
+			<view class="p-4">
+				<!-- 空状态 -->
+				<EmptyState v-if="!hasTeam" />
 
-    <!-- 底部导航栏 -->
-     <tabbar></tabbar>
+				<!-- 团队列表 -->
+				<TeamList
+					v-else
+					:team="team"
+					@groupClick="onGroupClick"
+					@invite="onInviteMember"
+					@setting="onTeamSettings"
+				/>
+			</view>
+		</scroll-view>
 
+		<!-- 底部导航栏 -->
+		<tabbar></tabbar>
 
-    <!-- 邀请成员对话框 -->
-    <!-- <InviteDialog  @confirm="onInviteConfirm" @cancel="onInviteCancel" /> -->
-  </view>
+		<!-- 邀请成员对话框 -->
+		<!-- <InviteDialog  @confirm="onInviteConfirm" @cancel="onInviteCancel" /> -->
+	</cl-page>
 </template>
 
 <script lang="ts" setup>
-  import { ref, onMounted } from 'vue';
-  import tabbar from "@/pages/index/components/tabbar.uvue";
+import { ref, onMounted } from "vue";
+import { useUi } from "@/uni_modules/cool-ui";
+import tabbar from "@/pages/index/components/tabbar.uvue";
 
-//   import EmptyState from './components/EmptyState.uvue';
-//   import TeamList from './components/TeamList.uvue';
+import EmptyState from "./components/EmptyState.uvue";
+import TeamList from "./components/TeamList.uvue";
 //   import InviteDialog from './components/InviteDialog.uvue';
-  import type { Team, TeamGroup } from './types';
+import type { Team, TeamGroup } from "./types";
+import { router } from "@/.cool";
+import { teamData } from "./data";
 
-  // 页面状态
-  const hasTeam = ref(true); // 模拟已有团队
-  const team = ref<Team>({
-    id: '1',
-    name: '组织名称',
-    avatar: 'https://img.yzcdn.cn/vant/cat.jpeg',
-    memberCount: 8657,
-    groups: [
-      {
-        id: '101',
-        name: '小组一',
-        leader: '张晓明',
-        memberCount: 865,
-        members: [
-          { id: '1001', name: '张三', energy: 379, riskIndex: 95 },
-          { id: '1002', name: '李四', energy: 288, riskIndex: 15 },
-          { id: '1003', name: '王五', energy: 178, riskIndex: 58 }
-        ]
-      },
-      {
-        id: '102',
-        name: '小组二',
-        leader: '张晓暗',
-        memberCount: 379,
-        members: [
-          { id: '2001', name: '赵六', energy: 456, riskIndex: 23 },
-          { id: '2002', name: '钱七', energy: 321, riskIndex: 78 }
-        ]
-      },
-      {
-        id: '103',
-        name: '小组三',
-        leader: '张晓明',
-        memberCount: 271,
-        members: [
-          { id: '3001', name: '孙八', energy: 567, riskIndex: 45 },
-          { id: '3002', name: '周九', energy: 234, riskIndex: 67 }
-        ]
-      }
-    ]
-  });
+const ui = useUi();
 
-  // 小组点击事件
-  const onGroupClick = (group: TeamGroup) => {
-    // 跳转到团队数据页面
-    uni.navigateTo({
-      url: `/pages/group/data?group=${encodeURIComponent(JSON.stringify(group))}`
-    });
-  };
+// 页面状态
+const hasTeam = ref(true); // 模拟已有团队
+const team = ref<Team>(teamData);
 
-  // 邀请成员事件
-  const onInviteMember = () => {
-  };
+// 小组点击事件
+const onGroupClick = (group: TeamGroup) => {
+	// 跳转到团队数据页面，只传递 group id
+	router.push({
+		path: `/pages/group/data?groupId=${group.id}`
+	});
+};
 
-  // 团队设置事件
-  const onTeamSettings = () => {
-    uni.showToast({
-      title: '团队设置',
-      icon: 'none'
-    });
-  };
+// 邀请成员事件
+const onInviteMember = () => {};
 
-  // 邀请确认事件
-  const onInviteConfirm = (code: string) => {
-    uni.showToast({
-      title: `邀请码: ${code}`,
-      icon: 'none'
-    });
-  };
+// 团队设置事件
+const onTeamSettings = () => {
+	ui.showToast({
+		message: "团队设置",
+		type: "success"
+	});
+};
 
-  // 邀请取消事件
-  const onInviteCancel = () => {
-    // 取消邀请
-  };
+// 邀请确认事件
+const onInviteConfirm = (code: string) => {
+	ui.showToast({
+		message: `邀请码: ${code}`,
+		type: "success"
+	});
+};
+
+// 邀请取消事件
+const onInviteCancel = () => {
+	// 取消邀请
+};
 </script>
-

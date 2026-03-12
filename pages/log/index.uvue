@@ -32,6 +32,12 @@
 
 				<!-- 打卡区域 -->
 				<CheckinArea :checkinStatus="checkinStatus" @checkin="checkin"></CheckinArea>
+				<!-- <CheckinArea
+					:morning="checkinStatus.morning"
+					:noon="checkinStatus.noon"
+					:evening="checkinStatus.evening"
+					@checkin="checkin"
+				></CheckinArea> -->
 
 				<!-- 日志列表 -->
 				<LogList :logItems="logItems" :selectedDateInfo="selectedDateInfo"></LogList>
@@ -74,7 +80,6 @@
 		<!-- 设置默认条目弹窗 -->
 		<DefaultItemsPopup
 			v-model:show="showDefaultItemsPopup"
-			:defaultItems="defaultItems"
 			@close="showDefaultItemsPopup = false"
 			@save="saveDefaultItems"
 		></DefaultItemsPopup>
@@ -92,8 +97,8 @@ import DatePicker from "./components/DatePicker.uvue";
 import CheckinArea from "./components/CheckinArea.uvue";
 import LogList from "./components/LogList.uvue";
 import SportChart from "./components/SportChart.uvue";
-// import SportCards from "./components/SportCards.uvue";
-// import DefaultItemsPopup from "./components/DefaultItemsPopup.uvue";
+import SportCards from "./components/SportCards.uvue";
+import DefaultItemsPopup from "./components/DefaultItemsPopup.uvue";
 
 // 导入类型
 import type {

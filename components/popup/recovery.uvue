@@ -1,9 +1,18 @@
 <template>
-	<cl-popup v-model="show" mode="center" closeable="false" mask-closeable="false">
-		<view
-			class="w-[85vw] max-w-[400px] rounded-[33rpx] overflow-hidden bg-cover bg-center"
-			style="background-image: url(&quot;@/static/icon/popup-background.svg&quot;)"
-		>
+	<cl-popup
+		v-model="show"
+		:pt="{
+			className: '',
+			inner: {
+				className: '!bg-transparent bg-cover bg-[url(/static/icon/popup-background.svg)]'
+			}
+		}"
+		direction="center"
+		:size="325"
+		:showHeader="false"
+		:maskClosable="false"
+	>
+		<view class="w-[85vw] max-w-[400px] rounded-[33rpx] overflow-hidden bg-cover bg-center">
 			<view class="p-[40rpx_30rpx]">
 				<view class="flex justify-center mb-[30rpx] relative">
 					<view class="relative">

@@ -123,15 +123,9 @@ const realtimeChartOption = computed(() => {
 		},
 		yAxis: {
 			type: "value",
-			axisLine: {
-				show: false
-			},
-			axisLabel: {
-				show: false
-			},
-			splitLine: {
-				show: false
-			}
+			axisLine: { show: false },
+			axisLabel: { show: false },
+			splitLine: { show: false }
 		},
 		series: [
 			{
@@ -199,15 +193,9 @@ const pressureChartOption = computed(() => {
 		},
 		yAxis: {
 			type: "value",
-			axisLine: {
-				show: false
-			},
-			axisLabel: {
-				show: false
-			},
-			splitLine: {
-				show: false
-			}
+			axisLine: { show: false },
+			axisLabel: { show: false },
+			splitLine: { show: false }
 		},
 		series: [
 			{
@@ -312,15 +300,9 @@ const sleepChartOption = computed(() => {
 		},
 		yAxis: {
 			type: "value",
-			axisLine: {
-				show: false
-			},
-			axisLabel: {
-				show: false
-			},
-			splitLine: {
-				show: false
-			}
+			axisLine: { show: false },
+			axisLabel: { show: false },
+			splitLine: { show: false }
 		},
 		series: [
 			{

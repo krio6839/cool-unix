@@ -3,7 +3,7 @@
 		<cl-col :span="12" v-for="(item, index) in healthData" :key="index">
 			<view class="health-card" @tap="goToMetrics(item.title)">
 				<text class="title-text">{{ item.title }}</text>
-				<view class="value-container">
+				<view class="flex flex-row items-center">
 					<text class="value-text">{{ item.value }}</text>
 					<text class="unit-text">{{ item.unit }}</text>
 				</view>
@@ -105,16 +105,8 @@ function goToMetrics(title: string) {
 	opacity: 0.6;
 }
 
-.value-container {
-	display: flex;
-	flex-direction: row;
-	align-items: center;
-}
 .value-text {
 	margin-right: 4px;
-}
-
-.value-text {
 	font-size: 24px;
 	font-weight: bold;
 	color: #ffffff;

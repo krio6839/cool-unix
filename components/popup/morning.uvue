@@ -1,0 +1,99 @@
+<template>
+	<cl-popup
+		v-model="show"
+		:pt="{
+			className: '',
+			inner: {
+				className: '!bg-transparent'
+			}
+		}"
+		direction="center"
+		:size="325"
+		:showHeader="false"
+		:maskClosable="false"
+	>
+		<view class="relative w-full h-full">
+			<image
+				class="absolute top-0 left-0 w-full h-full"
+				src="/static/icon/popup-background.svg"
+				mode="aspectFill"
+			></image>
+			<view class="p-[40rpx_30rpx] relative z-1">
+				<view class="mb-[30rpx]">
+					<cl-text :size="16" class="text-center font-bold text-white">早起问卷</cl-text>
+				</view>
+				<view class="mb-[40rpx]">
+					<cl-text :size="12" class="block text-white leading-1.5 mb-[40rpx]"
+						>Hey! xx帅哥，早安！全新的一天又开始啦~</cl-text
+					>
+
+					<view class="mb-[30rpx]">
+						<cl-text :size="13" class="block text-white mb-[20rpx]"
+							>昨晚睡得怎么样？</cl-text
+						>
+						<cl-rate
+							v-model="sleepScore"
+							:size="40"
+							:max="5"
+							color="#fbbf24"
+							void-color="#ffffff50"
+						></cl-rate>
+					</view>
+
+					<view class="mb-[30rpx]">
+						<cl-text :size="13" class="block text-white mb-[20rpx]"
+							>醒来后的能量状态如何？</cl-text
+						>
+						<cl-rate
+							v-model="energyScore"
+							:size="40"
+							:max="5"
+							color="#fbbf24"
+							void-color="#ffffff50"
+						></cl-rate>
+					</view>
+
+					<view class="mt-[30rpx] p-[20rpx] bg-white/10 rounded-[15rpx]">
+						<view class="flex flex-row">
+							<cl-text :size="10" class="mr-[8rpx]">✨</cl-text>
+							<cl-text :size="11" class="font-bold text-white mr-[10rpx]">
+								BOOM小语
+							</cl-text>
+						</view>
+						<cl-text :size="10" class="block text-white/90 leading-1.4 mt-[10rpx]"
+							>感受一下身体的节奏，今天也要和自己好好相处哦~</cl-text
+						>
+					</view>
+				</view>
+				<view class="flex justify-center">
+					<cl-button
+						color="#000"
+						rounded
+						:pt="{
+							className: '!w-30 !h-10'
+						}"
+						@click="handleConfirm"
+					>
+						知道啦
+					</cl-button>
+				</view>
+			</view>
+		</view>
+	</cl-popup>
+</template>
+
+<script lang="ts" setup>
+import { ref } from "vue";
+
+const show = defineModel("show", {
+	default: false,
+	type: Boolean
+});
+
+const sleepScore = ref<number>(0);
+const energyScore = ref<number>(0);
+
+const handleConfirm = (): void => {
+	show.value = false;
+};
+</script>

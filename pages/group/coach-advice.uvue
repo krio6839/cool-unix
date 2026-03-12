@@ -1,0 +1,160 @@
+<template>
+	<cl-page>
+		<!-- 状态信息卡片 -->
+		<view class="px-4 mb-4">
+			<view class="bg-[#1A1A16] rounded-2xl p-4 flex flex-row justify-between items-center">
+				<view class="flex flex-col items-center">
+					<text class="text-white text-2xl font-bold">{{ recoveryScore }}</text>
+					<text class="text-gray-400 text-sm mt-1">恢复得分</text>
+				</view>
+				<view class="flex flex-col items-center">
+					<text class="text-white text-lg font-medium">{{ energyLevel }}</text>
+					<text class="text-gray-400 text-sm mt-1">储能</text>
+				</view>
+				<view class="flex flex-col items-center">
+					<text class="text-white text-lg font-medium">{{ hrvStatus }}</text>
+					<text class="text-gray-400 text-sm mt-1">HRV</text>
+				</view>
+				<view class="flex flex-col items-center">
+					<cl-button
+						type="primary"
+						@click="toDailyPlan"
+						:pt="{ className: '!bg-green-500 !text-black !rounded-xl !px-4 !py-2' }"
+					>
+						详情
+					</cl-button>
+				</view>
+			</view>
+		</view>
+
+		<!-- 今日推荐课表 -->
+		<view class="px-4 mb-4">
+			<text class="text-white text-lg font-medium mb-3 block">今日推荐课表</text>
+			<view class="bg-[#1A1A16] rounded-2xl p-4">
+				<view class="flex flex-row justify-between items-center mb-4">
+					<text class="text-white font-medium">{{ workoutType }}</text>
+					<text class="text-gray-400 text-sm">{{ workoutDuration }}</text>
+				</view>
+				<text class="text-gray-400 text-sm mb-2 block">组间休息3分钟</text>
+				<cl-progress
+					:value="70"
+					:stroke-width="16"
+					:showText="false"
+					un-color="#333335"
+				></cl-progress>
+			</view>
+		</view>
+
+		<!-- 总时长 -->
+		<view class="px-4 mb-4">
+			<view class="bg-[#1A1A16] rounded-2xl p-4">
+				<text class="text-white font-medium">总时长</text>
+
+				<view class="flex flex-row justify-between items-center mb-4">
+					<text class="text-gray-400 text-sm mb-2 block">
+						预估负荷+{{ estimatedLoad }}
+					</text>
+					<text class="text-gray-400 text-sm">{{ totalDuration }}</text>
+				</view>
+
+				<!-- 心率曲线 -->
+				<view class="w-full h-32 mt-4">
+					<chart :option="heartRateChartOption" :height="128"></chart>
+				</view>
+			</view>
+		</view>
+	</cl-page>
+</template>
+
+<script lang="ts" setup>
+import { ref, onMounted } from "vue";
+import { router } from "@/.cool";
+import Chart from "@/components/chart.uvue";
+
+const props = defineProps<{
+	memberId?: string;
+	groupId?: string;
+}>();
+
+// 模拟数据
+const recoveryScore = ref(82);
+const energyLevel = ref("充足");
+const hrvStatus = ref("平衡");
+const workoutType = ref("阈值跑");
+const workoutDuration = ref("3组×8分钟");
+const totalDuration = ref("42分钟");
+const estimatedLoad = ref(28);
+
+// 心率曲线配置
+const heartRateChartOption = ref(
+	JSON.stringify({
+		grid: {
+			left: "3%",
+			right: "3%",
+			top: "10%",
+			bottom: "10%",
+			containLabel: true
+		},
+
+		xAxis: {
+			type: "category",
+			data: ["", "", "", "", "", "", ""],
+			show: false
+		},
+
+		yAxis: {
+			type: "value",
+			show: false
+		},
+
+		series: [
+			{
+				data: [40, 50, 60, 80, 100, 70, 50, 60],
+				type: "line",
+				smooth: true,
+				lineStyle: {
+					color: "#ff7a00",
+					width: 2
+				},
+				showSymbol: false,
+				areaStyle: {
+					color: {
+						type: "linear",
+						x: 0,
+						y: 0,
+						x2: 0,
+						y2: 1,
+						colorStops: [
+							{
+								offset: 0,
+								color: "rgba(255, 122, 0, 0.3)"
+							},
+							{
+								offset: 1,
+								color: "rgba(255, 122, 0, 0)"
+							}
+						]
+					}
+				}
+			}
+		]
+	})
+);
+
+const onBack = () => {
+	uni.navigateBack();
+};
+
+const toDailyPlan = () => {
+	router.push({
+		path: `/pages/group/daily-plan`,
+		query: { memberId: props.memberId, groupId: props.groupId }
+	});
+};
+</script>
+
+<style lang="scss" scoped>
+:deep(.cl-progress__inner) {
+	background-image: linear-gradient(to right, #d2ff5c, #ff8902);
+}
+</style>
