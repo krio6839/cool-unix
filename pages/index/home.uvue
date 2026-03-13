@@ -49,7 +49,7 @@
 
 				<view
 					class="h-8 w-8 rounded-full border border-solid border-white opacity-60 flex flex-row items-center justify-center mr-3"
-					@tap="setSize"
+					@tap="goToDevice"
 				>
 					<cl-icon name="link" color="white" :size="16"></cl-icon>
 				</view>
@@ -171,10 +171,6 @@ onMounted(() => {
 	formatDate();
 });
 
-function setSize() {
-	refs.open("sizeSet");
-}
-
 function goToCalendar() {
 	router.push({
 		path: "/pages/set/calendar"
@@ -196,6 +192,12 @@ function goToBoomGo() {
 function goToRecovery() {
 	router.push({
 		path: "/pages/health/recovery"
+	});
+}
+
+function goToDevice() {
+	router.push({
+		path: "/pages/device/index"
 	});
 }
 </script>

@@ -23,6 +23,12 @@
 			"style": {
 				"navigationStyle": "custom"
 			}
+		},
+		{
+			"path": "pages/index/my",
+			"style": {
+				"navigationStyle": "custom"
+			}
 		}
 	],
 	"subPackages": [
@@ -133,7 +139,7 @@
 						"navigationStyle": "custom"
 					},
 					"meta": {
-						"isAuth": true
+						"isAuth": false
 					}
 				}
 			]

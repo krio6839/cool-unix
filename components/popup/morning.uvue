@@ -12,12 +12,7 @@
 		:showHeader="false"
 		:maskClosable="false"
 	>
-		<view class="relative w-full h-full">
-			<image
-				class="absolute top-0 left-0 w-full h-full"
-				src="/static/icon/popup-background.svg"
-				mode="aspectFill"
-			></image>
+		<view class="popup-content relative">
 			<view class="p-[40rpx_30rpx] relative z-1">
 				<view class="mb-[30rpx]">
 					<cl-text :size="16" class="text-center font-bold text-white">早起问卷</cl-text>
@@ -97,3 +92,28 @@ const handleConfirm = (): void => {
 	show.value = false;
 };
 </script>
+
+<style lang="scss" scoped>
+/* #ifdef WEB */
+.popup-content {
+	padding: 20px 15px;
+	background: linear-gradient(135deg, #19494d, #38504f);
+	border: 2px solid transparent;
+	border-radius: 33px;
+	background-clip: padding-box, border-box;
+	background-origin: padding-box, border-box;
+	background-image:
+		linear-gradient(135deg, #19494d, #38504f),
+		linear-gradient(135deg, #35b1b9, #1e4a4d, #7db5a5);
+}
+/* #endif */
+
+/* #ifdef APP */
+.popup-content {
+	padding: 20px 15px;
+	background: linear-gradient(135deg, #19494d, #38504f);
+	border: 2px solid #35b1b9;
+	border-radius: 33px;
+}
+/* #endif */
+</style>

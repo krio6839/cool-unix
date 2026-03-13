@@ -5,8 +5,15 @@
 		:size="325"
 		:showHeader="false"
 		:maskClosable="false"
+		:enablePortal="false"
+		:pt="{
+			className: '',
+			inner: {
+				className: '!bg-transparent'
+			}
+		}"
 	>
-		<view class="p-[40rpx_30rpx]">
+		<view class="popup-content">
 			<view class="mb-3">
 				<cl-text :size="20" class="text-center font-bold text-white">运动后问卷</cl-text>
 			</view>
@@ -84,8 +91,27 @@ const handleConfirm = (): void => {
 	show.value = false;
 };
 </script>
-<style scoped lang="scss">
-:deep(.cl-popup__inner) {
-	background-image: url("/static/icon/popup-background.svg");
+<style lang="scss" scoped>
+/* #ifdef H5 */
+.popup-content {
+	padding: 20px 15px;
+	background: linear-gradient(135deg, #19494d, #38504f);
+	border: 2px solid transparent;
+	border-radius: 33px;
+	background-clip: padding-box, border-box;
+	background-origin: padding-box, border-box;
+	background-image:
+		linear-gradient(135deg, #19494d, #38504f),
+		linear-gradient(135deg, #35b1b9, #1e4a4d, #7db5a5);
 }
+/* #endif */
+
+/* #ifdef APP */
+.popup-content {
+	padding: 20px 15px;
+	background: linear-gradient(135deg, #19494d, #38504f);
+	border: 1px solid #35b1b9;
+	border-radius: 33px;
+}
+/* #endif */
 </style>
