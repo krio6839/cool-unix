@@ -1,13 +1,13 @@
 <template>
 	<view class="flex-1 flex flex-col items-center px-8">
 		<view class="my-16">
-			<cl-svg src="/static/icon/product-icon.svg" class="w-[100px] h-[140px]"></cl-svg>
+			<image src="/static/icon/product-icon.svg" class="w-[100px] h-[140px]"></image>
 		</view>
 		<cl-text color="white" :size="14" :pt="{ className: 'mb-16 text-center' }">
 			{{ t("未有设备连接，点击进入设备连接") }}
 		</cl-text>
 		<cl-button
-			:pt="{ className: '!h-[56px] !w-[280px]', label: { className: 'font-[17px]' } }"
+			:pt="{ className: '!h-[45px] !w-[280px]', label: { className: 'font-[17px]' } }"
 			color="#000"
 			type="primary"
 			rounded

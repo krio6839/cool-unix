@@ -4,10 +4,10 @@
 			t("选择你的产品")
 		}}</cl-text>
 		<view class="mb-24">
-			<cl-svg src="/static/icon/product-icon.svg" class="w-[100px] h-[140px]"></cl-svg>
+			<image src="/static/icon/product-icon.svg" class="w-[100px] h-[140px]"></image>
 		</view>
 		<cl-button
-			:pt="{ className: '!h-[56px] !w-[280px]', label: { className: 'font-[17px]' } }"
+			:pt="{ className: '!h-[45px] !w-[280px]', label: { className: 'font-[17px]' } }"
 			color="#000"
 			type="primary"
 			rounded

@@ -12,7 +12,7 @@
 			</cl-text>
 		</view>
 		<view class="mb-16">
-			<cl-svg src="/static/icon/product-icon.svg" class="w-[100px] h-[140px]"></cl-svg>
+			<image src="/static/icon/product-icon.svg" class="w-[100px] h-[140px]"></image>
 		</view>
 		<view class="w-full mb-16">
 			<cl-list-item
@@ -25,7 +25,7 @@
 		</view>
 		<cl-button
 			:pt="{
-				className: '!h-[56px] !w-[280px]'
+				className: '!h-[45px] !w-[280px]'
 			}"
 			:disabled="true"
 			:loading="true"
@@ -35,13 +35,22 @@
 		</cl-button>
 
 		<!-- 位置选择弹窗 -->
-		<cl-popup v-model="showPopup" :show-header="false" direction="center" :size="300">
+		<cl-popup
+			v-model="showPopup"
+			:show-header="false"
+			direction="center"
+			:size="300"
+			:pt="{ inner: { className: '!bg-[#2B2C28]' } }"
+		>
 			<view class="p-2">
 				<cl-list-item
 					v-for="(location, index) in locations"
 					:key="index"
 					:label="location"
-					:pt="{ className: 'location-item', inner: { className: 'h-12' } }"
+					:pt="{
+						className: 'location-item !bg-[#2B2C28]',
+						inner: { className: 'h-12 !bg-[#2B2C28]' }
+					}"
 					@tap="selectLocationItem(location)"
 				>
 					<cl-icon
@@ -109,18 +118,9 @@ function confirmLocation() {
 	:deep(.cl-list-item__wrapper) {
 		background: transparent !important;
 	}
-
-	:deep(.cl-list-item__label) {
-		color: white !important;
-	}
 }
 
 .location-item {
-	background: transparent;
 	border-bottom: 1px solid #777777;
-
-	:deep(.cl-list-item__wrapper) {
-		background: transparent !important;
-	}
 }
 </style>

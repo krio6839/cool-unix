@@ -32,7 +32,7 @@
 
 		<!-- 配对状态和搜索状态 -->
 		<view v-else-if="status === 'PAIRING' || status === 'SEARCHING'" class="flex-1">
-			<PairingState :searching="status === 'SEARCHING'"></PairingState>
+			<PairingState :searching="status === 'SEARCHING'" @select="onSelect"></PairingState>
 		</view>
 
 		<!-- 未配对状态 -->
@@ -75,6 +75,11 @@ function goBack() {
 
 function enterPairingMode() {
 	status.value = "SEARCHING";
+}
+
+// 选择位置后处理
+function onSelect(location: string) {
+	status.value = "CONNECTED";
 }
 
 // 连接成功后处理
