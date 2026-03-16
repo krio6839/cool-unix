@@ -106,7 +106,10 @@ const realtimeChartOption = computed(() => {
 			},
 			padding: 10,
 			formatter: function (params) {
-				return "1";
+				if (params && params.length > 0) {
+					return params[0].name + "<br/>" + params[0].seriesName + ": " + params[0].value;
+				}
+				return "";
 			}
 		},
 		grid: {
@@ -118,7 +121,7 @@ const realtimeChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: ["00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00"],
+			data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -130,18 +133,28 @@ const realtimeChartOption = computed(() => {
 		},
 		yAxis: {
 			type: "value",
+			min: 0,
+			max: 20,
 			axisLine: { show: false },
 			axisLabel: { show: false },
-			splitLine: { show: false }
+			splitLine: {
+				show: true,
+				lineStyle: {
+					color: "rgba(255,255,255,0.1)",
+					type: "dashed"
+				},
+				interval: 20
+			}
 		},
 		series: [
 			{
 				name: "负荷",
 				type: "line",
-				data: [12, 19, 3, 5, 2, 3, 15, 20],
+				data: [5, 8, 12, 8, 15, 12, 10, 8],
 				smooth: true,
+				symbol: "none",
 				lineStyle: {
-					color: "#4CAF50",
+					color: "#D2FF5C",
 					width: 2
 				},
 				areaStyle: {
@@ -154,11 +167,11 @@ const realtimeChartOption = computed(() => {
 						colorStops: [
 							{
 								offset: 0,
-								color: "rgba(76, 175, 80, 0.3)"
+								color: "rgba(210, 255, 92, 0.3)"
 							},
 							{
 								offset: 1,
-								color: "rgba(76, 175, 80, 0.1)"
+								color: "rgba(210, 255, 92, 0.1)"
 							}
 						]
 					}
@@ -293,8 +306,7 @@ const exerciseChartOption = computed(() => {
 				color: "#fff",
 				fontSize: 12
 			},
-			padding: 10,
-			formatter: function (params) {}
+			padding: 10
 		},
 		grid: {
 			left: 0,
@@ -305,7 +317,7 @@ const exerciseChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: ["10-20", "10-21", "10-22", "10-23", "10-24", "10-25", "10-26"],
+			data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -317,24 +329,103 @@ const exerciseChartOption = computed(() => {
 		},
 		yAxis: {
 			type: "value",
-			axisLine: {
-				show: false
-			},
-			axisLabel: {
-				show: false
-			},
-			splitLine: {
-				show: false
-			}
+			axisLine: { show: false },
+			axisLabel: { show: false },
+			splitLine: { show: false }
 		},
 		series: [
 			{
+				name: "背景1",
+				type: "bar",
+				data: [100, 100, 100, 0, 0, 0, 0, 0],
+				showTooltip: false,
+				itemStyle: {
+					color: {
+						type: "linear",
+						x: 0,
+						y: 0,
+						x2: 0,
+						y2: 1,
+						colorStops: [
+							{
+								offset: 0,
+								color: "rgba(153, 75, 231, 0.01)"
+							},
+							{
+								offset: 1,
+								color: "rgba(100, 30, 180, 0.3)"
+							}
+						]
+					}
+				},
+				barWidth: "100%",
+				barGap: "0%",
+				barCategoryGap: "0%"
+			},
+			{
+				name: "背景2",
+				type: "bar",
+				data: [0, 0, 0, 100, 100, 100, 0, 0],
+				showTooltip: false,
+				itemStyle: {
+					color: {
+						type: "linear",
+						x: 0,
+						y: 0,
+						x2: 0,
+						y2: 1,
+						colorStops: [
+							{
+								offset: 0,
+								color: "rgba(48, 195, 89, 0.01)"
+							},
+							{
+								offset: 1,
+								color: "rgba(20, 120, 50, 0.3)"
+							}
+						]
+					}
+				},
+				barWidth: "100%",
+				barGap: "0%",
+				barCategoryGap: "0%"
+			},
+			{
+				name: "背景3",
+				type: "bar",
+				data: [0, 0, 0, 0, 0, 0, 100, 100],
+				showTooltip: false,
+				itemStyle: {
+					color: {
+						type: "linear",
+						x: 0,
+						y: 0,
+						x2: 0,
+						y2: 1,
+						colorStops: [
+							{
+								offset: 0,
+								color: "rgba(239, 112, 24, 0.01)"
+							},
+							{
+								offset: 1,
+								color: "rgba(180, 70, 10, 0.3)"
+							}
+						]
+					}
+				},
+				barWidth: "100%",
+				barGap: "0%",
+				barCategoryGap: "0%"
+			},
+			{
 				name: "运动负荷",
 				type: "line",
-				data: [50, 60, 45, 70, 55, 65, 50],
-				smooth: true,
+				data: [20, 45, 60, 40, 50, 45, 40, 35],
+				smooth: false,
+				symbol: "none",
 				lineStyle: {
-					color: "#2196F3",
+					color: "#9C27B0",
 					width: 2
 				}
 			}
