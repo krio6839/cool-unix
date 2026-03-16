@@ -104,13 +104,7 @@ const realtimeChartOption = computed(() => {
 				color: "#fff",
 				fontSize: 12
 			},
-			padding: 10,
-			formatter: function (params) {
-				if (params && params.length > 0) {
-					return params[0].name + "<br/>" + params[0].seriesName + ": " + params[0].value;
-				}
-				return "";
-			}
+			padding: 10
 		},
 		grid: {
 			left: 0,
@@ -217,10 +211,7 @@ const pressureChartOption = computed(() => {
 				color: "#fff",
 				fontSize: 12
 			},
-			padding: 10,
-			formatter: function (params) {
-				return "1";
-			}
+			padding: 10
 		},
 		grid: {
 			left: 0,
@@ -450,8 +441,7 @@ const sleepChartOption = computed(() => {
 				color: "#fff",
 				fontSize: 12
 			},
-			padding: 10,
-			formatter: function (params) {}
+			padding: 10
 		},
 		grid: {
 			left: 0,
@@ -508,8 +498,7 @@ const heartRateChartOption = computed(() => {
 				color: "#fff",
 				fontSize: 12
 			},
-			padding: 10,
-			formatter: function (params) {}
+			padding: 10
 		},
 		grid: {
 			left: 0,
