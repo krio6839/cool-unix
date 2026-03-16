@@ -2,30 +2,32 @@
 	<cl-page>
 		<!-- 状态信息卡片 -->
 		<view class="px-4 mb-4">
-			<view class="flex flex-row gap-4">
-				<view class="bg-[#1A1A16] rounded-2xl p-4 flex-1">
-					<text class="text-gray-400 text-sm mb-1 block">恢复得分</text>
-					<text class="text-white text-2xl font-bold">{{ recoveryScore }}</text>
-				</view>
-				<view class="bg-[#1A1A16] rounded-2xl p-4 flex-1">
-					<text class="text-gray-400 text-sm mb-1 block">今日状态</text>
-					<text class="text-white text-xl font-medium">{{ todayStatus }}</text>
-				</view>
-			</view>
-		</view>
-
-		<!-- 恢复窗口和目标 -->
-		<view class="px-4 mb-4">
-			<view class="flex flex-row gap-4">
-				<view class="bg-[#1A1A16] rounded-2xl p-4 flex-1">
-					<text class="text-gray-400 text-sm mb-1 block">超量恢复窗口</text>
-					<text class="text-white text-sm">{{ recoveryWindow }}</text>
-				</view>
-				<view class="bg-[#1A1A16] rounded-2xl p-4 flex-1">
-					<text class="text-gray-400 text-sm mb-1 block">今日目标</text>
-					<text class="text-white text-sm">{{ todayGoal }}</text>
-				</view>
-			</view>
+			<cl-row :gutter="16">
+				<cl-col :span="12" :xs="24" class="mb-3">
+					<view class="bg-gradient rounded-2xl p-4 h-full border border-[#25261F]">
+						<text class="text-gray-400 text-sm mb-1 block">恢复得分</text>
+						<text class="text-white text-2xl font-bold">{{ recoveryScore }}</text>
+					</view>
+				</cl-col>
+				<cl-col :span="12" :xs="24" class="mb-3">
+					<view class="bg-gradient rounded-2xl p-4 h-full border border-[#25261F]">
+						<text class="text-gray-400 text-sm mb-1 block">今日状态</text>
+						<text class="text-white text-xl font-medium">{{ todayStatus }}</text>
+					</view>
+				</cl-col>
+				<cl-col :span="12" :xs="24" class="mb-3">
+					<view class="bg-gradient rounded-2xl p-4 h-full border border-[#25261F]">
+						<text class="text-gray-400 text-sm mb-1 block">超量恢复窗口</text>
+						<text class="text-white text-sm">{{ recoveryWindow }}</text>
+					</view>
+				</cl-col>
+				<cl-col :span="12" :xs="24" class="mb-3">
+					<view class="bg-gradient rounded-2xl p-4 h-full border border-[#25261F]">
+						<text class="text-gray-400 text-sm mb-1 block">今日目标</text>
+						<text class="text-white text-sm">{{ todayGoal }}</text>
+					</view>
+				</cl-col>
+			</cl-row>
 		</view>
 
 		<!-- 运动方案 -->
@@ -86,41 +88,48 @@
 				<cl-icon name="chevron-down" color="#fff" :size="20"></cl-icon>
 			</view>
 
-			<view class="flex flex-row flex-wrap gap-4">
+			<cl-row :gutter="16">
 				<!-- 储能曲线 -->
-				<view class="bg-[#1A1A16] rounded-2xl p-4 flex-1 min-w-[calc(50%-0.5rem)]">
-					<text class="text-gray-400 text-sm mb-3 block">储能曲线</text>
-					<text class="text-white text-2xl font-bold mb-3">{{ energyScore }}</text>
-					<chart :option="energyChartOption" :height="96"></chart>
-				</view>
+				<cl-col :span="12" :xs="24" class="mb-3">
+					<view class="bg-gradient rounded-2xl p-4 h-full border border-[#25261F]">
+						<text class="text-gray-400 text-sm mb-3 block">储能曲线</text>
+						<text class="text-white text-2xl font-bold mb-3">{{ energyScore }}</text>
+						<chart :option="energyChartOption" :height="96"></chart>
+					</view>
+				</cl-col>
 
 				<!-- HRV -->
-				<view class="bg-[#1A1A16] rounded-2xl p-4 flex-1 min-w-[calc(50%-0.5rem)]">
-					<text class="text-gray-400 text-sm mb-3 block">HRV</text>
-					<text class="text-white text-lg font-medium mb-3">{{ hrvStatus }}</text>
-					<chart :option="hrvChartOption" :height="96"></chart>
-				</view>
+				<cl-col :span="12" :xs="24" class="mb-3">
+					<view class="bg-gradient rounded-2xl p-4 h-full border border-[#25261F]">
+						<text class="text-gray-400 text-sm mb-3 block">HRV</text>
+						<text class="text-white text-lg font-medium mb-3">{{ hrvStatus }}</text>
+						<chart :option="hrvChartOption" :height="96"></chart>
+					</view>
+				</cl-col>
 
 				<!-- 睡眠 -->
-				<view class="bg-[#1A1A16] rounded-2xl p-4 flex-1 min-w-[calc(50%-0.5rem)]">
-					<text class="text-gray-400 text-sm mb-3 block">睡眠</text>
-					<text class="text-white text-sm mb-2">{{ sleepDuration }}</text>
-					<cl-progress
-						:value="70"
-						:stroke-width="8"
-						:show-text="false"
-						color="linear-gradient(90deg, #4ade80, #60a5fa, #a78bfa)"
-						un-color="#4b5563"
-					></cl-progress>
-				</view>
+				<cl-col :span="12" :xs="24" class="mb-3">
+					<view class="bg-gradient rounded-2xl p-4 h-full border border-[#25261F]">
+						<text class="text-gray-400 text-sm mb-3 block">睡眠</text>
+						<text class="text-white text-sm mb-2">{{ sleepDuration }}</text>
+						<cl-progress
+							:value="70"
+							:stroke-width="8"
+							:show-text="false"
+							un-color="#333335"
+						></cl-progress>
+					</view>
+				</cl-col>
 
 				<!-- 负荷趋势 -->
-				<view class="bg-[#1A1A16] rounded-2xl p-4 flex-1 min-w-[calc(50%-0.5rem)]">
-					<text class="text-gray-400 text-sm mb-3 block">负荷趋势</text>
-					<text class="text-white text-sm mb-3">{{ loadTrend }}</text>
-					<chart :option="loadChartOption" :height="96"></chart>
-				</view>
-			</view>
+				<cl-col :span="12" :xs="24" class="mb-3">
+					<view class="bg-gradient rounded-2xl p-4 h-full border border-[#25261F]">
+						<text class="text-gray-400 text-sm mb-3 block">负荷趋势</text>
+						<text class="text-white text-sm mb-3">{{ loadTrend }}</text>
+						<chart :option="loadChartOption" :height="96"></chart>
+					</view>
+				</cl-col>
+			</cl-row>
 		</view>
 
 		<!-- 推荐合适度 -->
@@ -189,8 +198,8 @@ const energyChartOption = ref(
 		grid: {
 			left: "5%",
 			right: "5%",
-			top: "10%",
-			bottom: "10%",
+			top: "5%",
+			bottom: "5%",
 			containLabel: true
 		},
 
@@ -225,8 +234,8 @@ const hrvChartOption = ref(
 		grid: {
 			left: "5%",
 			right: "5%",
-			top: "10%",
-			bottom: "10%",
+			top: "5%",
+			bottom: "5%",
 			containLabel: true
 		},
 
@@ -259,8 +268,8 @@ const loadChartOption = ref(
 		grid: {
 			left: "5%",
 			right: "5%",
-			top: "10%",
-			bottom: "10%",
+			top: "5%",
+			bottom: "5%",
 			containLabel: true
 		},
 
@@ -318,4 +327,10 @@ const feedback = (type: string) => {
 
 <style lang="scss" scoped>
 /* 组件样式 */
+.bg-gradient {
+	background-image: linear-gradient(to left, #1a1a16, #060702);
+}
+:deep(.cl-progress__inner) {
+	background-image: linear-gradient(to right, #d2ff5c, #ff8902);
+}
 </style>
