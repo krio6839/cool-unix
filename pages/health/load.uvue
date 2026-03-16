@@ -94,8 +94,19 @@ const realtimeChartOption = computed(() => {
 	const option: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
+			axisPointer: {
+				type: "shadow"
+			},
+			backgroundColor: "rgba(0, 0, 0, 0.8)",
+			borderColor: "#FFD700",
+			borderWidth: 1,
 			textStyle: {
-				color: "#fff"
+				color: "#fff",
+				fontSize: 12
+			},
+			padding: 10,
+			formatter: function (params) {
+				return "1";
 			}
 		},
 		grid: {
@@ -174,8 +185,8 @@ const pressureChartOption = computed(() => {
 	const barData: number[] = [];
 	for (let i = 0; i < 50; i++) {
 		const base = Math.floor(Math.random() * 20) + 25;
-		const start = base - Math.random() * 20;
-		const end = base + Math.random() * 20;
+		const start = base - Math.floor(Math.random() * 20);
+		const end = base + Math.floor(Math.random() * 20);
 		startData.push(start);
 		barData.push(end - start);
 	}
@@ -183,8 +194,19 @@ const pressureChartOption = computed(() => {
 	const options: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
+			axisPointer: {
+				type: "shadow"
+			},
+			backgroundColor: "rgba(0, 0, 0, 0.8)",
+			borderColor: "#FFD700",
+			borderWidth: 1,
 			textStyle: {
-				color: "#fff"
+				color: "#fff",
+				fontSize: 12
+			},
+			padding: 10,
+			formatter: function (params) {
+				return "1";
 			}
 		},
 		grid: {
@@ -261,9 +283,18 @@ const exerciseChartOption = computed(() => {
 	const options: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
+			axisPointer: {
+				type: "shadow"
+			},
+			backgroundColor: "rgba(0, 0, 0, 0.8)",
+			borderColor: "#FFD700",
+			borderWidth: 1,
 			textStyle: {
-				color: "#fff"
-			}
+				color: "#fff",
+				fontSize: 12
+			},
+			padding: 10,
+			formatter: function (params) {}
 		},
 		grid: {
 			left: 0,
@@ -318,9 +349,18 @@ const sleepChartOption = computed(() => {
 	const options: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
+			axisPointer: {
+				type: "shadow"
+			},
+			backgroundColor: "rgba(0, 0, 0, 0.8)",
+			borderColor: "#FFD700",
+			borderWidth: 1,
 			textStyle: {
-				color: "#fff"
-			}
+				color: "#fff",
+				fontSize: 12
+			},
+			padding: 10,
+			formatter: function (params) {}
 		},
 		grid: {
 			left: 0,
@@ -367,9 +407,18 @@ const heartRateChartOption = computed(() => {
 	const option: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
+			axisPointer: {
+				type: "shadow"
+			},
+			backgroundColor: "rgba(0, 0, 0, 0.8)",
+			borderColor: "#FFD700",
+			borderWidth: 1,
 			textStyle: {
-				color: "#fff"
-			}
+				color: "#fff",
+				fontSize: 12
+			},
+			padding: 10,
+			formatter: function (params) {}
 		},
 		grid: {
 			left: 0,
