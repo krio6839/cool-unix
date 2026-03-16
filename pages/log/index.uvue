@@ -24,7 +24,7 @@
 		</cl-topbar>
 
 		<!-- 内容区域 -->
-		<view class="flex-1" @tap="closeMenu">
+		<scroll-view class="flex-1" style="flex: 1" @tap="closeMenu">
 			<!-- 行为页面 -->
 			<view v-if="activeTab == 'behavior'">
 				<!-- 日期选择器 -->
@@ -57,7 +57,7 @@
 				<!-- 运动数据卡片 -->
 				<SportCards></SportCards>
 			</view>
-		</view>
+		</scroll-view>
 
 		<!-- 右下角加号按钮 -->
 		<cl-float-view

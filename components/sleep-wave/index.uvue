@@ -395,7 +395,6 @@ function onCanvasTap(e: UTSJSONObject): void {
 }
 
 function onCanvasLoad(canvas: Canvas): void {
-	console.log("Canvas 加载完成");
 	canvasInstance = canvas;
 	canvas.width(canvasWidth.value);
 	canvas.height(canvasHeight.value);

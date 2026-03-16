@@ -2,6 +2,7 @@
 	<view class="p-4">
 		<cl-text :size="15" :pt="{ className: 'text-center opacity-60' }" value="储能"></cl-text>
 		<cl-canvas
+			v-if="canvasWidth > 0"
 			canvasId="energyRingCanvas"
 			:width="canvasWidth"
 			:height="canvasHeight"
@@ -11,8 +12,9 @@
 </template>
 
 <script setup lang="ts">
-import { watch, computed } from "vue";
+import { watch, computed, ref } from "vue";
 import { Canvas } from "@/uni_modules/cool-canvas";
+import { onMounted } from "vue";
 
 const props = defineProps({
 	percentage: {
@@ -22,13 +24,10 @@ const props = defineProps({
 	}
 });
 
-// 计算画布大小，根据屏幕宽度自适应
-const windowInfo = uni.getWindowInfo();
-const screenWidth = windowInfo.windowWidth;
-const canvasWidth = Math.min(screenWidth - 40, 350); // 最大宽度350，减去边距
-// 计算画布高度，基于半圆的半径
-const totalRadius = (canvasWidth - 40) / 2;
-const canvasHeight = totalRadius + 20;
+// 初始化为 0，避免页面未完全渲染时 getWindowInfo 获取到的尺寸不准确
+const canvasWidth = ref(0);
+const canvasHeight = ref(0);
+let totalRadius = 0;
 
 let canvasInstance: Canvas | null = null;
 
@@ -51,7 +50,7 @@ function drawText() {
 	if (ctx2d == null) return;
 
 	// 计算中心位置
-	const centerX = canvasWidth / 2; // 画布中心X坐标
+	const centerX = canvasWidth.value / 2; // 画布中心X坐标
 	const centerY = 30;
 
 	// 绘制百分比文字（放在最里面的环的中心）
@@ -76,21 +75,24 @@ function drawRings() {
 	if (ctx2d == null) return;
 
 	// 清空画布，清除之前的绘制内容
-	ctx2d.clearRect(0, 0, canvasWidth, canvasHeight);
+	ctx2d.clearRect(0, 0, canvasWidth.value, canvasHeight.value);
 
 	// 计算总弧度（180度，即半圆）
 	const totalAngle = Math.PI;
 	// 根据百分比计算进度弧度
 	const progressAngle = (props.percentage / 100) * totalAngle;
 
+	// 重新计算 totalRadius，确保在绘制时能获取到正确值
+	const currentTotalRadius = (canvasWidth.value - 40) / 2;
+
 	// 绘制4个半圆环（从外到内）
 	for (let i = 0; i < 4; i++) {
 		const ringWidth = 15; // 圆环宽度
 		const ringGap = 13; // 环间距
-		const outerRadius = totalRadius - i * (ringWidth + ringGap); // 每个环的外半径
+		const outerRadius = currentTotalRadius - i * (ringWidth + ringGap); // 每个环的外半径
 
 		// 计算环的位置（下半圆）
-		const centerX = canvasWidth / 2; // 画布中心X坐标
+		const centerX = canvasWidth.value / 2; // 画布中心X坐标
 		const centerY = 10;
 
 		// 绘制背景半圆环
@@ -130,8 +132,8 @@ function drawRings() {
 // 画布加载完成回调
 function onCanvasLoad(c: Canvas) {
 	canvasInstance = c;
-	canvasInstance.width(canvasWidth);
-	canvasInstance.height(canvasHeight);
+	canvasInstance.width(canvasWidth.value);
+	canvasInstance.height(canvasHeight.value);
 	drawRings();
 }
 
@@ -143,6 +145,15 @@ watch(
 	},
 	{ immediate: false }
 );
+
+onMounted(() => {
+	// 在页面完全渲染后获取窗口信息
+	const windowInfo = uni.getWindowInfo();
+	const screenWidth = windowInfo.windowWidth;
+	canvasWidth.value = Math.min(screenWidth - 40, 350); // 最大宽度350，减去边距
+	totalRadius = (canvasWidth.value - 40) / 2;
+	canvasHeight.value = totalRadius + 20;
+});
 </script>
 
 <style lang="scss" scoped></style>

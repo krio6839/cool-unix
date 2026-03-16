@@ -201,7 +201,6 @@ function drawProgress() {
 
 // 画布加载完成回调
 function onCanvasLoad(c: Canvas) {
-	console.log("Canvas 加载完成", c);
 	console.log(canvasWidth, canvasHeightValue);
 	canvasInstance = c;
 	canvasInstance.width(canvasWidth);
