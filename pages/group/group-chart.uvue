@@ -14,13 +14,28 @@
 		<scroll-view class="flex-1" style="flex: 1">
 			<view class="px-4">
 				<!-- 团队整体储能趋势图 -->
-				<Chart title="团队整体储能趋势图" :option="energyTrendOption" :height="200" />
+				<Chart
+					class="mb-4"
+					title="团队整体储能趋势图"
+					:option="energyTrendOption"
+					:height="200"
+				/>
 
 				<!-- 成员储能对比柱状图 -->
-				<Chart title="成员储能对比" :option="memberComparisonOption" :height="200" />
+				<Chart
+					class="mb-4"
+					title="成员储能对比"
+					:option="memberComparisonOption"
+					:height="200"
+				/>
 
 				<!-- 小组平均训练负荷趋势图 -->
-				<Chart title="小组平均训练负荷趋势" :option="trainingLoadOption" :height="200" />
+				<Chart
+					class="mb-4"
+					title="小组平均训练负荷趋势"
+					:option="trainingLoadOption"
+					:height="200"
+				/>
 			</view>
 		</scroll-view>
 	</cl-page>

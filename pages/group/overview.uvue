@@ -31,10 +31,20 @@
 				</view>
 
 				<!-- 小组对比柱状图 -->
-				<Chart title="小组对比" :option="groupComparisonOption" :height="200" />
+				<Chart
+					class="mb-4"
+					title="小组对比"
+					:option="groupComparisonOption"
+					:height="200"
+				/>
 
 				<!-- 组织疲劳风险地图 -->
-				<Chart title="组织疲劳风险地图" :option="fatigueRiskOption" :height="200" />
+				<Chart
+					class="mb-4"
+					title="组织疲劳风险地图"
+					:option="fatigueRiskOption"
+					:height="200"
+				/>
 			</view>
 		</scroll-view>
 	</cl-page>

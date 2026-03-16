@@ -4,25 +4,25 @@
 		<view class="px-4 mb-4">
 			<cl-row :gutter="16">
 				<cl-col :span="12" :xs="24" class="mb-3">
-					<view class="bg-gradient rounded-2xl p-4 h-full border border-[#25261F]">
+					<view class="bg-gradient rounded-2xl p-4 h-full">
 						<text class="text-gray-400 text-sm mb-1 block">恢复得分</text>
 						<text class="text-white text-2xl font-bold">{{ recoveryScore }}</text>
 					</view>
 				</cl-col>
 				<cl-col :span="12" :xs="24" class="mb-3">
-					<view class="bg-gradient rounded-2xl p-4 h-full border border-[#25261F]">
+					<view class="bg-gradient rounded-2xl p-4 h-full">
 						<text class="text-gray-400 text-sm mb-1 block">今日状态</text>
 						<text class="text-white text-xl font-medium">{{ todayStatus }}</text>
 					</view>
 				</cl-col>
 				<cl-col :span="12" :xs="24" class="mb-3">
-					<view class="bg-gradient rounded-2xl p-4 h-full border border-[#25261F]">
+					<view class="bg-gradient rounded-2xl p-4 h-full">
 						<text class="text-gray-400 text-sm mb-1 block">超量恢复窗口</text>
 						<text class="text-white text-sm">{{ recoveryWindow }}</text>
 					</view>
 				</cl-col>
 				<cl-col :span="12" :xs="24" class="mb-3">
-					<view class="bg-gradient rounded-2xl p-4 h-full border border-[#25261F]">
+					<view class="bg-gradient rounded-2xl p-4 h-full">
 						<text class="text-gray-400 text-sm mb-1 block">今日目标</text>
 						<text class="text-white text-sm">{{ todayGoal }}</text>
 					</view>
@@ -91,7 +91,7 @@
 			<cl-row :gutter="16">
 				<!-- 储能曲线 -->
 				<cl-col :span="12" :xs="24" class="mb-3">
-					<view class="bg-gradient rounded-2xl p-4 h-full border border-[#25261F]">
+					<view class="bg-gradient rounded-2xl p-4 h-full">
 						<text class="text-gray-400 text-sm mb-3 block">储能曲线</text>
 						<text class="text-white text-2xl font-bold mb-3">{{ energyScore }}</text>
 						<chart :option="energyChartOption" :height="96"></chart>
@@ -100,7 +100,7 @@
 
 				<!-- HRV -->
 				<cl-col :span="12" :xs="24" class="mb-3">
-					<view class="bg-gradient rounded-2xl p-4 h-full border border-[#25261F]">
+					<view class="bg-gradient rounded-2xl p-4 h-full">
 						<text class="text-gray-400 text-sm mb-3 block">HRV</text>
 						<text class="text-white text-lg font-medium mb-3">{{ hrvStatus }}</text>
 						<chart :option="hrvChartOption" :height="96"></chart>
@@ -109,7 +109,7 @@
 
 				<!-- 睡眠 -->
 				<cl-col :span="12" :xs="24" class="mb-3">
-					<view class="bg-gradient rounded-2xl p-4 h-full border border-[#25261F]">
+					<view class="bg-gradient rounded-2xl p-4 h-full">
 						<text class="text-gray-400 text-sm mb-3 block">睡眠</text>
 						<text class="text-white text-sm mb-2">{{ sleepDuration }}</text>
 						<cl-progress
@@ -123,7 +123,7 @@
 
 				<!-- 负荷趋势 -->
 				<cl-col :span="12" :xs="24" class="mb-3">
-					<view class="bg-gradient rounded-2xl p-4 h-full border border-[#25261F]">
+					<view class="bg-gradient rounded-2xl p-4 h-full">
 						<text class="text-gray-400 text-sm mb-3 block">负荷趋势</text>
 						<text class="text-white text-sm mb-3">{{ loadTrend }}</text>
 						<chart :option="loadChartOption" :height="96"></chart>
@@ -196,10 +196,10 @@ const loadTrend = ref("适中");
 const energyChartOption = ref(
 	JSON.stringify({
 		grid: {
-			left: "5%",
-			right: "5%",
-			top: "5%",
-			bottom: "5%",
+			left: 0,
+			right: 0,
+			top: 0,
+			bottom: 0,
 			containLabel: true
 		},
 
@@ -232,10 +232,10 @@ const energyChartOption = ref(
 const hrvChartOption = ref(
 	JSON.stringify({
 		grid: {
-			left: "5%",
-			right: "5%",
-			top: "5%",
-			bottom: "5%",
+			left: 0,
+			right: 0,
+			top: 0,
+			bottom: 0,
 			containLabel: true
 		},
 
@@ -266,10 +266,10 @@ const hrvChartOption = ref(
 const loadChartOption = ref(
 	JSON.stringify({
 		grid: {
-			left: "5%",
-			right: "5%",
-			top: "5%",
-			bottom: "5%",
+			left: 0,
+			right: 0,
+			top: 0,
+			bottom: 0,
 			containLabel: true
 		},
 
@@ -329,6 +329,7 @@ const feedback = (type: string) => {
 /* 组件样式 */
 .bg-gradient {
 	background-image: linear-gradient(to left, #1a1a16, #060702);
+	border: 1px solid #25261f;
 }
 :deep(.cl-progress__inner) {
 	background-image: linear-gradient(to right, #d2ff5c, #ff8902);
