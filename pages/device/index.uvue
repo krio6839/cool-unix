@@ -45,10 +45,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, computed, onUnmounted } from "vue";
 import { router, t } from "@/.cool";
 import { useUi } from "@/uni_modules/cool-ui";
 import type { DeviceStatus } from "./components/types";
+//#ifndef H5
+import { useKuxBluetooth } from "@/uni_modules/kux-bluetooth";
+import { InitConfig, DeviceInfo } from "@/uni_modules/kux-bluetooth/utssdk/interface";
+//#endif
 
 import UnpairedState from "./components/UnpairedState.uvue";
 import PairingState from "./components/PairingState.uvue";
@@ -57,6 +61,15 @@ import ConnectedState from "./components/ConnectedState.uvue";
 const ui = useUi();
 const status = ref<DeviceStatus>("UNPAIRED");
 const connectedDeviceName = ref<string>("Cool Unix 设备");
+
+const deviceList = ref<DeviceInfo[]>([]);
+const currentDeviceId = ref<string>("");
+
+// 初始化蓝牙管理器
+const kuxBluetooth = useKuxBluetooth({
+	needLocation: true,
+	accessBackgroundLocation: false
+} as InitConfig);
 
 // 计算属性：根据状态动态生成标题文本，避免在模板中进行复杂的逻辑判断
 const titleText = computed(() => {
@@ -69,17 +82,116 @@ const titleText = computed(() => {
 	}
 });
 
-function goBack() {
-	router.back();
+// 初始化蓝牙
+function initBluetooth() {
+	kuxBluetooth.openBluetoothAdapter({
+		success: (res) => {
+			console.log(`初始化蓝牙成功:${res.errMsg}`);
+			// 监听蓝牙适配器状态变化
+			kuxBluetooth.onBluetoothAdapterStateChange((res) => {
+				console.log("adapterState changed, now is", res);
+				if (!res.available) {
+					ui.showToast({ message: t("蓝牙不可用"), type: "error" });
+					status.value = "UNPAIRED";
+				}
+			});
+			// 监听蓝牙连接状态变化
+			kuxBluetooth.onBLEConnectionStateChange((res) => {
+				console.log(`蓝牙连接状态:`, res);
+				if (!res.connected) {
+					if (res.deviceId === currentDeviceId.value) {
+						status.value = "UNPAIRED";
+						currentDeviceId.value = "";
+						ui.showToast({ message: t("设备已断开"), type: "warn" });
+					}
+				}
+			});
+		},
+		fail: (err) => {
+			console.log("初始化蓝牙失败，错误码：" + err.errCode);
+			ui.showToast({ message: t("蓝牙初始化失败"), type: "error" });
+		}
+	});
 }
 
-function enterPairingMode() {
-	status.value = "SEARCHING";
+// 停止搜索蓝牙设备
+function stopBluetoothSearch() {
+	kuxBluetooth.stopBluetoothDevicesDiscovery({
+		success: (res) => {
+			console.log("停止搜索蓝牙设备" + res.errMsg);
+		}
+	});
+	kuxBluetooth.offBluetoothDeviceFound();
 }
 
-// 选择位置后处理
-function onSelect(location: string) {
-	status.value = "CONNECTED";
+// 连接蓝牙设备
+function connectToDevice(deviceId: string, deviceName: string) {
+	stopBluetoothSearch();
+	kuxBluetooth.createBLEConnection({
+		deviceId,
+		success: (res) => {
+			console.log("连接蓝牙成功:" + res.errMsg);
+			currentDeviceId.value = deviceId;
+			connectedDeviceName.value = deviceName;
+			status.value = "CONNECTED";
+			ui.showToast({ message: t("连接成功"), type: "success" });
+		},
+		fail: (err) => {
+			console.log("连接低功耗蓝牙失败，错误码：" + err.errCode);
+			ui.showToast({ message: t("连接失败"), type: "error" });
+			status.value = "UNPAIRED";
+		}
+	});
+}
+
+// 开始搜索蓝牙设备
+function startBluetoothSearch() {
+	deviceList.value = [];
+	kuxBluetooth.startBluetoothDevicesDiscovery({
+		success: (res) => {
+			console.log("开始搜索蓝牙设备" + res.errMsg);
+			// 监听新设备发现
+			kuxBluetooth.onBluetoothDeviceFound((devices) => {
+				console.log("发现新设备:", devices);
+				devices.forEach((device) => {
+					// 过滤重复设备
+					if (!deviceList.value.some((d) => d.deviceId === device.deviceId)) {
+						deviceList.value.push(device);
+					}
+				});
+			});
+		},
+		fail: (e) => {
+			console.log(e);
+			console.log("搜索蓝牙设备失败，错误码" + e.errCode);
+			ui.showToast({ message: t("搜索设备失败"), type: "error" });
+			status.value = "UNPAIRED";
+		}
+	});
+}
+
+// 断开连接
+function disconnectDevice() {
+	if (currentDeviceId.value != null && currentDeviceId.value !== "") {
+		kuxBluetooth.closeBLEConnection({
+			deviceId: currentDeviceId.value,
+			success: (res) => {
+				console.log("断开低功耗蓝牙成功:" + res.errMsg);
+				status.value = "UNPAIRED";
+				currentDeviceId.value = "";
+				ui.showToast({ message: t("已断开连接"), type: "warn" });
+			},
+			fail: (err) => {
+				console.log("断开低功耗蓝牙失败，错误码：" + err.errCode);
+				status.value = "UNPAIRED";
+				currentDeviceId.value = "";
+				ui.showToast({ message: t("已断开连接"), type: "warn" });
+			}
+		});
+	} else {
+		status.value = "UNPAIRED";
+		ui.showToast({ message: t("已断开连接"), type: "warn" });
+	}
 }
 
 // 连接成功后处理
@@ -88,15 +200,54 @@ function handleConnectSuccess() {
 	ui.showToast({ message: t("连接成功"), type: "success" });
 }
 
-// 断开连接
-function disconnectDevice() {
-	status.value = "UNPAIRED";
-	ui.showToast({ message: t("已断开连接"), type: "warn" });
+// 选择位置后处理
+function onSelect(location: string) {
+	// 这里应该连接选中的设备
+	if (deviceList.value.length > 0) {
+		const device = deviceList.value[0]; // 假设选择第一个设备
+		let deviceName = "未知设备";
+		if (device.name != null && device.name !== "") {
+			deviceName = device.name;
+		} else if (device.localName != null && device.localName !== "") {
+			deviceName = device.localName;
+		}
+		connectToDevice(device.deviceId, deviceName);
+	}
+}
+
+function enterPairingMode() {
+	status.value = "SEARCHING";
+	startBluetoothSearch();
+}
+
+function goBack() {
+	router.back();
 }
 
 onMounted(() => {
 	// #ifndef H5
 	// 初始化蓝牙
+	initBluetooth();
+	// #endif
+});
+
+onUnmounted(() => {
+	// #ifndef H5
+	// 清理蓝牙资源
+	stopBluetoothSearch();
+	if (currentDeviceId.value != null && currentDeviceId.value !== "") {
+		kuxBluetooth.closeBLEConnection({
+			deviceId: currentDeviceId.value
+		});
+	}
+	kuxBluetooth.closeBluetoothAdapter({
+		success: (res) => {
+			console.log("关闭蓝牙适配器成功:" + res.errMsg);
+		},
+		fail: (err) => {
+			console.log("关闭蓝牙适配器失败，错误码：" + err.errCode);
+		}
+	});
 	// #endif
 });
 </script>

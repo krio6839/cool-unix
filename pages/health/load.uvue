@@ -50,11 +50,7 @@
 			<Chart :title="'睡眠压力趋势图'" :option="sleepChartOption" :height="200"></Chart>
 
 			<!-- 心率区间趋势图 -->
-			<Chart
-				:title="'心率区间趋势图'"
-				:option="JSON.stringify(heartRateChartOption)"
-				:height="200"
-			></Chart>
+			<Chart :title="'心率区间趋势图'" :option="heartRateChartOption" :height="200"></Chart>
 		</view>
 	</cl-page>
 </template>
@@ -165,6 +161,25 @@ const realtimeChartOption = computed(() => {
 
 // 压力负荷趋势图配置
 const pressureChartOption = computed(() => {
+	// 生成50个时间点（每30分钟一个）
+	const timeData: string[] = [];
+	for (let i = 0; i < 50; i++) {
+		const hour = Math.floor((i * 30) / 60);
+		const minute = (i * 30) % 60;
+		timeData.push(`${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`);
+	}
+
+	// 生成50个数据点，每个数据点包含起始值和结束值
+	const startData: number[] = [];
+	const barData: number[] = [];
+	for (let i = 0; i < 50; i++) {
+		const base = Math.floor(Math.random() * 20) + 25;
+		const start = base - Math.random() * 20;
+		const end = base + Math.random() * 20;
+		startData.push(start);
+		barData.push(end - start);
+	}
+
 	const options: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
@@ -181,9 +196,10 @@ const pressureChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: ["10-20", "10-21", "10-22", "10-23", "10-24", "10-25", "10-26"],
+			data: timeData,
 			axisLabel: {
-				color: "rgba(255,255,255,0.6)"
+				color: "rgba(255,255,255,0.6)",
+				interval: 5 // 每5个点显示一个标签
 			},
 			axisLine: {
 				lineStyle: {
@@ -199,14 +215,41 @@ const pressureChartOption = computed(() => {
 		},
 		series: [
 			{
+				name: "起始位置",
+				type: "bar",
+				stack: "total",
+				data: startData,
+				itemStyle: {
+					color: "transparent"
+				},
+				barWidth: "60%"
+			},
+			{
 				name: "压力负荷",
-				type: "line",
-				data: [30, 40, 35, 45, 30, 50, 40],
-				smooth: true,
-				lineStyle: {
-					color: "#FF9800",
-					width: 2
-				}
+				type: "bar",
+				stack: "total",
+				data: barData,
+				itemStyle: {
+					color: {
+						type: "linear",
+						x: 0,
+						y: 0,
+						x2: 0,
+						y2: 1,
+						colorStops: [
+							{
+								offset: 0,
+								color: "#FFD700"
+							},
+							{
+								offset: 1,
+								color: "#FF8C00"
+							}
+						]
+					},
+					borderRadius: [4, 4, 4, 4]
+				},
+				barWidth: "60%"
 			}
 		]
 	};
@@ -321,7 +364,7 @@ const sleepChartOption = computed(() => {
 
 // 心率区间趋势图配置
 const heartRateChartOption = computed(() => {
-	const options: UTSJSONObject = {
+	const option: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
 			textStyle: {
@@ -349,15 +392,9 @@ const heartRateChartOption = computed(() => {
 		},
 		yAxis: {
 			type: "value",
-			axisLine: {
-				show: false
-			},
-			axisLabel: {
-				show: false
-			},
-			splitLine: {
-				show: false
-			}
+			axisLine: { show: false },
+			axisLabel: { show: false },
+			splitLine: { show: false }
 		},
 		series: [
 			{
@@ -371,7 +408,7 @@ const heartRateChartOption = computed(() => {
 		]
 	};
 
-	return JSON.stringify(options);
+	return JSON.stringify(option);
 });
 
 // 返回上一页
