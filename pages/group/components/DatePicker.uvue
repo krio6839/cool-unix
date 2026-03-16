@@ -1,17 +1,18 @@
 <template>
-	<view class="px-4 mb-4">
-		<view class="flex flex-row items-center justify-between">
-			<view class="flex flex-row space-x-4">
-				<text
+	<view class="mx-4 mb-4">
+		<view class="container px-4 py-2 flex flex-row items-center justify-between w-full">
+			<view class="flex flex-row space-x-4 w-5/6">
+				<view
 					v-for="(day, index) in days"
 					:key="index"
-					class="text-white"
-					:class="{ 'text-primary-400 font-medium': selectedDay != null && selectedDay == index }"
+					class="flex flex-col items-center justify-center"
 					@click="onDayClick(index)"
 				>
-					{{ day.label }}
-					<text v-if="day.date" class="block text-xs text-gray-400">{{ day.date }}</text>
-				</text>
+					<cl-text :size="14">{{ day.label }}</cl-text>
+					<cl-text :size="11" v-if="day.date" class="block text-xs text-gray-400">{{
+						day.date
+					}}</cl-text>
+				</view>
 			</view>
 			<cl-icon name="calendar-line" color="#fff" :size="20" @click="onCalendarClick" />
 		</view>
@@ -19,7 +20,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, defineProps, defineEmits } from "vue";
+import { ref } from "vue";
 
 // 日期数据
 const days = [
@@ -44,4 +45,11 @@ const onCalendarClick = () => {};
 
 <style lang="scss" scoped>
 /* 组件样式 */
+
+.container {
+	width: 100%;
+	height: 55px;
+	background: #222222;
+	border-radius: 10px 10px 10px 10px;
+}
 </style>
