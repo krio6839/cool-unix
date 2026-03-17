@@ -1,45 +1,62 @@
 <template>
 	<cl-page>
-		<view class="p-3">
-			<view class="flex flex-row justify-between items-center mb-5">
-				<view class="flex flex-row items-center">
+		<cl-topbar
+			fixed
+			:show-back="false"
+			safe-area-top
+			:height="isMp() ? null : 50"
+			:pt="{
+				className: '!z-50'
+			}"
+			background-color="transparent"
+		>
+			<view
+				class="flex flex-row items-center justify-between p-3 w-full"
+				:class="{
+					'pt-0': isMp()
+				}"
+			>
+				<view class="flex flex-row items-end">
 					<cl-icon
-						name="chevron-left"
+						name="arrow-left-s-line"
 						:size="20"
 						color="white"
 						@click="gotoPrevMonth"
 					></cl-icon>
-					<cl-text class="text-xl ml-4">{{ currentYear }}</cl-text>
-					<cl-text class="text-xl ml-2">{{ currentMonth }}月</cl-text>
+					<view class="flex flex-col items-center mx-4">
+						<cl-text :size="10" class="opacity-50">{{ currentYear }}</cl-text>
+						<cl-text :size="20">{{ formattedMonth }}月</cl-text>
+					</view>
 					<cl-icon
-						name="chevron-right"
+						name="arrow-right-s-line"
 						:size="20"
 						color="#fff"
 						@click="gotoNextMonth"
 					></cl-icon>
 				</view>
-				<cl-icon name="close" :size="20" color="#fff"></cl-icon>
+				<cl-icon name="close-line" :size="20" color="#fff" @click="onBack"></cl-icon>
 			</view>
-
-			<view class="flex flex-row flex-wrap justify-center space-x-2 mb-5">
-				<view
-					v-for="tab in tabs"
-					:key="tab.value"
-					class="type-tab"
-					:class="isActiveTab(tab.value) ? 'active-tab' : ''"
-					@click="activeTab = tab.value"
-				>
-					<text :class="isActiveTab(tab.value) ? 'active-text' : ''">
-						{{ tab.label }}
-					</text>
-				</view>
+		</cl-topbar>
+		<view class="flex flex-row justify-between items-center mb-2 p-3">
+			<view
+				v-for="tab in tabs"
+				:key="tab.value"
+				class="type-tab flex-1 mx-1"
+				:class="isActiveTab(tab.value) ? 'active-tab' : ''"
+				@click="activeTab = tab.value"
+			>
+				<text :class="isActiveTab(tab.value) ? 'active-text' : ''">
+					{{ tab.label }}
+				</text>
 			</view>
-
+		</view>
+		<view class="p-3">
 			<cl-calendar
 				v-model="selectedDate"
 				mode="single"
 				:year="currentYear"
 				:month="currentMonth"
+				:key="`${currentYear}-${currentMonth}`"
 				:show-header="false"
 				:show-weeks="true"
 				:show-other-month="true"
@@ -52,10 +69,12 @@
 				@change="onChange"
 			></cl-calendar>
 
-			<view class="flex justify-center mt-8">
-				<cl-button @click="goToday" :color="'#333'" :text-color="'#fff'">
-					<cl-icon name="refresh" :size="16" color="#fff" class="mr-2"></cl-icon>
-					回今天
+			<view class="flex justify-center items-center mt-8">
+				<cl-button :pt="{ className: '!bg-white/10 !w-[100px]' }" @click="goToday" rounded>
+					<view class="flex flex-row items-center">
+						<cl-svg src="/static/icon/back.svg" class="mr-1 w-4 h-4"></cl-svg>
+						<cl-text>回今天</cl-text>
+					</view>
 				</cl-button>
 			</view>
 		</view>
@@ -66,16 +85,21 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, computed } from "vue";
-import { dayUts } from "@/.cool";
+import { ref, computed, watch } from "vue";
+import { dayUts, isMp, router } from "@/.cool";
 import type { ClCalendarDateConfig } from "@/uni_modules/cool-ui";
 import ChartPopup from "./components/chart-popup.uvue";
 
-const currentYear = ref(2026);
-const currentMonth = ref(1);
+const currentYear = ref(new Date().getFullYear());
+const currentMonth = ref(new Date().getMonth() + 1);
 const selectedDate = ref<string>(dayUts().format("YYYY-MM-DD"));
 const activeTab = ref("energy");
 const showPopup = ref(false);
+
+// 格式化月份为两位数
+const formattedMonth = computed(() => {
+	return currentMonth.value.toString().padStart(2, "0");
+});
 
 type TabItem = {
 	label: string;
@@ -124,6 +148,10 @@ function onChange(event: any) {
 	// 打开趋势图弹窗
 	showPopup.value = true;
 }
+
+function onBack() {
+	router.back();
+}
 </script>
 
 <style lang="scss">
@@ -142,7 +170,6 @@ function onChange(event: any) {
 }
 
 .type-tab {
-	flex: 1;
 	height: 40px;
 	background: #1f201b;
 	border-radius: 16px 16px 16px 16px;

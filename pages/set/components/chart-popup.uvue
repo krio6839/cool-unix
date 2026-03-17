@@ -7,6 +7,7 @@
 		:show-close="true"
 		:show-mask="true"
 		:mask-closable="true"
+		:size="350"
 		:pt="{
 			className: 'chart-popup',
 			inner: { className: '!bg-[#181814]' },

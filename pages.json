@@ -29,6 +29,15 @@
 			"style": {
 				"navigationStyle": "custom"
 			}
+		},
+		{
+			"path": "pages/device/index",
+			"style": {
+				"navigationStyle": "custom"
+			},
+			"meta": {
+				"isAuth": false
+			}
 		}
 	],
 	"subPackages": [
@@ -47,7 +56,7 @@
 				{
 					"path": "calendar",
 					"style": {
-						"navigationBarTitleText": ""
+						"navigationStyle": "custom"
 					},
 					"meta": {
 						"isAuth": true
@@ -126,20 +135,6 @@
 					"style": {
 						"navigationStyle": "custom",
 						"disableScroll": true
-					}
-				}
-			]
-		},
-		{
-			"root": "pages/device",
-			"pages": [
-				{
-					"path": "index",
-					"style": {
-						"navigationStyle": "custom"
-					},
-					"meta": {
-						"isAuth": false
 					}
 				}
 			]
