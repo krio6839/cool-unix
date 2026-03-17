@@ -84,16 +84,23 @@ const titleText = computed(() => {
 
 // 初始化蓝牙
 function initBluetooth() {
+	if (kuxBluetooth == null) {
+		// 延迟一段时间后重试
+		setTimeout(() => {
+			initBluetooth();
+		}, 100);
+		return;
+	}
 	kuxBluetooth.openBluetoothAdapter({
 		success: (res) => {
 			console.log(`初始化蓝牙成功:${res.errMsg}`);
 			// 监听蓝牙适配器状态变化
 			kuxBluetooth.onBluetoothAdapterStateChange((res) => {
 				console.log("adapterState changed, now is", res);
-				if (!res.available) {
-					ui.showToast({ message: t("蓝牙不可用"), type: "error" });
-					status.value = "UNPAIRED";
-				}
+				// if (!res.available) {
+				// 	ui.showToast({ message: t("蓝牙不可用"), type: "error" });
+				// 	status.value = "UNPAIRED";
+				// }
 			});
 			// 监听蓝牙连接状态变化
 			kuxBluetooth.onBLEConnectionStateChange((res) => {
@@ -234,6 +241,7 @@ onMounted(() => {
 onUnmounted(() => {
 	// #ifndef H5
 	// 清理蓝牙资源
+	console.log("onUnmounted");
 	stopBluetoothSearch();
 	if (currentDeviceId.value != null && currentDeviceId.value !== "") {
 		kuxBluetooth.closeBLEConnection({

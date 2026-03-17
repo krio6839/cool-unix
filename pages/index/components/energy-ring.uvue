@@ -146,13 +146,28 @@ watch(
 	{ immediate: false }
 );
 
-onMounted(() => {
-	// 在页面完全渲染后获取窗口信息
+// 获取窗口信息并计算画布尺寸
+function getWindowSize() {
 	const windowInfo = uni.getWindowInfo();
 	const screenWidth = windowInfo.windowWidth;
+
+	// 如果screenWidth为0，使用默认值或重试
+	if (screenWidth === 0) {
+		// 延迟一段时间后重试
+		setTimeout(() => {
+			getWindowSize();
+		}, 100);
+		return;
+	}
+
 	canvasWidth.value = Math.min(screenWidth - 40, 350); // 最大宽度350，减去边距
 	totalRadius = (canvasWidth.value - 40) / 2;
 	canvasHeight.value = totalRadius + 20;
+}
+
+onMounted(() => {
+	// 在页面完全渲染后获取窗口信息
+	getWindowSize();
 });
 </script>
 

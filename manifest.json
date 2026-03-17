@@ -1,6 +1,6 @@
 {
 	"name": "BOOM",
-	"appid": "com.hiikon.boom",
+	"appid": "__UNI__38119D8",
 	"description": "完全开源、永久免费、上手容易、效率极高的开发脚手架",
 	"versionName": "1.0.0",
 	"versionCode": "100",
@@ -46,11 +46,11 @@
 			"mode": "",
 			"base": "./"
 		},
-		"title": "cool-unix"
+		"title": "BOOM"
 	},
 	"app-harmony": {
 		"distribute": {
-			"bundleName": "cool.unix.demo",
+			"bundleName": "com.hiikon.boom",
 			"signingConfigs": {
 				"default": {
 					"certpath": "/Users/icssoa/Library/Application Support/HBuilder X/extensions/launcher/agc-certs/1761881606984.cer",
@@ -70,6 +70,7 @@
 	},
 	"app-android": {
 		"distribute": {
+			"bundleName": "com.hiikon.boom",
 			"modules": {
 				"uni-location": {
 					"system": {}
