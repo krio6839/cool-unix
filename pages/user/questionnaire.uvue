@@ -1,0 +1,221 @@
+<template>
+	<view class="container">
+		<!-- 问卷内容 -->
+		<scroll-view class="content" scroll-y>
+			<!-- 第一页：用户类型选择 -->
+			<view v-if="currentStep === 1" class="question-section">
+				<view
+					v-for="(item, index) in userTypes"
+					:key="index"
+					class="option-card"
+					@click="selectUserType(item.value)"
+				>
+					<cl-text :size="16">{{ item.label }}</cl-text>
+					<view v-if="selectedUserType === item.value">
+						<cl-icon name="checkbox-circle-line" color="primary" :size="24"></cl-icon>
+					</view>
+				</view>
+			</view>
+
+			<!-- 第二页：详细问卷 -->
+			<view v-else-if="currentStep === 2" class="question-section">
+				<view v-for="(question, qIndex) in questions" :key="qIndex" class="question-card">
+					<cl-text class="question-text">{{ question.text }}</cl-text>
+					<cl-radio
+						v-for="(option, oIndex) in question.options"
+						:key="oIndex"
+						v-model="question.selected"
+						:name="option.value"
+						:label="option.label"
+						@change="selectOption(qIndex, option.value)"
+						:pt="{
+							className: parseClass([
+								'my-2',
+								[
+									'justify-between border border-solid border-surface-200 rounded-lg p-2 !my-1'
+								]
+							])
+						}"
+					></cl-radio>
+				</view>
+			</view>
+		</scroll-view>
+
+		<!-- 底部按钮 -->
+		<cl-footer :pt="{}">
+			<cl-button
+				v-if="currentStep === 1"
+				type="primary"
+				size="large"
+				rounded
+				@click="nextStep"
+				:disabled="!selectedUserType"
+			>
+				下一步
+			</cl-button>
+			<cl-button
+				v-else-if="currentStep === 2"
+				type="primary"
+				size="large"
+				rounded
+				@click="submitQuestionnaire"
+			>
+				提交问卷
+			</cl-button>
+		</cl-footer>
+	</view>
+</template>
+
+<script lang="ts" setup>
+import { parseClass } from "@/.cool";
+import { ref, reactive } from "vue";
+
+// 步骤控制
+const currentStep = ref(1);
+
+// 用户类型选项
+const userTypes = [
+	{ label: "新手爱好者", value: "beginner" },
+	{ label: "严肃运动者", value: "serious" },
+	{ label: "职业运动员", value: "professional" }
+];
+
+// 选中的用户类型
+const selectedUserType = ref<string>("");
+
+// 问卷问题
+const questions = reactive([
+	{
+		text: "01.前几天连续训练负荷较大，HRV较低但储能情况良好",
+		options: [
+			{ label: "是", value: "yes" },
+			{ label: "否", value: "no" }
+		],
+		selected: "yes"
+	},
+	{
+		text: "01.前几天连续训练负荷较大，HRV较低但储能情况良好",
+		options: [
+			{ label: "预计明天HRV上升达到超量恢复黄金窗口", value: "window" },
+			{ label: "超量恢复黄金窗口", value: "window2" },
+			{ label: "建议降低训练量，注意恢复调整", value: "reduce" },
+			{ label: "注意恢复调整", value: "adjust" }
+		],
+		selected: "window"
+	},
+	{
+		text: "03.前几天连续训练负荷较大，HRV较低但储能情况良好",
+		options: [
+			{ label: "是", value: "yes" },
+			{ label: "否", value: "no" }
+		],
+		selected: "yes"
+	},
+	{
+		text: "04.前几天连续训练负荷较大，HRV较低但储能情况良好",
+		options: [
+			{ label: "是", value: "yes" },
+			{ label: "否", value: "no" }
+		],
+		selected: "yes"
+	}
+]);
+
+// 选择用户类型
+const selectUserType = (value: string) => {
+	selectedUserType.value = value;
+};
+
+// 选择问卷选项
+const selectOption = (questionIndex: number, value: string) => {
+	questions[questionIndex].selected = value;
+};
+
+// 下一步
+const nextStep = () => {
+	if (selectedUserType.value) {
+		currentStep.value = 2;
+	}
+};
+
+// 提交问卷
+const submitQuestionnaire = () => {
+	// 收集问卷数据
+	const questionnaireData = {
+		userType: selectedUserType.value,
+		answers: questions.map((q) => ({
+			question: q.text,
+			selected: q.selected
+		}))
+	};
+
+	// 这里可以添加提交逻辑，比如调用API
+	console.log("问卷数据:", questionnaireData);
+
+	// 提交后跳转到其他页面
+	uni.redirectTo({
+		url: "/pages/index/home"
+	});
+};
+</script>
+
+<style lang="scss" scoped>
+.container {
+	flex: 1;
+	background-color: #000;
+	color: #fff;
+	display: flex;
+	flex-direction: column;
+}
+
+.header {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 20px 0;
+	height: 60px;
+}
+
+.title {
+	font-size: 18px;
+	font-weight: 600;
+	color: #fff;
+}
+
+.content {
+	flex: 1;
+	padding: 20px;
+	overflow-y: auto;
+}
+
+.question-section {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+.option-card {
+	background-color: #333;
+	border-radius: 12px;
+	padding: 20px;
+	display: flex;
+	flex-direction: row;
+	justify-content: space-between;
+	align-items: center;
+	transition: all 0.3s ease;
+}
+
+.question-card {
+	background-color: #333;
+	border-radius: 12px;
+	padding: 20px;
+	margin-bottom: 16px;
+}
+
+.question-text {
+	font-size: 14px;
+	color: #fff;
+	margin-bottom: 16px;
+	line-height: 1.4;
+}
+</style>

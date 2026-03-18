@@ -138,6 +138,9 @@ async function toLogin(res: any) {
 	user.setToken(parse<Token>(res)!);
 	user.get();
 	router.nextLogin();
+	router.push({
+		path: "/pages/user/questionnaire"
+	});
 }
 
 // 跳转文档

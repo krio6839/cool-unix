@@ -136,6 +136,12 @@
 						"navigationStyle": "custom",
 						"disableScroll": true
 					}
+				},
+				{
+					"path": "questionnaire",
+					"style": {
+						"navigationBarTitleText": "问卷"
+					}
 				}
 			]
 		},

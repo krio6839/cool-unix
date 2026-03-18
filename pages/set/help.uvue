@@ -34,7 +34,7 @@
 				<cl-text :size="17" :pt="{ className: 'font-bold mb-4' }">
 					{{ t('为什么"训练准备度"和体感不符？') }}
 				</cl-text>
-				<cl-text :size="14" :pt="{ className: 'mt-4 mb-6 opacity-75' }">
+				<cl-text :size="14" :pt="{ className: 'mb-6 opacity-75 leading-6' }">
 					{{
 						t(
 							"身体的主观感受是非常重要的，但影响它的因素也很多，且不一定与训练准备度有关，譬如梦境里的情绪，早晨起来的饥饿感，甚至天气都会带来影响。而训练准备度是通过HRV与RHR来计算的，这些健康数据能够更加客观地衡量我们身体的准备程度。日常可以把两者结合起来综合判断身体的准备情况，重视主观感受的同时，将训练准备度作为重要参考。"
@@ -45,7 +45,7 @@
 				<cl-text :size="17" :pt="{ className: 'font-bold mb-4' }">
 					{{ t("准备度和体感不一样，还要根据建议去训练吗？") }}
 				</cl-text>
-				<cl-text :size="14" :pt="{ className: 'mt-4 mb-6 opacity-75' }">
+				<cl-text :size="14" :pt="{ className: 'mb-6 opacity-75 leading-6' }">
 					{{
 						t(
 							"的定位是训练工具，每日运动建议仅作参考。建议尊重身体感受，结合运动建议，综合近期的饮食、情绪、压力等多种手表无法监测的会对身体造成影响的因素综合判断。的定位是训练工具，每日运动建议仅作参考。建议尊重身体感受，结合运动建议，综合近期的饮食、情绪、压力等多种手表无法监测的会对身体造成影响的因素综合判断。"
@@ -56,7 +56,7 @@
 				<cl-text :size="17" :pt="{ className: 'font-bold mb-4' }">
 					{{ t('为什么"训练准备度"和体感不符？') }}
 				</cl-text>
-				<cl-text :size="14" :pt="{ className: 'mt-4 mb-12 opacity-75' }">
+				<cl-text :size="14" :pt="{ className: 'mb-12 opacity-75 leading-6' }">
 					{{
 						t(
 							"身体的主观感受是非常重要的，但影响它的因素也很多，且不一定与训练准备度有关，譬如梦境里的情绪，早晨起来的饥饿感，甚至天气都会带来影响。"
