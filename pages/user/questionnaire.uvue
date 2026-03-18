@@ -169,7 +169,7 @@ type QuestionnaireResult = {
 // 提交问卷
 const submitQuestionnaire = (): void => {
 	// 收集问卷数据
-	const answers: Answer[] = questions.map((q: Question) => ({
+	const answers: Answer[] = questions.map((q: Question):Answer => ({
 		question: q.text,
 		selected: q.selected
 	}));
