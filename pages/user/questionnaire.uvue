@@ -1,45 +1,44 @@
 <template>
-	<view class="container">
+	<cl-page>
 		<!-- 问卷内容 -->
-		<scroll-view class="content" scroll-y>
-			<!-- 第一页：用户类型选择 -->
-			<view v-if="currentStep === 1" class="question-section">
-				<view
-					v-for="(item, index) in userTypes"
-					:key="index"
-					class="option-card"
-					@click="selectUserType(item.value)"
-				>
-					<cl-text :size="16">{{ item.label }}</cl-text>
-					<view v-if="selectedUserType === item.value">
-						<cl-icon name="checkbox-circle-line" color="primary" :size="24"></cl-icon>
-					</view>
+		<!-- 第一页：用户类型选择 -->
+		<view v-if="currentStep === 1" class="flex px-4">
+			<view
+				v-for="(item, index) in userTypes"
+				:key="index"
+				class="option-card mb-3"
+				@click="selectUserType(item.value)"
+			>
+				<cl-text :size="16">{{ item.label }}</cl-text>
+				<view v-if="selectedUserType === item.value">
+					<cl-icon name="checkbox-circle-line" color="primary" :size="24"></cl-icon>
 				</view>
 			</view>
+		</view>
 
-			<!-- 第二页：详细问卷 -->
-			<view v-else-if="currentStep === 2" class="question-section">
-				<view v-for="(question, qIndex) in questions" :key="qIndex" class="question-card">
-					<cl-text class="question-text">{{ question.text }}</cl-text>
-					<cl-radio
-						v-for="(option, oIndex) in question.options"
-						:key="oIndex"
-						v-model="question.selected"
-						:name="option.value"
-						:label="option.label"
-						@change="selectOption(qIndex, option.value)"
-						:pt="{
-							className: parseClass([
-								'my-2',
-								[
-									'justify-between border border-solid border-surface-200 rounded-lg p-2 !my-1'
-								]
-							])
-						}"
-					></cl-radio>
-				</view>
+		<!-- 第二页：详细问卷 -->
+		<view v-else-if="currentStep === 2" class="flex px-4">
+			<view v-for="(question, qIndex) in questions" :key="qIndex" class="question-card">
+				<cl-text class="question-text">{{ question.text }}</cl-text>
+				<cl-radio
+					v-for="(option, oIndex) in question.options"
+					:key="oIndex"
+					v-model="question.selected"
+					:value="option.value"
+					@change="selectOption(qIndex, option.value)"
+					:pt="{
+						className: parseClass([
+							'my-2',
+							[
+								'justify-between border border-solid border-surface-200 rounded-lg p-2 !my-1'
+							]
+						])
+					}"
+				>
+					{{ option.label }}
+				</cl-radio>
 			</view>
-		</scroll-view>
+		</view>
 
 		<!-- 底部按钮 -->
 		<cl-footer :pt="{}">
@@ -63,7 +62,7 @@
 				提交问卷
 			</cl-button>
 		</cl-footer>
-	</view>
+	</cl-page>
 </template>
 
 <script lang="ts" setup>
@@ -169,10 +168,12 @@ type QuestionnaireResult = {
 // 提交问卷
 const submitQuestionnaire = (): void => {
 	// 收集问卷数据
-	const answers: Answer[] = questions.map((q: Question):Answer => ({
-		question: q.text,
-		selected: q.selected
-	}));
+	const answers: Answer[] = questions.map(
+		(q: Question): Answer => ({
+			question: q.text,
+			selected: q.selected
+		})
+	);
 	const questionnaireData: QuestionnaireResult = {
 		userType: selectedUserType.value,
 		answers: answers
@@ -189,14 +190,6 @@ const submitQuestionnaire = (): void => {
 </script>
 
 <style lang="scss" scoped>
-.container {
-	flex: 1;
-	background-color: #000;
-	color: #fff;
-	display: flex;
-	flex-direction: column;
-}
-
 .header {
 	display: flex;
 	align-items: center;
@@ -215,12 +208,6 @@ const submitQuestionnaire = (): void => {
 	flex: 1;
 	padding: 20px;
 	overflow-y: auto;
-}
-
-.question-section {
-	display: flex;
-	flex-direction: column;
-	gap: 16px;
 }
 
 .option-card {
