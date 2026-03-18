@@ -49,7 +49,7 @@
 				size="large"
 				rounded
 				@click="nextStep"
-				:disabled="!selectedUserType"
+				:disabled="selectedUserType === ''"
 			>
 				下一步
 			</cl-button>
@@ -70,11 +70,28 @@
 import { parseClass } from "@/.cool";
 import { ref, reactive } from "vue";
 
+// 类型定义
+type UserType = {
+	label: string;
+	value: string;
+};
+
+type QuestionOption = {
+	label: string;
+	value: string;
+};
+
+type Question = {
+	text: string;
+	options: QuestionOption[];
+	selected: string;
+};
+
 // 步骤控制
 const currentStep = ref(1);
 
 // 用户类型选项
-const userTypes = [
+const userTypes: UserType[] = [
 	{ label: "新手爱好者", value: "beginner" },
 	{ label: "严肃运动者", value: "serious" },
 	{ label: "职业运动员", value: "professional" }
@@ -84,7 +101,7 @@ const userTypes = [
 const selectedUserType = ref<string>("");
 
 // 问卷问题
-const questions = reactive([
+const questions = reactive<Question[]>([
 	{
 		text: "01.前几天连续训练负荷较大，HRV较低但储能情况良好",
 		options: [
@@ -122,31 +139,43 @@ const questions = reactive([
 ]);
 
 // 选择用户类型
-const selectUserType = (value: string) => {
+const selectUserType = (value: string): void => {
 	selectedUserType.value = value;
 };
 
 // 选择问卷选项
-const selectOption = (questionIndex: number, value: string) => {
+const selectOption = (questionIndex: number, value: string): void => {
 	questions[questionIndex].selected = value;
 };
 
 // 下一步
-const nextStep = () => {
-	if (selectedUserType.value) {
+const nextStep = (): void => {
+	if (selectedUserType.value !== "") {
 		currentStep.value = 2;
 	}
 };
 
+type Answer = {
+	question: string;
+	selected: string;
+};
+
+// 问卷结果类型
+type QuestionnaireResult = {
+	userType: string;
+	answers: Answer[];
+};
+
 // 提交问卷
-const submitQuestionnaire = () => {
+const submitQuestionnaire = (): void => {
 	// 收集问卷数据
-	const questionnaireData = {
+	const answers: Answer[] = questions.map((q: Question) => ({
+		question: q.text,
+		selected: q.selected
+	}));
+	const questionnaireData: QuestionnaireResult = {
 		userType: selectedUserType.value,
-		answers: questions.map((q) => ({
-			question: q.text,
-			selected: q.selected
-		}))
+		answers: answers
 	};
 
 	// 这里可以添加提交逻辑，比如调用API
