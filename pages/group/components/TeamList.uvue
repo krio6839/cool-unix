@@ -1,5 +1,5 @@
 <template>
-	<view class="w-full">
+	<view class="w-full mt-4">
 		<!-- 组织信息 -->
 		<view class="team-card mb-4 flex flex-row items-center justify-between">
 			<view class="flex flex-row items-center">

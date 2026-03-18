@@ -18,8 +18,8 @@
 			</view>
 
 			<view class="text-container">
-				<text class="title">为什么"训练准备度"和体感不符</text>
-				<text class="description"
+				<text class="title" @click="jumpToHelp">为什么"训练准备度"和体感不符</text>
+				<text class="description" @click="jumpToHelp"
 					>前几天连续训练负荷较大，HRV较低但储能情况良好，预计明天HRV上升达到超量恢复黄金窗口。建议降低训练量，注意恢复调整</text
 				>
 			</view>
@@ -28,10 +28,17 @@
 </template>
 
 <script lang="ts" setup>
+import { router } from "@/.cool";
 import { ref } from "vue";
 
 const back = () => {
-	uni.navigateBack();
+	router.back();
+};
+
+const jumpToHelp = () => {
+	router.push({
+		path: "/pages/set/help"
+	});
 };
 </script>
 

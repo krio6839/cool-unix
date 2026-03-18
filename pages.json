@@ -92,10 +92,10 @@
 				{
 					"path": "help",
 					"style": {
-						"navigationBarTitleText": ""
+						"navigationStyle": "custom"
 					},
 					"meta": {
-						"isAuth": true
+						"isAuth": false
 					}
 				}
 			]
