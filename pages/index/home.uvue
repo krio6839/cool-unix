@@ -178,7 +178,7 @@ onMounted(() => {
 		});
 	} else {
 		// 已登录，判断配对状态
-		if (device.isPaired.value == false) {
+		if (device.getPaired() == false) {
 			// 未配对，跳转到配对页面
 			router.push({
 				path: "/pages/device/index"

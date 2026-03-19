@@ -2,28 +2,24 @@ import { ref } from "vue";
 import { storage } from "../utils";
 
 export class Device {
-	isPaired = ref<boolean>(false);
+	isPaired = false;
 
 	constructor() {
 		const devicePaired = storage.get("devicePaired");
-		if (devicePaired == "Y") {
-			this.isPaired.value = true;
-		} else {
-			this.isPaired.value = false;
-		}
+		this.isPaired = devicePaired == "Y";
 	}
 
-	setPaired(paired: boolean) {
-		this.isPaired.value = paired;
+	updatePairedStatus(paired: boolean) {
+		this.isPaired = paired;
 		storage.set("devicePaired", paired ? "Y" : "N", 0);
 	}
 
 	getPaired(): boolean {
-		return this.isPaired.value;
+		return this.isPaired;
 	}
 
 	clear() {
-		this.isPaired.value = false;
+		this.isPaired = false;
 		storage.remove("devicePaired");
 	}
 }

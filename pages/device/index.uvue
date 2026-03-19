@@ -60,7 +60,7 @@ import PairingState from "./components/PairingState.uvue";
 import ConnectedState from "./components/ConnectedState.uvue";
 
 const ui = useUi();
-const { device } = useStore();
+const { device: deviceStore } = useStore();
 const inited = ref<boolean>(false);
 const status = ref<DeviceStatus>("UNPAIRED");
 const connectedDeviceName = ref<string>("Cool Unix 设备");
@@ -223,7 +223,7 @@ function onSelect(location: string) {
 		}
 		connectToDevice(device.deviceId, deviceName);
 	}
-	device.isPaired.value = true;
+	deviceStore.updatePairedStatus(true);
 	router.push({
 		path: "/pages/index/home",
 		mode: "reLaunch"
