@@ -1,7 +1,7 @@
 {
 	"name": "BOOM",
-	"appid": "__UNI__38119D8",
-	"description": "完全开源、永久免费、上手容易、效率极高的开发脚手架",
+	"appid": "__UNI__E6707EA",
+	"description": "",
 	"versionName": "1.0.0",
 	"versionCode": "100",
 	"uni-app-x": {},
@@ -70,7 +70,6 @@
 	},
 	"app-android": {
 		"distribute": {
-			"bundleName": "com.hiikon.boom",
 			"modules": {
 				"uni-location": {
 					"system": {}
