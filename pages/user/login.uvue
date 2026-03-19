@@ -4,7 +4,7 @@
 			fixed
 			safe-area-top
 			background-color="transparent"
-			left-icon="arrow-left"
+			:show-back="false"
 			@tap="goBack"
 		></cl-topbar>
 		<image
@@ -137,9 +137,10 @@ function forgotPassword() {
 async function toLogin(res: any) {
 	user.setToken(parse<Token>(res)!);
 	user.get();
-	router.nextLogin();
+	// router.nextLogin();
 	router.push({
-		path: "/pages/user/questionnaire"
+		path: "/pages/user/questionnaire",
+		mode: "reLaunch"
 	});
 }
 

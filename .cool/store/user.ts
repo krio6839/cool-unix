@@ -11,6 +11,20 @@ export type Token = {
 	refreshExpire: number; // 刷新token过期时间（秒）
 };
 
+// 模拟用户信息
+const mockUserInfo: UserInfo = {
+	unionid: "1",
+	id: 1,
+	nickName: "测试用户",
+	phone: "18000000000",
+	avatarUrl: "",
+	gender: 0,
+	status: 1,
+	loginType: 0,
+	createTime: "",
+	updateTime: ""
+};
+
 export class User {
 	/**
 	 * 用户信息，响应式对象
@@ -44,17 +58,20 @@ export class User {
 	 */
 	async get() {
 		if (this.token != null) {
-			await request({
-				url: "/app/user/info/person"
-			})
-				.then((res) => {
-					if (res != null) {
-						this.set(res);
-					}
-				})
-				.catch(() => {
-					// this.logout();
-				});
+			// await request({
+			// 	url: "/app/user/info/person"
+			// })
+			// 	.then((res) => {
+			// 		if (res != null) {
+			// 			this.set(res);
+			// 		}
+			// 	})
+			// 	.catch(() => {
+			// 		// this.logout();
+			// 	});
+
+			// 使用模拟数据
+			this.set(mockUserInfo);
 		}
 	}
 
@@ -145,31 +162,22 @@ export class User {
 	}
 
 	/**
-	 * 刷新token（调用服务端接口，自动更新本地token）
+	 * 刷新token（使用模拟数据）
 	 * @returns Promise<string> 新的token
 	 */
 	refreshToken(): Promise<string> {
-		return new Promise((resolve, reject) => {
-			request({
-				url: "/app/user/login/refreshToken",
-				method: "POST",
-				data: {
-					refreshToken: storage.get("refreshToken")
-				}
-			})
-				.then((res) => {
-					if (res != null) {
-						const token = parse<Token>(res);
-
-						if (token != null) {
-							this.setToken(token);
-							resolve(token.token);
-						}
-					}
-				})
-				.catch((err) => {
-					reject(err);
-				});
+		return new Promise((resolve) => {
+			// 模拟网络延迟
+			setTimeout(() => {
+				const mockToken: Token = {
+					token: "mock_token_refreshed_123456",
+					expire: 3600,
+					refreshToken: "mock_refresh_token_refreshed_123456",
+					refreshExpire: 86400
+				};
+				this.setToken(mockToken);
+				resolve(mockToken.token);
+			}, 500);
 		});
 	}
 }

@@ -18,6 +18,7 @@
 				</cl-text>
 				<cl-text color="gray-400" :size="16">{{ t("请在APP端使用设备配对功能") }}</cl-text>
 			</view>
+			<cl-button @click="onSelect"> ceshi </cl-button>
 		</view>
 		<!-- #endif -->
 
@@ -46,7 +47,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed, onUnmounted } from "vue";
-import { router, t } from "@/.cool";
+import { router, t, useStore } from "@/.cool";
 import { useUi } from "@/uni_modules/cool-ui";
 import type { DeviceStatus } from "./components/types";
 //#ifndef H5
@@ -59,6 +60,7 @@ import PairingState from "./components/PairingState.uvue";
 import ConnectedState from "./components/ConnectedState.uvue";
 
 const ui = useUi();
+const { device } = useStore();
 const inited = ref<boolean>(false);
 const status = ref<DeviceStatus>("UNPAIRED");
 const connectedDeviceName = ref<string>("Cool Unix 设备");
@@ -67,10 +69,12 @@ const deviceList = ref<DeviceInfo[]>([]);
 const currentDeviceId = ref<string>("");
 
 // 初始化蓝牙管理器
+//#ifndef H5
 const kuxBluetooth = useKuxBluetooth({
 	needLocation: true,
 	accessBackgroundLocation: false
 } as InitConfig);
+//#endif
 
 // 计算属性：根据状态动态生成标题文本，避免在模板中进行复杂的逻辑判断
 const titleText = computed(() => {
@@ -219,6 +223,11 @@ function onSelect(location: string) {
 		}
 		connectToDevice(device.deviceId, deviceName);
 	}
+	device.isPaired.value = true;
+	router.push({
+		path: "/pages/index/home",
+		mode: "reLaunch"
+	});
 }
 
 async function enterPairingMode() {

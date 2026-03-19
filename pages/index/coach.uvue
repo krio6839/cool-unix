@@ -204,7 +204,7 @@ onMounted(() => {});
 .chat-area {
 	flex: 1;
 	padding: 20rpx;
-	overflow: auto;
+		overflow: visible;
 
 	.greeting-section {
 		text-align: center;

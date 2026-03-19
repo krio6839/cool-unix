@@ -25,14 +25,8 @@
 					:key="oIndex"
 					v-model="question.selected"
 					:value="option.value"
-					@change="selectOption(qIndex, option.value)"
 					:pt="{
-						className: parseClass([
-							'my-2',
-							[
-								'justify-between border border-solid border-surface-200 rounded-lg p-2 !my-1'
-							]
-						])
+						className: 'my-2'
 					}"
 				>
 					{{ option.label }}
@@ -66,7 +60,7 @@
 </template>
 
 <script lang="ts" setup>
-import { parseClass } from "@/.cool";
+import { parseClass, router } from "@/.cool";
 import { ref, reactive } from "vue";
 
 // 类型定义
@@ -142,11 +136,6 @@ const selectUserType = (value: string): void => {
 	selectedUserType.value = value;
 };
 
-// 选择问卷选项
-const selectOption = (questionIndex: number, value: string): void => {
-	questions[questionIndex].selected = value;
-};
-
 // 下一步
 const nextStep = (): void => {
 	if (selectedUserType.value !== "") {
@@ -184,7 +173,7 @@ const submitQuestionnaire = (): void => {
 
 	// 提交后跳转到其他页面
 	uni.redirectTo({
-		url: "/pages/index/home"
+		url: "/pages/device/index"
 	});
 };
 </script>
@@ -200,7 +189,7 @@ const submitQuestionnaire = (): void => {
 
 .title {
 	font-size: 18px;
-	font-weight: 600;
+	font-weight: bold;
 	color: #fff;
 }
 

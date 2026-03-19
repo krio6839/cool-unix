@@ -32,9 +32,10 @@
 </template>
 
 <script setup lang="ts">
-import { request, t, type Response } from "@/.cool";
+import { t } from "@/.cool";
 import { useUi } from "@/uni_modules/cool-ui";
 import { inject, ref } from "vue";
+import type { Token } from "@/.cool/store/user";
 
 const props = defineProps<{
 	phone: string;
@@ -46,6 +47,14 @@ const ui = useUi();
 // 是否同意
 const isAgree = inject("isAgree") as () => boolean;
 
+// 模拟登录数据
+const mockToken: UTSJSONObject = {
+	token: "mock_token_123456",
+	expire: 3600,
+	refreshToken: "mock_refresh_token_123456",
+	refreshExpire: 86400
+};
+
 // 是否加载中
 const loading = ref(false);
 async function handleLogin() {
@@ -55,22 +64,8 @@ async function handleLogin() {
 
 	loading.value = true;
 
-	await request({
-		url: "/app/user/login/phone",
-		method: "POST",
-		data: {
-			phone: 18000000000,
-			smsCode: "6666"
-		}
-	})
-		.then((res) => {
-			emit("success", res);
-		})
-		.catch((err) => {
-			ui.showToast({
-				message: (err as Response).message!
-			});
-		});
+	// 使用模拟数据
+	emit("success", mockToken);
 
 	loading.value = false;
 }

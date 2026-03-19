@@ -131,7 +131,7 @@
 </template>
 
 <script lang="ts" setup>
-import { isApp, isMp, useRefs, t, dayUts, router } from "@/.cool";
+import { isApp, isMp, useRefs, t, dayUts, router, useStore } from "@/.cool";
 import { ref, computed, onMounted } from "vue";
 import { useUi } from "@/uni_modules/cool-ui";
 import { config } from "@/config";
@@ -143,6 +143,7 @@ import UserInfo from "./components/user-info.uvue";
 
 const ui = useUi();
 const refs = useRefs();
+const { user, device } = useStore();
 const energyPercentage = ref<number>(70);
 const currentDate = ref<string>("");
 
@@ -168,7 +169,25 @@ const text1 = ref<string>(
 );
 
 onMounted(() => {
-	formatDate();
+	// 判断登录状态
+	if (user.token == null) {
+		// 未登录，跳转到登录页
+		router.push({
+			path: "/pages/user/login",
+			mode: "reLaunch"
+		});
+	} else {
+		// 已登录，判断配对状态
+		if (device.isPaired.value == false) {
+			// 未配对，跳转到配对页面
+			router.push({
+				path: "/pages/device/index"
+			});
+		} else {
+			// 已配对，显示首页
+			formatDate();
+		}
+	}
 });
 
 function goToCalendar() {

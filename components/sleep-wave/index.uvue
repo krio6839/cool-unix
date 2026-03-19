@@ -427,7 +427,7 @@ function onCanvasLoad(canvas: Canvas): void {
 .color_dot {
 	width: 12rpx;
 	height: 12rpx;
-	border-radius: 50%;
+	border-radius: 6rpx;
 	margin-right: 8rpx;
 }
 
