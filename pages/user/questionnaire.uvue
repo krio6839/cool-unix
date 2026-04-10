@@ -196,7 +196,6 @@ const submitQuestionnaire = (): void => {
 .content {
 	flex: 1;
 	padding: 20px;
-	overflow-y: auto;
 }
 
 .option-card {

@@ -104,10 +104,14 @@ const toChartPage = () => {
 	box-sizing: border-box;
 
 	position: relative;
+	/* #ifndef APP */
 	&::after {
 		content: "";
 		position: absolute;
-		inset: 0;
+		top: 0;
+		right: 0;
+		bottom: 0;
+		left: 0;
 		border-radius: 16px;
 		padding: 1px;
 		background: linear-gradient(87deg, rgba(62, 114, 104, 1), rgba(56, 70, 61, 1));
@@ -121,6 +125,11 @@ const toChartPage = () => {
 		mask-composite: exclude;
 		pointer-events: none;
 	}
+	/* #endif */
+	/* #ifdef APP */
+	border-width: 1px;
+	border-color: rgba(62, 114, 104, 0.5);
+	/* #endif */
 }
 
 .invite-btn {
@@ -131,10 +140,14 @@ const toChartPage = () => {
 	box-sizing: border-box;
 
 	position: relative;
+	/* #ifndef APP */
 	&::after {
 		content: "";
 		position: absolute;
-		inset: 0;
+		top: 0;
+		right: 0;
+		bottom: 0;
+		left: 0;
 		border-radius: 16px;
 		padding: 1px;
 		background: linear-gradient(to right, rgba(62, 114, 104, 1), rgba(56, 70, 61, 1));
@@ -148,5 +161,10 @@ const toChartPage = () => {
 		mask-composite: exclude;
 		pointer-events: none;
 	}
+	/* #endif */
+	/* #ifdef APP */
+	border-width: 1px;
+	border-color: rgba(62, 114, 104, 0.5);
+	/* #endif */
 }
 </style>

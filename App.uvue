@@ -6,6 +6,26 @@ export default {
 		console.log("App Launch");
 		setTheme("dark");
 
+		// #ifdef APP
+		if (process.env.NODE_ENV !== "development") {
+			//真机运行可以注释此条件
+			uni.getPrivacySetting({
+				success(res1) {
+					if (res1.needAuthorization) {
+						// #ifdef VUE3-VAPOR
+						setTimeout(() => {
+							uni.openDialogPage({ url: "/pages/component/button/privacy" });
+						}, 500);
+						// #endif
+						// #ifndef VUE3-VAPOR
+						uni.openDialogPage({ url: "/pages/component/button/privacy" });
+						// #endif
+					}
+				}
+			});
+		}
+		// #endif
+
 		// 应用启动时进行状态判断
 		const { user } = useStore();
 		user.clear();

@@ -9,13 +9,3 @@ export interface DeviceIconProps {
 export interface UnpairedStateProps {
 	bluetoothEnabled: boolean;
 }
-
-// 设备状态枚举
-export enum DeviceStatusEnum {
-	UNPAIRED = "unpaired",
-	PAIRING = "pairing",
-	SEARCHING = "searching",
-	CONNECTED = "connected"
-}
-
-export type DeviceStatus = keyof typeof DeviceStatusEnum;

@@ -83,7 +83,9 @@
 			},
 			"splashScreens": {
 				"default": {}
-			}
+			},
+			"targetSdkVersion": "30",
+			"minSdkVersion": "21"
 		}
 	},
 	"app-ios": {
