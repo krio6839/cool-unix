@@ -12,8 +12,8 @@
 					fill
 					showSlider
 					:pt="{
-						className: 'w-1/2 !bg-[#1C1C1E] rounded',
-						slider: { className: '!bg-[#49494B]' }
+						className: 'w-1/2 !bg-[#1C1C1E] !rounded-full',
+						slider: { className: '!bg-[#49494B] !rounded-full' }
 					}"
 					@change="selectDays"
 				></cl-tabs>
