@@ -1,9 +1,24 @@
 <template>
 	<view class="chart-container">
-		<!-- 标题 -->
-		<cl-text v-if="title" :size="16" color="white" :pt="{ className: 'font-bold mb-3' }">
-			{{ title }}
-		</cl-text>
+		<view class="flex flex-row justify-between items-center">
+			<!-- 标题 -->
+			<cl-text v-if="title" :size="16" color="white" :pt="{ className: 'font-bold mb-3' }">
+				{{ title }}
+			</cl-text>
+			<slot v-if="showTool" name="tool">
+				<cl-tabs
+					v-model="selectedDays"
+					:list="timeRanges"
+					fill
+					showSlider
+					:pt="{
+						className: 'w-1/2 !bg-[#1C1C1E] rounded',
+						slider: { className: '!bg-[#49494B]' }
+					}"
+					@change="selectDays"
+				></cl-tabs>
+			</slot>
+		</view>
 
 		<!-- 图表区域 -->
 		<view class="chart-wrapper" :style="{ width: '100%', height: (height ?? 0) + 'px' }">
@@ -14,13 +29,13 @@
 		<view class="description-container" v-if="showFooter">
 			<view class="description-item">
 				<cl-text :size="14" color="rgba(255,255,255,0.6)">平均</cl-text>
-				<cl-text :size="20" color="white" :pt="{ className: 'font-bold' }">
+				<cl-text :size="20" color="white" :pt="{ className: 'font-bold opacity-70' }">
 					{{ stats.average.toFixed(0) }}
 				</cl-text>
 			</view>
 			<view class="description-item">
 				<cl-text :size="14" color="rgba(255,255,255,0.6)">最高</cl-text>
-				<cl-text :size="20" color="white" :pt="{ className: 'font-bold' }">
+				<cl-text :size="20" color="white" :pt="{ className: 'font-bold opacity-70' }">
 					{{ stats.max }}
 				</cl-text>
 				<cl-text
@@ -33,7 +48,7 @@
 			</view>
 			<view class="description-item">
 				<cl-text :size="14" color="rgba(255,255,255,0.6)">最低</cl-text>
-				<cl-text :size="20" color="white" :pt="{ className: 'font-bold' }">
+				<cl-text :size="20" color="white" :pt="{ className: 'font-bold opacity-70' }">
 					{{ stats.min }}
 				</cl-text>
 				<cl-text
@@ -51,10 +66,28 @@
 <script lang="ts" setup>
 import { ref, computed } from "vue";
 import type { ChartProps, ChartStats } from "../types/chart";
+import type { ClTabsItem } from "@/uni_modules/cool-ui";
 
 const props = withDefaults(defineProps<ChartProps>(), {
-	showFooter: true
+	showFooter: true,
+	showTool: false
 });
+
+// 时间范围选项
+const timeRanges = ref<ClTabsItem[]>([
+	{ label: "7天", value: "7d" },
+	{ label: "14天", value: "14d" },
+	{ label: "30天", value: "30d" }
+]);
+
+// 选中的天数
+const selectedDays = ref<string>("7d");
+
+// 选择天数
+function selectDays(value: string) {
+	selectedDays.value = value;
+	console.log(`Selected ${value} days`);
+}
 
 //@ts-ignore
 const chartRef = ref<LEchartComponentPublicInstance | null>(null);

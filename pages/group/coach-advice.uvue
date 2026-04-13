@@ -8,11 +8,11 @@
 					<text class="text-gray-400 text-sm mt-1">恢复得分</text>
 				</view>
 				<view class="flex flex-col items-center">
-					<text class="text-white text-lg font-medium">{{ energyLevel }}</text>
+					<text class="text-white text-lg font-bold">{{ energyLevel }}</text>
 					<text class="text-gray-400 text-sm mt-1">储能</text>
 				</view>
 				<view class="flex flex-col items-center">
-					<text class="text-white text-lg font-medium">{{ hrvStatus }}</text>
+					<text class="text-white text-lg font-bold">{{ hrvStatus }}</text>
 					<text class="text-gray-400 text-sm mt-1">HRV</text>
 				</view>
 				<view class="flex flex-col items-center">
@@ -29,10 +29,10 @@
 
 		<!-- 今日推荐课表 -->
 		<view class="px-4 mb-4">
-			<text class="text-white text-lg font-medium mb-3 block">今日推荐课表</text>
+			<text class="text-white text-lg font-bold mb-3 block">今日推荐课表</text>
 			<view class="bg-[#1A1A16] rounded-2xl p-4">
 				<view class="flex flex-row justify-between items-center mb-4">
-					<text class="text-white font-medium">{{ workoutType }}</text>
+					<text class="text-white font-bold">{{ workoutType }}</text>
 					<text class="text-gray-400 text-sm">{{ workoutDuration }}</text>
 				</view>
 				<text class="text-gray-400 text-sm mb-2 block">组间休息3分钟</text>
@@ -48,7 +48,7 @@
 		<!-- 总时长 -->
 		<view class="px-4 mb-4">
 			<view class="bg-[#1A1A16] rounded-2xl p-4">
-				<text class="text-white font-medium">总时长</text>
+				<text class="text-white font-bold">总时长</text>
 
 				<view class="flex flex-row justify-between items-center mb-4">
 					<text class="text-gray-400 text-sm mb-2 block">

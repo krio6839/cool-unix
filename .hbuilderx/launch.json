@@ -8,7 +8,7 @@
         {
             "customPlaygroundType" : "local",
             "packageName" : "uni.app.UNI651711F",
-            "playground" : "standard",
+            "playground" : "custom",
             "type" : "uni-app:app-android"
         },
         {

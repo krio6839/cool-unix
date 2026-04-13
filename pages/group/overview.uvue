@@ -3,7 +3,7 @@
 		<!-- 顶部导航 -->
 		<view class="flex flex-row items-center justify-between p-4">
 			<cl-icon name="arrow-left-line" color="#fff" :size="24" @click="onBack" />
-			<text class="text-white text-lg font-medium">数据</text>
+			<text class="text-white text-lg font-bold">数据</text>
 			<view class="w-6"></view>
 		</view>
 

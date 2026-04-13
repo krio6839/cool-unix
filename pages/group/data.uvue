@@ -3,7 +3,7 @@
 		<!-- 小组信息 -->
 		<view class="p-3 flex flex-row justify-between items-center">
 			<view class="flex flex-row items-center">
-				<text class="text-white text-lg font-medium mr-4">{{ group.name }}</text>
+				<text class="text-white text-lg font-bold mr-4">{{ group.name }}</text>
 				<cl-tag type="primary" :pt="{ text: { className: '!text-sky-700' } }">
 					组长{{ group.leader }}
 				</cl-tag>

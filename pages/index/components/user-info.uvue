@@ -4,12 +4,12 @@
 		<image src="/static/icon/user-avatar.svg" class="absolute right-6 top-0 w-40"></image>
 		<view class="absolute left-1 top-12">
 			<view class="flex flex-col justify-center items-start">
-				<text class="text-lg font-bold text-white">{{
-					props?.name != null ? props?.name : "未登录"
+				<text class="text-lg font-bold text-white" @tap="handleNameClick">{{
+					currentTrainingState.userInfo.name
 				}}</text>
 				<text class="text-xs opacity-80 mr-4 my-3 text-white">
 					上次登录时间:
-					{{ props?.lastLoginTime != null ? props?.lastLoginTime : "" }}
+					{{ currentTrainingState.userInfo.lastLoginTime }}
 				</text>
 				<cl-switch></cl-switch>
 			</view>
@@ -18,16 +18,18 @@
 </template>
 
 <script lang="ts" setup>
-const props = defineProps({
-	name: {
-		type: String,
-		default: ""
-	},
-	lastLoginTime: {
-		type: String,
-		default: ""
-	}
-});
+import { computed } from "vue";
+import { useStore } from "@/.cool";
+
+const { user } = useStore();
+
+// 获取当前训练状态
+const currentTrainingState = computed(() => user.getCurrentTrainingState());
+
+// 切换训练状态
+function handleNameClick() {
+	user.switchTrainingState();
+}
 </script>
 
 <style lang="scss"></style>

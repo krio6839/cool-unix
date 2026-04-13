@@ -2,7 +2,8 @@ import { computed, ref } from "vue";
 import { forInObject, isNull, isObject, parse, storage } from "../utils";
 import { router } from "../router";
 import { request } from "../service";
-import type { UserInfo } from "../types";
+import type { StatusPageState, TrainingState, UserInfo } from "../types";
+import { trainingStates, statusPageStates } from "../data/training-states";
 
 export type Token = {
 	token: string; // 访问token
@@ -36,6 +37,11 @@ export class User {
 	 */
 	token: string | null = null;
 
+	/**
+	 * 当前训练状态key
+	 */
+	currentTrainingStateKey = ref<string>("supercompensation");
+
 	constructor() {
 		// 获取本地用户信息
 		const userInfo = storage.get("userInfo");
@@ -50,6 +56,31 @@ export class User {
 		if (userInfo != null && isObject(userInfo)) {
 			this.set(userInfo);
 		}
+	}
+
+	/**
+	 * 获取当前训练状态
+	 */
+	getCurrentTrainingState(): TrainingState {
+		return trainingStates.find((state) => state.key === this.currentTrainingStateKey.value)!;
+	}
+
+	/**
+	 * 获取当前健康状态页面数据
+	 */
+	getCurrentStatusPageState(): StatusPageState {
+		return statusPageStates.find((state) => state.key === this.currentTrainingStateKey.value)!;
+	}
+
+	/**
+	 * 切换训练状态
+	 */
+	switchTrainingState() {
+		const currentIndex = trainingStates.findIndex(
+			(state) => state.key === this.currentTrainingStateKey.value
+		);
+		const nextIndex = (currentIndex + 1) % trainingStates.length;
+		this.currentTrainingStateKey.value = trainingStates[nextIndex].key;
 	}
 
 	/**

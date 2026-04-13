@@ -12,7 +12,7 @@
 				<cl-col :span="12" :xs="24" class="mb-3">
 					<view class="bg-gradient rounded-2xl p-4 h-full">
 						<text class="text-gray-400 text-sm mb-1 block">今日状态</text>
-						<text class="text-white text-xl font-medium">{{ todayStatus }}</text>
+						<text class="text-white text-xl font-bold">{{ todayStatus }}</text>
 					</view>
 				</cl-col>
 				<cl-col :span="12" :xs="24" class="mb-3">
@@ -34,7 +34,7 @@
 		<view class="px-4 mb-4">
 			<view class="bg-[#1A1A16] rounded-2xl p-4">
 				<view class="flex flex-row justify-between items-center mb-4">
-					<text class="text-white font-medium">方案：{{ workoutPlan }}</text>
+					<text class="text-white font-bold">方案：{{ workoutPlan }}</text>
 					<text class="text-green-400 text-sm">(推荐)</text>
 				</view>
 
@@ -84,7 +84,7 @@
 		<!-- 决策依据 -->
 		<view class="px-4 mb-4">
 			<view class="flex flex-row items-center justify-between mb-3">
-				<text class="text-white text-lg font-medium">决策依据</text>
+				<text class="text-white text-lg font-bold">决策依据</text>
 				<cl-icon name="chevron-down" color="#fff" :size="20"></cl-icon>
 			</view>
 
@@ -102,7 +102,7 @@
 				<cl-col :span="12" :xs="24" class="mb-3">
 					<view class="bg-gradient rounded-2xl p-4 h-full">
 						<text class="text-gray-400 text-sm mb-3 block">HRV</text>
-						<text class="text-white text-lg font-medium mb-3">{{ hrvStatus }}</text>
+						<text class="text-white text-lg font-bold mb-3">{{ hrvStatus }}</text>
 						<chart :option="hrvChartOption" :height="96"></chart>
 					</view>
 				</cl-col>
@@ -134,7 +134,7 @@
 
 		<!-- 推荐合适度 -->
 		<cl-footer>
-			<text class="text-white text-lg font-medium mb-3 block">这个推荐合适吗？</text>
+			<text class="text-white text-lg font-bold mb-3 block">这个推荐合适吗？</text>
 			<view class="flex flex-row justify-between">
 				<cl-button
 					rounded

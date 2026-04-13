@@ -19,8 +19,8 @@
 			<Header
 				:date="currentDate"
 				:label="'总储能'"
-				:value="totalEnergy"
-				:progress="energyProgress"
+				:value="currentState.totalEnergy"
+				:progress="currentState.energyProgress"
 				:config="{
 					backgroundColor: '#282828',
 					startColor: '#4CAF50',
@@ -31,7 +31,7 @@
 			></Header>
 
 			<!-- 储能数据概览 -->
-			<Status :items="energyItems"></Status>
+			<Status :items="currentState.energyItems"></Status>
 
 			<!-- 当日能量曲线 -->
 			<Chart
@@ -47,35 +47,28 @@
 				:option="bodyEnergyChartOption"
 				:height="200"
 				:show-footer="false"
-			></Chart>
+				:show-tool="true"
+			>
+			</Chart>
 		</view>
 	</cl-page>
 </template>
 
 <script lang="ts" setup>
-import { isMp } from "@/.cool";
+import { isMp, dayUts, useStore, type StatusPageState } from "@/.cool";
 import { ref, computed } from "vue";
+import type { ClTabsItem } from "@/uni_modules/cool-ui";
 import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
-//@ts-ignore
 import Chart from "./components/chart.uvue";
-import type { ChartOption } from "./types/chart";
-import type { EnergyItem } from "./types";
 
-const currentDate = ref<string>("2025.10.14");
-const totalEnergy = ref<number>(958);
-const energyProgress = ref<number>(65);
+const { user } = useStore();
 
-const energyItems = ref<EnergyItem[]>([
-	{
-		label: "总充能",
-		value: 3264
-	},
-	{
-		label: "总耗能",
-		value: 867
-	}
-]);
+// 获取当前健康状态页面数据
+const currentState = computed<StatusPageState>(() => user.getCurrentStatusPageState());
+
+// 获取今天的日期
+const currentDate = dayUts().format("YYYY-MM-DD");
 
 const energyChartOption = computed(() => {
 	let option: UTSJSONObject = {
@@ -94,7 +87,20 @@ const energyChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
+			data: [
+				"00:00",
+				"02:00",
+				"04:00",
+				"06:00",
+				"08:00",
+				"10:00",
+				"12:00",
+				"14:00",
+				"16:00",
+				"18:00",
+				"20:00",
+				"22:00"
+			],
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -120,10 +126,11 @@ const energyChartOption = computed(() => {
 			{
 				name: "能量",
 				type: "line",
-				data: [120, 190, 150, 200, 250, 300, 280, 260],
+				data: currentState.value.energyChartData,
 				smooth: true,
+				symbol: "none",
 				lineStyle: {
-					color: "#4CAF50",
+					color: "#D2FF5C",
 					width: 2
 				},
 				areaStyle: {
@@ -168,7 +175,7 @@ const bodyEnergyChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
+			data: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -194,10 +201,27 @@ const bodyEnergyChartOption = computed(() => {
 			{
 				name: "身体储能",
 				type: "bar",
-				data: [60, 80, 70, 90, 85, 95, 100, 98],
+				data: currentState.value.bodyEnergyChartData,
 				itemStyle: {
-					color: "#FF9800"
-				}
+					color: {
+						type: "linear",
+						x: 0,
+						y: 0,
+						x2: 0,
+						y2: 1,
+						colorStops: [
+							{
+								offset: 0,
+								color: "#d2ff5c"
+							},
+							{
+								offset: 1,
+								color: "#d2ff5c00"
+							}
+						]
+					}
+				},
+				barWidth: "50%"
 			}
 		]
 	};

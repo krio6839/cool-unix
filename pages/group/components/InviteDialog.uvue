@@ -2,7 +2,7 @@
 	<cl-popup v-model="visible" position="bottom" round>
 		<view class="p-4">
 			<view class="flex justify-between items-center mb-4">
-				<text class="text-white text-lg font-medium">邀请</text>
+				<text class="text-white text-lg font-bold">邀请</text>
 				<cl-icon name="close" :size="24" color="#fff" @click="onCancel" />
 			</view>
 			<cl-input

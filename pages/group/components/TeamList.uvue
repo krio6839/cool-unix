@@ -5,7 +5,7 @@
 			<view class="flex flex-row items-center">
 				<cl-avatar :src="team.avatar" :size="24" class="mr-3" />
 				<view>
-					<text class="text-white text-lg font-medium">{{ team.name }}</text>
+					<text class="text-white text-lg font-bold">{{ team.name }}</text>
 					<text class="text-green-200 text-sm">{{ team.memberCount }}人</text>
 				</view>
 			</view>
@@ -21,7 +21,7 @@
 				@click="onGroupClick(group)"
 			>
 				<view class="flex flex-row justify-between items-center mb-2">
-					<text class="text-white text-base font-medium">{{ group.name }}</text>
+					<text class="text-white text-base font-bold">{{ group.name }}</text>
 					<text class="text-gray-400">{{ group.memberCount }} 人</text>
 				</view>
 				<view class="flex flex-row items-center">

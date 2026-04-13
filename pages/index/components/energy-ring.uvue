@@ -50,7 +50,7 @@ function drawText() {
 	if (ctx2d == null) return;
 
 	// 计算中心位置
-	const centerX = canvasWidth.value / 2; // 画布中心X坐标
+	const centerX = canvasWidth.value / 2 - 5; // 画布中心X坐标
 	const centerY = 30;
 
 	// 绘制百分比文字（放在最里面的环的中心）
@@ -60,7 +60,7 @@ function drawText() {
 	ctx2d.textAlign = "center"; // 设置文字水平对齐方式为居中
 	ctx2d.textBaseline = "middle"; // 设置文字垂直对齐方式为居中
 	// 绘制百分比文字：内容、X坐标、Y坐标
-	ctx2d.fillText(`${props.percentage}%`, centerX, centerY);
+	ctx2d.fillText(`${props.percentage}`, centerX, centerY);
 	ctx2d.restore(); // 恢复之前保存的画布状态
 }
 
@@ -92,7 +92,7 @@ function drawRings() {
 		const outerRadius = currentTotalRadius - i * (ringWidth + ringGap); // 每个环的外半径
 
 		// 计算环的位置（下半圆）
-		const centerX = canvasWidth.value / 2; // 画布中心X坐标
+		const centerX = canvasWidth.value / 2 - 5; // 画布中心X坐标
 		const centerY = 10;
 
 		// 绘制背景半圆环

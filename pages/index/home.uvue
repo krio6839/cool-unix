@@ -69,20 +69,17 @@
 		<view class="p-3">
 			<!-- 用户信息模块 -->
 			<view class="relative h-[280px]">
-				<UserInfo
-					:name="userInfo.name"
-					:last-login-time="userInfo.lastLoginTime"
-				></UserInfo>
+				<UserInfo></UserInfo>
 
 				<!-- 健康状态模块 -->
 				<view class="absolute bottom-0 left-0 right-0">
-					<HealthStatus :status="60" :sleep="70" :load="80"></HealthStatus>
+					<HealthStatus :data="currentState.healthStatus"></HealthStatus>
 				</view>
 			</view>
 
 			<!-- 储能数据模块 -->
 			<view @tap="goToEnergyStorage">
-				<EnergyRing class="mb-4" :percentage="energyPercentage"></EnergyRing>
+				<EnergyRing class="mb-4" :percentage="currentState.energyPercentage"></EnergyRing>
 			</view>
 
 			<!-- BOOM GO -->
@@ -96,19 +93,24 @@
 						GO
 					</cl-text>
 				</view>
-				<cl-text :size="14" :pt="{ className: 'leading-relaxed' }">{{ text1 }} </cl-text>
+				<cl-text :size="14" :pt="{ className: 'leading-relaxed' }"
+					>{{ currentState.boomGoText }}
+				</cl-text>
 			</view>
 
 			<!-- 超量恢复 -->
 			<view class="over-recovery mb-4 rounded-xl p-4 bg-black" @tap="goToRecovery">
 				<cl-text :size="16" :pt="{ className: 'font-bold mb-3' }">超量恢复</cl-text>
-				<cl-text :size="14" :pt="{ className: 'mb-3 text-surface-300' }"
-					>1月15日 14:00-16:00</cl-text
-				>
+				<cl-text :size="14" :pt="{ className: 'mb-3 text-surface-300' }">{{
+					currentState.details.supercompensationTime
+				}}</cl-text>
 				<view class="flex flex-row items-center justify-between">
 					<view class="flex-1 mr-3">
 						<view class="w-full h-1 bg-surface-700 rounded-full">
-							<view class="h-1 bg-primary-500 rounded-full" style="width: 60%"></view>
+							<view
+								class="h-1 bg-primary-500 rounded-full"
+								:style="'width: 80%'"
+							></view>
 						</view>
 					</view>
 					<view
@@ -144,29 +146,16 @@ import UserInfo from "./components/user-info.uvue";
 const ui = useUi();
 const refs = useRefs();
 const { user, device } = useStore();
-const energyPercentage = ref<number>(70);
 const currentDate = ref<string>("");
+
+// 获取当前训练状态
+const currentState = computed(() => user.getCurrentTrainingState());
 
 // 格式化当前日期
 function formatDate() {
 	const date = dayUts();
 	currentDate.value = `${date.format("MM月DD日")}`;
 }
-
-type UserInfoType = {
-	name?: string;
-	lastLoginTime?: string;
-};
-
-// 用户信息
-const userInfo = ref<UserInfoType>({
-	name: "张晓明",
-	lastLoginTime: "2026.01.15"
-});
-
-const text1 = ref<string>(
-	"前几天连续训练负荷较大，HRV较低但储能情况良好，预计明天HRV上升达到超量恢复黄金窗口。建议降低训练量，注意恢复调整"
-);
 
 onMounted(() => {
 	// 判断登录状态

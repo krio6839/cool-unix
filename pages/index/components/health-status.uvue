@@ -13,6 +13,7 @@
 							{{ item.value }}
 						</cl-text>
 						<cl-icon
+							v-if="item.trend"
 							:name="getTrendIcon(item.trend)"
 							:color="getTrendColor(item.trend)"
 							:size="12"
@@ -26,85 +27,49 @@
 
 <script lang="ts" setup>
 import { router } from "@/.cool";
-import { reactive, watchEffect, computed } from "vue";
-
-// 健康项目类型
-type HealthItem = {
-	label: string;
-	value: string | number;
-	trend: "up" | "down";
-};
+import { computed } from "vue";
+import type { HealthItem, HealthStatus } from "@/.cool";
 
 type Props = {
-	status: number;
-	sleep: number;
-	load: number;
+	data: HealthStatus;
 };
 
 const props = defineProps<Props>();
 
-// 存储上一次的数据
-const previousData = reactive<Props>({
-	status: props.status,
-	sleep: props.sleep,
-	load: props.load
-});
-
-const status = computed(() => props.status);
-const sleep = computed(() => props.sleep);
-const load = computed(() => props.load);
-
-// // 监听数据变化，更新上一次数据
-// watch(
-// 	computed(() => [props.status, props.sleep, props.load]),
-// 	(newVals: number[]) => {
-// 		previousData.value = {
-// 			status: newVals[0] as number,
-// 			sleep: newVals[1] as number,
-// 			load: newVals[2] as number
-// 		};
-// 	}
-// );
-
-watchEffect(() => {
-	previousData.status = status.value;
-	previousData.sleep = sleep.value;
-	previousData.load = load.value;
-});
-
 // 计算健康项目列表
-const healthItems = computed<HealthItem[]>(() => {
-	// 计算趋势：与上一次数据比较
-	const getTrend = (current: number, previous: number): "up" | "down" => {
-		return current > previous ? "up" : "down";
+const healthItems = computed(() => {
+	const data = props.data as HealthStatus;
+	const item1: HealthItem = {
+		label: "状态",
+		value: data.status
 	};
-
-	return [
-		{
-			label: "状态",
-			value: status.value,
-			trend: getTrend(status.value, previousData.status)
-		},
-		{
-			label: "睡眠",
-			value: sleep.value,
-			trend: getTrend(sleep.value, previousData.sleep)
-		},
-		{
-			label: "负荷",
-			value: load.value,
-			trend: getTrend(load.value, previousData.load)
-		}
-	];
+	const item2: HealthItem = {
+		label: "睡眠",
+		value: data.sleep
+	};
+	const item3: HealthItem = {
+		label: "负荷",
+		value: data.load
+	};
+	if (data.statusTrend != null) {
+		item1.trend = data.statusTrend;
+	}
+	if (data.sleepTrend != null) {
+		item2.trend = data.sleepTrend;
+	}
+	if (data.loadTrend != null) {
+		item3.trend = data.loadTrend;
+	}
+	return [item1, item2, item3];
 });
 
 // 辅助函数：获取趋势图标
-function getTrendIcon(trend: "up" | "down"): string {
+function getTrendIcon(trend?: "up" | "down"): string {
 	return trend === "up" ? "arrow-up-line" : "arrow-down-line";
 }
 
 // 辅助函数：获取趋势颜色
-function getTrendColor(trend: "up" | "down"): string {
+function getTrendColor(trend?: "up" | "down"): string {
 	return trend === "up" ? "#4CAF50" : "#FF5252";
 }
 

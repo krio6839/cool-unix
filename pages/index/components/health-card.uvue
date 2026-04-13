@@ -15,46 +15,73 @@
 </template>
 
 <script lang="ts" setup>
-import { router } from "@/.cool";
-import { ref } from "vue";
-type HealthDataItem = {
+import { router, useStore } from "@/.cool";
+import { computed } from "vue";
+import type { HealthCardItem } from "@/.cool";
+
+const { user } = useStore();
+
+// 基础健康数据结构（不变的部分）
+type HealthCardBase = {
 	title: string;
-	value: string;
 	unit: string;
 	change: number;
 	icon: string;
 };
-
-const healthData = ref<HealthDataItem[]>([
+const baseHealthData: HealthCardBase[] = [
 	{
 		title: "心率",
-		value: "73",
 		unit: "bpm",
 		change: 26,
 		icon: "/static/icon/health/heart-rate.svg"
 	},
 	{
 		title: "静息心率",
-		value: "73",
 		unit: "bpm",
 		change: 27,
 		icon: "/static/icon/health/heart-rate.svg"
 	},
 	{
 		title: "血氧",
-		value: "98",
 		unit: "%",
 		change: 0,
 		icon: "/static/icon/health/spo2.svg"
 	},
 	{
 		title: "心率变异性",
-		value: "80",
 		unit: "ms",
 		change: 18,
 		icon: "/static/icon/health/hrv.svg"
 	}
-]);
+];
+
+// 从当前训练状态获取健康数据值
+const healthData = computed<HealthCardItem[]>(() => {
+	const currentState = user.getCurrentTrainingState();
+	const values = currentState.healthCardValues;
+
+	return baseHealthData.map((item, index): HealthCardItem => {
+		let value = 0;
+		switch (index) {
+			case 0: // 心率
+				value = values.heartRate;
+				break;
+			case 1: // 静息心率
+				value = values.restingHeartRate;
+				break;
+			case 2: // 血氧
+				value = values.oxygen;
+				break;
+			case 3: // 心率变异性
+				value = values.hrv;
+				break;
+		}
+		return {
+			...item,
+			value
+		};
+	});
+});
 
 const getChangeText = (change: number) => {
 	if (change === 0) {

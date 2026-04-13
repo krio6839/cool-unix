@@ -19,8 +19,8 @@
 			<Header
 				:date="currentDate"
 				:label="'总负荷'"
-				:value="totalLoad"
-				:progress="loadProgress"
+				:value="currentState.totalLoad"
+				:progress="currentState.loadProgress"
 				:config="{
 					backgroundColor: '#282828',
 					startColor: '#D2FF5C',
@@ -31,17 +31,13 @@
 			></Header>
 
 			<!-- 健康数据概览 -->
-			<Status :items="healthItems"></Status>
+			<Status :items="currentState.loadItems"></Status>
 
 			<!-- 当日实时负荷趋势图 -->
-			<Chart
-				:title="'当日实时负荷趋势图'"
-				:option="realtimeChartOption"
-				:height="200"
-			></Chart>
+			<Chart :title="'当日实时负荷'" :option="realtimeChartOption" :height="200"></Chart>
 
-			<!-- 压力负荷趋势图 -->
-			<Chart :title="'压力负荷趋势图'" :option="pressureChartOption" :height="200"></Chart>
+			<!-- 负荷区间分布图 -->
+			<Chart :title="'负荷区间分布'" :option="loadZoneChartOption" :height="200"></Chart>
 
 			<!-- 运动负荷趋势图 -->
 			<Chart :title="'运动负荷趋势图'" :option="exerciseChartOption" :height="200"></Chart>
@@ -56,38 +52,19 @@
 </template>
 
 <script lang="ts" setup>
-import { isMp } from "@/.cool";
-import { ref, computed } from "vue";
+import { isMp, dayUts, useStore } from "@/.cool";
+import { computed } from "vue";
 import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
-// @ts-ignore
 import Chart from "./components/chart.uvue";
-import type { HealthItem, ChartOption } from "./types";
 
-// 组件数据
-const currentDate = ref<string>("2025.10.14");
-const totalLoad = ref<number>(7326);
-const loadProgress = ref<number>(60);
+const { user } = useStore();
 
-// 健康数据
-const healthItems = ref<HealthItem[]>([
-	{
-		label: "平均负荷",
-		value: 36
-	},
-	{
-		label: "静态心率",
-		value: 78
-	},
-	{
-		label: "步数",
-		value: 9587
-	},
-	{
-		label: "卡路里",
-		value: 598
-	}
-]);
+// 获取当前健康状态页面数据
+const currentState = computed(() => user.getCurrentStatusPageState());
+
+// 获取今天的日期
+const currentDate = dayUts().format("YYYY-MM-DD");
 
 // 当日实时负荷趋势图配置
 const realtimeChartOption = computed(() => {
@@ -115,7 +92,20 @@ const realtimeChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
+			data: [
+				"00:00",
+				"02:00",
+				"04:00",
+				"06:00",
+				"08:00",
+				"10:00",
+				"12:00",
+				"14:00",
+				"16:00",
+				"18:00",
+				"20:00",
+				"22:00"
+			],
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -144,7 +134,7 @@ const realtimeChartOption = computed(() => {
 			{
 				name: "负荷",
 				type: "line",
-				data: [5, 8, 12, 8, 15, 12, 10, 8],
+				data: currentState.value.realtimeLoadData,
 				smooth: true,
 				symbol: "none",
 				lineStyle: {
@@ -177,7 +167,82 @@ const realtimeChartOption = computed(() => {
 	return JSON.stringify(option);
 });
 
-// 压力负荷趋势图配置
+// 负荷区间分布数据
+const loadZoneChartOption = computed(() => {
+	const options: UTSJSONObject = {
+		tooltip: {
+			trigger: "axis",
+			axisPointer: {
+				type: "shadow"
+			},
+			backgroundColor: "rgba(0, 0, 0, 0.8)",
+			borderColor: "#FFD700",
+			borderWidth: 1,
+			textStyle: {
+				color: "#fff",
+				fontSize: 12
+			},
+			padding: 10
+		},
+		grid: {
+			left: 0,
+			right: 0,
+			top: 0,
+			bottom: 0,
+			containLabel: true
+		},
+		xAxis: {
+			type: "category",
+			data: currentState.value.loadZones.map((item) => item.label),
+			axisLabel: {
+				color: "rgba(255,255,255,0.6)"
+			},
+			axisLine: {
+				lineStyle: {
+					color: "rgba(255,255,255,0.2)"
+				}
+			}
+		},
+		yAxis: {
+			type: "value",
+			axisLine: { show: false },
+			axisLabel: { show: false },
+			splitLine: { show: false }
+		},
+		series: [
+			{
+				name: "负荷区间",
+				type: "bar",
+				data: currentState.value.loadZones.map((item) => {
+					const valueStr = item.value as string;
+					return parseInt(valueStr.split("%")[0]);
+				}),
+				itemStyle: {
+					color: {
+						type: "linear",
+						x: 0,
+						y: 0,
+						x2: 0,
+						y2: 1,
+						colorStops: [
+							{
+								offset: 0,
+								color: "#FFD700"
+							},
+							{
+								offset: 1,
+								color: "#FF8C00"
+							}
+						]
+					},
+					borderRadius: [4, 4, 4, 4]
+				},
+				barWidth: "60%"
+			}
+		]
+	};
+	return JSON.stringify(options);
+});
 const pressureChartOption = computed(() => {
 	// 生成50个时间点（每30分钟一个）
 	const timeData: string[] = [];
@@ -308,7 +373,7 @@ const exerciseChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
+			data: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -326,94 +391,10 @@ const exerciseChartOption = computed(() => {
 		},
 		series: [
 			{
-				name: "背景1",
-				type: "bar",
-				data: [100, 100, 100, 0, 0, 0, 0, 0],
-				showTooltip: false,
-				itemStyle: {
-					color: {
-						type: "linear",
-						x: 0,
-						y: 0,
-						x2: 0,
-						y2: 1,
-						colorStops: [
-							{
-								offset: 0,
-								color: "rgba(153, 75, 231, 0.01)"
-							},
-							{
-								offset: 1,
-								color: "rgba(100, 30, 180, 0.3)"
-							}
-						]
-					}
-				},
-				barWidth: "100%",
-				barGap: "0%",
-				barCategoryGap: "0%"
-			},
-			{
-				name: "背景2",
-				type: "bar",
-				data: [0, 0, 0, 100, 100, 100, 0, 0],
-				showTooltip: false,
-				itemStyle: {
-					color: {
-						type: "linear",
-						x: 0,
-						y: 0,
-						x2: 0,
-						y2: 1,
-						colorStops: [
-							{
-								offset: 0,
-								color: "rgba(48, 195, 89, 0.01)"
-							},
-							{
-								offset: 1,
-								color: "rgba(20, 120, 50, 0.3)"
-							}
-						]
-					}
-				},
-				barWidth: "100%",
-				barGap: "0%",
-				barCategoryGap: "0%"
-			},
-			{
-				name: "背景3",
-				type: "bar",
-				data: [0, 0, 0, 0, 0, 0, 100, 100],
-				showTooltip: false,
-				itemStyle: {
-					color: {
-						type: "linear",
-						x: 0,
-						y: 0,
-						x2: 0,
-						y2: 1,
-						colorStops: [
-							{
-								offset: 0,
-								color: "rgba(239, 112, 24, 0.01)"
-							},
-							{
-								offset: 1,
-								color: "rgba(180, 70, 10, 0.3)"
-							}
-						]
-					}
-				},
-				barWidth: "100%",
-				barGap: "0%",
-				barCategoryGap: "0%"
-			},
-			{
 				name: "运动负荷",
 				type: "line",
-				data: [20, 45, 60, 40, 50, 45, 40, 35],
-				smooth: false,
+				data: currentState.value.exerciseLoadData,
+				smooth: true,
 				symbol: "none",
 				lineStyle: {
 					color: "#9C27B0",
@@ -452,7 +433,7 @@ const sleepChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: ["10-20", "10-21", "10-22", "10-23", "10-24", "10-25", "10-26"],
+			data: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -472,7 +453,7 @@ const sleepChartOption = computed(() => {
 			{
 				name: "睡眠压力",
 				type: "bar",
-				data: [654, 780, 569, 720, 680, 750, 620],
+				data: currentState.value.sleepPressureData,
 				itemStyle: {
 					color: "#9C27B0"
 				}
@@ -509,7 +490,7 @@ const heartRateChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: ["00:00", "04:00", "08:00", "12:00", "16:00", "20:00"],
+			data: ["00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00"],
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -528,10 +509,13 @@ const heartRateChartOption = computed(() => {
 		series: [
 			{
 				name: "心率",
-				type: "bar",
-				data: [72, 118, 63, 85, 92, 78],
-				itemStyle: {
-					color: "#4CAF50"
+				type: "line",
+				data: currentState.value.heartRateZoneData,
+				smooth: true,
+				symbol: "none",
+				lineStyle: {
+					color: "#4CAF50",
+					width: 2
 				}
 			}
 		]

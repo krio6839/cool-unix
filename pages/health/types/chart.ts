@@ -15,6 +15,7 @@ export type ChartProps = {
 	option: string;
 	height?: number;
 	showFooter?: boolean;
+	showTool?: boolean;
 };
 
 export type ChartStats = {

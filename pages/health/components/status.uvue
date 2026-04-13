@@ -17,7 +17,7 @@
 </template>
 
 <script lang="ts" setup>
-import type { HealthItem } from "../types";
+import type { HealthItem } from "@/.cool";
 
 type Props = {
 	items: HealthItem[];

@@ -17,10 +17,10 @@
 		<view class="p-3">
 			<!-- 顶部日期和状态 -->
 			<Header
-				:date="currentDate"
+				:date="today"
 				:label="'状态'"
-				:value="totalStatus"
-				:progress="statusProgress"
+				:value="currentState.totalStatus"
+				:progress="currentState.statusProgress"
 				:config="{
 					backgroundColor: '#282828',
 					startColor: '#D2FF5C',
@@ -31,55 +31,86 @@
 			></Header>
 
 			<!-- 健康数据概览 -->
-			<Status :items="healthItems"></Status>
+			<Status :items="currentState.healthItems"></Status>
 
 			<!-- 当日HRV变化趋势图 -->
 			<Chart :title="'当日HRV变化'" :option="hrvChartOption" :height="200"></Chart>
 
-			<!-- 训练准备度趋势图 -->
-			<Chart :title="'训练准备度趋势'" :option="readinessChartOption" :height="200"></Chart>
+			<Chart
+				:title="'训练准备度'"
+				:option="readinessChartOption"
+				:height="200"
+				:showTool="true"
+			>
+			</Chart>
 		</view>
 	</cl-page>
 </template>
 
 <script lang="ts" setup>
-import { isMp, dayUts } from "@/.cool";
-import { ref, computed } from "vue";
+import { isMp, dayUts, type StatusPageState } from "@/.cool";
+import { computed, ref } from "vue";
+import { useStore } from "@/.cool";
 import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
 import Chart from "./components/chart.uvue";
-import type { HealthItem, ChartOption } from "./types";
+import type { ClTabsItem } from "@/uni_modules/cool-ui";
 
-// 组件数据
-const currentDate = ref<string>("2025.10.14");
-const totalStatus = ref<number>(2654);
-const statusProgress = ref<number>(60);
+const { user } = useStore();
 
-// 健康数据
-const healthItems = ref<HealthItem[]>([
-	{ label: "今日平均HRV", value: 36 },
-	{ label: "静息心率", value: 9587 }
-]);
+// 获取当前健康状态页面数据
+const currentState = computed<StatusPageState>(() => user.getCurrentStatusPageState());
+
+// 获取今天的日期
+const today = dayUts().format("YYYY-MM-DD");
 
 // 当日HRV变化趋势图配置
 const hrvChartOption = computed(() => {
+	// 计算HRV数据的平均值
+	const hrvData = currentState.value.hrvData;
+	const sum = hrvData.reduce((acc, val) => acc + val, 0);
+	const average = hrvData.length > 0 ? sum / hrvData.length : 0;
+
+	// 生成平均值数据（与xAxis数据长度相同）
+	const averageData = hrvData.map(function (_val: number): number {
+		return average;
+	});
+
+	// 正常范围的上下限（根据参考图设置）
+	const normalRangeMin = 65;
+	const normalRangeMax = 105;
+
 	let option: UTSJSONObject = {
 		tooltip: {
-			trigger: "axis",
+			show: false,
+			trigger: "item",
 			textStyle: {
 				color: "#fff"
 			}
 		},
 		grid: {
-			left: 0,
-			right: 0,
-			top: 0,
-			bottom: 0,
+			left: 10,
+			right: 10,
+			top: "5%",
+			bottom: 25,
 			containLabel: true
 		},
 		xAxis: {
 			type: "category",
-			data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
+			data: [
+				"00:00",
+				"02:00",
+				"04:00",
+				"06:00",
+				"08:00",
+				"10:00",
+				"12:00",
+				"14:00",
+				"16:00",
+				"18:00",
+				"20:00",
+				"22:00"
+			],
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -91,42 +122,108 @@ const hrvChartOption = computed(() => {
 		},
 		yAxis: {
 			type: "value",
+			position: "right",
+			min: 25,
+			max: 150,
 			axisLine: {
-				show: false
+				show: true,
+				lineStyle: {
+					color: "rgba(255,255,255,0.2)"
+				}
 			},
 			axisLabel: {
-				show: false
+				show: true,
+				color: "rgba(255,255,255,0.6)"
 			},
 			splitLine: {
 				show: false
 			}
 		},
 		series: [
+			// HRV散点（不显示线，只显示点）
 			{
-				name: "HRV",
-				type: "bar",
-				data: [35, 38, 36, 34, 37, 35, 36, 38],
+				name: "心率变异性",
+				type: "scatter",
+				data: hrvData,
 				itemStyle: {
-					color: {
-						type: "linear",
-						x: 0,
-						y: 0,
-						x2: 0,
-						y2: 1,
-						colorStops: [
+					color: "#FE8C04"
+				},
+				symbol: "circle",
+				symbolSize: 8,
+				z: 3
+			},
+			// 正常范围区域
+			{
+				name: "正常范围",
+				type: "bar",
+				data: hrvData.map(function (_val: number): number {
+					return normalRangeMax;
+				}),
+				itemStyle: {
+					color: "transparent"
+				},
+				markArea: {
+					silent: true,
+					itemStyle: {
+						color: "rgba(210, 255, 92, 0.15)"
+					},
+					data: [
+						[
 							{
-								offset: 0,
-								color: "rgba(76, 175, 80, 0.8)"
+								yAxis: normalRangeMin
 							},
 							{
-								offset: 1,
-								color: "rgba(76, 175, 80, 0.3)"
+								yAxis: normalRangeMax
 							}
 						]
+					]
+				},
+				z: 1
+			},
+			// 平均值横线
+			{
+				name: "平均",
+				type: "line",
+				data: averageData,
+				itemStyle: {
+					color: "#FFD700"
+				},
+				lineStyle: {
+					color: "#FFD700",
+					width: 2,
+					type: "solid"
+				},
+				symbol: "none",
+				z: 2
+			}
+		],
+		legend: {
+			data: [
+				{
+					name: "心率变异性",
+					itemStyle: {
+						color: "#FE8C04"
+					}
+				},
+				{
+					name: "正常范围",
+					itemStyle: {
+						color: "rgba(210, 255, 92, 0.15)"
+					}
+				},
+				{
+					name: "平均",
+					itemStyle: {
+						color: "#FFD700"
 					}
 				}
-			}
-		]
+			],
+			textStyle: {
+				color: "rgba(255,255,255,0.8)"
+			},
+			bottom: 0,
+			left: "left"
+		}
 	};
 	return JSON.stringify(option);
 });
@@ -149,7 +246,7 @@ const readinessChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
+			data: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -175,7 +272,7 @@ const readinessChartOption = computed(() => {
 			{
 				name: "准备度",
 				type: "bar",
-				data: [230, 245, 260, 225, 235, 250, 240, 265],
+				data: currentState.value.readinessData,
 				itemStyle: {
 					color: {
 						type: "linear",
@@ -186,15 +283,16 @@ const readinessChartOption = computed(() => {
 						colorStops: [
 							{
 								offset: 0,
-								color: "rgba(255, 152, 0, 0.8)"
+								color: "#d2ff5c"
 							},
 							{
 								offset: 1,
-								color: "rgba(255, 152, 0, 0.3)"
+								color: "#d2ff5c00"
 							}
 						]
 					}
-				}
+				},
+				barWidth: "50%"
 			}
 		]
 	};
