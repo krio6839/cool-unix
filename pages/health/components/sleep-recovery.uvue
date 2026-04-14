@@ -1,0 +1,72 @@
+<template>
+	<view class="mb-4">
+		<cl-text :size="16" color="white" :pt="{ className: 'font-bold mb-3' }">
+			恢复性睡眠
+		</cl-text>
+
+		<view class="flex flex-row justify-between">
+			<view class="card">
+				<view class="w-full">
+					<cl-text :size="12" color="rgba(255,255,255,0.6)">当日占比</cl-text>
+
+					<view class="flex flex-row justify-between items-end mt-0.5">
+						<cl-text :size="16" color="white" :pt="{ className: 'font-bold' }">
+							{{ percentage }}%
+						</cl-text>
+						<cl-text :size="13" color="rgba(255,255,255,0.7)"
+							>平均{{ averagePercentage }}</cl-text
+						>
+					</view>
+				</view>
+			</view>
+
+			<view class="card">
+				<view class="w-full">
+					<cl-text :size="12" color="rgba(255,255,255,0.6)">总时长</cl-text>
+
+					<view class="flex flex-row justify-between items-end mt-0.5">
+						<cl-text :size="16" color="white" :pt="{ className: 'font-bold' }">{{
+							duration
+						}}</cl-text>
+						<cl-text :size="13" color="rgba(255,255,255,0.7)"
+							>平均{{ averageDuration }}</cl-text
+						>
+					</view>
+				</view>
+			</view>
+		</view>
+
+		<view class="flex flex-row justify-between mt-2 px-1">
+			<cl-text :size="12" color="#994be7">偏低&lt;30%</cl-text>
+			<cl-text :size="12" color="#d2ff5c">正常30-50%</cl-text>
+			<cl-text :size="12" color="#fe8c04">偏高&gt;50%</cl-text>
+		</view>
+	</view>
+</template>
+
+<script lang="ts" setup>
+type Props = {
+	percentage?: number;
+	duration?: string;
+	averagePercentage?: string;
+	averageDuration?: string;
+};
+
+const props = withDefaults(defineProps<Props>(), {
+	percentage: 65,
+	duration: "12.6",
+	averagePercentage: "0%",
+	averageDuration: "--"
+});
+</script>
+
+<style lang="scss" scoped>
+.card {
+	width: 330rpx;
+	min-width: 330rpx;
+	background-image: linear-gradient(to left, #1a1a16, #060702);
+	border: 1px solid #25261f;
+	border-radius: 20px;
+	padding: 12px 16px;
+}
+</style>

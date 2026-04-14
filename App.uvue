@@ -26,9 +26,9 @@ export default {
 		}
 		// #endif
 
-		// // 应用启动时进行状态判断
-		// const { user } = useStore();
-		// user.clear();
+		// 应用启动时进行状态判断
+		const { user } = useStore();
+		user.clear();
 	},
 	onShow: function () {
 		console.log("App Show");

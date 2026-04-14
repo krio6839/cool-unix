@@ -1,0 +1,369 @@
+<template>
+	<view class="w-full">
+		<!-- 头部标题 -->
+		<view class="flex flex-row justify-between items-center">
+			<!-- 标题 -->
+			<cl-text :size="16" color="white" :pt="{ className: 'font-bold mb-3' }"> 趋势 </cl-text>
+			<cl-tabs
+				v-model="selectedDays"
+				:list="timeRanges"
+				fill
+				showSlider
+				:height="32"
+				:pt="{
+					className: 'w-1/2 min-w-40 !bg-[#1C1C1E] !rounded-full',
+					text: { className: 'text-xs' },
+					slider: { className: '!bg-[#49494B] !rounded-full' }
+				}"
+				@change="selectDays"
+			></cl-tabs>
+		</view>
+
+		<view class="flex flex-row items-center my-3">
+			<view
+				v-for="(item, index) in metricList"
+				:key="index"
+				class="h-10 w-30 rounded-xl flex flex-row items-center px-3 mr-3"
+				:style="
+					activeMetric == item.value
+						? { backgroundColor: item.bgColor, border: `1px solid ${item.color}` }
+						: { backgroundColor: 'rgba(255,255,255,0.1)' }
+				"
+				@tap="selectMetric(item.value)"
+			>
+				<cl-svg class="w-5 h-5" :src="item.icon" :color="item.color"></cl-svg>
+				<cl-text
+					:size="13"
+					:color="activeMetric == item.value ? 'primary' : 'white'"
+					class="ml-2"
+				>
+					{{ item.label }}
+				</cl-text>
+			</view>
+		</view>
+
+		<template v-if="activeMetric === 'duration'">
+			<Chart
+				:height="200"
+				:option="sleepDurationChartOption"
+				:show-tool="false"
+				:show-footer="true"
+			></Chart>
+		</template>
+
+		<template v-if="activeMetric === 'regularity'">
+			<Chart
+				:height="200"
+				:option="sleepRegularityChartOption"
+				:show-tool="false"
+				:show-footer="false"
+			></Chart>
+
+			<view class="flex flex-row justify-between px-3">
+				<view class="flex-1">
+					<cl-text
+						:size="13"
+						color="rgba(255,255,255,0.6)"
+						:pt="{ className: 'mb-1 block' }"
+						>平均入睡时间</cl-text
+					>
+					<cl-text :size="16" color="white">{{ props.sleepPattern.avgBedtime }}</cl-text>
+				</view>
+				<view class="flex-1">
+					<cl-text
+						:size="13"
+						color="rgba(255,255,255,0.6)"
+						:pt="{ className: 'mb-1 block' }"
+						>平均起床时间</cl-text
+					>
+					<cl-text :size="16" color="white">{{ props.sleepPattern.avgWakeTime }}</cl-text>
+				</view>
+			</view>
+		</template>
+	</view>
+</template>
+
+<script lang="ts" setup>
+import { ref, computed } from "vue";
+import Chart from "./chart.uvue";
+import type { ClTabsItem } from "@/uni_modules/cool-ui";
+import type { SleepPattern } from "@/.cool/types/health";
+
+type MetricType = "duration" | "regularity";
+
+type MetricItem = {
+	icon: string;
+	color: string;
+	label: string;
+	value: MetricType;
+	bgColor: string;
+};
+
+const props = withDefaults(
+	defineProps<{
+		sleepDurationData: number[];
+		sleepPattern: SleepPattern;
+	}>(),
+	{}
+);
+
+const timeRanges = ref<ClTabsItem[]>([
+	{ label: "7天", value: "7d" },
+	{ label: "14天", value: "14d" },
+	{ label: "30天", value: "30d" }
+]);
+
+const selectedDays = ref<string>("7d");
+
+const metricList: MetricItem[] = [
+	{
+		icon: "/static/icon/sleep/duration-line.svg",
+		color: "#D2FF5C",
+		label: "睡眠时长",
+		value: "duration",
+		bgColor: "rgba(210,255,92,0.2)"
+	},
+	{
+		icon: "/static/icon/sleep/regularity-line.svg",
+		color: "#994BE7",
+		label: "睡眠规律性",
+		value: "regularity",
+		bgColor: "rgba(153,75,231,0.2)"
+	}
+];
+
+const activeMetric = ref<MetricType>("duration");
+
+function selectDays(value: string) {
+	selectedDays.value = value;
+	console.log(`Selected ${value} days`);
+}
+
+function selectMetric(value: MetricType) {
+	activeMetric.value = value;
+}
+
+const weekDays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+
+const sleepDurationChartOption = computed(() => {
+	const sleepDurationData = props.sleepDurationData;
+	const sum = sleepDurationData.reduce((acc, val) => acc + val, 0);
+	const average = sleepDurationData.length > 0 ? sum / sleepDurationData.length : 0;
+
+	const averageData = sleepDurationData.map(function (_val: number): number {
+		return average;
+	});
+
+	return JSON.stringify({
+		title: { show: false },
+		tooltip: {
+			show: false
+		},
+		grid: {
+			left: 0,
+			right: 0,
+			top: 0,
+			bottom: 30,
+			containLabel: true
+		},
+		xAxis: {
+			type: "category",
+			data: weekDays,
+			axisLine: {
+				lineStyle: {
+					color: "rgba(255, 255, 255, 0.2)"
+				}
+			},
+			axisLabel: {
+				color: "rgba(255, 255, 255, 0.6)"
+			}
+		},
+		yAxis: {
+			type: "value",
+			axisLine: {
+				show: false
+			},
+			axisLabel: {
+				show: false
+			},
+			splitLine: {
+				show: false
+			}
+		},
+		series: [
+			{
+				data: sleepDurationData,
+				type: "bar",
+				itemStyle: {
+					color: "#D2FF5C"
+				},
+				barWidth: "60%",
+				z: 1
+			},
+			{
+				name: "平均",
+				type: "line",
+				data: averageData,
+				itemStyle: {
+					color: "#994BE7"
+				},
+				lineStyle: {
+					color: "#994BE7",
+					width: 1,
+					type: "solid"
+				},
+				symbol: "none",
+				z: 2
+			}
+		],
+		legend: {
+			data: ["睡眠时长", "期间平均时长"],
+			bottom: 0,
+			left: "left",
+			textStyle: {
+				color: "rgba(255, 255, 255, 0.6)"
+			}
+		}
+	});
+});
+
+const sleepRegularityChartOption = computed(() => {
+	const bedtimes = props.sleepPattern.bedtimes;
+	const wakeTimes = props.sleepPattern.wakeTimes;
+
+	function timeToMinutesFrom24(time: string): number {
+		const parts = time.split(":");
+		const hours = parseInt(parts[0]);
+		const minutes = parseInt(parts[1]);
+		const min = (hours - 12) * 60 + minutes;
+		if (min < 0) {
+			return 1440 + min;
+		}
+		return min;
+	}
+
+	const avgBedtimeMinutes = timeToMinutesFrom24(props.sleepPattern.avgBedtime);
+	const avgWakeTimeMinutes = timeToMinutesFrom24(props.sleepPattern.avgWakeTime);
+
+	const bedtimeData = bedtimes.map(function (time: string): number {
+		return timeToMinutesFrom24(time);
+	});
+
+	const sleepDurationData = wakeTimes.map(function (wake: string, index: number): number {
+		const wakeMinutes = timeToMinutesFrom24(wake);
+		const bedMinutes = timeToMinutesFrom24(bedtimes[index]);
+		return wakeMinutes - bedMinutes;
+	});
+
+	const avgBedtimeLineData = bedtimes.map(function (_t: string, _i: number): number {
+		return avgBedtimeMinutes;
+	});
+
+	const avgWakeTimeLineData = bedtimes.map(function (_t: string, _i: number): number {
+		return avgWakeTimeMinutes;
+	});
+
+	return JSON.stringify({
+		title: { show: false },
+		tooltip: {
+			show: false
+		},
+		grid: {
+			left: 0,
+			right: 20,
+			top: 10,
+			bottom: 30,
+			containLabel: true
+		},
+		xAxis: {
+			type: "category",
+			data: weekDays,
+			axisLine: {
+				lineStyle: {
+					color: "rgba(255, 255, 255, 0.2)"
+				}
+			},
+			axisLabel: {
+				color: "rgba(255, 255, 255, 0.6)"
+			}
+		},
+		yAxis: {
+			type: "value",
+			min: 0,
+			max: 1440,
+			axisLine: {
+				show: false
+			},
+			axisLabel: {
+				show: false
+			},
+			splitLine: {
+				show: false
+			}
+		},
+		series: [
+			{
+				type: "bar",
+				data: bedtimeData,
+				itemStyle: {
+					color: "transparent"
+				},
+				barWidth: "50%",
+				stack: "sleep",
+				z: 1
+			},
+			{
+				name: "睡眠时长",
+				type: "bar",
+				data: sleepDurationData,
+				itemStyle: {
+					color: "#D2FF5C"
+				},
+				barWidth: "50%",
+				stack: "sleep",
+				z: 2
+			},
+			{
+				name: "平均入睡时间",
+				type: "line",
+				data: avgBedtimeLineData,
+				itemStyle: {
+					color: "#888888"
+				},
+				lineStyle: {
+					color: "#888888",
+					width: 1,
+					type: "solid"
+				},
+				symbol: "none",
+				z: 3
+			},
+			{
+				name: "平均起床时间",
+				type: "line",
+				data: avgWakeTimeLineData,
+				itemStyle: {
+					color: "#994BE7"
+				},
+				lineStyle: {
+					color: "#994BE7",
+					width: 1,
+					type: "solid"
+				},
+				symbol: "none",
+				z: 3
+			}
+		],
+		legend: {
+			data: ["睡眠时长", "平均起床时间", "平均入睡时间"],
+			bottom: 0,
+			left: "left",
+			textStyle: {
+				color: "rgba(255, 255, 255, 0.6)"
+			}
+		}
+	});
+});
+</script>
+
+<style lang="scss" scoped></style>

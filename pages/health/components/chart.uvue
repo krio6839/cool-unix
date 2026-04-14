@@ -11,8 +11,10 @@
 					:list="timeRanges"
 					fill
 					showSlider
+					:height="32"
 					:pt="{
-						className: 'w-1/2 !bg-[#1C1C1E] !rounded-full',
+						className: 'w-1/2 min-w-40 !bg-[#1C1C1E] !rounded-full',
+						text: { className: 'text-xs' },
 						slider: { className: '!bg-[#49494B] !rounded-full' }
 					}"
 					@change="selectDays"
@@ -64,7 +66,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, computed } from "vue";
+import { ref, computed, watch } from "vue";
 import type { ChartProps, ChartStats } from "../types/chart";
 import type { ClTabsItem } from "@/uni_modules/cool-ui";
 
@@ -144,6 +146,18 @@ async function initChart() {
 	const chart = await chartRef.value!.init(echarts);
 	chart.setOption(optionObj.value);
 }
+
+function updateChart() {
+	if (chartRef.value == null) return;
+	chartRef.value?.setOption(optionObj.value);
+}
+
+watch(
+	computed(() => props.option),
+	() => {
+		updateChart();
+	}
+);
 </script>
 
 <style lang="scss" scoped>

@@ -19,8 +19,8 @@
 			<Header
 				:date="currentDate"
 				:label="'总睡眠'"
-				:value="totalSleep"
-				:progress="sleepProgress"
+				:value="currentState.totalSleep"
+				:progress="currentState.sleepProgress"
 				type="linear"
 				:config="{
 					backgroundColor: '#282828',
@@ -31,72 +31,71 @@
 			></Header>
 
 			<!-- 健康数据概览 -->
-			<Status :items="healthItems"></Status>
+			<Status :items="currentState.sleepItems"></Status>
 
 			<!-- 睡眠进度和恢复性睡眠 -->
-			<SleepProgress></SleepProgress>
+			<SleepProgress
+				:suggestedSleepDuration="currentState.suggestedSleepDuration"
+			></SleepProgress>
 
 			<!-- 恢复性睡眠 -->
-			<view class="mb-4">
-				<cl-text :size="16" color="white" :pt="{ className: 'font-bold mb-3' }">
-					恢复性睡眠
-				</cl-text>
-				<view class="flex flex-row">
-					<view class="flex flex-col mr-4">
-						<cl-text :size="13" color="rgba(255,255,255,0.6)">当日占比</cl-text>
-						<cl-text :size="16" color="white">{{ recoveryPercentage }}</cl-text>
-					</view>
-					<view class="flex flex-col ml-4">
-						<cl-text :size="13" color="rgba(255,255,255,0.6)">总时长</cl-text>
-						<cl-text :size="16" color="white">{{ recoveryDuration }}</cl-text>
-					</view>
-				</view>
-			</view>
+			<SleepRecovery
+				:percentage="currentState.recoverySleep.percentage"
+				:duration="currentState.recoverySleep.duration"
+			></SleepRecovery>
 
-			<!-- 睡眠结构图 -->
-			<SleepWave></SleepWave>
+			<!-- 睡眠期间数据 -->
+			<SleepDuringStats
+				v-model:activeMetric="sleepActiveMetric"
+				:list="selectedSleepData"
+			></SleepDuringStats>
+
+			<!-- 趋势图表 - 睡眠时长 -->
+			<SleepTrend
+				:sleepDurationData="currentState.sleepDurationData"
+				:sleepPattern="currentState.sleepPattern"
+			></SleepTrend>
 		</view>
 	</cl-page>
 </template>
 
 <script lang="ts" setup>
-import { isMp, dayUts } from "@/.cool";
+import { isMp, dayUts, useStore } from "@/.cool";
+import type { TimeValueItem } from "@/.cool";
 import { ref, computed } from "vue";
 import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
-// @ts-ignore
-import SleepWave from "@/components/sleep-wave/index.uvue";
 import SleepProgress from "./components/sleep-progress.uvue";
-import type { HealthItem } from "./types";
+import SleepRecovery from "./components/sleep-recovery.uvue";
+import SleepDuringStats from "./components/sleep-during-stats.uvue";
+import SleepTrend from "./components/sleep-trend.uvue";
 
-// 组件数据
-const currentDate = ref<string>("2025.10.14");
-const totalSleep = ref<number>(3265);
-const sleepProgress = ref<number>(70);
+const { user } = useStore();
 
-// 恢复性睡眠数据
-const recoveryPercentage = ref<string>("65%");
-const recoveryDuration = ref<string>("12.6");
+// 获取当前健康状态页面数据
+const currentState = computed(() => user.getCurrentStatusPageState());
 
-// 健康数据
-const healthItems = ref<HealthItem[]>([
-	{
-		label: "睡眠时长",
-		value: "11.2小时"
-	},
-	{
-		label: "睡眠质量",
-		value: 92
+// 获取今天的日期
+const currentDate = ref<string>(dayUts().format("YYYY-MM-DD"));
+
+// 睡眠期间数据 - 当前选中的指标
+const sleepActiveMetric = ref<string>("heartRate");
+
+// 选中的睡眠数据
+const selectedSleepData = computed((): TimeValueItem[] => {
+	const data = currentState.value;
+	const metric = sleepActiveMetric.value;
+
+	if (metric === "hrv" && data.sleepHrvData != null) {
+		return data.sleepHrvData;
+	} else if (metric === "oxygen" && data.sleepOxygenData != null) {
+		return data.sleepOxygenData;
+	} else if (metric === "heartRate" && data.sleepHeartRateData != null) {
+		return data.sleepHeartRateData;
+	} else {
+		return [];
 	}
-	// {
-	// 	label: "深度睡眠",
-	// 	value: 126
-	// },
-	// {
-	// 	label: "浅度睡眠",
-	// 	value: 285
-	// }
-]);
+});
 
 // 返回上一页
 function goBack() {
@@ -105,10 +104,21 @@ function goBack() {
 
 // 跳转到选择日期页面
 function goToDateSelect() {
-	// 这里可以添加跳转到日期选择页面的逻辑
-	console.log("跳转到选择日期页面");
-	// 示例：uni.navigateTo({ url: '/pages/date-select/date-select' });
+	// 跳转到日期选择页面
+	uni.navigateTo({
+		url: "/pages/health/date-select/date-select"
+	});
 }
+
+// 监听日期选择事件
+uni.$on("dateSelected", (date: string) => {
+	// 更新选中的日期
+	currentDate.value = date;
+	// 这里可以添加根据选择的日期获取对应数据的逻辑
+	console.log("Selected date:", date);
+});
 </script>
 
-<style lang="scss" scoped></style>
+<style lang="scss" scoped>
+/* 原子化类已在模板中直接使用，此处仅保留必要的样式 */
+</style>

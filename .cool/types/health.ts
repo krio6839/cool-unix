@@ -54,8 +54,10 @@ export type TrainingState = {
 };
 
 export type LoadZoneItem = {
-	label: string;
-	value: string;
+	name: string;
+	color?: string;
+	percentage: number;
+	rightText?: string;
 };
 
 export type LoadTrendItem = {
@@ -66,9 +68,29 @@ export type LoadTrendItem = {
 	average: number;
 };
 
-export type HeartRateZoneItem = {
-	zone: string;
+export type TimeValueItem = {
+	time: string;
+	value: number;
+};
+
+export type SleepTrendItem = {
+	max: number;
+	maxDay: string;
+	min: number;
+	minDay: string;
+	average: string;
+};
+
+export type RecoverySleep = {
 	percentage: number;
+	duration: string;
+};
+
+export type SleepPattern = {
+	bedtimes: string[];
+	wakeTimes: string[];
+	avgBedtime: string;
+	avgWakeTime: string;
 };
 
 export type StatusPageState = {
@@ -97,7 +119,18 @@ export type StatusPageState = {
 	sleepPressureData: number[];
 	sleepPressureTrendInfo: LoadTrendItem;
 	heartRateZoneData: number[];
-	heartRateZoneItems: HeartRateZoneItem[];
+	heartRateZoneItems: LoadZoneItem[];
+	totalSleep: number;
+	sleepProgress: number;
+	sleepItems: HealthItem[];
+	suggestedSleepDuration: string;
+	recoverySleep: RecoverySleep;
+	sleepHeartRateData: TimeValueItem[];
+	sleepHrvData: TimeValueItem[];
+	sleepOxygenData: TimeValueItem[];
+	sleepDurationData: number[];
+	// sleepDurationTrendInfo: SleepTrendItem;
+	sleepPattern: SleepPattern;
 };
 
 export type ChartDataItem = {

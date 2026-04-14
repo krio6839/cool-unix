@@ -34,19 +34,50 @@
 			<Status :items="currentState.loadItems"></Status>
 
 			<!-- 当日实时负荷趋势图 -->
-			<Chart :title="'当日实时负荷'" :option="realtimeChartOption" :height="200"></Chart>
+			<Chart
+				:title="'当日实时负荷'"
+				:showFooter="false"
+				:option="realtimeChartOption"
+				:height="200"
+			></Chart>
 
-			<!-- 负荷区间分布图 -->
-			<Chart :title="'负荷区间分布'" :option="loadZoneChartOption" :height="200"></Chart>
+			<!-- 负荷区间状态 -->
+			<StatusBar :items="currentState.loadZones"></StatusBar>
+
+			<!-- 负荷趋势图 -->
+			<Chart
+				:title="'负荷趋势'"
+				:showTool="true"
+				:option="loadZoneChartOption"
+				:height="200"
+			></Chart>
 
 			<!-- 运动负荷趋势图 -->
-			<Chart :title="'运动负荷趋势图'" :option="exerciseChartOption" :height="200"></Chart>
+			<Chart
+				:title="'运动负荷'"
+				:showTool="true"
+				:option="exerciseChartOption"
+				:height="200"
+			></Chart>
 
 			<!-- 睡眠压力趋势图 -->
-			<Chart :title="'睡眠压力趋势图'" :option="sleepChartOption" :height="200"></Chart>
+			<Chart
+				:title="'睡眠压力趋势图'"
+				:showTool="true"
+				:option="sleepChartOption"
+				:height="200"
+			></Chart>
 
 			<!-- 心率区间趋势图 -->
-			<Chart :title="'心率区间趋势图'" :option="heartRateChartOption" :height="200"></Chart>
+			<Chart
+				:title="'心率区间趋势图'"
+				:showFooter="false"
+				:option="heartRateChartOption"
+				:height="200"
+			></Chart>
+
+			<!-- 心率区间分布 -->
+			<StatusBar :items="currentState.heartRateZoneItems"></StatusBar>
 		</view>
 	</cl-page>
 </template>
@@ -56,6 +87,7 @@ import { isMp, dayUts, useStore } from "@/.cool";
 import { computed } from "vue";
 import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
+import StatusBar from "@/components/status-bar.uvue";
 import Chart from "./components/chart.uvue";
 
 const { user } = useStore();
@@ -71,17 +103,9 @@ const realtimeChartOption = computed(() => {
 	const option: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
-			axisPointer: {
-				type: "shadow"
-			},
-			backgroundColor: "rgba(0, 0, 0, 0.8)",
-			borderColor: "#FFD700",
-			borderWidth: 1,
 			textStyle: {
-				color: "#fff",
-				fontSize: 12
-			},
-			padding: 10
+				color: "#fff"
+			}
 		},
 		grid: {
 			left: 0,
@@ -117,18 +141,9 @@ const realtimeChartOption = computed(() => {
 		},
 		yAxis: {
 			type: "value",
-			min: 0,
-			max: 20,
 			axisLine: { show: false },
 			axisLabel: { show: false },
-			splitLine: {
-				show: true,
-				lineStyle: {
-					color: "rgba(255,255,255,0.1)",
-					type: "dashed"
-				},
-				interval: 20
-			}
+			splitLine: { show: false }
 		},
 		series: [
 			{
@@ -167,22 +182,14 @@ const realtimeChartOption = computed(() => {
 	return JSON.stringify(option);
 });
 
-// 负荷区间分布数据
+// 负荷趋势图配置
 const loadZoneChartOption = computed(() => {
 	const options: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
-			axisPointer: {
-				type: "shadow"
-			},
-			backgroundColor: "rgba(0, 0, 0, 0.8)",
-			borderColor: "#FFD700",
-			borderWidth: 1,
 			textStyle: {
-				color: "#fff",
-				fontSize: 12
-			},
-			padding: 10
+				color: "#fff"
+			}
 		},
 		grid: {
 			left: 0,
@@ -193,7 +200,7 @@ const loadZoneChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: currentState.value.loadZones.map((item) => item.label),
+			data: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -211,12 +218,9 @@ const loadZoneChartOption = computed(() => {
 		},
 		series: [
 			{
-				name: "负荷区间",
+				name: "负荷",
 				type: "bar",
-				data: currentState.value.loadZones.map((item) => {
-					const valueStr = item.value as string;
-					return parseInt(valueStr.split("%")[0]);
-				}),
+				data: currentState.value.loadTrendData,
 				itemStyle: {
 					color: {
 						type: "linear",
@@ -227,120 +231,16 @@ const loadZoneChartOption = computed(() => {
 						colorStops: [
 							{
 								offset: 0,
-								color: "#FFD700"
+								color: "#d2ff5c"
 							},
 							{
 								offset: 1,
-								color: "#FF8C00"
+								color: "#d2ff5c00"
 							}
 						]
-					},
-					borderRadius: [4, 4, 4, 4]
+					}
 				},
-				barWidth: "60%"
-			}
-		]
-	};
-	return JSON.stringify(options);
-});
-const pressureChartOption = computed(() => {
-	// 生成50个时间点（每30分钟一个）
-	const timeData: string[] = [];
-	for (let i = 0; i < 50; i++) {
-		const hour = Math.floor((i * 30) / 60);
-		const minute = (i * 30) % 60;
-		timeData.push(`${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`);
-	}
-
-	// 生成50个数据点，每个数据点包含起始值和结束值
-	const startData: number[] = [];
-	const barData: number[] = [];
-	for (let i = 0; i < 50; i++) {
-		const base = Math.floor(Math.random() * 20) + 25;
-		const start = base - Math.floor(Math.random() * 20);
-		const end = base + Math.floor(Math.random() * 20);
-		startData.push(start);
-		barData.push(end - start);
-	}
-
-	const options: UTSJSONObject = {
-		tooltip: {
-			trigger: "axis",
-			axisPointer: {
-				type: "shadow"
-			},
-			backgroundColor: "rgba(0, 0, 0, 0.8)",
-			borderColor: "#FFD700",
-			borderWidth: 1,
-			textStyle: {
-				color: "#fff",
-				fontSize: 12
-			},
-			padding: 10
-		},
-		grid: {
-			left: 0,
-			right: 0,
-			top: 0,
-			bottom: 0,
-			containLabel: true
-		},
-		xAxis: {
-			type: "category",
-			data: timeData,
-			axisLabel: {
-				color: "rgba(255,255,255,0.6)",
-				interval: 5 // 每5个点显示一个标签
-			},
-			axisLine: {
-				lineStyle: {
-					color: "rgba(255,255,255,0.2)"
-				}
-			}
-		},
-		yAxis: {
-			type: "value",
-			axisLine: { show: false },
-			axisLabel: { show: false },
-			splitLine: { show: false }
-		},
-		series: [
-			{
-				name: "起始位置",
-				type: "bar",
-				stack: "total",
-				data: startData,
-				itemStyle: {
-					color: "transparent"
-				},
-				barWidth: "60%"
-			},
-			{
-				name: "压力负荷",
-				type: "bar",
-				stack: "total",
-				data: barData,
-				itemStyle: {
-					color: {
-						type: "linear",
-						x: 0,
-						y: 0,
-						x2: 0,
-						y2: 1,
-						colorStops: [
-							{
-								offset: 0,
-								color: "#FFD700"
-							},
-							{
-								offset: 1,
-								color: "#FF8C00"
-							}
-						]
-					},
-					borderRadius: [4, 4, 4, 4]
-				},
-				barWidth: "60%"
+				barWidth: "50%"
 			}
 		]
 	};
@@ -392,14 +292,28 @@ const exerciseChartOption = computed(() => {
 		series: [
 			{
 				name: "运动负荷",
-				type: "line",
+				type: "bar",
 				data: currentState.value.exerciseLoadData,
-				smooth: true,
-				symbol: "none",
-				lineStyle: {
-					color: "#9C27B0",
-					width: 2
-				}
+				itemStyle: {
+					color: {
+						type: "linear",
+						x: 0,
+						y: 0,
+						x2: 0,
+						y2: 1,
+						colorStops: [
+							{
+								offset: 0,
+								color: "#9C27B0"
+							},
+							{
+								offset: 1,
+								color: "#9C27B000"
+							}
+						]
+					}
+				},
+				barWidth: "50%"
 			}
 		]
 	};
@@ -455,8 +369,25 @@ const sleepChartOption = computed(() => {
 				type: "bar",
 				data: currentState.value.sleepPressureData,
 				itemStyle: {
-					color: "#9C27B0"
-				}
+					color: {
+						type: "linear",
+						x: 0,
+						y: 0,
+						x2: 0,
+						y2: 1,
+						colorStops: [
+							{
+								offset: 0,
+								color: "#9C27B0"
+							},
+							{
+								offset: 1,
+								color: "#9C27B000"
+							}
+						]
+					}
+				},
+				barWidth: "50%"
 			}
 		]
 	};

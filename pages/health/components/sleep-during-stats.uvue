@@ -1,0 +1,206 @@
+<template>
+	<view class="mb-4">
+		<cl-text :size="16" color="white" :pt="{ className: 'font-bold mb-3' }">
+			{{ title }}
+		</cl-text>
+
+		<view class="flex flex-row items-center mb-3">
+			<view
+				v-for="(item, index) in metricList"
+				:key="index"
+				class="h-10 w-20 rounded-xl flex flex-row items-center px-3 mr-3"
+				:style="
+					activeMetric == item.value
+						? { backgroundColor: item.bgColor, border: `1px solid ${item.color}` }
+						: { backgroundColor: 'rgba(255,255,255,0.1)' }
+				"
+				@tap="selectMetric(item.value)"
+			>
+				<cl-svg class="w-5 h-5" :src="item.icon" :color="item.color"></cl-svg>
+				<cl-text
+					:size="13"
+					:color="activeMetric == item.value ? 'primary' : 'white'"
+					class="ml-2"
+				>
+					{{ item.label }}
+				</cl-text>
+			</view>
+		</view>
+
+		<view class="flex flex-row justify-between mt-1 px-1">
+			<view class="flex-1 text-center">
+				<cl-text :size="13" color="rgba(255,255,255,0.6)">{{ maxLabel }}</cl-text>
+				<cl-text :size="16" color="white">{{ currentData.max }}</cl-text>
+			</view>
+			<view class="flex-1 text-center">
+				<cl-text :size="13" color="rgba(255,255,255,0.6)">{{ minLabel }}</cl-text>
+				<cl-text :size="16" color="white">{{ currentData.min }}</cl-text>
+			</view>
+			<view class="flex-1 text-center">
+				<cl-text :size="13" color="rgba(255,255,255,0.6)">{{ avgLabel }}</cl-text>
+				<cl-text :size="16" color="white">{{ currentData.average }}</cl-text>
+			</view>
+		</view>
+
+		<Chart :height="200" :option="chartOption" :show-tool="false" :show-footer="false"></Chart>
+	</view>
+</template>
+
+<script lang="ts" setup>
+import type { TimeValueItem } from "@/.cool";
+import { computed } from "vue";
+
+type MetricItem = {
+	icon: string;
+	color: string;
+	label: string;
+	value: string;
+	bgColor: string;
+};
+
+type Props = {
+	title?: string;
+	list: TimeValueItem[];
+};
+
+type ModelValue = string;
+
+const props = withDefaults(defineProps<Props>(), {
+	title: "睡眠期间数据",
+	list: () => []
+});
+
+const activeMetric = defineModel<ModelValue>("activeMetric", {
+	default: "heartRate"
+});
+
+import Chart from "./chart.uvue";
+
+const metricList: MetricItem[] = [
+	{
+		icon: "/static/icon/sleep/heart-line.svg",
+		color: "#D2FF5C",
+		label: "心率",
+		value: "heartRate",
+		bgColor: "rgba(210,255,92,0.2)"
+	},
+	{
+		icon: "/static/icon/sleep/activity-line.svg",
+		color: "#FE8C04",
+		label: "HRV",
+		value: "hrv",
+		bgColor: "rgba(254,140,4,0.2)"
+	},
+	{
+		icon: "/static/icon/sleep/droplets-line.svg",
+		color: "#994BE7",
+		label: "血氧",
+		value: "oxygen",
+		bgColor: "rgba(153,75,231,0.2)"
+	}
+];
+
+const maxLabel = "期间最高";
+const minLabel = "期间最低";
+const avgLabel = "期间平均";
+
+const chartOption = computed(() => {
+	const values = props.list.map((item) => item.value);
+	const xAxisData = props.list.map((item) => item.time);
+
+	let color = "#D2FF5C";
+	let name = "心率";
+	let unit = "bpm";
+	let min = 40;
+	let max = 100;
+
+	if (activeMetric.value === "hrv") {
+		color = "#FE8C04";
+		name = "HRV";
+		unit = "ms";
+		min = 20;
+		max = 80;
+	} else if (activeMetric.value === "oxygen") {
+		color = "#994BE7";
+		name = "血氧";
+		unit = "%";
+		min = 90;
+		max = 100;
+	}
+	const option = {
+		title: { show: false },
+		tooltip: {
+			trigger: "axis",
+			textStyle: { color: "#fff" }
+		},
+		grid: {
+			left: 0,
+			right: 0,
+			top: 0,
+			bottom: 30,
+			containLabel: true
+		},
+		xAxis: {
+			type: "category",
+			data: xAxisData,
+			axisLabel: { color: "rgba(255,255,255,0.6)" },
+			axisLine: { lineStyle: { color: "rgba(255,255,255,0.2)" } }
+		},
+		yAxis: {
+			type: "value",
+			min: min,
+			max: max,
+			axisLine: { show: false },
+			axisLabel: { show: false },
+			splitLine: { show: false }
+		},
+		series: [
+			{
+				name: name,
+				type: "line",
+				data: values,
+				itemStyle: { color: color },
+				lineStyle: { width: 2 },
+				areaStyle: {
+					color: {
+						type: "linear",
+						x: 0,
+						y: 0,
+						x2: 0,
+						y2: 1,
+						colorStops: [
+							{ offset: 0, color: `${color}33` },
+							{ offset: 1, color: `${color}00` }
+						]
+					}
+				}
+			}
+		]
+	};
+	return JSON.stringify(option);
+});
+
+type StatsData = {
+	max: number | "--";
+	min: number | "--";
+	average: number | "--";
+};
+
+const currentData = computed((): StatsData => {
+	const values: number[] = props.list.map((item) => item.value as number);
+	if (values.length === 0) {
+		return { max: "--", min: "--", average: "--" };
+	}
+	const max = Math.max(...values);
+	const min = Math.min(...values);
+	const sum = values.reduce<number>((acc: number, val: number) => acc + val, 0);
+	const average = Math.round(sum / values.length);
+	return { max, min, average };
+});
+
+function selectMetric(value: string) {
+	activeMetric.value = value;
+}
+</script>
+
+<style lang="scss" scoped></style>

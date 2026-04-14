@@ -116,10 +116,10 @@ export const statusPageStates: StatusPageState[] = [
 		],
 		realtimeLoadData: [35, 32, 30, 33, 40, 45, 50, 55, 70, 75, 60, 48],
 		loadZones: [
-			{ label: "负荷过载", value: "8%｜2小时" },
-			{ label: "注意负荷", value: "25%｜6小时" },
-			{ label: "状态正常", value: "42%｜10小时" },
-			{ label: "状态优秀", value: "17%｜4小时" }
+			{ name: "负荷过载", color: "#FF5C5C", percentage: 8, rightText: "8%｜2小时" },
+			{ name: "注意负荷", color: "#FFB74D", percentage: 25, rightText: "25%｜6小时" },
+			{ name: "状态正常", color: "#4CAF50", percentage: 42, rightText: "42%｜10小时" },
+			{ name: "状态优秀", color: "#D2FF5C", percentage: 17, rightText: "17%｜4小时" }
 		],
 		loadTrendData: [88, 92, 80, 72, 65, 60, 55],
 		loadTrendInfo: { max: 92, maxDay: "周二", min: 55, minDay: "周日", average: 73 },
@@ -129,13 +129,68 @@ export const statusPageStates: StatusPageState[] = [
 		sleepPressureTrendInfo: { max: 68, maxDay: "周二", min: 38, minDay: "周日", average: 53 },
 		heartRateZoneData: [62, 58, 56, 60, 78, 110, 135, 172, 150, 120, 95],
 		heartRateZoneItems: [
-			{ zone: "Zone 0", percentage: 25 },
-			{ zone: "Zone 1", percentage: 25 },
-			{ zone: "Zone 2", percentage: 33 },
-			{ zone: "Zone 3", percentage: 8 },
-			{ zone: "Zone 4", percentage: 8 },
-			{ zone: "Zone 5", percentage: 0 }
-		]
+			{ name: "Zone 5", percentage: 0 },
+			{ name: "Zone 4", percentage: 8 },
+			{ name: "Zone 3", percentage: 8 },
+			{ name: "Zone 2", percentage: 33 },
+			{ name: "Zone 1", percentage: 25 },
+			{ name: "Zone 0", percentage: 25 }
+		],
+		totalSleep: 88,
+		sleepProgress: 88,
+		sleepItems: [
+			{ label: "睡眠时长", value: "8小时10分钟" },
+			{ label: "睡眠质量", value: 85 }
+		],
+		suggestedSleepDuration: "9:00",
+		recoverySleep: {
+			percentage: 55,
+			duration: "4小时50分"
+		},
+		sleepHeartRateData: [
+			{ time: "23:50", value: 57 },
+			{ time: "01:00", value: 54 },
+			{ time: "02:00", value: 52 },
+			{ time: "03:00", value: 50 },
+			{ time: "04:00", value: 51 },
+			{ time: "05:00", value: 52 },
+			{ time: "06:00", value: 54 },
+			{ time: "07:30", value: 56 }
+		],
+		sleepHrvData: [
+			{ time: "23:50", value: 57 },
+			{ time: "01:00", value: 54 },
+			{ time: "02:00", value: 52 },
+			{ time: "03:00", value: 50 },
+			{ time: "04:00", value: 51 },
+			{ time: "05:00", value: 52 },
+			{ time: "06:00", value: 54 },
+			{ time: "07:30", value: 56 }
+		],
+		sleepOxygenData: [
+			{ time: "23:50", value: 98 },
+			{ time: "01:00", value: 98 },
+			{ time: "02:00", value: 98 },
+			{ time: "03:00", value: 97 },
+			{ time: "04:00", value: 98 },
+			{ time: "05:00", value: 98 },
+			{ time: "06:00", value: 98 },
+			{ time: "07:30", value: 98 }
+		],
+		sleepDurationData: [6.5, 6.2, 6.8, 7.2, 7.6, 7.9, 8.2],
+		// sleepDurationTrendInfo: {
+		// 	max: 8.2,
+		// 	maxDay: "周日",
+		// 	min: 6.2,
+		// 	minDay: "周二",
+		// 	average: "7.2"
+		// },
+		sleepPattern: {
+			bedtimes: ["01:10", "01:40", "01:20", "00:50", "00:30", "00:10", "23:50"],
+			wakeTimes: ["07:40", "07:50", "08:10", "08:00", "07:50", "07:50", "08:00"],
+			avgBedtime: "00:56",
+			avgWakeTime: "07:54"
+		}
 	},
 	// 过度训练
 	{
@@ -168,10 +223,10 @@ export const statusPageStates: StatusPageState[] = [
 		],
 		realtimeLoadData: [48, 45, 43, 47, 55, 62, 68, 78, 85, 82, 75, 65],
 		loadZones: [
-			{ label: "压力过载", value: "25%｜6小时" },
-			{ label: "注意压力", value: "33%｜8小时" },
-			{ label: "状态正常", value: "33%｜8小时" },
-			{ label: "状态优秀", value: "0%｜0小时" }
+			{ name: "压力过载", color: "#FF5C5C", percentage: 25, rightText: "25%｜6小时" },
+			{ name: "注意压力", color: "#FFB74D", percentage: 33, rightText: "33%｜8小时" },
+			{ name: "状态正常", color: "#4CAF50", percentage: 33, rightText: "33%｜8小时" },
+			{ name: "状态优秀", color: "#D2FF5C", percentage: 0, rightText: "0小时" }
 		],
 		loadTrendData: [65, 70, 75, 82, 88, 90, 92],
 		loadTrendInfo: { max: 92, maxDay: "周日", min: 65, minDay: "周一", average: 80 },
@@ -181,13 +236,59 @@ export const statusPageStates: StatusPageState[] = [
 		sleepPressureTrendInfo: { max: 50, maxDay: "周日", min: 35, minDay: "周一", average: 43 },
 		heartRateZoneData: [62, 58, 56, 60, 78, 110, 135, 172, 150, 120, 95],
 		heartRateZoneItems: [
-			{ zone: "Zone 0", percentage: 10 },
-			{ zone: "Zone 1", percentage: 15 },
-			{ zone: "Zone 2", percentage: 20 },
-			{ zone: "Zone 3", percentage: 20 },
-			{ zone: "Zone 4", percentage: 20 },
-			{ zone: "Zone 5", percentage: 15 }
-		]
+			{ name: "Zone 5", percentage: 15 },
+			{ name: "Zone 4", percentage: 20 },
+			{ name: "Zone 3", percentage: 20 },
+			{ name: "Zone 2", percentage: 20 },
+			{ name: "Zone 1", percentage: 15 },
+			{ name: "Zone 0", percentage: 10 }
+		],
+		totalSleep: 72,
+		sleepProgress: 72,
+		sleepItems: [
+			{ label: "睡眠时长", value: "7小时20分钟" },
+			{ label: "睡眠质量", value: 68 }
+		],
+		suggestedSleepDuration: "8:30",
+		recoverySleep: {
+			percentage: 38,
+			duration: "2小时47分"
+		},
+		sleepHeartRateData: [
+			{ time: "23:00", value: 72 },
+			{ time: "01:00", value: 66 },
+			{ time: "03:00", value: 63 },
+			{ time: "05:00", value: 64 },
+			{ time: "07:00", value: 70 }
+		],
+		sleepHrvData: [
+			{ time: "23:00", value: 30 },
+			{ time: "01:00", value: 32 },
+			{ time: "03:00", value: 34 },
+			{ time: "05:00", value: 33 },
+			{ time: "07:00", value: 31 }
+		],
+		sleepOxygenData: [
+			{ time: "23:00", value: 97 },
+			{ time: "01:00", value: 98 },
+			{ time: "03:00", value: 98 },
+			{ time: "05:00", value: 98 },
+			{ time: "07:00", value: 97 }
+		],
+		sleepDurationData: [7.8, 7.5, 7.3, 7.0, 6.8, 7.2, 7.3],
+		// sleepDurationTrendInfo: {
+		// 	max: 7.8,
+		// 	maxDay: "周一",
+		// 	min: 6.8,
+		// 	minDay: "周五",
+		// 	average: "7.2"
+		// },
+		sleepPattern: {
+			bedtimes: ["23:00", "23:20", "23:40", "00:10", "00:40", "00:30", "00:20"],
+			wakeTimes: ["07:00", "07:10", "07:20", "07:40", "08:10", "08:30", "08:00"],
+			avgBedtime: "00:03",
+			avgWakeTime: "07:44"
+		}
 	},
 	// 无效训练
 	{
@@ -220,10 +321,10 @@ export const statusPageStates: StatusPageState[] = [
 		],
 		realtimeLoadData: [30, 28, 32, 45, 55, 60, 52, 42],
 		loadZones: [
-			{ label: "负荷过载", value: "0%｜0小时" },
-			{ label: "注意负荷", value: "5%｜1.2小时" },
-			{ label: "状态正常", value: "60%｜14.4小时" },
-			{ label: "状态优秀", value: "35%｜8.4小时" }
+			{ name: "负荷过载", color: "#FF5C5C", percentage: 0, rightText: "0%｜0小时" },
+			{ name: "注意负荷", color: "#FFB74D", percentage: 5, rightText: "5%｜1.2小时" },
+			{ name: "状态正常", color: "#4CAF50", percentage: 60, rightText: "60%｜14.4小时" },
+			{ name: "状态优秀", color: "#D2FF5C", percentage: 35, rightText: "35%｜8.4小时" }
 		],
 		loadTrendData: [58, 60, 61, 59, 60, 62, 60],
 		loadTrendInfo: { max: 62, maxDay: "周六", min: 58, minDay: "周一", average: 60 },
@@ -233,12 +334,67 @@ export const statusPageStates: StatusPageState[] = [
 		sleepPressureTrendInfo: { max: 35, maxDay: "周二", min: 31, minDay: "周四", average: 33 },
 		heartRateZoneData: [52, 50, 55, 95, 110, 128, 110, 75],
 		heartRateZoneItems: [
-			{ zone: "Zone 0", percentage: 30 },
-			{ zone: "Zone 1", percentage: 20 },
-			{ zone: "Zone 2", percentage: 30 },
-			{ zone: "Zone 3", percentage: 20 },
-			{ zone: "Zone 4", percentage: 0 },
-			{ zone: "Zone 5", percentage: 0 }
-		]
+			{ name: "Zone 5", percentage: 0 },
+			{ name: "Zone 4", percentage: 0 },
+			{ name: "Zone 3", percentage: 20 },
+			{ name: "Zone 2", percentage: 30 },
+			{ name: "Zone 1", percentage: 20 },
+			{ name: "Zone 0", percentage: 30 }
+		],
+		totalSleep: 78,
+		sleepProgress: 78,
+		sleepItems: [
+			{ label: "睡眠时长", value: "7小时40分钟" },
+			{ label: "睡眠质量", value: 76 }
+		],
+		suggestedSleepDuration: "7:50",
+		recoverySleep: {
+			percentage: 36,
+			duration: "2小时45分"
+		},
+		sleepHeartRateData: [
+			{ time: "23:50", value: 58 },
+			{ time: "00:50", value: 56 },
+			{ time: "01:50", value: 54 },
+			{ time: "02:50", value: 53 },
+			{ time: "03:50", value: 54 },
+			{ time: "04:50", value: 55 },
+			{ time: "05:50", value: 56 },
+			{ time: "06:50", value: 58 }
+		],
+		sleepHrvData: [
+			{ time: "23:50", value: 48 },
+			{ time: "00:50", value: 50 },
+			{ time: "01:50", value: 52 },
+			{ time: "02:50", value: 55 },
+			{ time: "03:50", value: 54 },
+			{ time: "04:50", value: 53 },
+			{ time: "05:50", value: 52 },
+			{ time: "06:50", value: 50 }
+		],
+		sleepOxygenData: [
+			{ time: "23:50", value: 98 },
+			{ time: "00:50", value: 98 },
+			{ time: "01:50", value: 97 },
+			{ time: "02:50", value: 97 },
+			{ time: "03:50", value: 98 },
+			{ time: "04:50", value: 98 },
+			{ time: "05:50", value: 98 },
+			{ time: "06:50", value: 98 }
+		],
+		sleepDurationData: [7.5, 7.6, 7.7, 7.8, 7.6, 7.9, 7.7],
+		// sleepDurationTrendInfo: {
+		// 	max: 7.9,
+		// 	maxDay: "周六",
+		// 	min: 7.5,
+		// 	minDay: "周一",
+		// 	average: "7.7"
+		// },
+		sleepPattern: {
+			bedtimes: ["23:55", "23:50", "23:58", "23:52", "00:00", "23:48", "23:55"],
+			wakeTimes: ["07:30", "07:28", "07:32", "07:29", "07:35", "07:33", "07:30"],
+			avgBedtime: "23:54",
+			avgWakeTime: "07:31"
+		}
 	}
 ];

@@ -7,34 +7,64 @@
 			</cl-text>
 
 			<view class="flex flex-row justify-between mb-3">
-				<view class="flex flex-col">
-					<cl-text :size="13" color="rgba(255,255,255,0.6)">放松</cl-text>
-					<cl-text :size="16" color="white">{{ relaxTime }}</cl-text>
+				<view class="flex flex-col items-center">
+					<view class="flex flex-row items-center">
+						<cl-text :size="13" color="rgba(255,255,255,0.6)">放松</cl-text>
+						<cl-icon
+							name="music-2-line"
+							color="rgba(255,255,255,0.6)"
+							:size="12"
+							class="ml-1"
+						></cl-icon>
+					</view>
+					<cl-text :size="16" color="white" class="mt-1">{{
+						calculatedRelaxTime
+					}}</cl-text>
 				</view>
-				<view class="flex flex-col">
-					<cl-text :size="13" color="rgba(255,255,255,0.6)">就寝</cl-text>
-					<cl-text :size="16" color="white">{{ sleepTime }}</cl-text>
+				<view class="flex flex-col items-center">
+					<view class="flex flex-row items-center">
+						<cl-text :size="13" color="rgba(255,255,255,0.6)">就寝</cl-text>
+						<cl-icon
+							name="moon-line"
+							color="rgba(255,255,255,0.6)"
+							:size="12"
+							class="ml-1"
+						></cl-icon>
+					</view>
+					<cl-text :size="16" color="white" class="mt-1">{{
+						calculatedSleepTime
+					}}</cl-text>
 				</view>
-				<view class="flex flex-col" @click="handleWakeUpTimeClick">
-					<cl-text :size="13" color="rgba(255,255,255,0.6)">起床</cl-text>
-					<cl-text :size="16" color="white">{{ wakeUpTime }}</cl-text>
+				<view class="flex flex-col items-center" @click="handleWakeUpTimeClick">
+					<view class="flex flex-row items-center">
+						<cl-text :size="13" color="rgba(255,255,255,0.6)">起床</cl-text>
+						<cl-icon
+							name="sun-line"
+							color="rgba(255,255,255,0.6)"
+							:size="12"
+							class="ml-1"
+						></cl-icon>
+					</view>
+					<cl-text :size="16" color="white" class="mt-1">{{ selectedTime }}</cl-text>
 				</view>
 			</view>
 
 			<!-- 睡眠进度条 -->
-			<view class="w-full relative">
-				<view class="w-full h-2 bg-surface-700 rounded-full mb-2"></view>
-				<view class="w-full h-2 bg-surface-700 rounded-full absolute top-0">
-					<view
-						class="h-2 bg-gradient-to-r from-yellow-400 to-green-500 rounded-full"
-						:style="{ width: sleepProgress + '%' }"
-					></view>
-				</view>
-				<view class="flex flex-row justify-between text-xs text-surface-400">
-					<cl-text>12:00</cl-text>
-					<cl-text>0:00</cl-text>
-					<cl-text>12:00</cl-text>
-				</view>
+			<view class="w-full relative mb-2">
+				<view class="w-full h-2 bg-surface-700 rounded-full"></view>
+				<view
+					class="h-2 rounded-full absolute top-0"
+					:style="{
+						left: sleepStartPercent + '%',
+						width: sleepWidthPercent + '%',
+						backgroundImage: 'linear-gradient(to right, #fbbf24, #22c55e)'
+					}"
+				></view>
+			</view>
+			<view class="flex flex-row justify-between text-xs text-surface-400">
+				<cl-text>12:00</cl-text>
+				<cl-text>0:00</cl-text>
+				<cl-text>12:00</cl-text>
 			</view>
 		</view>
 
@@ -42,7 +72,28 @@
 		<view class="flex flex-row justify-between items-center mb-4">
 			<view>
 				<cl-text :size="13" color="rgba(255,255,255,0.6)">建议睡眠时长</cl-text>
-				<cl-text :size="16" color="white">{{ suggestedSleepTime }}</cl-text>
+				<view class="flex flex-row items-end">
+					<cl-text :size="24" color="white" :pt="{ className: 'font-bold' }">
+						{{ sleepHours }}
+					</cl-text>
+					<cl-text
+						:size="13"
+						color="rgba(255,255,255,0.6)"
+						:pt="{ className: 'ml-1 mb-1' }"
+						>小时</cl-text
+					>
+					<template v-if="sleepMinutes !== '00'">
+						<cl-text :size="24" color="white" :pt="{ className: 'font-bold ml-2' }">
+							{{ sleepMinutes }}
+						</cl-text>
+						<cl-text
+							:size="13"
+							color="rgba(255,255,255,0.6)"
+							:pt="{ className: 'ml-1 mb-1' }"
+							>分钟</cl-text
+						>
+					</template>
+				</view>
 			</view>
 			<view class="flex flex-row items-center">
 				<cl-text :size="14" color="white">目标时长+1分钟</cl-text>
@@ -63,56 +114,121 @@
 </template>
 
 <script lang="ts" setup>
-import { ref } from "vue";
+import { ref, computed } from "vue";
 
-// 组件属性
 type Props = {
-	relaxTime?: string;
-	sleepTime?: string;
-	wakeUpTime?: string;
-	sleepProgress?: number;
-	suggestedSleepTime?: string;
+	suggestedSleepDuration?: string;
 };
 
-// 组件参数
-const props = withDefaults(defineProps<Props>(), {
-	relaxTime: "23:28",
-	sleepTime: "23:58",
-	wakeUpTime: "07:30",
-	sleepProgress: 70,
-	suggestedSleepTime: "7小时31分钟"
+const props = withDefaults(defineProps<Props>(), {});
+
+const selectTimeRef = ref<ClSelectTimeComponentPublicInstance | null>(null);
+const selectedTime = ref<string>("07:30");
+
+function parseTimeToMinutes(timeStr: string): number {
+	const parts = timeStr.split(":");
+	const hours = parseInt(parts[0], 10);
+	const minutes = parseInt(parts[1], 10);
+	return hours * 60 + minutes;
+}
+
+function minutesToTime(minutes: number): string {
+	const hours = Math.floor(minutes / 60) % 24;
+	const mins = minutes % 60;
+	return `${hours.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}`;
+}
+
+function timeToPosition(timeStr: string): number {
+	const minutes = parseTimeToMinutes(timeStr);
+	const fromNoon = minutes - 12 * 60;
+	let hoursFromNoon = fromNoon / 60;
+	if (hoursFromNoon < 0) {
+		hoursFromNoon += 24;
+	}
+	return (hoursFromNoon / 24) * 100;
+}
+
+function parseSuggestedSleepTime(timeStr: string): number {
+	const parts = timeStr.split(":");
+	const hours = parseInt(parts[0], 10);
+	const minutes = parseInt(parts[1], 10);
+	return hours * 60 + minutes;
+}
+
+const calculatedSleepTime = computed(() => {
+	const wakeUpTime = selectedTime.value;
+	const suggestedSleepDuration = props.suggestedSleepDuration ?? "7:30";
+
+	const wakeUpMinutes = parseTimeToMinutes(wakeUpTime);
+	const sleepDurationMinutes = parseSuggestedSleepTime(suggestedSleepDuration);
+
+	// 计算就寝时间：起床时间减去建议睡眠时间
+	let sleepTimeMinutes = wakeUpMinutes - sleepDurationMinutes;
+	if (sleepTimeMinutes < 0) {
+		sleepTimeMinutes += 24 * 60;
+	}
+
+	return minutesToTime(sleepTimeMinutes);
 });
 
-// 定义事件
+const calculatedRelaxTime = computed(() => {
+	const sleepTime = calculatedSleepTime.value;
+	const sleepTimeMinutes = parseTimeToMinutes(sleepTime);
+
+	// 计算放松时间：就寝时间减去30分钟
+	let relaxTimeMinutes = sleepTimeMinutes - 30;
+	if (relaxTimeMinutes < 0) {
+		relaxTimeMinutes += 24 * 60;
+	}
+
+	return minutesToTime(relaxTimeMinutes);
+});
+
+const sleepStartPercent = computed(() => {
+	return timeToPosition(calculatedSleepTime.value);
+});
+
+const sleepWidthPercent = computed(() => {
+	const sleepMinutes = parseTimeToMinutes(calculatedSleepTime.value);
+	const wakeMinutes = parseTimeToMinutes(selectedTime.value);
+	let duration = wakeMinutes - sleepMinutes;
+	if (duration <= 0) {
+		duration += 24 * 60;
+	}
+	return (duration / (24 * 60)) * 100;
+});
+
+const sleepHours = computed(() => {
+	const duration = props.suggestedSleepDuration ?? "7:30";
+	const parts = duration.split(":");
+	return parts.length > 0 ? parts[0] : "7";
+});
+
+const sleepMinutes = computed(() => {
+	const duration = props.suggestedSleepDuration ?? "7:30";
+	const parts = duration.split(":");
+	return parts.length > 1 ? parts[1] : "00";
+});
+
 const emit = defineEmits<{
 	(timeChange: "timeChange", time: string): void;
 }>();
 
-// 时间选择器引用
-const selectTimeRef = ref<ClSelectTimeComponentPublicInstance | null>(null);
-// 选中的时间
-const selectedTime = ref<string>(props.wakeUpTime);
-
-// 点击事件处理
 function handleWakeUpTimeClick() {
-	// 设置当前时间为默认值
-	selectedTime.value = props.wakeUpTime;
-	// 打开时间选择器
 	selectTimeRef.value?.open(null);
 }
 
-// 时间变更处理
 function handleTimeChange(value: string) {
-	selectedTime.value = value;
-	// 通知父组件时间变更
+	selectedTime.value = value.slice(0, 5);
 	emit("timeChange", value);
 }
 </script>
 
 <style lang="scss" scoped>
 .sleep-progress {
-	background-image: linear-gradient(to right, rgba(50, 57, 65, 0.85), rgba(73, 77, 88, 0.85));
-	border-radius: 16px;
+	background-image: linear-gradient(to left, #1a1a16, #060702);
+	border: 2px solid #25261f;
+	border-radius: 32px;
 	padding: 16px;
 	/* #ifndef APP-ANDROID */
 	backdrop-filter: blur(30px);
