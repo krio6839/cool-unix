@@ -4,9 +4,9 @@
 		<image src="/static/icon/user-avatar.svg" class="absolute right-6 top-0 w-40"></image>
 		<view class="absolute left-1 top-12">
 			<view class="flex flex-col justify-center items-start">
-				<text class="text-lg font-bold text-white" @tap="handleNameClick">{{
-					currentTrainingState.userInfo.name
-				}}</text>
+				<text class="text-lg font-bold text-white" @tap="handleNameClick">
+					{{ currentTrainingState.userInfo.name }}
+				</text>
 				<text class="text-xs opacity-80 mr-4 my-3 text-white">
 					上次登录时间:
 					{{ currentTrainingState.userInfo.lastLoginTime }}
@@ -18,17 +18,39 @@
 </template>
 
 <script lang="ts" setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useStore } from "@/.cool";
 
 const { user } = useStore();
 
-// 获取当前训练状态
+const lastTapTime = ref<number>(0);
+
 const currentTrainingState = computed(() => user.getCurrentTrainingState());
 
-// 切换训练状态
+function getStateText(key: string): string {
+	switch (key) {
+		case "supercompensation":
+			return "超量恢复";
+		case "overtraining":
+			return "过度训练";
+		case "ineffective":
+			return "无效训练";
+		default:
+			return key;
+	}
+}
+
 function handleNameClick() {
-	user.switchTrainingState();
+	const now = Date.now();
+	if (now - lastTapTime.value < 300) {
+		user.switchTrainingState();
+		const newState = user.getCurrentTrainingState();
+		uni.showToast({
+			title: `已切换到: ${getStateText(newState.key)}`,
+			icon: "none"
+		});
+	}
+	lastTapTime.value = now;
 }
 </script>
 
