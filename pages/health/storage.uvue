@@ -36,7 +36,7 @@
 			<!-- 当日能量曲线 -->
 			<Chart
 				:title="'当日能量曲线'"
-				:option="energyChartOption"
+				:option-data="energyChartOption"
 				:height="200"
 				:show-footer="false"
 			></Chart>
@@ -44,7 +44,7 @@
 			<!-- 身体储能趋势 -->
 			<Chart
 				:title="'身体储能趋势'"
-				:option="bodyEnergyChartOption"
+				:option-data="bodyEnergyChartOption"
 				:height="200"
 				:show-footer="false"
 				:show-tool="true"
@@ -57,7 +57,6 @@
 <script lang="ts" setup>
 import { isMp, dayUts, useStore, type StatusPageState } from "@/.cool";
 import { ref, computed } from "vue";
-import type { ClTabsItem } from "@/uni_modules/cool-ui";
 import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
 import Chart from "./components/chart.uvue";
@@ -155,7 +154,7 @@ const energyChartOption = computed(() => {
 			}
 		]
 	};
-	return JSON.stringify(option);
+	return option;
 });
 
 const bodyEnergyChartOption = computed(() => {
@@ -225,7 +224,7 @@ const bodyEnergyChartOption = computed(() => {
 			}
 		]
 	};
-	return JSON.stringify(option);
+	return option;
 });
 
 function goBack() {

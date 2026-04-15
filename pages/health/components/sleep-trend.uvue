@@ -151,13 +151,18 @@ const sleepDurationChartOption = computed(() => {
 	const average = sleepDurationData.length > 0 ? sum / sleepDurationData.length : 0;
 
 	const averageData = sleepDurationData.map(function (_val: number): number {
-		return average;
+		return Number(average.toFixed(2));
 	});
 
 	return JSON.stringify({
 		title: { show: false },
 		tooltip: {
-			show: false
+			trigger: "axis",
+			alwaysShowContent: true,
+			textStyle: {
+				textShadowBlur: 0
+			},
+			renderMode: "richText"
 		},
 		grid: {
 			left: 0,
@@ -192,6 +197,7 @@ const sleepDurationChartOption = computed(() => {
 		},
 		series: [
 			{
+				name: "睡眠时长",
 				data: sleepDurationData,
 				type: "bar",
 				itemStyle: {
@@ -201,23 +207,47 @@ const sleepDurationChartOption = computed(() => {
 				z: 1
 			},
 			{
-				name: "平均",
+				name: "期间平均时长",
 				type: "line",
 				data: averageData,
 				itemStyle: {
 					color: "#994BE7"
 				},
 				lineStyle: {
-					color: "#994BE7",
-					width: 1,
-					type: "solid"
+					color: "transparent"
 				},
 				symbol: "none",
-				z: 2
+				z: 2,
+				tooltip: {
+					show: false
+				},
+				endLabel: {
+					show: true,
+					formatter: "{c}h",
+					color: "#994BE7",
+					fontSize: 12,
+					offset: [-10, 10]
+				},
+				markLine: {
+					symbol: ["none", "none"],
+					lineStyle: {
+						color: "#994BE7",
+						type: "solid",
+						width: 1
+					},
+					data: [
+						{
+							yAxis: average
+						}
+					]
+				}
 			}
 		],
 		legend: {
-			data: ["睡眠时长", "期间平均时长"],
+			data: [
+				{ name: "睡眠时长", itemColor: "#D2FF5C" },
+				{ name: "期间平均时长", itemColor: "#994BE7" }
+			],
 			bottom: 0,
 			left: "left",
 			textStyle: {

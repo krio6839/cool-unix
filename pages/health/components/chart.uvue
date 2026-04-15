@@ -1,7 +1,6 @@
 <template>
-	<view class="chart-container">
+	<view class="w-full mb-6">
 		<view class="flex flex-row justify-between items-center">
-			<!-- 标题 -->
 			<cl-text v-if="title" :size="16" color="white" :pt="{ className: 'font-bold mb-3' }">
 				{{ title }}
 			</cl-text>
@@ -22,20 +21,18 @@
 			</slot>
 		</view>
 
-		<!-- 图表区域 -->
-		<view class="chart-wrapper" :style="{ width: '100%', height: (height ?? 0) + 'px' }">
+		<view class="w-full" :style="{ height: (height ?? 0) + 'px' }">
 			<l-echart ref="chartRef" @finished="initChart"></l-echart>
 		</view>
 
-		<!-- 文字描述区域 -->
-		<view class="description-container" v-if="showFooter">
-			<view class="description-item">
+		<view v-if="showFooter" class="flex flex-row justify-between mt-3 px-1">
+			<view class="flex flex-col items-center flex-1">
 				<cl-text :size="14" color="rgba(255,255,255,0.6)">平均</cl-text>
 				<cl-text :size="20" color="white" :pt="{ className: 'font-bold opacity-70' }">
 					{{ stats.average.toFixed(0) }}
 				</cl-text>
 			</view>
-			<view class="description-item">
+			<view class="flex flex-col items-center flex-1">
 				<cl-text :size="14" color="rgba(255,255,255,0.6)">最高</cl-text>
 				<cl-text :size="20" color="white" :pt="{ className: 'font-bold opacity-70' }">
 					{{ stats.max }}
@@ -48,7 +45,7 @@
 					{{ xAxisData[stats.maxIndex] }}
 				</cl-text>
 			</view>
-			<view class="description-item">
+			<view class="flex flex-col items-center flex-1">
 				<cl-text :size="14" color="rgba(255,255,255,0.6)">最低</cl-text>
 				<cl-text :size="20" color="white" :pt="{ className: 'font-bold opacity-70' }">
 					{{ stats.min }}
@@ -97,10 +94,15 @@ const chartRef = ref<LEchartComponentPublicInstance | null>(null);
 const echarts = null;
 
 const optionObj = computed((): UTSJSONObject => {
-	if (props.option == null || props.option === "") {
-		return {} as UTSJSONObject;
+	if (props.optionData != null) {
+		const tooltip = props.optionData["tooltip"] as UTSJSONObject | null;
+		console.log(tooltip);
+		return props.optionData;
 	}
-	return JSON.parse(props.option) as UTSJSONObject;
+	if (props.option != null && props.option !== "") {
+		return JSON.parse(props.option) as UTSJSONObject;
+	}
+	return {} as UTSJSONObject;
 });
 
 const xAxisData = computed((): string[] => {
@@ -152,36 +154,9 @@ function updateChart() {
 	chartRef.value?.setOption(optionObj.value);
 }
 
-watch(
-	computed(() => props.option),
-	() => {
-		updateChart();
-	}
-);
+watch(optionObj, () => {
+	updateChart();
+});
 </script>
 
-<style lang="scss" scoped>
-.chart-container {
-	width: 100%;
-	margin-bottom: 24px;
-}
-
-.chart-wrapper {
-	width: 100%;
-}
-
-.description-container {
-	display: flex;
-	flex-direction: row;
-	justify-content: space-between;
-	margin-top: 12px;
-	padding: 0 4px;
-}
-
-.description-item {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	flex: 1;
-}
-</style>
+<style lang="scss" scoped></style>

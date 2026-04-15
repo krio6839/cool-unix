@@ -12,7 +12,8 @@ export type ChartOption = UTSJSONObject;
 // 图表组件属性类型
 export type ChartProps = {
 	title?: string;
-	option: string;
+	option?: string;
+	optionData?: UTSJSONObject;
 	height?: number;
 	showFooter?: boolean;
 	showTool?: boolean;

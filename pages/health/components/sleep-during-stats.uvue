@@ -42,7 +42,12 @@
 			</view>
 		</view>
 
-		<Chart :height="200" :option="chartOption" :show-tool="false" :show-footer="false"></Chart>
+		<Chart
+			:height="200"
+			:option-data="chartOption"
+			:show-tool="false"
+			:show-footer="false"
+		></Chart>
 	</view>
 </template>
 
@@ -177,7 +182,7 @@ const chartOption = computed(() => {
 			}
 		]
 	};
-	return JSON.stringify(option);
+	return option;
 });
 
 type StatsData = {
