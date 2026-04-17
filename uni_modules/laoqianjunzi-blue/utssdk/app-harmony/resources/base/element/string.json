@@ -1,0 +1,12 @@
+{
+  "string": [
+    {
+      "name": "blue_harmony_location_reason",
+      "value": "用于搜索附近蓝牙设备时获取系统定位授权。"
+    },
+    {
+      "name": "blue_harmony_bluetooth_reason",
+      "value": "用于扫描、连接和传输低功耗蓝牙数据。"
+    }
+  ]
+}

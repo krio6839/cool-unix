@@ -1,0 +1,108 @@
+import { AndroidCompatBlueApi, BlueChannelBundle, BlueEnvelope, BlueFleetApi, BluePacketPlan, BlueSweepPlan, CompatApiPacket, CompatSweepPlan, CompatUuidBundle, CompatWriteTask, buildBlueEnvelope, buildCompatPacket } from '../interface.uts'
+
+class BlueFleetHost {
+	private unsupported(detail: string): BlueEnvelope {
+		return buildBlueEnvelope(9011001, detail, null)
+	}
+
+	watchAdapterSwitch(callback: (packet: BlueEnvelope) => void): void { callback(this.unsupported('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现')) }
+	requestAdapterWake(callback: (packet: BlueEnvelope) => void): void { callback(this.unsupported('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现')) }
+	adapterReady(): boolean { return false }
+	beginSweep(plan: BlueSweepPlan): void { if (plan.onNode != null) { plan.onNode(this.unsupported('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现')) } }
+	legacySweep(_duration: number, callback: (packet: BlueEnvelope) => void): void { callback(this.unsupported('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现')) }
+	watchSweepFrames(callback: (packet: BlueEnvelope) => void): void { callback(this.unsupported('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现')) }
+	stopSweep(): void {}
+	attach(_peerId: string, _keepRetry: boolean, callback: (packet: BlueEnvelope) => void): void { callback(this.unsupported('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现')) }
+	setAttachTimeout(_duration: number): void {}
+	setRetryGap(_duration: number): void {}
+	stopRetry(): void {}
+	attached(): boolean { return false }
+	currentPeerId(): string { return '' }
+	pullProfile(callback: (packet: BlueEnvelope) => void): void { callback(this.unsupported('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现')) }
+	pickProfile(_index: number): void {}
+	listProfiles(): BlueChannelBundle[] { return [] as BlueChannelBundle[] }
+	activeServiceId(): string { return '' }
+	activeNotifyId(): string { return '' }
+	activeWriteId(): string { return '' }
+	pipeValue(_serviceId: string, _characteristicId: string, _enabled: boolean, callback: (packet: BlueEnvelope) => void): void { callback(this.unsupported('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现')) }
+	emitPacket(_plan: BluePacketPlan, callback: (packet: BlueEnvelope) => void): void { callback(this.unsupported('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现')) }
+	emitBytes(_serviceId: string, _characteristicId: string, _bytes: number[], callback: (packet: BlueEnvelope) => void): void { callback(this.unsupported('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现')) }
+	emitBytesWithMode(_serviceId: string, _characteristicId: string, _bytes: number[], _writeMode: number, callback: (packet: BlueEnvelope) => void): void { callback(this.unsupported('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现')) }
+	emitHex(_serviceId: string, _characteristicId: string, _hexPayload: string, callback: (packet: BlueEnvelope) => void): void { callback(this.unsupported('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现')) }
+	emitHexWithMode(_serviceId: string, _characteristicId: string, _hexPayload: string, _writeMode: number, callback: (packet: BlueEnvelope) => void): void { callback(this.unsupported('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现')) }
+	probeSignal(callback: (packet: BlueEnvelope) => void): void { callback(this.unsupported('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现')) }
+	setTunnelSize(size: number, callback: (packet: BlueEnvelope) => void): void { callback(buildBlueEnvelope(9011001, 'Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', size)) }
+	readOnce(_serviceId: string, _characteristicId: string, callback: (packet: BlueEnvelope) => void): void { callback(this.unsupported('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现')) }
+	closePipe(): void {}
+	bytesToHexText(bytes: number[]): string { let result = ''; for (let i = 0; i < bytes.length; i++) { result += bytes[i].toString(16).padStart(2, '0').toUpperCase(); if (i < bytes.length - 1) { result += ' ' } } return result }
+	textToHexSeed(_text: string, _charset: string): string { return '' }
+	hexSeedToText(_hexPayload: string, _charset: string): string { return '' }
+	hasAndroidPermission(_permissionName: string): boolean { return false }
+	askAndroidPermission(_permissionName: string, callback: (granted: boolean) => void): void { callback(false) }
+	askAndroidPermissions(_permissionNames: string[], callback: (granted: boolean) => void): void { callback(false) }
+	verifyHarmonyPeerId(_peerId: string): boolean { return false }
+	requestHarmonyBluetoothAccess(callback: (granted: boolean) => void): void { callback(false) }
+	openAdapterPanel(): void {}
+	setDebug(_enabled: boolean): void {}
+	setDispatchLabel(_label: string): void {}
+}
+
+class WebCompatBlueHost {
+	private unsupportedPacket(message: string, data: any = ''): CompatApiPacket {
+		return buildCompatPacket(9011001, message, data)
+	}
+
+	setBtConnectTimeout(_time: number): void {}
+	setBtAutoConnectTime(_time: number): void {}
+	setDebugMode(_debug: boolean): void {}
+	setThreadTypeName(_name: string): void {}
+	onBtOpenStateListener(callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', false)) }
+	btListener(): void {}
+	openBtBluetooth(callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', '')) }
+	readRssi(callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', 0)) }
+	openBluetooth(_on: boolean): void {}
+	openBluetoothSettings(): void {}
+	getSericUUID(): string { return '' }
+	getServiceUUID(): string { return '' }
+	getNotityUUID(): string { return '' }
+	getWriteUUID(): string { return '' }
+	getwriteUUID(): string { return '' }
+	onScanDataListener(callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', '')) }
+	isHavePermision(_pername: string): boolean { return false }
+	requestPermison(_pername: string, callback: (granted: boolean) => void): void { callback(false) }
+	requesMoretPermison(_pername: string[], callback: (granted: boolean) => void): void { callback(false) }
+	isEnabled(): boolean { return false }
+	onStartScanBle(para: CompatSweepPlan): void { if (para.onScanResult != null) { para.onScanResult(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', '')) } }
+	onScanBle(para: CompatSweepPlan): void { this.onStartScanBle(para) }
+	startScanBleDevice(_time: number, callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', '')) }
+	stopScanBle(): void {}
+	scanBle(_time: number, callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', '')) }
+	connect(_mac: string, _auto: boolean, callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', '')) }
+	connectDevices(_mac: string, _auto: boolean, callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', '')) }
+	startAutoConnectBt(_time: number, callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', '')) }
+	cancelAutoConnectBt(): void {}
+	scanServices(callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', [])) }
+	getUUIDs(): CompatUuidBundle[] { return [] as CompatUuidBundle[] }
+	setSelectUUID(_id: number): void {}
+	listenerBleMessage(_callback: (packet: CompatApiPacket) => void): void {}
+	disListenerBleMessage(): void {}
+	isConnected(): boolean { return false }
+	getConnectMac(): string { return '' }
+	byte2HexString(data: number[]): string { let result = ''; for (let i = 0; i < data.length; i++) { result += data[i].toString(16).padStart(2, '0'); if (i < data.length - 1) { result += ' ' } } return result }
+	writeDataToBle(_service: string, _chars: string, _data: number[], callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', '')) }
+	writeDataToBleWithType(_service: string, _chars: string, _data: number[], _writeType: number, callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', '')) }
+	writeStringDataToBle(_service: string, _chars: string, _data: string, callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', '')) }
+	writeStringDataToBleWithType(_service: string, _chars: string, _data: string, _writeType: number, callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', '')) }
+	sendData(_data: CompatWriteTask, callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', '')) }
+	onNotityReadBleData(_service: string, _chars: string, _state: boolean, callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', [])) }
+	onNotityReadBleDataMore(_service: string, _chars: string, _state: boolean, callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', [])) }
+	close(): void {}
+	setMtu(_num: number, callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', 0)) }
+	string2ByteStrWithCharset(_data: string, _code: string): string { return '' }
+	byte2StringWithCharset(_data: string, _code: string): string { return '' }
+	onReadData(_service: string, _chars: string, callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', [])) }
+	onIndicate(_service: string, _chars: string, callback: (packet: CompatApiPacket) => void): void { callback(this.unsupportedPacket('Web 端当前仅保留编译占位，未接入浏览器蓝牙实现', [])) }
+}
+
+export const createBlueFleet = function (): BlueFleetApi { return new BlueFleetHost() }
+export const createAndroidCompatBlue = function (): AndroidCompatBlueApi { return new WebCompatBlueHost() as AndroidCompatBlueApi }

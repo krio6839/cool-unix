@@ -1,0 +1,303 @@
+export type BlueIssueCode = 0 | 1000 | 1001 | 10000 | 10001 | 10002 | 10003 | 10004 | 10005 | 10006 | 9011001 | 9011002 | 9011003 | 9011004
+
+export type BlueEnvelope = {
+	code: number,
+	detail: string,
+	payload: any | null
+}
+
+export type BlueSignalFrame = {
+	peerId: string,
+	alias: string | null,
+	rssi: number,
+	packetHex: string,
+	vendorHex: string | null
+}
+
+export type BlueBroadcastInfo = {
+	deviceName: string | null,
+	txPowerLevel: number | null,
+	bytes: string | null,
+	serviceData: string | null,
+	serviceUuids: string | null,
+	advertiseFlags: number | null,
+	manufacturerSpecificData: string | null,
+	serviceSolicitationUuids: string | null
+}
+
+export type BluePeerInfo = {
+	name: string | null,
+	alias: string | null,
+	bondState: number | null,
+	deviceKind: number | null,
+	address: string
+}
+
+export type BlueSweepNode = {
+	connectType: number | null,
+	rssi: number | null,
+	isLegacy: boolean | null,
+	advertisingSid: number | null,
+	dataStatus: number | null,
+	isConnectable: boolean | null,
+	periodicAdvertisingInterval: number | null,
+	primaryPhy: number | null,
+	secondaryPhy: number | null,
+	timestampNanos: number | null,
+	advertiseFrame: BlueBroadcastInfo | null,
+	peer: BluePeerInfo
+}
+
+export type BlueFlags = {
+	canRead: boolean,
+	canWrite: boolean,
+	canNotify: boolean,
+	canIndicate: boolean
+}
+
+export type BlueCharacteristic = {
+	uuid: string,
+	flagBits: number,
+	flags: BlueFlags
+}
+
+export type BlueServiceShape = {
+	index: number,
+	uuid: string,
+	characteristics: BlueCharacteristic[]
+}
+
+export type BlueChannelBundle = {
+	serviceId: string,
+	writeId: string,
+	notifyId: string
+}
+
+export type BlueSweepPlan = {
+	nameKeyword?: string | null,
+	duration?: number | null,
+	includeNameless?: boolean | null,
+	onNode?: (packet: BlueEnvelope) => void,
+	onDone?: () => void
+}
+
+export type BluePacketPlan = {
+	serviceId: string,
+	characteristicId: string,
+	writeMode?: number | null,
+	bytePayload?: number[] | null,
+	hexPayload?: string | null,
+	splitPacket: boolean
+}
+
+export type BlueFleetApi = {
+	watchAdapterSwitch: (callback: (packet: BlueEnvelope) => void) => void,
+	requestAdapterWake: (callback: (packet: BlueEnvelope) => void) => void,
+	adapterReady: () => boolean,
+	beginSweep: (plan: BlueSweepPlan) => void,
+	legacySweep: (duration: number, callback: (packet: BlueEnvelope) => void) => void,
+	watchSweepFrames: (callback: (packet: BlueEnvelope) => void) => void,
+	stopSweep: () => void,
+	attach: (peerId: string, keepRetry: boolean, callback: (packet: BlueEnvelope) => void) => void,
+	setAttachTimeout: (duration: number) => void,
+	setRetryGap: (duration: number) => void,
+	stopRetry: () => void,
+	attached: () => boolean,
+	currentPeerId: () => string,
+	pullProfile: (callback: (packet: BlueEnvelope) => void) => void,
+	pickProfile: (index: number) => void,
+	listProfiles: () => BlueChannelBundle[],
+	activeServiceId: () => string,
+	activeNotifyId: () => string,
+	activeWriteId: () => string,
+	pipeValue: (serviceId: string, characteristicId: string, enabled: boolean, callback: (packet: BlueEnvelope) => void) => void,
+	emitPacket: (plan: BluePacketPlan, callback: (packet: BlueEnvelope) => void) => void,
+	emitBytes: (serviceId: string, characteristicId: string, bytes: number[], callback: (packet: BlueEnvelope) => void) => void,
+	emitBytesWithMode: (serviceId: string, characteristicId: string, bytes: number[], writeMode: number, callback: (packet: BlueEnvelope) => void) => void,
+	emitHex: (serviceId: string, characteristicId: string, hexPayload: string, callback: (packet: BlueEnvelope) => void) => void,
+	emitHexWithMode: (serviceId: string, characteristicId: string, hexPayload: string, writeMode: number, callback: (packet: BlueEnvelope) => void) => void,
+	probeSignal: (callback: (packet: BlueEnvelope) => void) => void,
+	setTunnelSize: (size: number, callback: (packet: BlueEnvelope) => void) => void,
+	readOnce: (serviceId: string, characteristicId: string, callback: (packet: BlueEnvelope) => void) => void,
+	closePipe: () => void,
+	bytesToHexText: (bytes: number[]) => string,
+	textToHexSeed: (text: string, charset: string) => string,
+	hexSeedToText: (hexPayload: string, charset: string) => string,
+	hasAndroidPermission: (permissionName: string) => boolean,
+	askAndroidPermission: (permissionName: string, callback: (granted: boolean) => void) => void,
+	askAndroidPermissions: (permissionNames: string[], callback: (granted: boolean) => void) => void,
+	verifyHarmonyPeerId: (peerId: string) => boolean,
+	requestHarmonyBluetoothAccess: (callback: (granted: boolean) => void) => void,
+	openAdapterPanel: () => void,
+	setDebug: (enabled: boolean) => void,
+	setDispatchLabel: (label: string) => void
+}
+
+export interface BluePluginFail extends IUniError {
+	errCode: BlueIssueCode
+}
+
+export declare function createBlueFleet(): BlueFleetApi
+
+export type CompatUuidBundle = {
+	serviceId: string,
+	wuuid: string,
+	nuuid: string
+}
+
+export type CompatSweepPlan = {
+	btNameFilter?: string,
+	scantime?: number,
+	showEmptyName?: number,
+	onScanResult?: (packet: CompatApiPacket) => void,
+	scanComplate?: () => void
+}
+
+export type CompatWriteTask = {
+	serviceId: string,
+	characteristicId: string,
+	writeType?: number,
+	data?: number[],
+	hexStrData?: string,
+	fenbao: boolean
+}
+
+export type CompatScanRecord = {
+	deviceName?: string | null,
+	txPowerLevel?: number | null,
+	bytes?: string | null,
+	serviceData?: string | null,
+	serviceUuids?: string | null,
+	advertiseFlags?: number | null,
+	manufacturerSpecificData?: string | null,
+	serviceSolicitationUuids?: string | null
+}
+
+export type CompatDevice = {
+	name?: string | null,
+	alias?: string | null,
+	bondState?: number | null,
+	type?: number | null,
+	address: string,
+	connectType?: number | null
+}
+
+export type CompatScanResult = {
+	connectType?: number | null,
+	rssi?: number | null,
+	isLegacy?: boolean | null,
+	advertisingSid?: number | null,
+	dataStatus?: number | null,
+	isConnectable?: boolean | null,
+	periodicAdvertisingInterval?: number | null,
+	primaryPhy?: number | null,
+	secondaryPhy?: number | null,
+	timestampNanos?: number | null,
+	scanRecord?: CompatScanRecord | null,
+	device: CompatDevice,
+	deviceName?: string | null
+}
+
+export type CompatApiPacket = {
+	type: number,
+	message: string,
+	data: any
+}
+
+export type CompatScanFrame = {
+	mac: string,
+	rssi: number,
+	data: string,
+	manufacturerData?: string,
+	name?: string
+}
+
+export type CompatCharacteristicFlags = {
+	READ: boolean,
+	WRITE: boolean,
+	NOTIFY: boolean,
+	INDICATE: boolean
+}
+
+export type CompatCharacteristic = {
+	properties: CompatCharacteristicFlags,
+	uuid: string,
+	propertiesType: number
+}
+
+export type CompatService = {
+	type: number,
+	uuid: string,
+	characteristics: CompatCharacteristic[]
+}
+
+export type AndroidCompatBlueApi = {
+	setBtConnectTimeout: (time: number) => void,
+	setBtAutoConnectTime: (time: number) => void,
+	setDebugMode: (debug: boolean) => void,
+	setThreadTypeName: (name: string) => void,
+	onBtOpenStateListener: (callback: (packet: CompatApiPacket) => void) => void,
+	btListener: () => void,
+	openBtBluetooth: (callback: (packet: CompatApiPacket) => void) => void,
+	readRssi: (callback: (packet: CompatApiPacket) => void) => void,
+	openBluetooth: (on: boolean) => void,
+	openBluetoothSettings: () => void,
+	getSericUUID: () => string,
+	getServiceUUID: () => string,
+	getNotityUUID: () => string,
+	getWriteUUID: () => string,
+	getwriteUUID: () => string,
+	onScanDataListener: (callback: (packet: CompatApiPacket) => void) => void,
+	isHavePermision: (pername: string) => boolean,
+	requestPermison: (pername: string, callback: (granted: boolean) => void) => void,
+	requesMoretPermison: (pername: string[], callback: (granted: boolean) => void) => void,
+	isEnabled: () => boolean,
+	onStartScanBle: (para: CompatSweepPlan) => void,
+	onScanBle: (para: CompatSweepPlan) => void,
+	startScanBleDevice: (time: number, callback: (packet: CompatApiPacket) => void) => void,
+	stopScanBle: () => void,
+	scanBle: (time: number, callback: (packet: CompatApiPacket) => void) => void,
+	connect: (mac: string, auto: boolean, callback: (packet: CompatApiPacket) => void) => void,
+	connectDevices: (mac: string, auto: boolean, callback: (packet: CompatApiPacket) => void) => void,
+	startAutoConnectBt: (time: number, callback: (packet: CompatApiPacket) => void) => void,
+	cancelAutoConnectBt: () => void,
+	scanServices: (callback: (packet: CompatApiPacket) => void) => void,
+	getUUIDs: () => CompatUuidBundle[],
+	setSelectUUID: (id: number) => void,
+	listenerBleMessage: (callback: (packet: CompatApiPacket) => void) => void,
+	disListenerBleMessage: () => void,
+	isConnected: () => boolean,
+	getConnectMac: () => string,
+	byte2HexString: (data: number[]) => string,
+	writeDataToBle: (service: string, chars: string, data: number[], callback: (packet: CompatApiPacket) => void) => void,
+	writeDataToBleWithType: (service: string, chars: string, data: number[], writeType: number, callback: (packet: CompatApiPacket) => void) => void,
+	writeStringDataToBle: (service: string, chars: string, data: string, callback: (packet: CompatApiPacket) => void) => void,
+	writeStringDataToBleWithType: (service: string, chars: string, data: string, writeType: number, callback: (packet: CompatApiPacket) => void) => void,
+	sendData: (data: CompatWriteTask, callback: (packet: CompatApiPacket) => void) => void,
+	onNotityReadBleData: (service: string, chars: string, state: boolean, callback: (packet: CompatApiPacket) => void) => void,
+	onNotityReadBleDataMore: (service: string, chars: string, state: boolean, callback: (packet: CompatApiPacket) => void) => void,
+	close: () => void,
+	setMtu: (num: number, callback: (packet: CompatApiPacket) => void) => void,
+	string2ByteStrWithCharset: (data: string, code: string) => string,
+	byte2StringWithCharset: (data: string, code: string) => string,
+	onReadData: (service: string, chars: string, callback: (packet: CompatApiPacket) => void) => void,
+	onIndicate: (service: string, chars: string, callback: (packet: CompatApiPacket) => void) => void
+}
+
+export declare function createAndroidCompatBlue(): AndroidCompatBlueApi
+
+export function buildBlueEnvelope(code: number, detail: string, payload: any | null): BlueEnvelope {
+	return {
+		code: code,
+		detail: detail,
+		payload: payload
+	} as BlueEnvelope
+}
+
+export function buildCompatPacket(type: number, message: string, data: any): CompatApiPacket {
+	return {
+		type: type,
+		message: message,
+		data: data
+	} as CompatApiPacket
+}

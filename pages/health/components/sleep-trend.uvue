@@ -150,9 +150,9 @@ const sleepDurationChartOption = computed(() => {
 	const sum = sleepDurationData.reduce((acc, val) => acc + val, 0);
 	const average = sleepDurationData.length > 0 ? sum / sleepDurationData.length : 0;
 
-	const averageData = sleepDurationData.map(function (_val: number): number {
-		return Number(average.toFixed(2));
-	});
+  const averageData = sleepDurationData.map(function (_val: number): number {
+   return parseFloat(average.toFixed(2));
+  });
 
 	return JSON.stringify({
 		title: { show: false },

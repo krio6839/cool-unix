@@ -1,0 +1,41 @@
+{
+  "module": {
+    "name": "uni_modules__laoqianjunzi_blue",
+    "type": "har",
+    "deviceTypes": [
+      "default",
+      "tablet",
+      "2in1"
+    ],
+    "requestPermissions": [
+      {
+        "name": "ohos.permission.LOCATION",
+        "reason": "$string:blue_harmony_location_reason",
+        "usedScene": {
+          "when": "always"
+        }
+      },
+      {
+        "name": "ohos.permission.ACCESS_BLUETOOTH",
+        "reason": "$string:blue_harmony_bluetooth_reason",
+        "usedScene": {
+          "when": "always"
+        }
+      },
+      {
+        "name": "ohos.permission.DISCOVER_BLUETOOTH",
+        "reason": "$string:blue_harmony_bluetooth_reason",
+        "usedScene": {
+          "when": "always"
+        }
+      },
+      {
+        "name": "ohos.permission.USE_BLUETOOTH",
+        "reason": "$string:blue_harmony_bluetooth_reason",
+        "usedScene": {
+          "when": "always"
+        }
+      }
+    ]
+  }
+}

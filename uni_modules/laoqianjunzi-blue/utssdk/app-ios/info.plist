@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>需要蓝牙权限以扫描、连接并维持低功耗蓝牙设备通信。</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>需要蓝牙权限以接收通知、读取数据并向外设写入指令。</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-central</string>
+	</array>
+</dict>
+</plist>

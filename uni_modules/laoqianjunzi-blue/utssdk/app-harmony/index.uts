@@ -1,0 +1,171 @@
+import { access } from '@kit.ConnectivityKit'
+import { AndroidCompatBlueApi, BlueChannelBundle, BlueEnvelope, BlueFleetApi, BluePacketPlan, BlueServiceShape, BlueSweepNode, BlueSweepPlan, BlueCharacteristic, BlueFlags, CompatApiPacket, CompatCharacteristic, CompatCharacteristicFlags, CompatScanFrame, CompatScanResult, CompatService, CompatSweepPlan, CompatUuidBundle, CompatWriteTask, buildBlueEnvelope, buildCompatPacket } from '../interface.uts'
+
+class BlueFleetHost {
+	private adapterOn: boolean = false
+	private connected: boolean = false
+	private currentDeviceIdValue: string = ''
+	private pendingDeviceIdValue: string = ''
+	private activeServiceValue: string = ''
+	private activeNotifyValue: string = ''
+	private activeWriteValue: string = ''
+	private attachTimeoutValue: number = 15000
+	private retryGapValue: number = 12000
+	private retryTimerId: number = -1
+	private sweepTimerId: number = -1
+	private debugEnabled: boolean = false
+	private dispatchLabel: string = 'main'
+	private sweepKeyword: string = ''
+	private allowNameless: boolean = true
+	private bundleList: BlueChannelBundle[] = [] as BlueChannelBundle[]
+	private sweepSeenMap: Map<string, boolean> = new Map<string, boolean>()
+	private adapterWatcher: ((packet: BlueEnvelope) => void) | null = null
+	private sweepNodeWatcher: ((packet: BlueEnvelope) => void) | null = null
+	private sweepFrameWatcher: ((packet: BlueEnvelope) => void) | null = null
+	private attachWatcher: ((packet: BlueEnvelope) => void) | null = null
+	private streamWatcher: ((packet: BlueEnvelope) => void) | null = null
+	private readWatcher: ((packet: BlueEnvelope) => void) | null = null
+
+	constructor() { this.bindUniEvents(); this.refreshAdapterState(null) }
+	private trace(message: string, payload: any | null = null): void { if (this.debugEnabled) { console.log('[laoqianjunzi-blue][harmony]', message, payload) } }
+	private ok(detail: string, payload: any | null = null): BlueEnvelope { return buildBlueEnvelope(0, detail, payload) }
+	private fail(code: number, detail: string, payload: any | null = null): BlueEnvelope { return buildBlueEnvelope(code, detail, payload) }
+	private bindUniEvents(): void { uni.onBluetoothAdapterStateChange((res: any) => { const available = res != null && res.available === true; this.adapterOn = available; if (!available) { this.connected = false } if (this.adapterWatcher != null) { this.adapterWatcher(this.ok('蓝牙适配器状态变化', available)) } }); uni.onBluetoothDeviceFound((res: any) => { const devices = res != null && res.devices != null ? res.devices as Array<any> : [] as Array<any>; for (let i = 0; i < devices.length; i++) { this.consumeFoundDevice(devices[i]) } }); uni.onBLEConnectionStateChange((res: any) => { const deviceId = res != null && res.deviceId != null ? res.deviceId as string : ''; if (deviceId.length == 0) { return } if (deviceId != this.currentDeviceIdValue && deviceId != this.pendingDeviceIdValue) { return } const state = res != null && res.connected === true; this.connected = state; if (state) { this.currentDeviceIdValue = deviceId } if (!state && this.attachWatcher != null) { this.attachWatcher(this.fail(10001, '蓝牙连接已断开', deviceId)) } }); uni.onBLECharacteristicValueChange((res: any) => { const bytes = this.arrayBufferToNumberList(res != null ? res.value as ArrayBuffer : new ArrayBuffer(0)); const packet = this.ok('收到蓝牙数据', bytes); if (this.streamWatcher != null) { this.streamWatcher(packet) } if (this.readWatcher != null) { const once = this.readWatcher; this.readWatcher = null; once(packet) } }) }
+	private refreshAdapterState(callback: ((packet: BlueEnvelope) => void) | null): void { uni.openBluetoothAdapter({ success: (_res: any) => { uni.getBluetoothAdapterState({ success: (stateRes: any) => { this.adapterOn = stateRes != null && stateRes.available === true; if (callback != null) { callback(this.ok('蓝牙适配器可用', this.adapterOn)) } }, fail: (_err: any) => { this.adapterOn = false; if (callback != null) { callback(this.fail(10002, '无法读取蓝牙适配器状态', null)) } } }) }, fail: (_err: any) => { this.adapterOn = false; if (callback != null) { callback(this.fail(10002, '蓝牙适配器未开启', null)) } } }) }
+	private consumeFoundDevice(source: any): void { const deviceId = source != null && source.deviceId != null ? source.deviceId as string : ''; if (deviceId.length == 0) { return } const name = source != null && source.name != null && (source.name as string).length > 0 ? source.name as string : (source != null && source.localName != null ? source.localName as string : ''); const rssi = source != null && source.RSSI != null ? Number(source.RSSI) : (source != null && source.rssi != null ? Number(source.rssi) : 0); const adv = source != null && source.advertisData != null ? source.advertisData as ArrayBuffer : new ArrayBuffer(0); const packetHex = this.arrayBufferToHex(adv); if (!this.allowNameless && name.length == 0) { return } if (this.sweepKeyword.length > 0 && !name.includes(this.sweepKeyword)) { return } if (this.sweepFrameWatcher != null) { this.sweepFrameWatcher(this.ok('收到广播帧', { peerId: deviceId, alias: name.length > 0 ? name : null, rssi: rssi, packetHex: packetHex, vendorHex: null })) } if (this.sweepNodeWatcher == null) { return } if (this.sweepSeenMap.has(deviceId)) { return } this.sweepSeenMap.set(deviceId, true); const node: BlueSweepNode = { connectType: null, rssi: rssi, isLegacy: null, advertisingSid: null, dataStatus: null, isConnectable: null, periodicAdvertisingInterval: null, primaryPhy: null, secondaryPhy: null, timestampNanos: null, advertiseFrame: { deviceName: name.length > 0 ? name : null, txPowerLevel: null, bytes: packetHex, serviceData: null, serviceUuids: null, advertiseFlags: null, manufacturerSpecificData: null, serviceSolicitationUuids: null }, peer: { name: name.length > 0 ? name : null, alias: name.length > 0 ? name : null, bondState: null, deviceKind: null, address: deviceId } } as BlueSweepNode; this.sweepNodeWatcher(this.ok('发现蓝牙设备', node)) }
+	private stopSweepTimer(): void { if (this.sweepTimerId != -1) { clearTimeout(this.sweepTimerId); this.sweepTimerId = -1 } }
+	private bytesFromPlan(plan: BluePacketPlan): number[] { if (plan.bytePayload != null) { return plan.bytePayload } if (plan.hexPayload != null) { return this.hexToNumberList(plan.hexPayload) } return [] as number[] }
+	private hexToNumberList(hexPayload: string): number[] { let clean = hexPayload.replace(/\s/g, '').toUpperCase(); if (clean.length % 2 != 0) { clean = '0' + clean } const result: number[] = [] as number[]; for (let i = 0; i < clean.length; i += 2) { result.push(parseInt(clean.substring(i, i + 2), 16)) } return result }
+	private arrayBufferToNumberList(buffer: ArrayBuffer): number[] { const list: number[] = [] as number[]; const view = new Uint8Array(buffer); for (let i = 0; i < view.length; i++) { list.push(Number(view[i])) } return list }
+	private numberListToBuffer(bytes: number[]): ArrayBuffer { const view = new Uint8Array(bytes.length); for (let i = 0; i < bytes.length; i++) { view[i] = bytes[i] } return view.buffer }
+	private arrayBufferToHex(buffer: ArrayBuffer): string { const view = new Uint8Array(buffer); let result = ''; for (let i = 0; i < view.length; i++) { result += view[i].toString(16).padStart(2, '0').toUpperCase(); if (i < view.length - 1) { result += ' ' } } return result }
+	private splitBytes(bytes: number[], size: number): number[][] { const groups: number[][] = [] as number[][]; for (let i = 0; i < bytes.length; i += size) { groups.push(bytes.slice(i, i + size)) } return groups }
+	private doWriteChunks(serviceId: string, characteristicId: string, chunks: number[][], index: number, callback: (packet: BlueEnvelope) => void): void { if (index >= chunks.length) { callback(this.ok('写入完成', null)); return } uni.writeBLECharacteristicValue({ deviceId: this.currentDeviceIdValue, serviceId: serviceId, characteristicId: characteristicId, value: this.numberListToBuffer(chunks[index]), success: (_res: any) => { setTimeout(() => { this.doWriteChunks(serviceId, characteristicId, chunks, index + 1, callback) }, 40) }, fail: (_err: any) => { callback(this.fail(10001, '写入失败', null)) } }) }
+	private collectProfile(callback: (packet: BlueEnvelope) => void): void { uni.getBLEDeviceServices({ deviceId: this.currentDeviceIdValue, success: (serviceRes: any) => { const services = serviceRes != null && serviceRes.services != null ? serviceRes.services as Array<any> : [] as Array<any>; if (services.length == 0) { this.bundleList = [] as BlueChannelBundle[]; callback(this.ok('未发现服务', [] as BlueServiceShape[])); return } const tempShapes: BlueServiceShape[] = [] as BlueServiceShape[]; const tempBundles: BlueChannelBundle[] = [] as BlueChannelBundle[]; let finished = 0; for (let i = 0; i < services.length; i++) { const currentService = services[i]; const serviceId = currentService.uuid as string; uni.getBLEDeviceCharacteristics({ deviceId: this.currentDeviceIdValue, serviceId: serviceId, success: (charRes: any) => { const charList = charRes != null && charRes.characteristics != null ? charRes.characteristics as Array<any> : [] as Array<any>; let notifyId = ''; let writeId = ''; const readyChars: BlueCharacteristic[] = [] as BlueCharacteristic[]; for (let j = 0; j < charList.length; j++) { const item = charList[j]; const props = item.properties != null ? item.properties : null; const flags: BlueFlags = { canRead: props != null && props.read === true, canWrite: props != null && (props.write === true || props.writeNoResponse === true || props.writeDefault === true), canNotify: props != null && props.notify === true, canIndicate: props != null && props.indicate === true } as BlueFlags; if (flags.canNotify && notifyId.length == 0) { notifyId = item.uuid as string } if (flags.canWrite && writeId.length == 0) { writeId = item.uuid as string } readyChars.push({ uuid: item.uuid as string, flagBits: 0, flags: flags } as BlueCharacteristic) } if (notifyId.length > 0 && writeId.length > 0) { tempBundles.push({ serviceId: serviceId, writeId: writeId, notifyId: notifyId } as BlueChannelBundle) } tempShapes.push({ index: i, uuid: serviceId, characteristics: readyChars } as BlueServiceShape); finished += 1; if (finished >= services.length) { tempShapes.sort((left: BlueServiceShape, right: BlueServiceShape): number => { return left.index - right.index }); this.bundleList = tempBundles; if (this.bundleList.length > 0) { this.pickProfile(0) } callback(this.ok('服务扫描完成', tempShapes)) } }, fail: (_err: any) => { tempShapes.push({ index: i, uuid: serviceId, characteristics: [] as BlueCharacteristic[] } as BlueServiceShape); finished += 1; if (finished >= services.length) { tempShapes.sort((left: BlueServiceShape, right: BlueServiceShape): number => { return left.index - right.index }); this.bundleList = tempBundles; if (this.bundleList.length > 0) { this.pickProfile(0) } callback(this.ok('服务扫描完成', tempShapes)) } } }) } }, fail: (_err: any) => { callback(this.fail(10000, '读取服务列表失败', null)) } }) }
+	watchAdapterSwitch(callback: (packet: BlueEnvelope) => void): void { this.adapterWatcher = callback; this.refreshAdapterState(callback) }
+	requestAdapterWake(callback: (packet: BlueEnvelope) => void): void { this.refreshAdapterState(callback) }
+	adapterReady(): boolean { return this.adapterOn }
+	beginSweep(plan: BlueSweepPlan): void { this.refreshAdapterState((statePacket: BlueEnvelope) => { if (statePacket.code != 0 || this.adapterOn == false) { if (plan.onNode != null) { plan.onNode(this.fail(10002, '蓝牙适配器不可用', null)) } return } this.sweepNodeWatcher = plan.onNode != null ? plan.onNode : null; this.sweepKeyword = plan.nameKeyword != null ? plan.nameKeyword : ''; this.allowNameless = plan.includeNameless === true; this.stopSweep(); this.sweepSeenMap.clear(); uni.startBluetoothDevicesDiscovery({ allowDuplicatesKey: true, success: (_res: any) => { const duration = plan.duration != null ? Number(plan.duration) : 10000; if (duration >= 0) { this.sweepTimerId = setTimeout(() => { this.stopSweep(); if (plan.onDone != null) { plan.onDone() } }, duration) } }, fail: (_err: any) => { if (plan.onNode != null) { plan.onNode(this.fail(10000, '启动扫描失败', null)) } } }) }) }
+	legacySweep(duration: number, callback: (packet: BlueEnvelope) => void): void { this.beginSweep({ nameKeyword: null, duration: duration, includeNameless: true, onNode: callback, onDone: () => {} } as BlueSweepPlan) }
+	watchSweepFrames(callback: (packet: BlueEnvelope) => void): void { this.sweepFrameWatcher = callback }
+	stopSweep(): void { this.stopSweepTimer(); uni.stopBluetoothDevicesDiscovery({ complete: (_res: any) => {} }) }
+	attach(peerId: string, keepRetry: boolean, callback: (packet: BlueEnvelope) => void): void { this.attachWatcher = callback; this.pendingDeviceIdValue = peerId; this.refreshAdapterState((packet: BlueEnvelope) => { if (packet.code != 0 || this.adapterOn == false) { callback(this.fail(10002, '蓝牙适配器不可用', null)); return } let done = false; const timeoutId = setTimeout(() => { if (!done) { done = true; callback(this.fail(10000, '连接超时', null)) } }, this.attachTimeoutValue); uni.createBLEConnection({ deviceId: peerId, success: (_res: any) => { if (!done) { clearTimeout(timeoutId); done = true; this.connected = true; this.currentDeviceIdValue = peerId; callback(this.ok('连接成功', null)) } if (keepRetry) { this.stopRetry(); this.retryTimerId = setInterval(() => { if (!this.connected && this.pendingDeviceIdValue.length > 0) { this.attach(this.pendingDeviceIdValue, false, callback) } }, this.retryGapValue) } }, fail: (_err: any) => { if (!done) { clearTimeout(timeoutId); done = true; callback(this.fail(10000, '连接失败', null)) } } }) }) }
+	setAttachTimeout(duration: number): void { this.attachTimeoutValue = duration }
+	setRetryGap(duration: number): void { this.retryGapValue = duration }
+	stopRetry(): void { if (this.retryTimerId != -1) { clearInterval(this.retryTimerId); this.retryTimerId = -1 } }
+	attached(): boolean { return this.connected }
+	currentPeerId(): string { return this.connected ? this.currentDeviceIdValue : '' }
+	pullProfile(callback: (packet: BlueEnvelope) => void): void { if (!this.connected || this.currentDeviceIdValue.length == 0) { callback(this.fail(10005, '当前没有已连接设备', null)); return } this.collectProfile(callback) }
+	pickProfile(index: number): void { if (index >= 0 && index < this.bundleList.length) { const target = this.bundleList[index]; this.activeServiceValue = target.serviceId; this.activeNotifyValue = target.notifyId; this.activeWriteValue = target.writeId } }
+	listProfiles(): BlueChannelBundle[] { return this.bundleList }
+	activeServiceId(): string { return this.activeServiceValue }
+	activeNotifyId(): string { return this.activeNotifyValue }
+	activeWriteId(): string { return this.activeWriteValue }
+	pipeValue(serviceId: string, characteristicId: string, enabled: boolean, callback: (packet: BlueEnvelope) => void): void { this.streamWatcher = callback; uni.notifyBLECharacteristicValueChange({ deviceId: this.currentDeviceIdValue, serviceId: serviceId, characteristicId: characteristicId, state: enabled, success: (_res: any) => { callback(buildBlueEnvelope(enabled ? 1000 : 0, enabled ? '订阅已开启' : '订阅已关闭', [] as number[])) }, fail: (_err: any) => { callback(buildBlueEnvelope(1001, '订阅操作失败', [] as number[])) } }) }
+	emitPacket(plan: BluePacketPlan, callback: (packet: BlueEnvelope) => void): void { if (!this.connected || this.currentDeviceIdValue.length == 0) { callback(this.fail(10005, '当前没有已连接设备', null)); return } const bytes = this.bytesFromPlan(plan); if (bytes.length == 0) { callback(this.fail(9011003, '待发送数据为空', null)); return } if (plan.splitPacket) { this.doWriteChunks(plan.serviceId, plan.characteristicId, this.splitBytes(bytes, 20), 0, callback); return } uni.writeBLECharacteristicValue({ deviceId: this.currentDeviceIdValue, serviceId: plan.serviceId, characteristicId: plan.characteristicId, value: this.numberListToBuffer(bytes), success: (_res: any) => { callback(this.ok('写入成功', null)) }, fail: (_err: any) => { callback(this.fail(10001, '写入失败', null)) } }) }
+	emitBytes(serviceId: string, characteristicId: string, bytes: number[], callback: (packet: BlueEnvelope) => void): void { this.emitPacket({ serviceId: serviceId, characteristicId: characteristicId, writeMode: null, bytePayload: bytes, hexPayload: null, splitPacket: false } as BluePacketPlan, callback) }
+	emitBytesWithMode(serviceId: string, characteristicId: string, bytes: number[], writeMode: number, callback: (packet: BlueEnvelope) => void): void { this.emitPacket({ serviceId: serviceId, characteristicId: characteristicId, writeMode: writeMode, bytePayload: bytes, hexPayload: null, splitPacket: false } as BluePacketPlan, callback) }
+	emitHex(serviceId: string, characteristicId: string, hexPayload: string, callback: (packet: BlueEnvelope) => void): void { this.emitPacket({ serviceId: serviceId, characteristicId: characteristicId, writeMode: null, bytePayload: null, hexPayload: hexPayload, splitPacket: false } as BluePacketPlan, callback) }
+	emitHexWithMode(serviceId: string, characteristicId: string, hexPayload: string, writeMode: number, callback: (packet: BlueEnvelope) => void): void { this.emitPacket({ serviceId: serviceId, characteristicId: characteristicId, writeMode: writeMode, bytePayload: null, hexPayload: hexPayload, splitPacket: false } as BluePacketPlan, callback) }
+	probeSignal(callback: (packet: BlueEnvelope) => void): void { uni.getBLEDeviceRSSI({ deviceId: this.currentDeviceIdValue, success: (res: any) => { callback(this.ok('读取信号成功', res != null && res.RSSI != null ? Number(res.RSSI) : 0)) }, fail: (_err: any) => { callback(this.fail(10000, '读取信号失败', null)) } }) }
+	setTunnelSize(size: number, callback: (packet: BlueEnvelope) => void): void { uni.setBLEMTU({ deviceId: this.currentDeviceIdValue, mtu: size, success: (_res: any) => { callback(this.ok('MTU 设置成功', size)) }, fail: (_err: any) => { callback(this.fail(9011001, '当前平台不支持调整 MTU', size)) } }) }
+	readOnce(serviceId: string, characteristicId: string, callback: (packet: BlueEnvelope) => void): void { this.readWatcher = callback; uni.readBLECharacteristicValue({ deviceId: this.currentDeviceIdValue, serviceId: serviceId, characteristicId: characteristicId, success: (_res: any) => {}, fail: (_err: any) => { this.readWatcher = null; callback(this.fail(10000, '读取失败', null)) } }) }
+	closePipe(): void { this.stopRetry(); if (this.currentDeviceIdValue.length == 0) { return } uni.closeBLEConnection({ deviceId: this.currentDeviceIdValue, complete: (_res: any) => { this.connected = false } }) }
+	bytesToHexText(bytes: number[]): string { return this.arrayBufferToHex(this.numberListToBuffer(bytes)) }
+	textToHexSeed(text: string, charset: string): string { const lower = charset.toLowerCase(); if (lower != 'utf-8' && lower != 'utf8') { return '' } const encoded = new TextEncoder().encode(text); return this.arrayBufferToHex(encoded.buffer) }
+	hexSeedToText(hexPayload: string, charset: string): string { const lower = charset.toLowerCase(); if (lower != 'utf-8' && lower != 'utf8') { return '' } const bytes = this.hexToNumberList(hexPayload); return new TextDecoder('utf-8').decode(this.numberListToBuffer(bytes)) }
+	// Harmony 端不提供 Android 运行时权限模型，这里返回占位值用于保证统一接口可编译。
+	hasAndroidPermission(_permissionName: string): boolean { return false }
+	// Harmony 端不提供 Android 运行时权限模型，这里返回占位回调用于保证统一接口可编译。
+	askAndroidPermission(_permissionName: string, callback: (granted: boolean) => void): void { callback(false) }
+	// Harmony 端不提供 Android 运行时权限模型，这里返回占位回调用于保证统一接口可编译。
+	askAndroidPermissions(_permissionNames: string[], callback: (granted: boolean) => void): void { callback(false) }
+	verifyHarmonyPeerId(peerId: string): boolean { try { return access.isValidRandomDeviceId(peerId) } catch (_err) { return false } }
+	// Harmony 端权限申请依赖具体工程配置，这里保留占位回调避免插件在未配置场景下编译失败。
+	requestHarmonyBluetoothAccess(callback: (granted: boolean) => void): void { callback(false) }
+	openAdapterPanel(): void { this.trace('HarmonyOS 平台未提供直接跳转蓝牙面板能力', null) }
+	setDebug(enabled: boolean): void { this.debugEnabled = enabled }
+	setDispatchLabel(label: string): void { this.dispatchLabel = label }
+}
+
+export const createBlueFleet = function (): BlueFleetApi { return new BlueFleetHost() }
+
+class HarmonyCompatBlueHost {
+	private fleet: BlueFleetHost = new BlueFleetHost()
+	private latestPeerId: string = ''
+	private latestServiceId: string = ''
+	private latestNotifyId: string = ''
+	private latestWriteId: string = ''
+	private latestAutoGap: number = 12000
+	private latestConnectTimeout: number = 15000
+	private latestBundles: CompatUuidBundle[] = [] as CompatUuidBundle[]
+	private scanFrameCallback: ((packet: CompatApiPacket) => void) | null = null
+
+	constructor() {
+		this.fleet.watchSweepFrames((packet: BlueEnvelope) => {
+			if (this.scanFrameCallback == null) { return }
+			const data = packet.payload as UTSJSONObject | null
+			if (data == null) { this.scanFrameCallback(buildCompatPacket(10000, packet.detail, '')); return }
+			this.scanFrameCallback(buildCompatPacket(0, '', { mac: data['peerId'] as string, rssi: data['rssi'] as number, data: data['packetHex'] as string, manufacturerData: data['vendorHex'] as string | null, name: data['alias'] as string | null } as CompatScanFrame))
+		})
+	}
+	private packetFromBlue(packet: BlueEnvelope): CompatApiPacket { return buildCompatPacket(packet.code, packet.detail, packet.payload != null ? packet.payload as any : '') }
+	private syncSelectedIds(): void { this.latestServiceId = this.fleet.activeServiceId(); this.latestNotifyId = this.fleet.activeNotifyId(); this.latestWriteId = this.fleet.activeWriteId() }
+	private syncUuidBundles(): void { const rows = this.fleet.listProfiles(); const list: CompatUuidBundle[] = [] as CompatUuidBundle[]; for (let i = 0; i < rows.length; i++) { list.push({ serviceId: rows[i].serviceId, nuuid: rows[i].notifyId, wuuid: rows[i].writeId } as CompatUuidBundle) } this.latestBundles = list; this.syncSelectedIds() }
+	private normalizeScanNode(packet: BlueEnvelope): CompatApiPacket { if (packet.code != 0) { return this.packetFromBlue(packet) } const payload = packet.payload as UTSJSONObject; const peer = payload['peer'] as UTSJSONObject; const frame = payload['advertiseFrame'] as UTSJSONObject | null; return buildCompatPacket(0, packet.detail, { connectType: payload['connectType'] as number | null, rssi: payload['rssi'] as number | null, isLegacy: payload['isLegacy'] as boolean | null, advertisingSid: payload['advertisingSid'] as number | null, dataStatus: payload['dataStatus'] as number | null, isConnectable: payload['isConnectable'] as boolean | null, periodicAdvertisingInterval: payload['periodicAdvertisingInterval'] as number | null, primaryPhy: payload['primaryPhy'] as number | null, secondaryPhy: payload['secondaryPhy'] as number | null, timestampNanos: payload['timestampNanos'] as number | null, scanRecord: frame == null ? null : { deviceName: frame['deviceName'] as string | null, txPowerLevel: frame['txPowerLevel'] as number | null, bytes: frame['bytes'] as string | null, serviceData: frame['serviceData'] as string | null, serviceUuids: frame['serviceUuids'] as string | null, advertiseFlags: frame['advertiseFlags'] as number | null, manufacturerSpecificData: frame['manufacturerSpecificData'] as string | null, serviceSolicitationUuids: frame['serviceSolicitationUuids'] as string | null }, device: { name: peer['name'] as string | null, alias: peer['alias'] as string | null, bondState: peer['bondState'] as number | null, type: peer['deviceKind'] as number | null, address: peer['address'] as string } as any, deviceName: peer['name'] as string | null } as CompatScanResult) }
+	private normalizeServices(packet: BlueEnvelope): CompatApiPacket { if (packet.code != 0) { return this.packetFromBlue(packet) } const rows = packet.payload as BlueServiceShape[]; const list: CompatService[] = [] as CompatService[]; for (let i = 0; i < rows.length; i++) { const chars: CompatCharacteristic[] = [] as CompatCharacteristic[]; for (let j = 0; j < rows[i].characteristics.length; j++) { const flags: CompatCharacteristicFlags = { READ: rows[i].characteristics[j].flags.canRead, WRITE: rows[i].characteristics[j].flags.canWrite, NOTIFY: rows[i].characteristics[j].flags.canNotify, INDICATE: rows[i].characteristics[j].flags.canIndicate } as CompatCharacteristicFlags; chars.push({ uuid: rows[i].characteristics[j].uuid, properties: flags, propertiesType: rows[i].characteristics[j].flagBits } as CompatCharacteristic) } list.push({ type: i, uuid: rows[i].uuid, characteristics: chars } as CompatService) } this.syncUuidBundles(); return buildCompatPacket(0, packet.detail, list) }
+	private normalizeReadPacket(packet: BlueEnvelope): CompatApiPacket { return packet.code == 0 ? buildCompatPacket(0, packet.detail, packet.payload != null ? packet.payload as any : [] as number[]) : buildCompatPacket(packet.code, packet.detail, [] as number[]) }
+	private normalizeNotifyPacket(packet: BlueEnvelope, enabled: boolean): CompatApiPacket { const payload = packet.payload; if (payload != null && payload instanceof Array && payload.length > 0) { return buildCompatPacket(0, packet.detail, payload) } if (enabled) { return buildCompatPacket(packet.code == 0 ? 1000 : 1001, packet.detail, [] as number[]) } return buildCompatPacket(packet.code, packet.detail, [] as number[]) }
+	setBtConnectTimeout(time: number): void { this.latestConnectTimeout = time; this.fleet.setAttachTimeout(time) }
+	setBtAutoConnectTime(time: number): void { this.latestAutoGap = time; this.fleet.setRetryGap(time) }
+	setDebugMode(debug: boolean): void { this.fleet.setDebug(debug) }
+	setThreadTypeName(name: string): void { this.fleet.setDispatchLabel(name) }
+	onBtOpenStateListener(callback: (packet: CompatApiPacket) => void): void { this.fleet.watchAdapterSwitch((packet: BlueEnvelope) => { callback(buildCompatPacket(0, packet.detail, packet.payload != null ? packet.payload as any : false)) }) }
+	btListener(): void {}
+	openBtBluetooth(callback: (packet: CompatApiPacket) => void): void { this.fleet.requestAdapterWake((packet: BlueEnvelope) => { callback(buildCompatPacket(packet.code == 0 ? 0 : -1, packet.detail, packet.payload != null ? packet.payload as any : '')) }) }
+	readRssi(callback: (packet: CompatApiPacket) => void): void { this.fleet.probeSignal((packet: BlueEnvelope) => { callback(buildCompatPacket(packet.code, '', packet.payload != null ? packet.payload as any : 0)) }) }
+	openBluetooth(on: boolean): void { if (on) { this.fleet.requestAdapterWake((_packet: BlueEnvelope) => {}) } }
+	openBluetoothSettings(): void {}
+	getSericUUID(): string { return this.latestServiceId }
+	getServiceUUID(): string { return this.latestServiceId }
+	getNotityUUID(): string { return this.latestNotifyId }
+	getWriteUUID(): string { return this.latestWriteId }
+	getwriteUUID(): string { return this.latestWriteId }
+	onScanDataListener(callback: (packet: CompatApiPacket) => void): void { this.scanFrameCallback = callback }
+	isHavePermision(_pername: string): boolean { return true }
+	requestPermison(_pername: string, callback: (granted: boolean) => void): void { callback(true) }
+	requesMoretPermison(_pername: string[], callback: (granted: boolean) => void): void { callback(true) }
+	isEnabled(): boolean { return this.fleet.adapterReady() }
+	onStartScanBle(para: CompatSweepPlan): void { this.onScanBle(para) }
+	onScanBle(para: CompatSweepPlan): void { this.fleet.beginSweep({ nameKeyword: para.btNameFilter != null ? para.btNameFilter : null, duration: para.scantime != null ? para.scantime : 10000, includeNameless: para.showEmptyName != 0, onNode: (packet: BlueEnvelope) => { if (para.onScanResult != null) { para.onScanResult(this.normalizeScanNode(packet)) } }, onDone: () => { if (para.scanComplate != null) { para.scanComplate() } } } as BlueSweepPlan) }
+	startScanBleDevice(time: number, callback: (packet: CompatApiPacket) => void): void { this.scanBle(time, callback) }
+	scanBle(time: number, callback: (packet: CompatApiPacket) => void): void { this.fleet.legacySweep(time, (packet: BlueEnvelope) => { callback(this.normalizeScanNode(packet)) }) }
+	stopScanBle(): void { this.fleet.stopSweep() }
+	connect(mac: string, auto: boolean, callback: (packet: CompatApiPacket) => void): void { if (!this.fleet.verifyHarmonyPeerId(mac)) { callback(buildCompatPacket(10005, '蓝牙地址无效', this.fleet.adapterReady())); return } this.latestPeerId = mac; this.fleet.setAttachTimeout(this.latestConnectTimeout); this.fleet.setRetryGap(this.latestAutoGap); this.fleet.attach(mac, auto, (packet: BlueEnvelope) => { callback(this.packetFromBlue(packet)) }) }
+	connectDevices(mac: string, auto: boolean, callback: (packet: CompatApiPacket) => void): void { this.connect(mac, auto, callback) }
+	startAutoConnectBt(time: number, callback: (packet: CompatApiPacket) => void): void { this.latestAutoGap = time; this.fleet.setRetryGap(time); if (this.latestPeerId.length > 0) { this.fleet.attach(this.latestPeerId, true, (packet: BlueEnvelope) => { callback(this.packetFromBlue(packet)) }) } }
+	cancelAutoConnectBt(): void { this.fleet.stopRetry() }
+	scanServices(callback: (packet: CompatApiPacket) => void): void { this.fleet.pullProfile((packet: BlueEnvelope) => { callback(this.normalizeServices(packet)) }) }
+	getUUIDs(): CompatUuidBundle[] { return this.latestBundles }
+	setSelectUUID(id: number): void { this.fleet.pickProfile(id); this.syncSelectedIds() }
+	listenerBleMessage(_callback: (packet: CompatApiPacket) => void): void {}
+	disListenerBleMessage(): void {}
+	isConnected(): boolean { return this.fleet.attached() }
+	getConnectMac(): string { return this.fleet.currentPeerId() }
+	byte2HexString(data: number[]): string { return this.fleet.bytesToHexText(data) }
+	writeDataToBle(service: string, chars: string, data: number[], callback: (packet: CompatApiPacket) => void): void { this.fleet.emitBytes(service, chars, data, (packet: BlueEnvelope) => { callback(this.packetFromBlue(packet)) }) }
+	writeDataToBleWithType(service: string, chars: string, data: number[], writeType: number, callback: (packet: CompatApiPacket) => void): void { this.fleet.emitBytesWithMode(service, chars, data, writeType, (packet: BlueEnvelope) => { callback(this.packetFromBlue(packet)) }) }
+	writeStringDataToBle(service: string, chars: string, data: string, callback: (packet: CompatApiPacket) => void): void { this.fleet.emitHex(service, chars, data, (packet: BlueEnvelope) => { callback(this.packetFromBlue(packet)) }) }
+	writeStringDataToBleWithType(service: string, chars: string, data: string, writeType: number, callback: (packet: CompatApiPacket) => void): void { this.fleet.emitHexWithMode(service, chars, data, writeType, (packet: BlueEnvelope) => { callback(this.packetFromBlue(packet)) }) }
+	sendData(data: CompatWriteTask, callback: (packet: CompatApiPacket) => void): void { this.fleet.emitPacket({ serviceId: data.serviceId, characteristicId: data.characteristicId, writeMode: data.writeType, bytePayload: data.data != null ? data.data : null, hexPayload: data.hexStrData != null ? data.hexStrData : null, splitPacket: data.fenbao } as BluePacketPlan, (packet: BlueEnvelope) => { callback(this.packetFromBlue(packet)) }) }
+	onNotityReadBleData(service: string, chars: string, state: boolean, callback: (packet: CompatApiPacket) => void): void { this.fleet.pipeValue(service, chars, state, (packet: BlueEnvelope) => { callback(this.normalizeNotifyPacket(packet, state)) }) }
+	onNotityReadBleDataMore(service: string, chars: string, state: boolean, callback: (packet: CompatApiPacket) => void): void { this.onNotityReadBleData(service, chars, state, callback) }
+	close(): void { this.fleet.closePipe() }
+	setMtu(num: number, callback: (packet: CompatApiPacket) => void): void { this.fleet.setTunnelSize(num, (packet: BlueEnvelope) => { callback(this.packetFromBlue(packet)) }) }
+	string2ByteStrWithCharset(data: string, code: string): string { return this.fleet.textToHexSeed(data, code).split(' ').join('') }
+	byte2StringWithCharset(data: string, code: string): string { return this.fleet.hexSeedToText(data, code) }
+	onReadData(service: string, chars: string, callback: (packet: CompatApiPacket) => void): void { this.fleet.readOnce(service, chars, (packet: BlueEnvelope) => { callback(this.normalizeReadPacket(packet)) }) }
+	onIndicate(service: string, chars: string, callback: (packet: CompatApiPacket) => void): void { this.onNotityReadBleDataMore(service, chars, true, callback) }
+}
+
+export const createAndroidCompatBlue = function (): AndroidCompatBlueApi { return new HarmonyCompatBlueHost() as AndroidCompatBlueApi }

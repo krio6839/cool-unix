@@ -7,6 +7,11 @@
 			:title="titleText"
 			@tap="goBack"
 		>
+			<template #append>
+				<cl-button text @tap="handleShowDevices">
+					{{ t("设备列表") }}
+				</cl-button>
+			</template>
 		</cl-topbar>
 
 		<!-- H5平台提示 -->
@@ -24,7 +29,7 @@
 
 		<!-- 已连接状态 -->
 		<!-- #ifndef H5 -->
-		<view v-if="deviceStore.status === 'CONNECTED'" class="flex-1">
+		<view v-if="deviceStore.status.value === 'CONNECTED'" class="flex-1">
 			<ConnectedState
 				:connectedDeviceName="connectedDeviceName"
 				@disconnect="deviceStore.disconnectDevice()"
@@ -33,11 +38,13 @@
 
 		<!-- 配对状态和搜索状态 -->
 		<view
-			v-else-if="deviceStore.status === 'PAIRING' || deviceStore.status === 'SEARCHING'"
+			v-else-if="
+				deviceStore.status.value === 'PAIRING' || deviceStore.status.value === 'SEARCHING'
+			"
 			class="flex-1"
 		>
 			<PairingState
-				:searching="deviceStore.status === 'SEARCHING'"
+				:searching="deviceStore.status.value === 'SEARCHING'"
 				@select="onSelect"
 			></PairingState>
 		</view>
@@ -52,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, onUnmounted } from "vue";
+import { ref, watch, onMounted, computed, onUnmounted } from "vue";
 import { router, t, useStore } from "@/.cool";
 import { useUi } from "@/uni_modules/cool-ui";
 
@@ -67,9 +74,9 @@ const connectedDeviceName = ref<string>("Cool Unix 设备");
 
 // 计算属性：根据状态动态生成标题文本，避免在模板中进行复杂的逻辑判断
 const titleText = computed(() => {
-	if (deviceStore.status === "CONNECTED") {
+	if (deviceStore.status.value === "CONNECTED") {
 		return t("设备详情");
-	} else if (deviceStore.status === "PAIRING" || deviceStore.status === "SEARCHING") {
+	} else if (deviceStore.status.value === "PAIRING" || deviceStore.status.value === "SEARCHING") {
 		return t("产品配对");
 	} else {
 		return t("未配对");
@@ -78,7 +85,7 @@ const titleText = computed(() => {
 
 // 连接成功后处理
 function handleConnectSuccess() {
-	deviceStore.status = "CONNECTED";
+	deviceStore.status.value = "CONNECTED";
 	ui.showToast({ message: t("连接成功"), type: "success" });
 }
 
@@ -86,18 +93,6 @@ function handleConnectSuccess() {
 function onSelect(location: string) {
 	// 保存佩戴位置
 	deviceStore.saveWearLocation(location as "大臂部" | "下胸部" | "腰部");
-
-	// 连接选中的设备
-	if (deviceStore.devices.length > 0) {
-		const device = deviceStore.devices[0];
-		let deviceName = "未知设备";
-		if (device.name != null && device.name !== "") {
-			deviceName = device.name;
-		} else if (device.localName != null && device.localName !== "") {
-			deviceName = device.localName;
-		}
-		deviceStore.connectToDevice(device.deviceId, deviceName);
-	}
 
 	setTimeout(() => {
 		router.push({
@@ -111,17 +106,17 @@ async function enterPairingMode() {
 	if (!deviceStore.inited) {
 		await deviceStore.initBluetooth();
 	}
-	// deviceStore.status = "SEARCHING";
-	// deviceStore.startBluetoothSearch();
+	deviceStore.status.value = "SEARCHING";
+	deviceStore.startBluetoothSearch();
+}
 
-	deviceStore.currentDeviceId = "test";
-
-	setTimeout(() => {
-		router.push({
-			path: "/pages/index/home",
-			mode: "reLaunch"
-		});
-	}, 500);
+// handleShowDevices 处理显示设备列表抽屉
+function handleShowDevices() {
+	console.log("handleShowDevices");
+	console.log(deviceStore.devices);
+	console.log("heartRate:", deviceStore.heartRate.value);
+	console.log("bloodOxygen:", deviceStore.bloodOxygen.value);
+	console.log("battery:", deviceStore.battery.value);
 }
 
 function goBack() {

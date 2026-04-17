@@ -1,0 +1,21 @@
+import { BlueIssueCode, BluePluginFail } from './interface.uts'
+
+export const UniErrorSubject = 'laoqianjunzi-blue'
+
+export const BlueFleetErrors: Map<BlueIssueCode, string> = new Map([
+	[9011001, '当前平台暂不支持该蓝牙能力'],
+	[9011002, '蓝牙适配器尚未就绪'],
+	[9011003, '调用参数不完整'],
+	[9011004, '编码格式暂不支持']
+])
+
+export class BluePluginFailImpl extends UniError implements BluePluginFail {
+	override errCode: BlueIssueCode
+
+	constructor(errCode: BlueIssueCode) {
+		super()
+		this.errSubject = UniErrorSubject
+		this.errCode = errCode
+		this.errMsg = BlueFleetErrors.get(errCode) ?? ''
+	}
+}

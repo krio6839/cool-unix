@@ -6,9 +6,10 @@
             "type" : "uni-app:app-ios_simulator"
         },
         {
-            "customPlaygroundType" : "local",
+            "customPlaygroundType" : "device",
+            "openVueDevtools" : true,
             "packageName" : "uni.app.UNI651711F",
-            "playground" : "custom",
+            "playground" : "standard",
             "type" : "uni-app:app-android"
         },
         {
@@ -16,6 +17,7 @@
             "certificateFile" : "/Users/jiangshuai/Desktop/coding/zyys/zyys/doc/ios/证书.p12",
             "certificateProfileFile" : "/Users/jiangshuai/Desktop/coding/zyys/zyys/doc/ios/zy.mobileprovision",
             "customPlaygroundType" : "device",
+            "openVueDevtools" : true,
             "playground" : "custom",
             "runSignStatus" : 0,
             "type" : "uni-app:app-ios"

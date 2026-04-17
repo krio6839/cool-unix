@@ -1,0 +1,6 @@
+{
+  "minSdkVersion": 21,
+  "dependencies": [
+    "androidx.core:core-ktx:1.12.0"
+  ]
+}

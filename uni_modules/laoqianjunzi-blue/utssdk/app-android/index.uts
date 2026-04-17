@@ -1,0 +1,816 @@
+import Intent from 'android.content.Intent'
+import Settings from 'android.provider.Settings'
+import Context from 'android.content.Context'
+import BluetoothAdapter from 'android.bluetooth.BluetoothAdapter'
+import BluetoothManager from 'android.bluetooth.BluetoothManager'
+import { AndroidCompatBlueApi, BlueChannelBundle, BlueEnvelope, BlueFleetApi, BluePacketPlan, BlueSweepPlan, CompatApiPacket, CompatCharacteristic, CompatCharacteristicFlags, CompatScanFrame, CompatScanResult, CompatService, CompatSweepPlan, CompatUuidBundle, CompatWriteTask, buildBlueEnvelope, buildCompatPacket } from '../interface.uts'
+import { AsterBleGateway } from 'uts.laoqianjunzi.bluecore'
+
+class BlueFleetHost {
+	private debugEnabled: boolean = false
+	private dispatchLabel: string = 'main'
+	private profileCache: BlueChannelBundle[] = [] as BlueChannelBundle[]
+
+	private parseEnvelope(raw: string): BlueEnvelope {
+		const parsed = JSON.parse<BlueEnvelope>(raw)
+		if (parsed == null) {
+			return buildBlueEnvelope(9011001, '安卓蓝牙返回数据解析失败', null)
+		}
+		return parsed
+	}
+
+	private syncProfileCache(payload: any | null): void {
+		if (payload == null) {
+			this.profileCache = [] as BlueChannelBundle[]
+			return
+		}
+		const payloadJson = JSON.stringify(payload)
+		const payloadObject = JSON.parse<UTSJSONObject>(payloadJson)
+		if (payloadObject == null) {
+			this.profileCache = [] as BlueChannelBundle[]
+			return
+		}
+		const bundleJson = payloadObject['bundles']
+		if (bundleJson == null) {
+			this.profileCache = [] as BlueChannelBundle[]
+			return
+		}
+		const bundleText = JSON.stringify(bundleJson)
+		const bundles = JSON.parse<BlueChannelBundle[]>(bundleText)
+		this.profileCache = bundles != null ? bundles : [] as BlueChannelBundle[]
+	}
+
+	private toWriteMode(writeMode: number | null): number {
+		if (writeMode == null) {
+			return 2
+		}
+		if (writeMode == 0) {
+			return 2
+		}
+		return 1
+	}
+
+	@UTSJS.keepAlive
+	watchAdapterSwitch(callback: (packet: BlueEnvelope) => void): void {
+		AsterBleGateway.watchRadioSwitch((raw: string) => {
+			callback(this.parseEnvelope(raw))
+		})
+	}
+
+	requestAdapterWake(callback: (packet: BlueEnvelope) => void): void {
+		AsterBleGateway.promptRadioWake((raw: string) => {
+			callback(this.parseEnvelope(raw))
+		})
+	}
+
+	adapterReady(): boolean {
+		return AsterBleGateway.isRadioReady()
+	}
+
+	@UTSJS.keepAlive
+	beginSweep(plan: BlueSweepPlan): void {
+		const keyword = plan.nameKeyword != null ? plan.nameKeyword : null
+		const includeNameless = plan.includeNameless == true
+		const duration = plan.duration != null ? plan.duration : 10000
+		AsterBleGateway.startSweep(keyword, includeNameless, duration.toLong(), (raw: string) => {
+			if (plan.onNode != null) {
+				plan.onNode(this.parseEnvelope(raw))
+			}
+		}, (_doneRaw: string) => {
+			if (plan.onDone != null) {
+				plan.onDone()
+			}
+		})
+	}
+
+	@UTSJS.keepAlive
+	legacySweep(duration: number, callback: (packet: BlueEnvelope) => void): void {
+		AsterBleGateway.startSweep(null, true, duration.toLong(), (raw: string) => {
+			callback(this.parseEnvelope(raw))
+		}, (_doneRaw: string) => {})
+	}
+
+	@UTSJS.keepAlive
+	watchSweepFrames(callback: (packet: BlueEnvelope) => void): void {
+		AsterBleGateway.setSweepFrameSink((raw: string) => {
+			callback(this.parseEnvelope(raw))
+		})
+	}
+
+	stopSweep(): void {
+		AsterBleGateway.stopSweep()
+	}
+
+	@UTSJS.keepAlive
+	attach(peerId: string, keepRetry: boolean, callback: (packet: BlueEnvelope) => void): void {
+		AsterBleGateway.link(peerId, keepRetry, (raw: string) => {
+			callback(this.parseEnvelope(raw))
+		})
+	}
+
+	setAttachTimeout(duration: number): void {
+		AsterBleGateway.setLinkTimeout(duration.toLong())
+	}
+
+	setRetryGap(duration: number): void {
+		AsterBleGateway.setRetryPause(duration.toLong())
+	}
+
+	stopRetry(): void {
+		AsterBleGateway.abortRetry()
+	}
+
+	attached(): boolean {
+		return AsterBleGateway.linked()
+	}
+
+	currentPeerId(): string {
+		return AsterBleGateway.currentPeerId()
+	}
+
+	@UTSJS.keepAlive
+	pullProfile(callback: (packet: BlueEnvelope) => void): void {
+		AsterBleGateway.inspectProfile((raw: string) => {
+			const packet = this.parseEnvelope(raw)
+			if (packet.code == 0) {
+				this.syncProfileCache(packet.payload)
+			}
+			callback(packet)
+		})
+	}
+
+	pickProfile(index: number): void {
+		const packet = this.parseEnvelope(AsterBleGateway.chooseProfile(index.toInt()))
+		if (packet.code == 0 && packet.payload != null) {
+			const current = packet.payload as UTSJSONObject
+			if (current != null) {
+				const serviceId = current['serviceId']
+				const notifyId = current['notifyId']
+				const writeId = current['writeId']
+				if (serviceId != null && notifyId != null && writeId != null) {
+					const bundle: BlueChannelBundle = {
+						serviceId: serviceId as string,
+						notifyId: notifyId as string,
+						writeId: writeId as string
+					} as BlueChannelBundle
+					if (index >= 0 && index < this.profileCache.length) {
+						this.profileCache[index] = bundle
+					}
+				}
+			}
+		}
+	}
+
+	listProfiles(): BlueChannelBundle[] {
+		return this.profileCache
+	}
+
+	activeServiceId(): string {
+		return AsterBleGateway.activeServiceId()
+	}
+
+	activeNotifyId(): string {
+		return AsterBleGateway.activeNotifyId()
+	}
+
+	activeWriteId(): string {
+		return AsterBleGateway.activeWriteId()
+	}
+
+	@UTSJS.keepAlive
+	pipeValue(serviceId: string, characteristicId: string, enabled: boolean, callback: (packet: BlueEnvelope) => void): void {
+		AsterBleGateway.setNotifySink((raw: string) => {
+			callback(this.parseEnvelope(raw))
+		})
+		AsterBleGateway.togglePipe(serviceId, characteristicId, enabled, (raw: string) => {
+			callback(this.parseEnvelope(raw))
+		})
+	}
+
+	@UTSJS.keepAlive
+	emitPacket(plan: BluePacketPlan, callback: (packet: BlueEnvelope) => void): void {
+		const writeMode = this.toWriteMode(plan.writeMode)
+		if (plan.bytePayload != null) {
+			const count = plan.bytePayload.length
+			const bytes = new ByteArray(count.toInt())
+			for (let i = 0; i < count; i++) {
+				bytes[i.toInt()] = plan.bytePayload[i].toByte()
+			}
+			AsterBleGateway.pushValue(plan.serviceId, plan.characteristicId, bytes, writeMode.toInt(), plan.splitPacket, (raw: string) => {
+				callback(this.parseEnvelope(raw))
+			})
+			return
+		}
+		if (plan.hexPayload != null) {
+			const hexPayload = plan.hexPayload
+			AsterBleGateway.pushHex(plan.serviceId, plan.characteristicId, hexPayload, writeMode.toInt(), plan.splitPacket, (raw: string) => {
+				callback(this.parseEnvelope(raw))
+			})
+			return
+		}
+		callback(buildBlueEnvelope(9011003, '写入数据为空', null))
+	}
+
+	@UTSJS.keepAlive
+	emitBytes(serviceId: string, characteristicId: string, bytes: number[], callback: (packet: BlueEnvelope) => void): void {
+		this.emitPacket({ serviceId: serviceId, characteristicId: characteristicId, bytePayload: bytes, hexPayload: null, splitPacket: false } as BluePacketPlan, callback)
+	}
+
+	@UTSJS.keepAlive
+	emitBytesWithMode(serviceId: string, characteristicId: string, bytes: number[], writeMode: number, callback: (packet: BlueEnvelope) => void): void {
+		this.emitPacket({ serviceId: serviceId, characteristicId: characteristicId, writeMode: writeMode, bytePayload: bytes, hexPayload: null, splitPacket: false } as BluePacketPlan, callback)
+	}
+
+	@UTSJS.keepAlive
+	emitHex(serviceId: string, characteristicId: string, hexPayload: string, callback: (packet: BlueEnvelope) => void): void {
+		this.emitPacket({ serviceId: serviceId, characteristicId: characteristicId, bytePayload: null, hexPayload: hexPayload, splitPacket: false } as BluePacketPlan, callback)
+	}
+
+	@UTSJS.keepAlive
+	emitHexWithMode(serviceId: string, characteristicId: string, hexPayload: string, writeMode: number, callback: (packet: BlueEnvelope) => void): void {
+		this.emitPacket({ serviceId: serviceId, characteristicId: characteristicId, writeMode: writeMode, bytePayload: null, hexPayload: hexPayload, splitPacket: false } as BluePacketPlan, callback)
+	}
+
+	@UTSJS.keepAlive
+	probeSignal(callback: (packet: BlueEnvelope) => void): void {
+		AsterBleGateway.inspectRssi((raw: string) => {
+			callback(this.parseEnvelope(raw))
+		})
+	}
+
+	@UTSJS.keepAlive
+	setTunnelSize(size: number, callback: (packet: BlueEnvelope) => void): void {
+		AsterBleGateway.adjustMtu(size.toInt(), (raw: string) => {
+			callback(this.parseEnvelope(raw))
+		})
+	}
+
+	@UTSJS.keepAlive
+	readOnce(serviceId: string, characteristicId: string, callback: (packet: BlueEnvelope) => void): void {
+		AsterBleGateway.pullValue(serviceId, characteristicId, (raw: string) => {
+			callback(this.parseEnvelope(raw))
+		})
+	}
+
+	closePipe(): void {
+		AsterBleGateway.severLink()
+	}
+
+	bytesToHexText(bytes: number[]): string {
+		let result = ''
+		for (let i = 0; i < bytes.length; i++) {
+			result += bytes[i].toString(16).padStart(2, '0').toUpperCase()
+			if (i < bytes.length - 1) {
+				result += ' '
+			}
+		}
+		return result
+	}
+
+	textToHexSeed(text: string, charset: string): string {
+		return AsterBleGateway.textToHexSeed(text, charset)
+	}
+
+	hexSeedToText(hexPayload: string, charset: string): string {
+		return AsterBleGateway.hexSeedToText(hexPayload, charset)
+	}
+
+	hasAndroidPermission(permissionName: string): boolean {
+		return AsterBleGateway.hasPermission(permissionName)
+	}
+
+	askAndroidPermission(permissionName: string, callback: (granted: boolean) => void): void {
+		const activity = UTSAndroid.getUniActivity()
+		if (activity == null) {
+			callback(false)
+			return
+		}
+		if (this.hasAndroidPermission(permissionName)) {
+			callback(true)
+			return
+		}
+		UTSAndroid.requestSystemPermission(activity, [permissionName], (_allRight: boolean, _granted: string[]) => {
+			callback(true)
+		}, (_allRight: boolean, _denied: string[]) => {
+			callback(false)
+		})
+	}
+
+	askAndroidPermissions(permissionNames: string[], callback: (granted: boolean) => void): void {
+		const activity = UTSAndroid.getUniActivity()
+		if (activity == null) {
+			callback(false)
+			return
+		}
+		UTSAndroid.requestSystemPermission(activity, permissionNames, (allRight: boolean, _granted: string[]) => {
+			callback(allRight)
+		}, (_allRight: boolean, _denied: string[]) => {
+			callback(false)
+		})
+	}
+
+	verifyHarmonyPeerId(_peerId: string): boolean {
+		return false
+	}
+
+	requestHarmonyBluetoothAccess(callback: (granted: boolean) => void): void {
+		callback(false)
+	}
+
+	openAdapterPanel(): void {
+		AsterBleGateway.openBluetoothPanel()
+	}
+
+	setDebug(enabled: boolean): void {
+		this.debugEnabled = enabled
+	}
+
+	setDispatchLabel(label: string): void {
+		this.dispatchLabel = label
+	}
+}
+
+export const createBlueFleet = function (): BlueFleetApi {
+	return new BlueFleetHost() as BlueFleetApi
+}
+
+class AndroidCompatBlueHost {
+	private fleet: BlueFleetHost = new BlueFleetHost()
+	private latestPeerId: string = ''
+	private latestServiceId: string = ''
+	private latestNotifyId: string = ''
+	private latestWriteId: string = ''
+	private latestAutoGap: number = 12000
+	private latestConnectTimeout: number = 15000
+	private latestThreadLabel: string = 'main'
+	private latestBundles: CompatUuidBundle[] = [] as CompatUuidBundle[]
+	private scanFrameCallback: ((packet: CompatApiPacket) => void) | null = null
+	private adapterCallback: ((packet: CompatApiPacket) => void) | null = null
+
+	constructor() {
+		this.fleet.watchSweepFrames((packet: BlueEnvelope) => {
+			if (this.scanFrameCallback == null) {
+				return
+			}
+			const payloadText = JSON.stringify(packet.payload)
+			const payload = JSON.parse<UTSJSONObject>(payloadText)
+			if (payload == null) {
+				this.scanFrameCallback(buildCompatPacket(10000, packet.detail, ''))
+				return
+			}
+			const frame: CompatScanFrame = {
+				mac: payload['peerId'] as string,
+				rssi: payload['rssi'] as number,
+				data: payload['packetHex'] as string,
+				manufacturerData: payload['vendorHex'] as string | null,
+				name: payload['alias'] as string | null
+			} as CompatScanFrame
+			this.scanFrameCallback(buildCompatPacket(0, '', frame))
+		})
+		this.btListener()
+	}
+
+	private packetFromBlue(packet: BlueEnvelope): CompatApiPacket {
+		if (packet.payload == null) {
+			return buildCompatPacket(packet.code, packet.detail, '')
+		}
+		const payloadValue = packet.payload as any
+		return buildCompatPacket(packet.code, packet.detail, payloadValue)
+	}
+
+	private syncSelectedIds(): void {
+		this.latestServiceId = this.fleet.activeServiceId()
+		this.latestNotifyId = this.fleet.activeNotifyId()
+		this.latestWriteId = this.fleet.activeWriteId()
+	}
+
+	private syncUuidBundles(): void {
+		const source = this.fleet.listProfiles()
+		const list: CompatUuidBundle[] = [] as CompatUuidBundle[]
+		for (let i = 0; i < source.length; i++) {
+			list.push({
+				serviceId: source[i].serviceId,
+				wuuid: source[i].writeId,
+				nuuid: source[i].notifyId
+			} as CompatUuidBundle)
+		}
+		this.latestBundles = list
+		this.syncSelectedIds()
+	}
+
+	private compatData(packet: BlueEnvelope, fallback: any): any {
+		if (packet.payload == null) {
+			return fallback
+		}
+		return packet.payload as any
+	}
+
+	private bytesToArrayBuffer(bytes: number[]): number[] {
+		const out: number[] = [] as number[]
+		for (let i = 0; i < bytes.length; i++) {
+			out.push(bytes[i])
+		}
+		return out
+	}
+
+	private normalizeScanNode(packet: BlueEnvelope): CompatApiPacket {
+		if (packet.code != 0) {
+			if (packet.payload == null) {
+				return buildCompatPacket(packet.code, packet.detail, '')
+			}
+			const payloadValue = packet.payload as any
+			return buildCompatPacket(packet.code, packet.detail, payloadValue)
+		}
+		const payloadText = JSON.stringify(packet.payload)
+		const payload = JSON.parse<UTSJSONObject>(payloadText)
+		if (payload == null) {
+			return buildCompatPacket(10000, '扫描结果解析失败', '')
+		}
+		const peer = payload['peer'] as UTSJSONObject
+		const frame = payload['advertiseFrame'] as UTSJSONObject | null
+		const scan: CompatScanResult = {
+			connectType: payload['connectType'] as number | null,
+			rssi: payload['rssi'] as number | null,
+			isLegacy: payload['isLegacy'] as boolean | null,
+			advertisingSid: payload['advertisingSid'] as number | null,
+			dataStatus: payload['dataStatus'] as number | null,
+			isConnectable: payload['isConnectable'] as boolean | null,
+			periodicAdvertisingInterval: payload['periodicAdvertisingInterval'] as number | null,
+			primaryPhy: payload['primaryPhy'] as number | null,
+			secondaryPhy: payload['secondaryPhy'] as number | null,
+			timestampNanos: payload['timestampNanos'] as number | null,
+			scanRecord: frame == null ? null : {
+				deviceName: frame['deviceName'] as string | null,
+				txPowerLevel: frame['txPowerLevel'] as number | null,
+				bytes: frame['bytes'] as string | null,
+				serviceData: frame['serviceData'] as string | null,
+				serviceUuids: frame['serviceUuids'] as string | null,
+				advertiseFlags: frame['advertiseFlags'] as number | null,
+				manufacturerSpecificData: frame['manufacturerSpecificData'] as string | null,
+				serviceSolicitationUuids: frame['serviceSolicitationUuids'] as string | null
+			},
+			device: {
+				name: peer['name'] as string | null,
+				alias: peer['alias'] as string | null,
+				bondState: peer['bondState'] as number | null,
+				type: peer['deviceKind'] as number | null,
+				address: peer['address'] as string
+			},
+			deviceName: peer['name'] as string | null
+		} as CompatScanResult
+		return buildCompatPacket(0, packet.detail, scan)
+	}
+
+	private normalizeServices(packet: BlueEnvelope): CompatApiPacket {
+		if (packet.code != 0) {
+			if (packet.payload == null) {
+				return buildCompatPacket(packet.code, packet.detail, '')
+			}
+			const payloadValue = packet.payload as any
+			return buildCompatPacket(packet.code, packet.detail, payloadValue)
+		}
+		const payloadText = JSON.stringify(packet.payload)
+		const payload = JSON.parse<UTSJSONObject>(payloadText)
+		if (payload == null) {
+			return buildCompatPacket(10000, '服务数据解析失败', '')
+		}
+		const servicesText = JSON.stringify(payload['services'])
+		const source = JSON.parse<UTSJSONObject[]>(servicesText)
+		if (source == null) {
+			return buildCompatPacket(10000, '服务数据解析失败', '')
+		}
+		const list: CompatService[] = [] as CompatService[]
+		for (let i = 0; i < source.length; i++) {
+			const item = source[i]
+			const charsText = JSON.stringify(item['characteristics'])
+			const charsSource = JSON.parse<UTSJSONObject[]>(charsText)
+			const chars: CompatCharacteristic[] = [] as CompatCharacteristic[]
+			if (charsSource != null) {
+				for (let j = 0; j < charsSource.length; j++) {
+					const rawChar = charsSource[j]
+					const rawFlags = rawChar['flags'] as UTSJSONObject
+					const flags: CompatCharacteristicFlags = {
+						READ: rawFlags['canRead'] as boolean,
+						WRITE: rawFlags['canWrite'] as boolean,
+						NOTIFY: rawFlags['canNotify'] as boolean,
+						INDICATE: rawFlags['canIndicate'] as boolean
+					} as CompatCharacteristicFlags
+					chars.push({
+						properties: flags,
+						uuid: rawChar['uuid'] as string,
+						propertiesType: rawChar['flagBits'] as number
+					} as CompatCharacteristic)
+				}
+			}
+			list.push({
+				type: i,
+				uuid: item['uuid'] as string,
+				characteristics: chars
+			} as CompatService)
+		}
+		this.syncUuidBundles()
+		return buildCompatPacket(0, packet.detail, list)
+	}
+
+	private normalizeReadPacket(packet: BlueEnvelope): CompatApiPacket {
+		if (packet.code != 0) {
+			return buildCompatPacket(packet.code, packet.detail, [] as number[])
+		}
+		const payloadText = JSON.stringify(packet.payload)
+		const payload = JSON.parse<UTSJSONObject>(payloadText)
+		if (payload == null) {
+			return buildCompatPacket(10000, '读取结果解析失败', [] as number[])
+		}
+		const bytesText = JSON.stringify(payload['bytes'])
+		const bytes = JSON.parse<number[]>(bytesText)
+		return buildCompatPacket(0, packet.detail, bytes != null ? bytes : [] as number[])
+	}
+
+	private normalizeNotifyEvent(packet: BlueEnvelope, enabled: boolean): CompatApiPacket {
+		if (packet.code == 1001) {
+			return buildCompatPacket(1001, packet.detail, [] as number[])
+		}
+		const payloadText = JSON.stringify(packet.payload)
+		const payload = JSON.parse<UTSJSONObject>(payloadText)
+		if (payload != null) {
+			const bytesField = payload['bytes']
+			if (bytesField != null) {
+				const bytesText = JSON.stringify(bytesField)
+				const bytes = JSON.parse<number[]>(bytesText)
+				return buildCompatPacket(0, packet.detail, bytes != null ? bytes : [] as number[])
+			}
+		}
+		if (enabled) {
+			return buildCompatPacket(packet.code == 0 ? 1000 : 1001, packet.detail, [] as number[])
+		}
+		return buildCompatPacket(packet.code, packet.detail, [] as number[])
+	}
+
+	private ensureLinked(callback: (packet: CompatApiPacket) => void): boolean {
+		if (!this.fleet.attached()) {
+			callback(buildCompatPacket(10005, 'bluetooth is not connected', ''))
+			return false
+		}
+		return true
+	}
+
+	setBtConnectTimeout(time: number): void {
+		this.latestConnectTimeout = time
+		this.fleet.setAttachTimeout(time)
+	}
+
+	setBtAutoConnectTime(time: number): void {
+		this.latestAutoGap = time
+		this.fleet.setRetryGap(time)
+	}
+
+	setDebugMode(debug: boolean): void {
+		this.fleet.setDebug(debug)
+	}
+
+	setThreadTypeName(name: string): void {
+		this.latestThreadLabel = name
+		this.fleet.setDispatchLabel(name)
+	}
+
+	onBtOpenStateListener(callback: (packet: CompatApiPacket) => void): void {
+		this.adapterCallback = callback
+		this.fleet.watchAdapterSwitch((packet: BlueEnvelope) => {
+			const enabled = this.compatData(packet, false)
+			callback(buildCompatPacket(packet.code, packet.detail, enabled))
+		})
+	}
+
+	btListener(): void {
+		if (this.adapterCallback != null) {
+			this.onBtOpenStateListener(this.adapterCallback)
+		}
+	}
+
+	openBtBluetooth(callback: (packet: CompatApiPacket) => void): void {
+		this.fleet.requestAdapterWake((packet: BlueEnvelope) => {
+			const payloadValue = this.compatData(packet, '')
+			callback(buildCompatPacket(packet.code == 0 ? 0 : 1, packet.detail, payloadValue))
+		})
+	}
+
+	readRssi(callback: (packet: CompatApiPacket) => void): void {
+		this.fleet.probeSignal((packet: BlueEnvelope) => {
+			const payloadValue = this.compatData(packet, 0)
+			callback(buildCompatPacket(packet.code, 'rssi', payloadValue))
+		})
+	}
+
+	openBluetooth(on: boolean): void {
+		if (on) {
+			this.fleet.requestAdapterWake((_packet: BlueEnvelope) => {})
+			return
+		}
+		const manager = UTSAndroid.getAppContext()!.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+		const adapter = manager.getAdapter()
+		if (adapter != null && adapter.isEnabled()) {
+			adapter.disable()
+		}
+	}
+
+	openBluetoothSettings(): void {
+		this.fleet.openAdapterPanel()
+	}
+
+	getSericUUID(): string { return this.latestServiceId }
+	getServiceUUID(): string { return this.latestServiceId }
+	getNotityUUID(): string { return this.latestNotifyId }
+	getWriteUUID(): string { return this.latestWriteId }
+	getwriteUUID(): string { return this.latestWriteId }
+
+	onScanDataListener(callback: (packet: CompatApiPacket) => void): void {
+		this.scanFrameCallback = callback
+	}
+
+	isHavePermision(pername: string): boolean {
+		return this.fleet.hasAndroidPermission(pername)
+	}
+
+	requestPermison(pername: string, callback: (granted: boolean) => void): void {
+		this.fleet.askAndroidPermission(pername, callback)
+	}
+
+	requesMoretPermison(pername: string[], callback: (granted: boolean) => void): void {
+		this.fleet.askAndroidPermissions(pername, callback)
+	}
+
+	isEnabled(): boolean {
+		return this.fleet.adapterReady()
+	}
+
+	onStartScanBle(para: CompatSweepPlan): void {
+		this.onScanBle(para)
+	}
+
+	onScanBle(para: CompatSweepPlan): void {
+		this.fleet.beginSweep({
+			nameKeyword: para.btNameFilter != null ? para.btNameFilter : null,
+			duration: para.scantime != null ? para.scantime : 10000,
+			includeNameless: para.showEmptyName == 1,
+			onNode: (packet: BlueEnvelope) => {
+				if (para.onScanResult != null) {
+					para.onScanResult(this.normalizeScanNode(packet))
+				}
+			},
+				onDone: () => {
+				if (para.scanComplate != null) {
+					para.scanComplate()
+				}
+			}
+		} as BlueSweepPlan)
+	}
+
+	startScanBleDevice(time: number, callback: (packet: CompatApiPacket) => void): void {
+		this.scanBle(time, callback)
+	}
+
+	scanBle(time: number, callback: (packet: CompatApiPacket) => void): void {
+		this.fleet.legacySweep(time, (packet: BlueEnvelope) => {
+			callback(this.normalizeScanNode(packet))
+		})
+	}
+
+	stopScanBle(): void {
+		this.fleet.stopSweep()
+	}
+
+	connect(mac: string, auto: boolean, callback: (packet: CompatApiPacket) => void): void {
+		this.latestPeerId = mac
+		this.fleet.setAttachTimeout(this.latestConnectTimeout)
+		this.fleet.setRetryGap(this.latestAutoGap)
+		this.fleet.attach(mac, auto, (packet: BlueEnvelope) => {
+			if (packet.code == 0) {
+				this.latestPeerId = mac
+			}
+			callback(this.packetFromBlue(packet))
+		})
+	}
+
+	connectDevices(mac: string, auto: boolean, callback: (packet: CompatApiPacket) => void): void {
+		this.connect(mac, auto, callback)
+	}
+
+	startAutoConnectBt(time: number, callback: (packet: CompatApiPacket) => void): void {
+		this.latestAutoGap = time
+		this.fleet.setRetryGap(time)
+		if (this.latestPeerId.length > 0) {
+			this.fleet.attach(this.latestPeerId, true, (packet: BlueEnvelope) => {
+				callback(this.packetFromBlue(packet))
+			})
+		}
+	}
+
+	cancelAutoConnectBt(): void {
+		this.fleet.stopRetry()
+	}
+
+	scanServices(callback: (packet: CompatApiPacket) => void): void {
+		this.fleet.pullProfile((packet: BlueEnvelope) => {
+			callback(this.normalizeServices(packet))
+		})
+	}
+
+	getUUIDs(): CompatUuidBundle[] {
+		return this.latestBundles
+	}
+
+	setSelectUUID(id: number): void {
+		this.fleet.pickProfile(id)
+		this.syncSelectedIds()
+	}
+
+	listenerBleMessage(_callback: (packet: CompatApiPacket) => void): void {}
+	disListenerBleMessage(): void {}
+	isConnected(): boolean { return this.fleet.attached() }
+	getConnectMac(): string { return this.fleet.currentPeerId() }
+	byte2HexString(data: number[]): string { return this.fleet.bytesToHexText(data) }
+
+	writeDataToBle(service: string, chars: string, data: number[], callback: (packet: CompatApiPacket) => void): void {
+		if (!this.fleet.attached()) { return }
+		this.fleet.emitBytes(service, chars, data, (packet: BlueEnvelope) => {
+			callback(this.packetFromBlue(packet))
+		})
+	}
+
+	writeDataToBleWithType(service: string, chars: string, data: number[], writeType: number, callback: (packet: CompatApiPacket) => void): void {
+		if (!this.fleet.attached()) { return }
+		this.fleet.emitBytesWithMode(service, chars, data, writeType, (packet: BlueEnvelope) => {
+			callback(this.packetFromBlue(packet))
+		})
+	}
+
+	writeStringDataToBle(service: string, chars: string, data: string, callback: (packet: CompatApiPacket) => void): void {
+		if (!this.fleet.attached()) { return }
+		this.fleet.emitHex(service, chars, data, (packet: BlueEnvelope) => {
+			callback(this.packetFromBlue(packet))
+		})
+	}
+
+	writeStringDataToBleWithType(service: string, chars: string, data: string, writeType: number, callback: (packet: CompatApiPacket) => void): void {
+		if (!this.fleet.attached()) { return }
+		this.fleet.emitHexWithMode(service, chars, data, writeType, (packet: BlueEnvelope) => {
+			callback(this.packetFromBlue(packet))
+		})
+	}
+
+	sendData(data: CompatWriteTask, callback: (packet: CompatApiPacket) => void): void {
+		if (!this.ensureLinked(callback)) { return }
+		this.fleet.emitPacket({
+			serviceId: data.serviceId,
+			characteristicId: data.characteristicId,
+			writeMode: data.writeType,
+			bytePayload: data.data != null ? this.bytesToArrayBuffer(data.data) : null,
+			hexPayload: data.hexStrData != null ? data.hexStrData : null,
+			splitPacket: data.fenbao
+		} as BluePacketPlan, (packet: BlueEnvelope) => {
+			callback(this.packetFromBlue(packet))
+		})
+	}
+
+	onNotityReadBleData(service: string, chars: string, state: boolean, callback: (packet: CompatApiPacket) => void): void {
+		this.fleet.pipeValue(service, chars, state, (packet: BlueEnvelope) => {
+			callback(this.normalizeNotifyEvent(packet, state))
+		})
+	}
+
+	onNotityReadBleDataMore(service: string, chars: string, state: boolean, callback: (packet: CompatApiPacket) => void): void {
+		this.onNotityReadBleData(service, chars, state, callback)
+	}
+
+	close(): void {
+		this.fleet.closePipe()
+	}
+
+	setMtu(num: number, callback: (packet: CompatApiPacket) => void): void {
+		this.fleet.setTunnelSize(num, (packet: BlueEnvelope) => {
+			callback(this.packetFromBlue(packet))
+		})
+	}
+
+	string2ByteStrWithCharset(data: string, code: string): string {
+		return this.fleet.textToHexSeed(data, code).split(' ').join('')
+	}
+
+	byte2StringWithCharset(data: string, code: string): string {
+		return this.fleet.hexSeedToText(data, code)
+	}
+
+	onReadData(service: string, chars: string, callback: (packet: CompatApiPacket) => void): void {
+		this.fleet.readOnce(service, chars, (packet: BlueEnvelope) => {
+			callback(this.normalizeReadPacket(packet))
+		})
+	}
+
+	onIndicate(service: string, chars: string, callback: (packet: CompatApiPacket) => void): void {
+		this.onNotityReadBleDataMore(service, chars, true, callback)
+	}
+}
+
+export const createAndroidCompatBlue = function (): AndroidCompatBlueApi {
+	return new AndroidCompatBlueHost() as AndroidCompatBlueApi
+}

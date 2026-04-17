@@ -1,0 +1,93 @@
+{
+    "id": "laoqianjunzi-blue",
+    "name": "多端低功耗蓝牙插件",
+    "displayName": "laoqianjunzi-blue 多端低功耗蓝牙插件",
+    "version": "0.1.0",
+    "description": "支持 Android、iOS、HarmonyOS、微信小程序与 Web 占位编译的多端 BLE UTS 插件，提供扫描、连接、服务发现、订阅、写入与编码辅助能力。",
+    "keywords": [
+        "BLE",
+        "bluetooth",
+        "uni-app x",
+        "UTS",
+        "HarmonyOS"
+    ],
+    "dcloudext": {
+        "type": "uts",
+        "declaration": {
+            "ads": "无",
+            "data": "无",
+            "permissions": "Android 端建议在项目清单中加入蓝牙与定位权限；iOS 端建议补充蓝牙用途描述。"
+        },
+        "npmurl": "",
+        "darkmode": "√",
+        "i18n": "√",
+        "widescreen": "√"
+    },
+    "uni_modules": {
+        "dependencies": [],
+        "encrypt": [],
+        "platforms": {
+            "client": {
+                "uni-app": {
+                    "vue": {
+                        "vue2": "-",
+                        "vue3": "√"
+                    },
+                    "web": {
+                        "safari": "√",
+                        "chrome": "√"
+                    },
+                    "app": {
+                        "vue": "√",
+                        "nvue": "√",
+                        "android": {
+                            "extVersion": "",
+                            "minVersion": "21"
+                        },
+                        "ios": "√",
+                        "harmony": "√"
+                    },
+                    "mp": {
+                        "weixin": "√",
+                        "alipay": "-",
+                        "toutiao": "-",
+                        "baidu": "-",
+                        "kuaishou": "-",
+                        "jd": "-",
+                        "harmony": "-",
+                        "qq": "-",
+                        "lark": "-"
+                    }
+                },
+                "uni-app-x": {
+                    "web": {
+                        "safari": "√",
+                        "chrome": "√"
+                    },
+                    "app": {
+                        "android": {
+                            "extVersion": "",
+                            "minVersion": "21"
+                        },
+                        "ios": "√",
+                        "harmony": "√"
+                    },
+                    "mp": {
+                        "weixin": "√"
+                    }
+                }
+            },
+            "cloud": {
+                "tcb": "x",
+                "aliyun": "x",
+                "alipay": "x"
+            }
+        }
+    },
+    "repository": "",
+    "engines": {
+        "HBuilderX": "^5.06",
+        "uni-app": "^4.0",
+        "uni-app-x": "^4.0"
+    }
+}
