@@ -15,7 +15,8 @@ import {
 	parseBloodOxygenData,
 	parseBatteryData,
 	LED_BUTTON_SERVICE_UUID,
-	LED_BUTTON_CHARACTERISTIC_UUID
+	LED_BUTTON_CHARACTERISTIC_UUID,
+	hexStringToArrayBuffer
 } from "../utils/bluetooth";
 
 //#ifndef H5
@@ -153,8 +154,11 @@ export class Device {
 					this.kuxBluetooth.onBLEConnectionStateChange((res) => {
 						console.log(`蓝牙连接状态:`, res);
 						if (res.connected) {
-							this.getDeviceServicesAndCharacteristics(res.deviceId);
 							this.onCharacteristicValueChange();
+							this.onReadCharacteristicValue();
+							this.getDeviceServicesAndCharacteristics(res.deviceId).then(() => {
+								this.getLEDStatus(500);
+							});
 						} else {
 							if (res.deviceId == this.currentDeviceId) {
 								this.status.value = "UNPAIRED";
@@ -307,36 +311,31 @@ export class Device {
 
 				// 自动启用支持 notify 的特征通知
 				res.characteristics.forEach((char: BLEDeviceCharacteristic) => {
+					console.log(`服务 ${serviceName} 特征值 ${char.uuid}:`, char.properties);
 					if (char.properties.notify) {
 						const charName = getCharacteristicName(char.uuid);
-						// console.log(`自动启用 ${serviceName} -> ${charName} 通知`);
+						console.log(`自动启用 ${serviceName} -> ${charName} 通知`);
 						this.enableNotify(serviceId, char.uuid);
 					}
 				});
-
-				// LED Button Service: 先读取再写入（添加延迟避免系统错误）
-				if (serviceId.toLowerCase() == LED_BUTTON_SERVICE_UUID) {
-					this.readCharacteristic(serviceId, LED_BUTTON_CHARACTERISTIC_UUID).then(() => {
-						setTimeout(() => {
-							console.log("写入开启命令 0x01");
-							this.writeCharacteristic(
-								serviceId,
-								LED_BUTTON_CHARACTERISTIC_UUID,
-								1,
-								"write"
-							);
-						}, 500);
-					});
-				}
 			},
 			fail: (err) => {
 				console.log(`获取服务 ${serviceId} 特征值失败，错误码：` + err.errCode);
 			}
 		});
 	}
+	getLEDStatus(delay = 0) {
+		setTimeout(() => {
+			this.readCharacteristic(LED_BUTTON_SERVICE_UUID, LED_BUTTON_CHARACTERISTIC_UUID);
+		}, delay);
+	}
+	setLEDStatus(val: string) {
+		this.writeCharacteristic(LED_BUTTON_SERVICE_UUID, LED_BUTTON_CHARACTERISTIC_UUID, val);
+	}
 
 	// 监听特征值变化
 	onCharacteristicValueChange(): void {
+		console.log("监听特征值变化");
 		this.kuxBluetooth.onBLECharacteristicValueChange((res) => {
 			console.log("特征值变化:", res);
 			const hexString = arrayBufferToHexString(res.value);
@@ -372,6 +371,21 @@ export class Device {
 		});
 	}
 
+	// 监听读取特征值结果
+	onReadCharacteristicValue(): void {
+		console.log("监听读取特征值变化");
+		this.kuxBluetooth.onReadBLECharacteristicValue((res) => {
+			const buffer = res.value as ArrayBuffer | null;
+			// console.log("读取特征值结果:", buffer);
+			if (buffer == null) return;
+			const hexString = arrayBufferToHexString(buffer);
+			console.log("十六进制数据:", hexString);
+			if (res.characteristicId == LED_BUTTON_CHARACTERISTIC_UUID && hexString == "00") {
+				this.setLEDStatus("01");
+			}
+		});
+	}
+
 	// 启用特征值通知
 	enableNotify(serviceId: string, characteristicId: string): Promise<boolean> {
 		return new Promise<boolean>((resolve) => {
@@ -381,7 +395,7 @@ export class Device {
 				characteristicId,
 				state: true,
 				success: (res) => {
-					// console.log("启用通知成功:" + res.errMsg);
+					console.log("启用通知成功:" + res.errMsg, characteristicId);
 					resolve(true);
 				},
 				fail: (err) => {
@@ -415,17 +429,12 @@ export class Device {
 				serviceId,
 				characteristicId,
 				success: (res) => {
-					// console.log("读取特征值成功:" + res.errMsg);
-					this.kuxBluetooth.onReadBLECharacteristicValue((res) => {
-						console.log("读取特征值结果:", res);
-						const hexString = arrayBufferToHexString(res.value);
-						console.log(hexString);
-					});
+					console.log("获取特征值成功");
 					resolve(true);
 				},
 				fail: (err) => {
 					console.log("读取特征值失败，错误码：" + err.errCode);
-					reject(err);
+					reject(false);
 				}
 			});
 		});
@@ -435,25 +444,11 @@ export class Device {
 	writeCharacteristic(
 		serviceId: string,
 		characteristicId: string,
-		value: number | number[],
+		value: string,
 		writeType: "write" | "writeNoResponse" = "write"
 	): Promise<boolean> {
 		return new Promise<boolean>((resolve, reject) => {
-			let buffer: ArrayBuffer;
-
-			if (Array.isArray(value)) {
-				buffer = new ArrayBuffer(value.length);
-				const dataView = new DataView(buffer);
-				value.forEach((byte, index) => {
-					dataView.setUint8(index, byte);
-				});
-			} else {
-				buffer = new ArrayBuffer(1);
-				const dataView = new DataView(buffer);
-				dataView.setUint8(0, value);
-			}
-
-			console.log("写入特征值:", value, new Uint8Array(buffer), "writeType:", writeType);
+			const buffer = hexStringToArrayBuffer(value);
 
 			this.kuxBluetooth.writeBLECharacteristicValue({
 				deviceId: this.currentDeviceId,
@@ -474,13 +469,13 @@ export class Device {
 	}
 
 	// 发送命令到 UART 服务
-	sendCommand(command: number | number[]): Promise<boolean> {
+	sendCommand(val: string): Promise<boolean> {
 		if (this.uartWriteCharacteristicId == "") {
 			console.error("UART 特征值未设置");
 			return Promise.resolve(false);
 		}
 
-		return this.writeCharacteristic(UART_SERVICE_UUID, this.uartWriteCharacteristicId, command);
+		return this.writeCharacteristic(UART_SERVICE_UUID, this.uartWriteCharacteristicId, val);
 	}
 
 	// 断开连接

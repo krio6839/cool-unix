@@ -85,7 +85,11 @@
 				"default": {}
 			},
 			"targetSdkVersion": "30",
-			"minSdkVersion": "21"
+			"minSdkVersion": "21",
+			"abiFilters": [
+				"arm64-v8a",
+				"armeabi-v7a"
+			]
 		}
 	},
 	"app-ios": {

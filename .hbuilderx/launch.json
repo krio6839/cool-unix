@@ -6,10 +6,10 @@
             "type" : "uni-app:app-ios_simulator"
         },
         {
-            "customPlaygroundType" : "device",
+            "customPlaygroundType" : "local",
             "openVueDevtools" : true,
             "packageName" : "uni.app.UNI651711F",
-            "playground" : "standard",
+            "playground" : "custom",
             "type" : "uni-app:app-android"
         },
         {

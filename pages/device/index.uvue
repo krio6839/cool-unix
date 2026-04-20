@@ -114,9 +114,9 @@ async function enterPairingMode() {
 function handleShowDevices() {
 	console.log("handleShowDevices");
 	console.log(deviceStore.devices);
-	console.log("heartRate:", deviceStore.heartRate.value);
-	console.log("bloodOxygen:", deviceStore.bloodOxygen.value);
-	console.log("battery:", deviceStore.battery.value);
+	// console.log("heartRate:", deviceStore.heartRate.value);
+	// console.log("bloodOxygen:", deviceStore.bloodOxygen.value);
+	// console.log("battery:", deviceStore.battery.value);
 }
 
 function goBack() {
