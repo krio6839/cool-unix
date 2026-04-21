@@ -52,10 +52,9 @@ export type DeviceStatus = keyof typeof DeviceStatusEnum;
 
 export class Device {
 	// 基本状态属性
-	inited = false;
 	status = ref<DeviceStatus>("UNPAIRED");
-	discovering: boolean = false;
 	available: boolean = false;
+	discovering: boolean = false;
 	errorMessage = ref<string>("");
 
 	// 设备信息
@@ -155,15 +154,13 @@ export class Device {
 
 	handleBluetoothError(errCode: number, errMsg: string): void {
 		console.log(`蓝牙错误 ${errCode}:`, errMsg);
-		this.errorMessage.value = errMsg ?? t("蓝牙错误");
-		this.status.value = "UNPAIRED";
 
 		switch (errCode) {
-			case 10000:
-			case 10001:
-				this.inited = false;
+			case -1:
 				break;
 			default:
+				this.errorMessage.value = errMsg ?? t("蓝牙错误");
+				this.status.value = "UNPAIRED";
 				break;
 		}
 	}
@@ -202,7 +199,6 @@ export class Device {
 				console.log("蓝牙已开启");
 				this.status.value = "PAIRING";
 				this.errorMessage.value = "";
-				this.inited = true;
 
 				if (this.lastConnectedDeviceId != "" && this.currentDeviceId == "") {
 					this.startBluetoothSearch();

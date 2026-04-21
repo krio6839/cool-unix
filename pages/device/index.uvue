@@ -131,7 +131,7 @@ function onSelect(location: string) {
 }
 
 async function enterPairingMode() {
-	if (!deviceStore.inited) {
+	if (!deviceStore.available) {
 		await deviceStore.initBluetooth();
 	}
 	deviceStore.status.value = "SEARCHING";

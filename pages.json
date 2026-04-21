@@ -36,7 +36,7 @@
 				"navigationStyle": "custom"
 			},
 			"meta": {
-				"isAuth": true
+				"isAuth": false
 			}
 		}
 	],
