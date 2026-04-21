@@ -79,9 +79,10 @@ export const parseBatteryData = (hexData: string): number => {
 	return parseInt(hexStr.substring(0, 2), 16);
 };
 
-export const HEART_RATE_SERVICE_UUID = "0000180d-0000-1000-8000-00805f9b34fb";
-export const BLOOD_OXYGEN_SERVICE_UUID = "00001523-1212-efde-1523-785feabcd123";
-export const BATTERY_SERVICE_UUID = "0000180f-0000-1000-8000-00805f9b34fb";
-export const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 export const LED_BUTTON_SERVICE_UUID = "00001523-1212-efde-1523-785feabcd123";
 export const LED_BUTTON_CHARACTERISTIC_UUID = "00001525-1212-efde-1523-785feabcd123";
+export const HEART_RATE_SERVICE_UUID = "0000180d-0000-1000-8000-00805f9b34fb";
+export const HEART_RATE_CHARACTERISTIC_UUID = "00002a37-0000-1000-8000-00805f9b34fb";
+export const BATTERY_SERVICE_UUID = "0000180f-0000-1000-8000-00805f9b34fb";
+export const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+export const BLOOD_OXYGEN_CHARACTERISTIC_UUID = "00001524-1212-efde-1523-785feabcd123";

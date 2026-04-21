@@ -9,7 +9,7 @@
 		>
 			<template #append>
 				<cl-button text @tap="handleShowDevices">
-					{{ t("设备列表") }}
+					{{ t("测试") }}
 				</cl-button>
 			</template>
 		</cl-topbar>
@@ -56,6 +56,21 @@
 
 		<!-- #endif -->
 	</cl-page>
+
+	<!-- 测试弹窗 -->
+	<cl-popup v-model="showTestPopup" :title="t('设备测试')" direction="bottom" :size="300">
+		<view class="p-4 flex flex-col items-center">
+			<cl-button type="primary" color="#000" rounded @tap="toggleDevice">
+				{{ t("开启/关闭设备") }}
+			</cl-button>
+			<cl-button type="primary" color="#000" rounded @tap="testReadBloodOxygen">
+				{{ t("读取血氧") }}
+			</cl-button>
+			<cl-button type="primary" color="#000" rounded @tap="subscribeHeartRate">
+				{{ t("订阅心率") }}
+			</cl-button>
+		</view>
+	</cl-popup>
 </template>
 
 <script setup lang="ts">
@@ -71,8 +86,8 @@ const ui = useUi();
 const { device: deviceStore } = useStore();
 
 const connectedDeviceName = ref<string>("Cool Unix 设备");
+const showTestPopup = ref(false);
 
-// 计算属性：根据状态动态生成标题文本，避免在模板中进行复杂的逻辑判断
 const titleText = computed(() => {
 	if (deviceStore.status.value === "CONNECTED") {
 		return t("设备详情");
@@ -83,15 +98,12 @@ const titleText = computed(() => {
 	}
 });
 
-// 连接成功后处理
 function handleConnectSuccess() {
 	deviceStore.status.value = "CONNECTED";
 	ui.showToast({ message: t("连接成功"), type: "success" });
 }
 
-// 选择位置后处理
 function onSelect(location: string) {
-	// 保存佩戴位置
 	deviceStore.saveWearLocation(location as "大臂部" | "下胸部" | "腰部");
 
 	setTimeout(() => {
@@ -110,13 +122,24 @@ async function enterPairingMode() {
 	deviceStore.startBluetoothSearch();
 }
 
-// handleShowDevices 处理显示设备列表抽屉
 function handleShowDevices() {
+	showTestPopup.value = true;
 	console.log("handleShowDevices");
 	console.log(deviceStore.devices);
-	// console.log("heartRate:", deviceStore.heartRate.value);
-	// console.log("bloodOxygen:", deviceStore.bloodOxygen.value);
-	// console.log("battery:", deviceStore.battery.value);
+	deviceStore.connectToDevice(deviceStore.devices[0].deviceId);
+}
+
+async function testReadBloodOxygen() {
+	ui.showToast({ message: t("读取中..."), type: "warn" });
+	await deviceStore.readBloodOxygen();
+}
+
+async function toggleDevice() {
+	await deviceStore.toggleDeviceStatus();
+}
+
+async function subscribeHeartRate() {
+	deviceStore.subscribeHeartRate();
 }
 
 function goBack() {
