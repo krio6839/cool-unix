@@ -49,6 +49,33 @@
 			></PairingState>
 		</view>
 
+		<!-- 重连状态 -->
+		<view
+			v-else-if="deviceStore.isReconnecting"
+			class="flex-1 flex flex-col items-center justify-center"
+		>
+			<cl-loading type="spinner" :size="48"></cl-loading>
+			<cl-text color="white" :size="16" class="mt-4">
+				{{ t("正在尝试重连...") }}
+			</cl-text>
+			<cl-text color="gray-400" :size="14" class="mt-2">
+				{{ t("第") }} {{ deviceStore.reconnectAttempts }} {{ t("次尝试") }}
+			</cl-text>
+		</view>
+
+		<!-- 错误提示 -->
+		<view
+			v-else-if="deviceStore.errorMessage.value !== ''"
+			class="flex-1 flex flex-col items-center justify-center px-8"
+		>
+			<cl-text color="red" :size="16" class="mb-4">
+				{{ deviceStore.errorMessage.value }}
+			</cl-text>
+			<cl-button type="primary" color="#000" rounded @tap="retry">
+				{{ t("重试") }}
+			</cl-button>
+		</view>
+
 		<!-- 未配对状态 -->
 		<view v-else class="flex-1">
 			<UnpairedState @click="enterPairingMode"></UnpairedState>
@@ -74,7 +101,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, computed, onUnmounted } from "vue";
+import { ref, computed } from "vue";
 import { router, t, useStore } from "@/.cool";
 import { useUi } from "@/uni_modules/cool-ui";
 
@@ -91,6 +118,8 @@ const showTestPopup = ref(false);
 const titleText = computed(() => {
 	if (deviceStore.status.value === "CONNECTED") {
 		return t("设备详情");
+	} else if (deviceStore.isReconnecting) {
+		return t("重连中");
 	} else if (deviceStore.status.value === "PAIRING" || deviceStore.status.value === "SEARCHING") {
 		return t("产品配对");
 	} else {
@@ -124,8 +153,7 @@ async function enterPairingMode() {
 
 function handleShowDevices() {
 	showTestPopup.value = true;
-	console.log("handleShowDevices");
-	console.log(deviceStore.devices);
+	console.log("handleShowDevices", deviceStore.devices);
 	deviceStore.connectToDevice(deviceStore.devices[0].deviceId);
 }
 
@@ -144,6 +172,11 @@ async function subscribeHeartRate() {
 
 function goBack() {
 	router.back();
+}
+
+function retry() {
+	deviceStore.clearError();
+	enterPairingMode();
 }
 </script>
 
