@@ -1,6 +1,8 @@
 import { ref } from "vue";
 import { storage } from "../utils";
 import { t } from "../locale";
+
+// 蓝牙相关导入
 import {
 	HEART_RATE_SERVICE_UUID,
 	BATTERY_SERVICE_UUID,
@@ -49,37 +51,40 @@ export enum DeviceStatusEnum {
 export type DeviceStatus = keyof typeof DeviceStatusEnum;
 
 export class Device {
+	// 基本状态属性
 	inited = false;
 	status = ref<DeviceStatus>("UNPAIRED");
+	discovering: boolean = false;
+	available: boolean = false;
+	errorMessage = ref<string>("");
+
+	// 设备信息
 	devices: DeviceInfo[] = [];
 	currentDeviceId: string = "";
 	lastConnectedDeviceId: string = "";
 
+	// 蓝牙相关
 	kuxBluetooth: IBluetooth;
-
-	currentWearLocation: WearLocation = "大臂部";
-
-	_isCharging: boolean = false;
-
-	_deviceOn: boolean = false;
-
 	services: Array<GetBLEDeviceServicesSuccessService> = [];
-
 	characteristics: Map<string, Array<BLEDeviceCharacteristic>> = new Map();
-
 	uartWriteCharacteristicId: string = "";
 
+	// 设备状态
+	currentWearLocation: WearLocation = "大臂部";
+	_isCharging: boolean = false;
+	_deviceOn: boolean = false;
+
+	// 健康数据
 	heartRate = ref(0);
 	bloodOxygen = ref(0);
 	battery = ref(0);
 	ppi = ref(0);
 
+	// 重连相关属性
 	reconnectAttempts = 0;
 	maxReconnectAttempts = 5;
 	reconnectInterval = 2000;
 	isReconnecting = false;
-
-	errorMessage = ref<string>("");
 
 	constructor() {
 		this.loadSavedData();
@@ -90,10 +95,18 @@ export class Device {
 			accessBackgroundLocation: false
 		} as InitConfig);
 		this.kuxBluetooth = kuxBluetooth;
+		this.onBluetoothAdapterStateChange();
+		this.onBLEConnectionStateChange();
+
+		// 监听特征值变化事件
+		this.onCharacteristicValueChange();
+		this.onReadCharacteristicValue();
+
 		this.initBluetooth();
 		//#endif
 	}
 
+	// 数据持久化相关
 	loadSavedData(): void {
 		const savedLocation = storage.get(KEY_WEAR_LOCATION) as WearLocation | null;
 		if (savedLocation != null) {
@@ -116,6 +129,12 @@ export class Device {
 		storage.set(KEY_LAST_DEVICE_ID, deviceId, 0);
 	}
 
+	clearLastConnectedDevice(): void {
+		this.lastConnectedDeviceId = "";
+		storage.remove(KEY_LAST_DEVICE_ID);
+	}
+
+	// 状态管理
 	setCharging(charging: boolean): void {
 		this._isCharging = charging;
 	}
@@ -125,109 +144,187 @@ export class Device {
 	}
 
 	clearError(): void {
+		console.log("清除错误信息");
 		this.errorMessage.value = "";
 	}
 
+	resetReconnectState(): void {
+		this.reconnectAttempts = 0;
+		this.isReconnecting = false;
+	}
+
+	handleBluetoothError(errCode: number, errMsg: string): void {
+		console.log(`蓝牙错误 ${errCode}:`, errMsg);
+		this.errorMessage.value = errMsg ?? t("蓝牙错误");
+		this.status.value = "UNPAIRED";
+
+		switch (errCode) {
+			case 10000:
+			case 10001:
+				this.inited = false;
+				break;
+			default:
+				break;
+		}
+	}
+
+	// 蓝牙初始化
 	async initBluetooth(): Promise<any> {
+		console.log("开始初始化蓝牙");
+		this.clearError();
+
 		return new Promise<any>((resolve, reject) => {
 			this.kuxBluetooth.openBluetoothAdapter({
 				success: (res) => {
-					this.inited = true;
-
-					this.onCharacteristicValueChange();
-					this.onReadCharacteristicValue();
-
-					this.kuxBluetooth.onBluetoothAdapterStateChange((res) => {
-						if (!res.available) {
-							this.status.value = "UNPAIRED";
-						} else {
-							if (this.lastConnectedDeviceId != "") {
-								this.startBluetoothSearch();
-							}
-						}
-					});
-
-					this.kuxBluetooth.onBLEConnectionStateChange((res) => {
-						if (res.connected) {
-							this.getDeviceServicesAndCharacteristics(res.deviceId).then(() => {
-								this.getLEDStatus(500);
-							});
-							this.resetReconnectState();
-						} else {
-							if (res.deviceId == this.currentDeviceId) {
-								this.status.value = "UNPAIRED";
-								this.currentDeviceId = "";
-								this.reconnect();
-							}
-						}
-					});
-
-					if (this.lastConnectedDeviceId != "") {
-						this.startBluetoothSearch();
-					}
-
+					console.log("openBluetoothAdapter success:", res);
 					resolve(res);
 				},
 				fail: (err) => {
-					this.errorMessage.value = t("蓝牙初始化失败");
+					this.handleBluetoothError(err.errCode, err.errMsg);
 					reject(err);
 				}
 			});
 		});
 	}
 
-	startBluetoothSearch() {
-		this.devices = [];
-		this.stopBluetoothSearch();
-		this.status.value = "SEARCHING";
-		this.kuxBluetooth.startBluetoothDevicesDiscovery({
-			success: (res) => {
-				this.kuxBluetooth.onBluetoothDeviceFound((devices) => {
-					devices.forEach((device) => {
-						if (device.name != TARGET_DEVICE_NAME) {
-							return;
-						}
-						if (!this.devices.some((d) => d.deviceId == device.deviceId)) {
-							this.devices.push(device);
-						}
-						this.connectToDevice(device.deviceId);
-					});
-				});
-			},
-			fail: (e) => {
-				this.errorMessage.value = t("搜索设备失败");
+	onBluetoothAdapterStateChange(): void {
+		console.log("开始监听蓝牙适配器状态变化");
+		this.kuxBluetooth.onBluetoothAdapterStateChange((res) => {
+			console.log("蓝牙适配器状态变化:", res);
+			this.discovering = res.discovering;
+			if (this.available == res.available) return;
+			this.available = res.available;
+			if (!res.available) {
+				console.log("蓝牙已关闭");
 				this.status.value = "UNPAIRED";
-			}
-		});
-	}
+				this.errorMessage.value = t("蓝牙未开启");
+			} else {
+				console.log("蓝牙已开启");
+				this.status.value = "PAIRING";
+				this.errorMessage.value = "";
+				this.inited = true;
 
-	stopBluetoothSearch() {
-		this.kuxBluetooth.stopBluetoothDevicesDiscovery({});
-		this.kuxBluetooth.offBluetoothDeviceFound();
-	}
-
-	connectToDevice(deviceId: string) {
-		this.stopBluetoothSearch();
-		this.kuxBluetooth.createBLEConnection({
-			deviceId,
-			success: (res) => {
-				this.currentDeviceId = deviceId;
-				this.status.value = "CONNECTED";
-				this.saveLastConnectedDevice(deviceId);
-			},
-			fail: (err) => {
-				if (err.errCode == -1) {
-					this.currentDeviceId = deviceId;
-					this.status.value = "CONNECTED";
-					this.saveLastConnectedDevice(deviceId);
-				} else {
-					this.errorMessage.value = t("连接失败");
-					this.status.value = "UNPAIRED";
+				if (this.lastConnectedDeviceId != "" && this.currentDeviceId == "") {
+					this.startBluetoothSearch();
 				}
 			}
 		});
 	}
 
+	onBLEConnectionStateChange(): void {
+		this.kuxBluetooth.onBLEConnectionStateChange((res) => {
+			console.log("蓝牙连接状态变化:", res);
+			if (res.connected) {
+				console.log("设备已连接:", res.deviceId);
+				this.getDeviceServicesAndCharacteristics(res.deviceId).then(() => {
+					this.getLEDStatus(500);
+				});
+				this.resetReconnectState();
+			} else {
+				if (res.deviceId == this.currentDeviceId) {
+					console.log("设备已断开:", res.deviceId);
+					this.status.value = "UNPAIRED";
+					this.currentDeviceId = "";
+					this.reconnect();
+				}
+			}
+		});
+	}
+
+	// 设备搜索
+	async startBluetoothSearch() {
+		this.devices = [];
+		await this.stopBluetoothSearch();
+		this.status.value = "SEARCHING";
+		this.kuxBluetooth.startBluetoothDevicesDiscovery({
+			success: (res) => {
+				console.log("开始搜索目标设备:", TARGET_DEVICE_NAME);
+				this.kuxBluetooth.onBluetoothDeviceFound((devices) => {
+					devices.forEach((device) => {
+						if (device.name != TARGET_DEVICE_NAME) {
+							return;
+						}
+						console.log("发现目标设备:", device);
+						if (!this.devices.some((d) => d.deviceId == device.deviceId)) {
+							this.devices.push(device);
+						}
+						console.log("当前设备列表:", this.devices);
+						// console.log("lastConnectedDeviceId:", this.lastConnectedDeviceId);
+						this.connectToDevice(device.deviceId);
+					});
+				});
+			},
+			fail: (e) => this.handleBluetoothError(e.errCode, e.errMsg)
+		});
+	}
+
+	stopBluetoothSearch(): Promise<boolean> {
+		this.kuxBluetooth.offBluetoothDeviceFound();
+		// if (!this.discovering) {
+		// 	console.log("当前不在搜索状态，无需停止");
+		// 	return Promise.resolve(true);
+		// }
+		return new Promise((resolve, reject) => {
+			this.kuxBluetooth.stopBluetoothDevicesDiscovery({
+				success: () => resolve(true),
+				fail: (err) => {
+					console.log("停止搜索失败:", err);
+					resolve(false);
+				}
+			});
+		});
+	}
+
+	// 设备连接
+	connectToDevice(deviceId: string) {
+		this.kuxBluetooth.createBLEConnection({
+			deviceId,
+			success: (res) => {
+				console.log("连接设备成功:", res);
+				this.stopBluetoothSearch();
+				this.currentDeviceId = deviceId;
+				this.status.value = "CONNECTED";
+				this.saveLastConnectedDevice(deviceId);
+				console.log("设备连接状态:", this.status.value);
+			},
+			fail: (err) => this.handleBluetoothError(err.errCode, err.errMsg)
+		});
+	}
+
+	disconnectDevice() {
+		if (this.currentDeviceId != "") {
+			this.stopBluetoothSearch();
+			this.disableAllNotifications();
+
+			this.kuxBluetooth.closeBLEConnection({
+				deviceId: this.currentDeviceId,
+				success: (res) => {
+					this.status.value = "UNPAIRED";
+					this.currentDeviceId = "";
+					this.services = [];
+					this.characteristics.clear();
+					this.uartWriteCharacteristicId = "";
+					this.resetReconnectState();
+				},
+				fail: (err) => {
+					this.status.value = "UNPAIRED";
+					this.currentDeviceId = "";
+					this.services = [];
+					this.characteristics.clear();
+					this.uartWriteCharacteristicId = "";
+					this.resetReconnectState();
+				}
+			});
+		} else {
+			this.status.value = "UNPAIRED";
+			this.services = [];
+			this.characteristics.clear();
+			this.uartWriteCharacteristicId = "";
+			this.resetReconnectState();
+		}
+	}
+
+	// 服务和特征值
 	async getDeviceServicesAndCharacteristics(deviceId: string): Promise<void> {
 		const maxRetries = 10;
 		let retryInterval = 300;
@@ -310,6 +407,71 @@ export class Device {
 		});
 	}
 
+	// 特征值操作
+	enableNotify(serviceId: string, characteristicId: string): Promise<boolean> {
+		return new Promise<boolean>((resolve) => {
+			this.kuxBluetooth.notifyBLECharacteristicValueChange({
+				deviceId: this.currentDeviceId,
+				serviceId,
+				characteristicId,
+				state: true,
+				type: "notification",
+				success: () => resolve(true),
+				fail: () => resolve(false)
+			});
+		});
+	}
+
+	disableNotify(serviceId: string, characteristicId: string): void {
+		this.kuxBluetooth.notifyBLECharacteristicValueChange({
+			deviceId: this.currentDeviceId,
+			serviceId,
+			characteristicId,
+			state: false,
+			type: "notification",
+			success: () => {},
+			fail: () => {}
+		});
+	}
+
+	disableAllNotifications() {
+		this.disableNotify(HEART_RATE_SERVICE_UUID, HEART_RATE_CHARACTERISTIC_UUID);
+	}
+
+	readCharacteristic(serviceId: string, characteristicId: string): Promise<boolean> {
+		return new Promise<boolean>((resolve, reject) => {
+			this.kuxBluetooth.readBLECharacteristicValue({
+				deviceId: this.currentDeviceId,
+				serviceId,
+				characteristicId,
+				success: () => resolve(true),
+				fail: () => resolve(false)
+			});
+		});
+	}
+
+	writeCharacteristic(
+		serviceId: string,
+		characteristicId: string,
+		value: string,
+		writeType: "write" | "writeNoResponse" = "write"
+	): Promise<boolean> {
+		return new Promise<boolean>((resolve, reject) => {
+			const buffer = hexStringToArrayBuffer(value);
+
+			this.kuxBluetooth.writeBLECharacteristicValue({
+				deviceId: this.currentDeviceId,
+				serviceId,
+				characteristicId,
+				value: buffer,
+				writeType,
+				success: () => resolve(true),
+				fail: () => resolve(false)
+			});
+		});
+	}
+
+	// 设备功能
 	getLEDStatus(delay = 0) {
 		setTimeout(() => {
 			this.readCharacteristic(LED_BUTTON_SERVICE_UUID, LED_BUTTON_CHARACTERISTIC_UUID);
@@ -340,6 +502,15 @@ export class Device {
 		this.getLEDStatus(500);
 	}
 
+	sendCommand(val: string): Promise<boolean> {
+		if (this.uartWriteCharacteristicId == "") {
+			return Promise.resolve(false);
+		}
+
+		return this.writeCharacteristic(UART_SERVICE_UUID, this.uartWriteCharacteristicId, val);
+	}
+
+	// 事件处理
 	onCharacteristicValueChange(): void {
 		this.kuxBluetooth.onBLECharacteristicValueChange((res) => {
 			const hexString = arrayBufferToHexString(res.value);
@@ -372,122 +543,39 @@ export class Device {
 		});
 	}
 
-	enableNotify(serviceId: string, characteristicId: string): Promise<boolean> {
-		return new Promise<boolean>((resolve) => {
-			this.kuxBluetooth.notifyBLECharacteristicValueChange({
-				deviceId: this.currentDeviceId,
-				serviceId,
-				characteristicId,
-				state: true,
-				type: "notification",
-				success: (res) => {
-					resolve(true);
-				},
-				fail: (err) => {
-					resolve(false);
-				}
-			});
-		});
-	}
-
-	disableNotify(serviceId: string, characteristicId: string): void {
-		this.kuxBluetooth.notifyBLECharacteristicValueChange({
-			deviceId: this.currentDeviceId,
-			serviceId,
-			characteristicId,
-			state: false,
-			type: "notification",
-			success: (res) => {},
-			fail: (err) => {}
-		});
-	}
-
-	readCharacteristic(serviceId: string, characteristicId: string): Promise<boolean> {
-		return new Promise<boolean>((resolve, reject) => {
-			this.kuxBluetooth.readBLECharacteristicValue({
-				deviceId: this.currentDeviceId,
-				serviceId,
-				characteristicId,
-				success: (res) => {
-					resolve(true);
-				},
-				fail: (err) => {
-					reject(false);
-				}
-			});
-		});
-	}
-
-	writeCharacteristic(
-		serviceId: string,
-		characteristicId: string,
-		value: string,
-		writeType: "write" | "writeNoResponse" = "write"
-	): Promise<boolean> {
-		return new Promise<boolean>((resolve, reject) => {
-			const buffer = hexStringToArrayBuffer(value);
-
-			this.kuxBluetooth.writeBLECharacteristicValue({
-				deviceId: this.currentDeviceId,
-				serviceId,
-				characteristicId,
-				value: buffer,
-				writeType,
-				success: (res) => {
-					resolve(true);
-				},
-				fail: (err) => {
-					reject(false);
-				}
-			});
-		});
-	}
-
-	sendCommand(val: string): Promise<boolean> {
-		if (this.uartWriteCharacteristicId == "") {
-			return Promise.resolve(false);
+	// 重连机制
+	reconnect(): void {
+		console.log("开始重连设备");
+		if (this.isReconnecting) {
+			console.log("正在重连中，跳过");
+			return;
+		}
+		if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+			console.log("重连次数达到上限，停止重连");
+			return;
 		}
 
-		return this.writeCharacteristic(UART_SERVICE_UUID, this.uartWriteCharacteristicId, val);
-	}
-
-	disconnectDevice() {
-		if (this.currentDeviceId != "") {
-			this.stopBluetoothSearch();
-			this.disableAllNotifications();
-
-			this.kuxBluetooth.closeBLEConnection({
-				deviceId: this.currentDeviceId,
-				success: (res) => {
-					this.status.value = "UNPAIRED";
-					this.currentDeviceId = "";
-					this.services = [];
-					this.characteristics.clear();
-					this.uartWriteCharacteristicId = "";
-					this.resetReconnectState();
-				},
-				fail: (err) => {
-					this.status.value = "UNPAIRED";
-					this.currentDeviceId = "";
-					this.services = [];
-					this.characteristics.clear();
-					this.uartWriteCharacteristicId = "";
-					this.resetReconnectState();
-				}
-			});
-		} else {
-			this.status.value = "UNPAIRED";
-			this.services = [];
-			this.characteristics.clear();
-			this.uartWriteCharacteristicId = "";
-			this.resetReconnectState();
+		if (this.lastConnectedDeviceId == "") {
+			console.log("没有上次连接的设备ID，无法重连");
+			return;
 		}
+
+		this.isReconnecting = true;
+		this.reconnectAttempts++;
+
+		const currentInterval = this.reconnectInterval * this.reconnectAttempts;
+
+		console.log(`开始第 ${this.reconnectAttempts} 次重连，间隔 ${currentInterval}ms`);
+
+		setTimeout(() => {
+			console.log("执行重连操作");
+			this.connectToDevice(this.lastConnectedDeviceId);
+			this.isReconnecting = false;
+			console.log("重连操作完成");
+		}, currentInterval);
 	}
 
-	disableAllNotifications() {
-		this.disableNotify(HEART_RATE_SERVICE_UUID, HEART_RATE_CHARACTERISTIC_UUID);
-	}
-
+	// 资源管理
 	destroy() {
 		//#ifndef H5
 		this.stopBluetoothSearch();
@@ -501,36 +589,6 @@ export class Device {
 			fail: (err) => {}
 		});
 		//#endif
-	}
-
-	clearLastConnectedDevice(): void {
-		this.lastConnectedDeviceId = "";
-		storage.remove(KEY_LAST_DEVICE_ID);
-	}
-
-	reconnect(): void {
-		if (this.isReconnecting || this.reconnectAttempts >= this.maxReconnectAttempts) {
-			return;
-		}
-
-		if (this.lastConnectedDeviceId == "") {
-			return;
-		}
-
-		this.isReconnecting = true;
-		this.reconnectAttempts++;
-
-		const currentInterval = this.reconnectInterval * this.reconnectAttempts;
-
-		setTimeout(() => {
-			this.startBluetoothSearch();
-			this.isReconnecting = false;
-		}, currentInterval);
-	}
-
-	resetReconnectState(): void {
-		this.reconnectAttempts = 0;
-		this.isReconnecting = false;
 	}
 
 	clear() {}

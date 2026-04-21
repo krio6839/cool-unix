@@ -1,0 +1,270 @@
+<template>
+	<cl-popup v-model="show" :title="t('设备测试')" direction="bottom" :size="600">
+		<view class="p-4 flex flex-col">
+			<!-- 设备状态信息 -->
+			<view class="mb-4 p-3 bg-gray-800 rounded">
+				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+					{{ t("设备状态") }}
+				</cl-text>
+				<view class="flex flex-row flex-wrap">
+					<view class="w-1/2 mb-2">
+						<cl-text color="gray-400" :size="12">{{ t("连接状态") }}</cl-text>
+						<cl-text color="white" :size="14">{{ deviceStore.status.value }}</cl-text>
+					</view>
+					<view class="w-1/2 mb-2">
+						<cl-text color="gray-400" :size="12">{{ t("心率") }}</cl-text>
+						<cl-text color="white" :size="14"
+							>{{ deviceStore.heartRate.value }} BPM</cl-text
+						>
+					</view>
+					<view class="w-1/2 mb-2">
+						<cl-text color="gray-400" :size="12">{{ t("血氧") }}</cl-text>
+						<cl-text color="white" :size="14"
+							>{{ deviceStore.bloodOxygen.value }}%</cl-text
+						>
+					</view>
+					<view class="w-1/2 mb-2">
+						<cl-text color="gray-400" :size="12">{{ t("电池") }}</cl-text>
+						<cl-text color="white" :size="14">{{ deviceStore.battery.value }}%</cl-text>
+					</view>
+					<view class="w-1/2 mb-2">
+						<cl-text color="gray-400" :size="12">{{ t("PPI") }}</cl-text>
+						<cl-text color="white" :size="14">{{ deviceStore.ppi.value }}</cl-text>
+					</view>
+					<view class="w-1/2 mb-2">
+						<cl-text color="gray-400" :size="12">{{ t("设备ID") }}</cl-text>
+						<cl-text color="white" :size="12" :line="1">{{
+							deviceStore.currentDeviceId
+						}}</cl-text>
+					</view>
+				</view>
+			</view>
+
+			<!-- 设备控制测试 -->
+			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+				{{ t("设备控制") }}
+			</cl-text>
+			<view class="flex flex-row flex-wrap mb-4">
+				<cl-button
+					type="primary"
+					color="#333"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="toggleDevice"
+				>
+					{{ t("开关设备") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#333"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testDisconnect"
+				>
+					{{ t("断开连接") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#333"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testReconnect"
+				>
+					{{ t("测试重连") }}
+				</cl-button>
+			</view>
+
+			<!-- 数据读取测试 -->
+			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+				{{ t("数据读取") }}
+			</cl-text>
+			<view class="flex flex-row flex-wrap mb-4">
+				<cl-button
+					type="primary"
+					color="#444"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testReadBloodOxygen"
+				>
+					{{ t("读取血氧") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#444"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testReadBattery"
+				>
+					{{ t("读取电池") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#444"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testGetLEDStatus"
+				>
+					{{ t("获取LED状态") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#444"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="subscribeHeartRate"
+				>
+					{{ t("订阅心率") }}
+				</cl-button>
+			</view>
+
+			<!-- 设备信息 -->
+			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+				{{ t("设备信息") }}
+			</cl-text>
+			<view class="flex flex-row flex-wrap mb-4">
+				<cl-button
+					type="primary"
+					color="#555"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testGetDeviceInfo"
+				>
+					{{ t("获取设备信息") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#555"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testClearError"
+				>
+					{{ t("清除错误") }}
+				</cl-button>
+			</view>
+
+			<!-- UART命令测试 -->
+			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+				{{ t("UART命令") }}
+			</cl-text>
+			<view class="flex flex-row flex-wrap">
+				<cl-button
+					type="primary"
+					color="#666"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="sendUartCommand('AA01')"
+				>
+					{{ t("发送AA01") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#666"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="sendUartCommand('AA02')"
+				>
+					{{ t("发送AA02") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#666"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="sendUartCommand('BB01')"
+				>
+					{{ t("发送BB01") }}
+				</cl-button>
+			</view>
+		</view>
+	</cl-popup>
+</template>
+
+<script lang="ts" setup>
+import { t, useStore } from "@/.cool";
+import { useUi } from "@/uni_modules/cool-ui";
+
+const ui = useUi();
+const { device: deviceStore } = useStore();
+
+const show = defineModel("show", {
+	default: false
+});
+
+async function testReadBloodOxygen() {
+	ui.showToast({ message: t("读取中..."), type: "warn" });
+	await deviceStore.readBloodOxygen();
+}
+
+async function toggleDevice() {
+	await deviceStore.toggleDeviceStatus();
+}
+
+async function subscribeHeartRate() {
+	deviceStore.subscribeHeartRate();
+}
+
+async function testDisconnect() {
+	ui.showToast({ message: t("断开连接中..."), type: "warn" });
+	deviceStore.disconnectDevice();
+}
+
+function testReconnect() {
+	ui.showToast({ message: t("测试重连..."), type: "warn" });
+	deviceStore.reconnect();
+}
+
+async function testReadBattery() {
+	ui.showToast({ message: t("读取电池..."), type: "warn" });
+	await deviceStore.readCharacteristic(
+		"0000180f-0000-1000-8000-00805f9b34fb",
+		"00002a19-0000-1000-8000-00805f9b34fb"
+	);
+}
+
+function testGetLEDStatus() {
+	ui.showToast({ message: t("获取LED状态..."), type: "warn" });
+	deviceStore.getLEDStatus();
+}
+
+function testGetDeviceInfo() {
+	const info = {
+		status: deviceStore.status.value,
+		deviceId: deviceStore.currentDeviceId,
+		services: deviceStore.services.length,
+		characteristics: deviceStore.characteristics.size,
+		heartRate: deviceStore.heartRate.value,
+		bloodOxygen: deviceStore.bloodOxygen.value,
+		battery: deviceStore.battery.value,
+		ppi: deviceStore.ppi.value
+	};
+	console.log("设备信息:", info);
+	ui.showToast({ message: t("设备信息已输出到控制台"), type: "success" });
+}
+
+function testClearError() {
+	deviceStore.clearError();
+	ui.showToast({ message: t("错误已清除"), type: "success" });
+}
+
+async function sendUartCommand(cmd: string) {
+	ui.showToast({ message: t("发送命令:") + cmd, type: "warn" });
+	const result = await deviceStore.sendCommand(cmd);
+	if (result) {
+		ui.showToast({ message: t("命令发送成功"), type: "success" });
+	} else {
+		ui.showToast({ message: t("命令发送失败"), type: "error" });
+	}
+}
+</script>

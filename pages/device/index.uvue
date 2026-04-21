@@ -8,7 +8,7 @@
 			@tap="goBack"
 		>
 			<template #append>
-				<cl-button text @tap="handleShowDevices">
+				<cl-button text @tap="openTestPopup">
 					{{ t("测试") }}
 				</cl-button>
 			</template>
@@ -81,39 +81,27 @@
 			<UnpairedState @click="enterPairingMode"></UnpairedState>
 		</view>
 
+		<!-- 测试弹窗组件 -->
+		<TestPopup v-model="showPopup"></TestPopup>
+
 		<!-- #endif -->
 	</cl-page>
-
-	<!-- 测试弹窗 -->
-	<cl-popup v-model="showTestPopup" :title="t('设备测试')" direction="bottom" :size="300">
-		<view class="p-4 flex flex-col items-center">
-			<cl-button type="primary" color="#000" rounded @tap="toggleDevice">
-				{{ t("开启/关闭设备") }}
-			</cl-button>
-			<cl-button type="primary" color="#000" rounded @tap="testReadBloodOxygen">
-				{{ t("读取血氧") }}
-			</cl-button>
-			<cl-button type="primary" color="#000" rounded @tap="subscribeHeartRate">
-				{{ t("订阅心率") }}
-			</cl-button>
-		</view>
-	</cl-popup>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import { router, t, useStore } from "@/.cool";
-import { useUi } from "@/uni_modules/cool-ui";
 
 import UnpairedState from "./components/UnpairedState.uvue";
 import PairingState from "./components/PairingState.uvue";
 import ConnectedState from "./components/ConnectedState.uvue";
+import TestPopup from "./components/TestPopup.uvue";
 
-const ui = useUi();
 const { device: deviceStore } = useStore();
 
+const showPopup = ref(false);
+
 const connectedDeviceName = ref<string>("Cool Unix 设备");
-const showTestPopup = ref(false);
 
 const titleText = computed(() => {
 	if (deviceStore.status.value === "CONNECTED") {
@@ -127,9 +115,8 @@ const titleText = computed(() => {
 	}
 });
 
-function handleConnectSuccess() {
-	deviceStore.status.value = "CONNECTED";
-	ui.showToast({ message: t("连接成功"), type: "success" });
+function openTestPopup() {
+	showPopup.value = true;
 }
 
 function onSelect(location: string) {
@@ -151,32 +138,12 @@ async function enterPairingMode() {
 	deviceStore.startBluetoothSearch();
 }
 
-function handleShowDevices() {
-	showTestPopup.value = true;
-	console.log("handleShowDevices", deviceStore.devices);
-	deviceStore.connectToDevice(deviceStore.devices[0].deviceId);
-}
-
-async function testReadBloodOxygen() {
-	ui.showToast({ message: t("读取中..."), type: "warn" });
-	await deviceStore.readBloodOxygen();
-}
-
-async function toggleDevice() {
-	await deviceStore.toggleDeviceStatus();
-}
-
-async function subscribeHeartRate() {
-	deviceStore.subscribeHeartRate();
-}
-
 function goBack() {
 	router.back();
 }
 
 function retry() {
-	deviceStore.clearError();
-	enterPairingMode();
+	deviceStore.initBluetooth();
 }
 </script>
 
