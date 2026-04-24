@@ -18,6 +18,9 @@ import {
 	hexStringToArrayBuffer
 } from "../utils/bluetooth";
 
+// 数据管理导入
+import { bluetoothDataManager } from "../utils/bluetooth-data-manager";
+
 //#ifndef H5
 //@ts-ignore
 import { useKuxBluetooth } from "@/uni_modules/kux-bluetooth";
@@ -214,6 +217,7 @@ export class Device {
 				console.log("设备已连接:", res.deviceId);
 				this.getDeviceServicesAndCharacteristics(res.deviceId).then(() => {
 					this.getLEDStatus(500);
+					this.setLEDStatus("01");
 				});
 				this.resetReconnectState();
 			} else {
@@ -517,12 +521,18 @@ export class Device {
 				const [heartRate, ppi] = parseHeartRateData(hexData);
 				this.heartRate.value = heartRate;
 				this.ppi.value = ppi;
+				// 存储心率数据
+				bluetoothDataManager.storeData("heartRate", heartRate);
 			} else if (serviceId == LED_BUTTON_SERVICE_UUID) {
 				const bloodOxygen = parseBloodOxygenData(hexData);
 				this.bloodOxygen.value = bloodOxygen;
+				// 存储血氧数据
+				bluetoothDataManager.storeData("bloodOxygen", bloodOxygen);
 			} else if (serviceId == BATTERY_SERVICE_UUID) {
 				const battery = parseBatteryData(hexData);
 				this.battery.value = battery;
+				// 存储电池数据
+				bluetoothDataManager.storeData("battery", battery);
 			}
 		});
 	}
@@ -585,6 +595,8 @@ export class Device {
 			fail: (err) => {}
 		});
 		//#endif
+		// 销毁数据管理器
+		bluetoothDataManager.destroy();
 	}
 
 	clear() {}
