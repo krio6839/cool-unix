@@ -1,0 +1,40 @@
+/* SQLite 数据库插件错误定义 */
+import { DatabaseErrorCode, DatabaseError } from "./interface.uts"
+
+/**
+ * 错误主题
+ */
+export const UniErrorSubject = 'meibao-Sqlite';
+
+/**
+ * 错误信息映射表
+ */
+export const DatabaseErrors : Map<DatabaseErrorCode, string> = new Map([
+  [9000001, '数据库未打开'],
+  [9000002, '数据库已存在'],
+  [9000003, '数据库不存在'],
+  [9000004, 'SQL执行失败'],
+  [9000005, '参数错误'],
+  [9000006, '数据库关闭失败'],
+  [9000007, '数据库删除失败'],
+  [9000008, '事务执行失败'],
+  [9000009, '未知错误'],
+]);
+
+/**
+ * 数据库错误对象实现
+ */
+export class DatabaseErrorImpl extends UniError implements DatabaseError {
+
+  override errCode: DatabaseErrorCode
+
+  /**
+   * 错误对象构造函数
+   */
+  constructor(errCode : DatabaseErrorCode, errMsg?: string) {
+    super();
+    this.errSubject = UniErrorSubject;
+    this.errCode = errCode;
+    this.errMsg = errMsg ?? DatabaseErrors.get(errCode) ?? "";
+  }
+}

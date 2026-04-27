@@ -15,8 +15,19 @@ import {
 	LED_BUTTON_CHARACTERISTIC_UUID,
 	BLOOD_OXYGEN_CHARACTERISTIC_UUID,
 	HEART_RATE_CHARACTERISTIC_UUID,
-	hexStringToArrayBuffer
+	hexStringToArrayBuffer,
+	UART_TX_CHARACTERISTIC_UUID,
+	UART_RX_CHARACTERISTIC_UUID,
+	parseDataReadyStatus,
+	parseRTCResponse,
+	parseHistoricalHeartRateData,
+	parseSleepData,
+	convertNumberToHexString
 } from "../utils/bluetooth";
+
+import type { HeartRateRecord, SleepData, DataReadyStatus } from "../utils/bluetooth";
+
+export type { HeartRateRecord, SleepData, DataReadyStatus };
 
 // 数据管理导入
 import { bluetoothDataManager } from "../utils/bluetooth-data-manager";
@@ -69,7 +80,6 @@ export class Device {
 	kuxBluetooth: IBluetooth;
 	services: Array<GetBLEDeviceServicesSuccessService> = [];
 	characteristics: Map<string, Array<BLEDeviceCharacteristic>> = new Map();
-	uartWriteCharacteristicId: string = "";
 
 	// 设备状态
 	currentWearLocation: WearLocation = "大臂部";
@@ -81,6 +91,15 @@ export class Device {
 	bloodOxygen = ref(0);
 	battery = ref(0);
 	ppi = ref(0);
+
+	// 历史数据
+	dataReadyStatus = ref<DataReadyStatus>({
+		heartRateCount: 0,
+		sleepCount: 0
+	});
+	rtcTime = ref<number>(0);
+	historicalHeartRateData = ref<Array<HeartRateRecord>>([]);
+	sleepData = ref<SleepData | null>(null);
 
 	// 重连相关属性
 	reconnectAttempts = 0;
@@ -216,8 +235,15 @@ export class Device {
 			if (res.connected) {
 				console.log("设备已连接:", res.deviceId);
 				this.getDeviceServicesAndCharacteristics(res.deviceId).then(() => {
-					this.getLEDStatus(500);
+					console.log("获取设备服务和特征值成功");
 					this.setLEDStatus("01");
+					setTimeout(() => {
+						this.getLEDStatus();
+						this.subscribeHeartRate();
+						this.subscribeBloodOxygen();
+						// this.subscribeBattery();
+						this.subscribeUART();
+					}, 500);
 				});
 				this.resetReconnectState();
 			} else {
@@ -250,6 +276,7 @@ export class Device {
 						}
 						console.log("当前设备列表:", this.devices);
 						// console.log("lastConnectedDeviceId:", this.lastConnectedDeviceId);
+						if (this.currentDeviceId != "") return;
 						this.connectToDevice(device.deviceId);
 					});
 				});
@@ -303,7 +330,6 @@ export class Device {
 					this.currentDeviceId = "";
 					this.services = [];
 					this.characteristics.clear();
-					this.uartWriteCharacteristicId = "";
 					this.resetReconnectState();
 				},
 				fail: (err) => {
@@ -311,7 +337,6 @@ export class Device {
 					this.currentDeviceId = "";
 					this.services = [];
 					this.characteristics.clear();
-					this.uartWriteCharacteristicId = "";
 					this.resetReconnectState();
 				}
 			});
@@ -319,7 +344,6 @@ export class Device {
 			this.status.value = "UNPAIRED";
 			this.services = [];
 			this.characteristics.clear();
-			this.uartWriteCharacteristicId = "";
 			this.resetReconnectState();
 		}
 	}
@@ -344,15 +368,6 @@ export class Device {
 				services.forEach((service: GetBLEDeviceServicesSuccessService, index: number) => {
 					const characteristics = characteristicsResults[index];
 					this.characteristics.set(service.uuid, characteristics);
-
-					if (service.uuid.toLowerCase() == UART_SERVICE_UUID) {
-						const writeChar = characteristics.find(
-							(c: BLEDeviceCharacteristic) => c.properties.write
-						);
-						if (writeChar != null) {
-							this.uartWriteCharacteristicId = writeChar.uuid;
-						}
-					}
 				});
 
 				return;
@@ -372,11 +387,7 @@ export class Device {
 			this.kuxBluetooth.getBLEDeviceServices({
 				deviceId,
 				success: (res) => {
-					if (res.services == null) {
-						resolve([]);
-					} else {
-						resolve(res.services);
-					}
+					resolve(res.services ?? []);
 				},
 				fail: (err) => {
 					reject(err);
@@ -394,11 +405,7 @@ export class Device {
 				deviceId,
 				serviceId,
 				success: (res) => {
-					if (res.characteristics == null) {
-						resolve([]);
-					} else {
-						resolve(res.characteristics);
-					}
+					resolve(res.characteristics ?? []);
 				},
 				fail: (err) => {
 					resolve([]);
@@ -458,7 +465,8 @@ export class Device {
 	): Promise<boolean> {
 		return new Promise<boolean>((resolve, reject) => {
 			const buffer = hexStringToArrayBuffer(value);
-
+			console.log("写入特征值:", serviceId, characteristicId, value, writeType);
+			console.log("写入特征值:", value, buffer);
 			this.kuxBluetooth.writeBLECharacteristicValue({
 				deviceId: this.currentDeviceId,
 				serviceId,
@@ -482,8 +490,19 @@ export class Device {
 		return this.readCharacteristic(LED_BUTTON_SERVICE_UUID, BLOOD_OXYGEN_CHARACTERISTIC_UUID);
 	}
 
+	subscribeBloodOxygen(): void {
+		this.enableNotify(LED_BUTTON_SERVICE_UUID, BLOOD_OXYGEN_CHARACTERISTIC_UUID);
+	}
+
 	subscribeHeartRate(): void {
 		this.enableNotify(HEART_RATE_SERVICE_UUID, HEART_RATE_CHARACTERISTIC_UUID);
+	}
+	// subscribeBattery(): void {
+	// 	this.enableNotify(BATTERY_SERVICE_UUID, BATTERY_CHARACTERISTIC_UUID);
+	// }
+
+	subscribeUART(): void {
+		this.enableNotify(UART_SERVICE_UUID, UART_RX_CHARACTERISTIC_UUID);
 	}
 
 	setLEDStatus(val: string) {
@@ -503,11 +522,38 @@ export class Device {
 	}
 
 	sendCommand(val: string): Promise<boolean> {
-		if (this.uartWriteCharacteristicId == "") {
-			return Promise.resolve(false);
-		}
+		return this.writeCharacteristic(UART_SERVICE_UUID, UART_TX_CHARACTERISTIC_UUID, val);
+	}
 
-		return this.writeCharacteristic(UART_SERVICE_UUID, this.uartWriteCharacteristicId, val);
+	queryDataReadyStatus(): Promise<boolean> {
+		return this.sendCommand("71");
+	}
+
+	getDeviceTime(): Promise<boolean> {
+		return this.sendCommand("74");
+	}
+
+	getHistoricalHeartRateData(recordIndex: number): Promise<boolean> {
+		const cmd = "72" + convertNumberToHexString(recordIndex, 4);
+		return this.sendCommand(cmd);
+	}
+
+	getSleepData(index: number): Promise<boolean> {
+		const cmd = "73" + convertNumberToHexString(index, 1);
+		return this.sendCommand(cmd);
+	}
+
+	shutdownDevice(): Promise<boolean> {
+		return this.sendCommand("65");
+	}
+
+	setDeviceTime(timestamp: number): Promise<boolean> {
+		const cmd = "75" + convertNumberToHexString(timestamp, 4);
+		return this.sendCommand(cmd);
+	}
+
+	endSleepJudgment(): Promise<boolean> {
+		return this.sendCommand("7A");
 	}
 
 	// 事件处理
@@ -516,23 +562,40 @@ export class Device {
 			const hexString = arrayBufferToHexString(res.value);
 			const hexData = hexString;
 			const serviceId = res.serviceId.toLowerCase();
+			const characteristicId = res.characteristicId.toLowerCase();
+			console.log("响应数据:", hexData, serviceId, characteristicId);
 
 			if (serviceId == HEART_RATE_SERVICE_UUID) {
 				const [heartRate, ppi] = parseHeartRateData(hexData);
 				this.heartRate.value = heartRate;
 				this.ppi.value = ppi;
-				// 存储心率数据
 				bluetoothDataManager.storeData("heartRate", heartRate);
 			} else if (serviceId == LED_BUTTON_SERVICE_UUID) {
 				const bloodOxygen = parseBloodOxygenData(hexData);
 				this.bloodOxygen.value = bloodOxygen;
-				// 存储血氧数据
 				bluetoothDataManager.storeData("bloodOxygen", bloodOxygen);
 			} else if (serviceId == BATTERY_SERVICE_UUID) {
 				const battery = parseBatteryData(hexData);
 				this.battery.value = battery;
-				// 存储电池数据
 				bluetoothDataManager.storeData("battery", battery);
+			} else if (serviceId == UART_SERVICE_UUID) {
+				if (hexData.indexOf("AAAA") != -1 || hexData.indexOf(",") != -1) {
+					const status = parseDataReadyStatus(hexData);
+					this.dataReadyStatus.value = status;
+					console.log("数据就绪状态:", status);
+				} else if (hexData.indexOf("5254433A") != -1 || hexData.indexOf("RTC") != -1) {
+					const rtc = parseRTCResponse(hexData);
+					this.rtcTime.value = rtc;
+					console.log("RTC时间:", rtc);
+				} else if (hexData.length >= 128) {
+					const records = parseHistoricalHeartRateData(hexData);
+					this.historicalHeartRateData.value = records;
+					console.log("历史心率数据:", records);
+				} else if (hexData.length >= 48) {
+					const sleep = parseSleepData(hexData);
+					this.sleepData.value = sleep;
+					console.log("睡眠数据:", sleep);
+				}
 			}
 		});
 	}
@@ -545,6 +608,7 @@ export class Device {
 			console.log("十六进制数据 hexString:", hexString);
 			if (res.characteristicId == LED_BUTTON_CHARACTERISTIC_UUID) {
 				this._deviceOn = hexString == "01";
+				console.log("_deviceOn", this._deviceOn);
 			}
 		});
 	}

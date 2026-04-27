@@ -1,0 +1,244 @@
+/**
+ * interface.uts
+ * SQLite数据库插件接口定义
+ */
+
+/**
+ * 打开数据库选项
+ */
+export type OpenDatabaseOptions = {
+  /**
+   * 数据库名称
+   */
+  name : string
+  /**
+   * 数据库路径，可选。如果不传则使用默认路径
+   */
+  path ?: string
+  /**
+   * 成功回调
+   */
+  success ?: (res : OpenDatabaseResult) => void
+  /**
+   * 失败回调
+   */
+  fail ?: (res : DatabaseError) => void
+  /**
+   * 完成回调
+   */
+  complete ?: (res : any) => void
+}
+
+/**
+ * 打开数据库返回结果
+ */
+export type OpenDatabaseResult = {
+  /**
+   * 数据库名称
+   */
+  name : string
+}
+
+/**
+ * 执行SQL选项
+ */
+export type ExecuteSqlOptions = {
+  /**
+   * 数据库名称
+   */
+  name : string
+  /**
+   * SQL语句
+   */
+  sql : string
+  /**
+   * SQL参数，用于预处理语句
+   */
+  args ?: Array<any>
+  /**
+   * 成功回调
+   */
+  success ?: (res : ExecuteSqlResult) => void
+  /**
+   * 失败回调
+   */
+  fail ?: (res : DatabaseError) => void
+  /**
+   * 完成回调
+   */
+  complete ?: (res : any) => void
+}
+
+/**
+ * 执行SQL返回结果
+ */
+export type ExecuteSqlResult = {
+  /**
+   * 受影响的行数（INSERT/UPDATE/DELETE）
+   * 对于SELECT语句，返回查询结果的行数
+   */
+  rowsAffected : number
+  /**
+   * 最后插入的行ID（仅INSERT语句有效）
+   */
+  insertId ?: number
+}
+
+/**
+ * 查询SQL选项
+ */
+export type SelectSqlOptions = {
+  /**
+   * 数据库名称
+   */
+  name : string
+  /**
+   * SQL查询语句
+   */
+  sql : string
+  /**
+   * SQL参数，用于预处理语句
+   */
+  args ?: Array<any>
+  /**
+   * 成功回调
+   */
+  success ?: (res : SelectSqlResult) => void
+  /**
+   * 失败回调
+   */
+  fail ?: (res : DatabaseError) => void
+  /**
+   * 完成回调
+   */
+  complete ?: (res : any) => void
+}
+
+/**
+ * 查询结果行类型（字符串数组）
+ */
+export type RowData = Array<string>
+
+/**
+ * 查询结果
+ */
+export type SelectSqlResult = {
+  /**
+   * 查询结果行数组（二维字符串数组，按列索引访问）
+   * 例如：rows[0][0] 是第一行第一列的值
+   */
+  rows : Array<RowData>
+  /**
+   * 查询结果行数
+   */
+  rowsAffected : number
+}
+
+/**
+ * 关闭数据库选项
+ */
+export type CloseDatabaseOptions = {
+  /**
+   * 数据库名称
+   */
+  name : string
+  /**
+   * 成功回调
+   */
+  success ?: () => void
+  /**
+   * 失败回调
+   */
+  fail ?: (res : DatabaseError) => void
+  /**
+   * 完成回调
+   */
+  complete ?: (res : any) => void
+}
+
+/**
+ * 删除数据库选项
+ */
+export type DeleteDatabaseOptions = {
+  /**
+   * 数据库名称
+   */
+  name : string
+  /**
+   * 成功回调
+   */
+  success ?: () => void
+  /**
+   * 失败回调
+   */
+  fail ?: (res : DatabaseError) => void
+  /**
+   * 完成回调
+   */
+  complete ?: (res : any) => void
+}
+
+/**
+ * 事务选项
+ */
+export type TransactionOptions = {
+  /**
+   * 数据库名称
+   */
+  name : string
+  /**
+   * 事务操作回调
+   */
+  operation : (tx : Transaction) => void
+  /**
+   * 成功回调
+   */
+  success ?: () => void
+  /**
+   * 失败回调
+   */
+  fail ?: (res : DatabaseError) => void
+  /**
+   * 完成回调
+   */
+  complete ?: (res : any) => void
+}
+
+/**
+ * 事务对象
+ */
+export type Transaction = {
+  /**
+   * 执行SQL（注意：当前版本不支持参数绑定）
+   */
+  executeSql : (sql : string) => void
+}
+
+/**
+ * 错误码定义
+ */
+export type DatabaseErrorCode =
+  9000001 |  // 数据库未打开
+  9000002 |  // 数据库已存在
+  9000003 |  // 数据库不存在
+  9000004 |  // SQL执行失败
+  9000005 |  // 参数错误
+  9000006 |  // 数据库关闭失败
+  9000007 |  // 数据库删除失败
+  9000008 |  // 事务执行失败
+  9000009;  // 其他错误
+
+/**
+ * 数据库错误接口
+ */
+export interface DatabaseError extends IUniError {
+  errCode : DatabaseErrorCode
+}
+
+/* 导出函数类型 */
+export type OpenDatabase = (options : OpenDatabaseOptions) => void
+export type ExecuteSql = (options : ExecuteSqlOptions) => void
+export type SelectSql = (options : SelectSqlOptions) => void
+export type CloseDatabase = (options : CloseDatabaseOptions) => void
+export type DeleteDatabase = (options : DeleteDatabaseOptions) => void
+export type TransactionFn = (options : TransactionOptions) => void

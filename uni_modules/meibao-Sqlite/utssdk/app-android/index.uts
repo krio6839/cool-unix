@@ -1,0 +1,690 @@
+/**
+ * meibao-Sqlite Android 平台实现
+ * 使用 Android 原生 SQLiteDatabase 和 SQLiteOpenHelper 实现
+ */
+
+// 引入 Android 系统库
+import Context from "android.content.Context";
+import SQLiteDatabase from "android.database.sqlite.SQLiteDatabase";
+import SQLiteOpenHelper from "android.database.sqlite.SQLiteOpenHelper";
+import Cursor from "android.database.Cursor";
+import File from "java.io.File";
+import Environment from "android.os.Environment";
+
+// 引入 interface.uts 中定义的类型
+import type {
+  OpenDatabaseOptions,
+  OpenDatabaseResult,
+  ExecuteSqlOptions,
+  ExecuteSqlResult,
+  SelectSqlOptions,
+  SelectSqlResult,
+  RowData,
+  CloseDatabaseOptions,
+  DeleteDatabaseOptions,
+  TransactionOptions,
+  Transaction
+} from '../interface.uts';
+
+// 引入 unierror.uts 中定义的错误类
+import { DatabaseErrorImpl } from '../unierror';
+
+/**
+ * 数据库管理器
+ * 用于管理已打开的数据库实例
+ */
+class DatabaseManager {
+  private static databases: Map<string, DatabaseWrapper> = new Map();
+
+  /**
+   * 添加数据库
+   */
+  static addDatabase(name: string, wrapper: DatabaseWrapper) {
+    this.databases.set(name, wrapper);
+  }
+
+  /**
+   * 获取数据库
+   */
+  static getDatabase(name: string): DatabaseWrapper | null {
+    return this.databases.get(name);
+  }
+
+  /**
+   * 移除数据库
+   */
+  static removeDatabase(name: string): boolean {
+    return this.databases.delete(name);
+  }
+
+  /**
+   * 检查数据库是否存在
+   */
+  static hasDatabase(name: string): boolean {
+    return this.databases.has(name);
+  }
+}
+
+/**
+ * 数据库包装类
+ * 用于统一管理 SQLiteOpenHelper 和直接打开的 SQLiteDatabase
+ */
+class DatabaseWrapper {
+  private helper: MeibaoSQLiteOpenHelper | null = null;
+  private db: SQLiteDatabase | null = null;
+  private customPath: string | null = null;
+
+  /**
+   * 构造函数
+   * @param helperOrDb SQLiteOpenHelper 或 SQLiteDatabase 实例
+   * @param path 自定义路径（仅在使用 SQLiteDatabase 时需要）
+   */
+  constructor(helperOrDb: MeibaoSQLiteOpenHelper | SQLiteDatabase, path: string | null = null) {
+    if (helperOrDb instanceof MeibaoSQLiteOpenHelper) {
+      this.helper = helperOrDb as MeibaoSQLiteOpenHelper;
+      this.db = null;
+      this.customPath = null;
+    } else {
+      this.db = helperOrDb as SQLiteDatabase;
+      this.helper = null;
+      this.customPath = path;
+    }
+  }
+
+  /**
+   * 获取可写数据库
+   */
+  getWritableDatabase(): SQLiteDatabase {
+    if (this.db != null) {
+      return this.db;
+    }
+    if (this.helper != null) {
+      return this.helper.getWritableDatabase();
+    }
+    throw new Exception('数据库未初始化');
+  }
+
+  /**
+   * 获取可读数据库
+   */
+  getReadableDatabase(): SQLiteDatabase {
+    if (this.db != null) {
+      return this.db;
+    }
+    if (this.helper != null) {
+      return this.helper.getReadableDatabase();
+    }
+    throw new Exception('数据库未初始化');
+  }
+
+  /**
+   * 关闭数据库
+   */
+  close(): void {
+    if (this.helper != null) {
+      this.helper.close();
+    }
+    if (this.db != null) {
+      this.db.close();
+    }
+  }
+
+  /**
+   * 获取自定义路径
+   */
+  getCustomPath(): string | null {
+    return this.customPath;
+  }
+}
+
+/**
+ * SQLiteOpenHelper 实现类
+ */
+class MeibaoSQLiteOpenHelper extends SQLiteOpenHelper {
+  constructor(context: Context, name: string) {
+    super(context, name, null, 1);
+  }
+
+  override onCreate(db: SQLiteDatabase): void {
+    // 数据库首次创建时调用，可以在这里创建表
+  }
+
+  override onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int): void {
+    // 数据库升级时调用
+  }
+
+  /**
+   * 获取可写数据库
+   */
+  override getWritableDatabase(): SQLiteDatabase {
+    return super.getWritableDatabase();
+  }
+
+  /**
+   * 获取可读数据库
+   */
+  override getReadableDatabase(): SQLiteDatabase {
+    return super.getReadableDatabase();
+  }
+
+  /**
+   * 关闭数据库
+   */
+  override close(): void {
+    super.close();
+  }
+}
+
+/**
+ * 转换数据库路径，适配 Android 10+ 分区存储
+ * @param context 应用上下文
+ * @param path 用户传入的路径
+ * @return 实际可用的数据库文件路径
+ */
+function convertDatabasePath(context: Context, path: string): string {
+  // 如果路径以 / 开头，说明是绝对路径
+  if (path.startsWith("/")) {
+    // 移除开头的 /
+    let relativePath = path.substring(1);
+
+    // 对于 Android 10+，使用应用专属外部存储目录
+    // 这样路径会转换为：/storage/emulated/0/Android/data/<package_name>/files/Zhumao/Data/
+    const externalFilesDir = context.getExternalFilesDir(null);
+    if (externalFilesDir != null) {
+      const appExternalPath = externalFilesDir.getAbsolutePath();
+      // 拼接路径：appExternalPath + 相对路径
+      return appExternalPath + "/" + relativePath;
+    }
+
+    // 如果无法获取外部存储目录，尝试使用内部存储
+    const filesDir = context.getFilesDir();
+    const internalPath = filesDir.getAbsolutePath();
+    return internalPath + "/" + relativePath;
+
+    // 如果都失败，抛出异常
+    throw new Exception('无法获取应用存储目录');
+  }
+
+  // 如果不是绝对路径，直接返回
+  return path;
+}
+
+/**
+ * 打开数据库
+ *
+ * 使用示例：
+ * import { openDatabase } from "@/uni_modules/meibao-Sqlite"
+ *
+ * openDatabase({
+ *   name: 'mydb',
+ *   success: (res) => {
+ *     console.log('数据库打开成功', res.name)
+ *   },
+ *   fail: (err) => {
+ *     console.error('数据库打开失败', err.errMsg)
+ *   }
+ * })
+ *
+ * 注意：
+ * - 不传 path 参数：数据库存储在 /data/data/<package_name>/databases/ 目录下
+ * - 传递 path 参数（如 '/Zhumao/Data/'）：
+ *   - Android 10+：转换为应用专属外部存储目录，如 /storage/emulated/0/Android/data/<package_name>/files/Zhumao/Data/
+ *   - Android 9-：直接使用指定路径（需要相应权限）
+ */
+export const openDatabase = function(options: OpenDatabaseOptions): void {
+  // 参数验证
+  if (options.name.length == 0) {
+    const err = new DatabaseErrorImpl(9000005, '数据库名称不能为空');
+    options.fail?.(err);
+    options.complete?.(err);
+    return;
+  }
+
+  try {
+    // 获取应用上下文
+    const context = UTSAndroid.getAppContext();
+    if (context == null) {
+      const err = new DatabaseErrorImpl(9000009, '无法获取应用上下文');
+      options.fail?.(err);
+      options.complete?.(err);
+      return;
+    }
+
+    // 检查数据库是否已经打开
+    if (DatabaseManager.hasDatabase(options.name)) {
+      const err = new DatabaseErrorImpl(9000002, '数据库已打开');
+      options.fail?.(err);
+      options.complete?.(err);
+      return;
+    }
+
+    // 判断是否使用自定义路径
+    if (options.path != null && options.path.length > 0) {
+      // 使用自定义路径打开数据库
+      // path 作为目录，name 作为文件名
+      // 转换路径以适配 Android 10+ 分区存储
+      const convertedPath = convertDatabasePath(context, options.path);
+      const dbFilePath = convertedPath + "/" + options.name;
+
+      // 确保父目录存在
+      const dbFile = new File(dbFilePath);
+      const parentDir = dbFile.getParentFile();
+      if (parentDir != null && parentDir.exists() == false) {
+        parentDir.mkdirs();
+      }
+
+      // 使用 SQLiteDatabase.openOrCreateDatabase 打开指定路径的数据库
+      const db = SQLiteDatabase.openOrCreateDatabase(dbFile, null);
+      const wrapper = new DatabaseWrapper(db, dbFilePath);
+      DatabaseManager.addDatabase(options.name, wrapper);
+    } else {
+      // 使用默认路径
+      // 创建数据库辅助类
+      const helper = new MeibaoSQLiteOpenHelper(context, options.name);
+      const wrapper = new DatabaseWrapper(helper);
+      DatabaseManager.addDatabase(options.name, wrapper);
+    }
+
+    // 返回成功结果
+    const res: OpenDatabaseResult = {
+      name: options.name
+    };
+    options.success?.(res);
+    options.complete?.(res);
+
+  } catch (e: Exception) {
+    const err = new DatabaseErrorImpl(9000004, '打开数据库失败: ' + e.message);
+    options.fail?.(err);
+    options.complete?.(err);
+  }
+}
+
+/**
+ * 执行 SQL 语句（INSERT, UPDATE, DELETE 等）
+ *
+ * 使用示例：
+ * import { executeSql } from "@/uni_modules/meibao-Sqlite"
+ *
+ * // 创建表
+ * executeSql({
+ *   name: 'mydb',
+ *   sql: 'CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)'
+ * })
+ *
+ * // 插入数据
+ * executeSql({
+ *   name: 'mydb',
+ *   sql: 'INSERT INTO users (name, age) VALUES (?, ?)',
+ *   args: ['张三', 25],
+ *   success: (res) => {
+ *     console.log('插入成功，行ID:', res.insertId)
+ *   }
+ * })
+ *
+ * // 更新数据
+ * executeSql({
+ *   name: 'mydb',
+ *   sql: 'UPDATE users SET age = ? WHERE name = ?',
+ *   args: [26, '张三'],
+ *   success: (res) => {
+ *     console.log('更新成功，影响行数:', res.rowsAffected)
+ *   }
+ * })
+ */
+export const executeSql = function(options: ExecuteSqlOptions): void {
+  // 参数验证
+  if (options.name.length == 0) {
+    const err = new DatabaseErrorImpl(9000005, '数据库名称不能为空');
+    options.fail?.(err);
+    options.complete?.(err);
+    return;
+  }
+
+  if (options.sql.length == 0) {
+    const err = new DatabaseErrorImpl(9000005, 'SQL语句不能为空');
+    options.fail?.(err);
+    options.complete?.(err);
+    return;
+  }
+
+  // 检查数据库是否打开
+  const helper = DatabaseManager.getDatabase(options.name);
+  if (helper == null) {
+    const err = new DatabaseErrorImpl(9000001, '数据库未打开');
+    options.fail?.(err);
+    options.complete?.(err);
+    return;
+  }
+
+  try {
+    const db = helper.getWritableDatabase();
+
+    // 执行 SQL（暂时不支持参数绑定）
+    if (options.args != null && options.args.length > 0) {
+      // 如果有参数，提示用户手动拼接 SQL
+      const err = new DatabaseErrorImpl(9000005, '当前版本暂不支持参数绑定，请手动拼接 SQL 字符串');
+      options.fail?.(err);
+      options.complete?.(err);
+      return;
+    }
+
+    db.execSQL(options.sql);
+
+    // 返回结果
+    const res: ExecuteSqlResult = {
+      rowsAffected: 1,
+      insertId: -1
+    };
+
+    options.success?.(res);
+    options.complete?.(res);
+
+  } catch (e: Exception) {
+    const err = new DatabaseErrorImpl(9000004, 'SQL执行失败: ' + e.message);
+    options.fail?.(err);
+    options.complete?.(err);
+  }
+}
+
+/**
+ * 查询 SQL 语句（SELECT）
+ *
+ * 使用示例：
+ * import { selectSql } from "@/uni_modules/meibao-Sqlite"
+ *
+ * selectSql({
+ *   name: 'mydb',
+ *   sql: 'SELECT * FROM users WHERE age > ?',
+ *   args: [20],
+ *   success: (res) => {
+ *     console.log('查询结果:', res.rows)
+ *     console.log('行数:', res.rowsAffected)
+ *   }
+ * })
+ */
+export const selectSql = function(options: SelectSqlOptions): void {
+  // 参数验证
+  if (options.name.length == 0) {
+    const err = new DatabaseErrorImpl(9000005, '数据库名称不能为空');
+    options.fail?.(err);
+    options.complete?.(err);
+    return;
+  }
+
+  if (options.sql.length == 0) {
+    const err = new DatabaseErrorImpl(9000005, 'SQL语句不能为空');
+    options.fail?.(err);
+    options.complete?.(err);
+    return;
+  }
+
+  // 检查数据库是否打开
+  const helper = DatabaseManager.getDatabase(options.name);
+  if (helper == null) {
+    const err = new DatabaseErrorImpl(9000001, '数据库未打开');
+    options.fail?.(err);
+    options.complete?.(err);
+    return;
+  }
+
+  try {
+    const db = helper.getReadableDatabase();
+    let cursor: Cursor | null = null;
+
+    // 执行查询（暂时不支持参数绑定）
+    if (options.args != null && options.args.length > 0) {
+      const err = new DatabaseErrorImpl(9000005, '当前版本暂不支持参数绑定，请手动拼接 SQL 字符串');
+      options.fail?.(err);
+      options.complete?.(err);
+      return;
+    }
+
+    cursor = db.rawQuery(options.sql, null);
+
+    // 解析查询结果 - 返回字符串数组的数组
+    const rows = new Array<RowData>();
+
+    if (cursor != null) {
+      const columnCount = cursor.getColumnCount();
+
+      while (cursor.moveToNext()) {
+        const rowData: RowData = new Array<string>();
+
+        for (let i: Int = 0; i < columnCount; i++) {
+          const columnType = cursor.getType(i);
+          let value = "";
+
+          if (columnType == Cursor.FIELD_TYPE_STRING) {
+            const val = cursor.getString(i);
+            value = val == null ? "" : val;
+          } else if (columnType == Cursor.FIELD_TYPE_INTEGER) {
+            value = cursor.getInt(i).toString();
+          } else if (columnType == Cursor.FIELD_TYPE_FLOAT) {
+            value = cursor.getDouble(i).toString();
+          }
+
+          rowData.push(value);
+        }
+
+        rows.push(rowData);
+      }
+      cursor.close();
+    }
+
+    // 返回结果
+    const res: SelectSqlResult = {
+      rows: rows,
+      rowsAffected: rows.length
+    };
+
+    options.success?.(res);
+    options.complete?.(res);
+
+  } catch (e: Exception) {
+    const err = new DatabaseErrorImpl(9000004, '查询失败: ' + e.message);
+    options.fail?.(err);
+    options.complete?.(err);
+  }
+}
+
+/**
+ * 关闭数据库
+ *
+ * 使用示例：
+ * import { closeDatabase } from "@/uni_modules/meibao-Sqlite"
+ *
+ * closeDatabase({
+ *   name: 'mydb',
+ *   success: () => {
+ *     console.log('数据库关闭成功')
+ *   }
+ * })
+ */
+export const closeDatabase = function(options: CloseDatabaseOptions): void {
+  // 参数验证
+  if (options.name.length == 0) {
+    const err = new DatabaseErrorImpl(9000005, '数据库名称不能为空');
+    options.fail?.(err);
+    options.complete?.(err);
+    return;
+  }
+
+  // 检查数据库是否存在
+  const helper = DatabaseManager.getDatabase(options.name);
+  if (helper == null) {
+    const err = new DatabaseErrorImpl(9000003, '数据库不存在');
+    options.fail?.(err);
+    options.complete?.(err);
+    return;
+  }
+
+  try {
+    // 关闭数据库
+    helper.close();
+
+    // 从管理器中移除
+    DatabaseManager.removeDatabase(options.name);
+
+    // 返回成功
+    options.success?.();
+    options.complete?.({} as any);
+
+  } catch (e: Exception) {
+    const err = new DatabaseErrorImpl(9000006, '关闭数据库失败: ' + e.message);
+    options.fail?.(err);
+    options.complete?.(err);
+  }
+}
+
+/**
+ * 删除数据库
+ *
+ * 使用示例：
+ * import { deleteDatabase } from "@/uni_modules/meibao-Sqlite"
+ *
+ * deleteDatabase({
+ *   name: 'mydb',
+ *   success: () => {
+ *     console.log('数据库删除成功')
+ *   }
+ * })
+ */
+export const deleteDatabase = function(options: DeleteDatabaseOptions): void {
+  // 参数验证
+  if (options.name.length == 0) {
+    const err = new DatabaseErrorImpl(9000005, '数据库名称不能为空');
+    options.fail?.(err);
+    options.complete?.(err);
+    return;
+  }
+
+  try {
+    // 如果数据库已打开，先关闭并获取自定义路径
+    let customPath: string | null = null;
+    if (DatabaseManager.hasDatabase(options.name)) {
+      const wrapper = DatabaseManager.getDatabase(options.name);
+      if (wrapper != null) {
+        customPath = wrapper.getCustomPath();
+        wrapper.close();
+        DatabaseManager.removeDatabase(options.name);
+      }
+    }
+
+    // 根据是否有自定义路径选择删除方式
+    if (customPath != null) {
+      // 删除自定义路径的数据库文件
+      const dbFile = new File(customPath);
+      if (dbFile.exists()) {
+        const deleted = dbFile.delete();
+        if (deleted == false) {
+          throw new Exception('删除数据库文件失败');
+        }
+      }
+    } else {
+      // 删除默认路径的数据库文件
+      const context = UTSAndroid.getAppContext();
+      if (context == null) {
+        const err = new DatabaseErrorImpl(9000009, '无法获取应用上下文');
+        options.fail?.(err);
+        options.complete?.(err);
+        return;
+      }
+
+      const dbFile = context.getDatabasePath(options.name);
+      if (dbFile != null && dbFile.exists()) {
+        const deleted = dbFile.delete();
+        if (deleted == false) {
+          throw new Exception('删除数据库文件失败');
+        }
+      }
+    }
+
+    // 返回成功
+    options.success?.();
+    options.complete?.({} as any);
+
+  } catch (e: Exception) {
+    const err = new DatabaseErrorImpl(9000007, '删除数据库失败: ' + e.message);
+    options.fail?.(err);
+    options.complete?.(err);
+  }
+}
+
+/**
+ * 事务操作
+ *
+ * 使用示例：
+ * import { transaction } from "@/uni_modules/meibao-Sqlite"
+ *
+ * transaction({
+ *   name: 'mydb',
+ *   operation: (tx) => {
+ *     tx.executeSql('INSERT INTO users (name, age) VALUES (?, ?)', ['李四', 30])
+ *     tx.executeSql('UPDATE users SET age = 31 WHERE name = ?', ['李四'])
+ *   },
+ *   success: () => {
+ *     console.log('事务执行成功')
+ *   },
+ *   fail: (err) => {
+ *     console.error('事务执行失败', err.errMsg)
+ *   }
+ * })
+ */
+export const transaction = function(options: TransactionOptions): void {
+  // 参数验证
+  if (options.name.length == 0) {
+    const err = new DatabaseErrorImpl(9000005, '数据库名称不能为空');
+    options.fail?.(err);
+    options.complete?.(err);
+    return;
+  }
+
+  // 检查数据库是否打开
+  const helper = DatabaseManager.getDatabase(options.name);
+  if (helper == null) {
+    const err = new DatabaseErrorImpl(9000001, '数据库未打开');
+    options.fail?.(err);
+    options.complete?.(err);
+    return;
+  }
+
+  try {
+    const db = helper.getWritableDatabase();
+
+    // 开始事务
+    db.beginTransaction();
+
+    try {
+      // 创建事务对象
+      const tx: Transaction = {
+        executeSql: (sql: string): void => {
+          // 执行 SQL
+          db.execSQL(sql);
+        }
+      };
+
+      // 执行事务操作
+      options.operation(tx);
+
+      // 标记事务成功
+      db.setTransactionSuccessful();
+
+      // 结束事务
+      db.endTransaction();
+
+      // 返回成功
+      options.success?.();
+      options.complete?.({} as any);
+
+    } catch (e: Exception) {
+      // 回滚事务
+      db.endTransaction();
+      throw e;
+    }
+
+  } catch (e: Exception) {
+    const err = new DatabaseErrorImpl(9000008, '事务执行失败: ' + e.message);
+    options.fail?.(err);
+    options.complete?.(err);
+  }
+}

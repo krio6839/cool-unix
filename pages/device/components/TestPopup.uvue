@@ -1,6 +1,6 @@
 <template>
 	<cl-popup v-model="show" :title="t('设备测试')" direction="bottom" :size="600">
-		<view class="p-4 flex flex-col">
+		<scroll-view class="p-4 flex flex-col" scroll-y="true" style="height: 100%">
 			<!-- 设备状态信息 -->
 			<view class="mb-4 p-3 bg-gray-800 rounded">
 				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
@@ -122,6 +122,16 @@
 				>
 					{{ t("订阅心率") }}
 				</cl-button>
+				<cl-button
+					type="primary"
+					color="#444"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="deviceStore.subscribeUART()"
+				>
+					{{ t("订阅UART") }}
+				</cl-button>
 			</view>
 
 			<!-- 设备信息 -->
@@ -151,43 +161,115 @@
 				</cl-button>
 			</view>
 
-			<!-- UART命令测试 -->
+			<!-- 历史数据状态 -->
+			<view class="mb-4 p-3 bg-gray-800 rounded">
+				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+					{{ t("历史数据状态") }}
+				</cl-text>
+				<view class="flex flex-row flex-wrap">
+					<view class="w-1/2 mb-2">
+						<cl-text color="gray-400" :size="12">{{ t("心率血氧记录数") }}</cl-text>
+						<cl-text color="white" :size="14">{{
+							deviceStore.dataReadyStatus.value.heartRateCount
+						}}</cl-text>
+					</view>
+					<view class="w-1/2 mb-2">
+						<cl-text color="gray-400" :size="12">{{ t("睡眠记录数") }}</cl-text>
+						<cl-text color="white" :size="14">{{
+							deviceStore.dataReadyStatus.value.sleepCount
+						}}</cl-text>
+					</view>
+					<view class="w-1/2 mb-2">
+						<cl-text color="gray-400" :size="12">{{ t("RTC时间") }}</cl-text>
+						<cl-text color="white" :size="14">{{ deviceStore.rtcTime.value }}</cl-text>
+					</view>
+				</view>
+			</view>
+
+			<!-- 历史数据查询 -->
 			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-				{{ t("UART命令") }}
+				{{ t("历史数据查询") }}
 			</cl-text>
-			<view class="flex flex-row flex-wrap">
+			<view class="flex flex-row flex-wrap mb-4">
 				<cl-button
 					type="primary"
-					color="#666"
+					color="#777"
 					rounded
 					size="small"
 					class="mr-2 mb-2"
-					@tap="sendUartCommand('AA01')"
+					@tap="testQueryDataReady"
 				>
-					{{ t("发送AA01") }}
+					{{ t("查询数据状态") }}
 				</cl-button>
 				<cl-button
 					type="primary"
-					color="#666"
+					color="#777"
 					rounded
 					size="small"
 					class="mr-2 mb-2"
-					@tap="sendUartCommand('AA02')"
+					@tap="testGetDeviceTime"
 				>
-					{{ t("发送AA02") }}
+					{{ t("获取RTC时间") }}
 				</cl-button>
 				<cl-button
 					type="primary"
-					color="#666"
+					color="#777"
 					rounded
 					size="small"
 					class="mr-2 mb-2"
-					@tap="sendUartCommand('BB01')"
+					@tap="testGetHistoricalData"
 				>
-					{{ t("发送BB01") }}
+					{{ t("获取心率血氧历史") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#777"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testGetSleepData"
+				>
+					{{ t("获取睡眠数据") }}
 				</cl-button>
 			</view>
-		</view>
+
+			<!-- 设备控制 -->
+			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+				{{ t("设备控制") }}
+			</cl-text>
+			<view class="flex flex-row flex-wrap mb-4">
+				<cl-button
+					type="primary"
+					color="#888"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testShutdown"
+				>
+					{{ t("设备关机") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#888"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testSetDeviceTime"
+				>
+					{{ t("设置RTC时间") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#888"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testEndSleep"
+				>
+					{{ t("结束睡眠判断") }}
+				</cl-button>
+			</view>
+		</scroll-view>
 	</cl-popup>
 </template>
 
@@ -258,9 +340,72 @@ function testClearError() {
 	ui.showToast({ message: t("错误已清除"), type: "success" });
 }
 
-async function sendUartCommand(cmd: string) {
-	ui.showToast({ message: t("发送命令:") + cmd, type: "warn" });
-	const result = await deviceStore.sendCommand(cmd);
+async function testQueryDataReady() {
+	ui.showToast({ message: t("查询数据状态..."), type: "warn" });
+	const result = await deviceStore.queryDataReadyStatus();
+	if (result) {
+		ui.showToast({ message: t("查询成功"), type: "success" });
+	} else {
+		ui.showToast({ message: t("查询失败"), type: "error" });
+	}
+}
+
+async function testGetDeviceTime() {
+	ui.showToast({ message: t("获取RTC时间..."), type: "warn" });
+	const result = await deviceStore.getDeviceTime();
+	if (result) {
+		ui.showToast({ message: t("获取成功"), type: "success" });
+	} else {
+		ui.showToast({ message: t("获取失败"), type: "error" });
+	}
+}
+
+async function testGetHistoricalData() {
+	ui.showToast({ message: t("获取心率血氧历史..."), type: "warn" });
+	const result = await deviceStore.getHistoricalHeartRateData(0);
+	if (result) {
+		console.log("历史数据:", deviceStore.historicalHeartRateData.value);
+		ui.showToast({ message: t("获取成功"), type: "success" });
+	} else {
+		ui.showToast({ message: t("获取失败"), type: "error" });
+	}
+}
+
+async function testGetSleepData() {
+	ui.showToast({ message: t("获取睡眠数据..."), type: "warn" });
+	const result = await deviceStore.getSleepData(0);
+	if (result) {
+		console.log("睡眠数据:", deviceStore.sleepData.value);
+		ui.showToast({ message: t("获取成功"), type: "success" });
+	} else {
+		ui.showToast({ message: t("获取失败"), type: "error" });
+	}
+}
+
+async function testShutdown() {
+	ui.showToast({ message: t("设备关机..."), type: "warn" });
+	const result = await deviceStore.shutdownDevice();
+	if (result) {
+		ui.showToast({ message: t("关机命令发送成功"), type: "success" });
+	} else {
+		ui.showToast({ message: t("关机命令发送失败"), type: "error" });
+	}
+}
+
+async function testSetDeviceTime() {
+	ui.showToast({ message: t("设置RTC时间..."), type: "warn" });
+	const timestamp = Math.floor(Date.now() / 1000);
+	const result = await deviceStore.setDeviceTime(timestamp);
+	if (result) {
+		ui.showToast({ message: t("设置成功") + timestamp, type: "success" });
+	} else {
+		ui.showToast({ message: t("设置失败"), type: "error" });
+	}
+}
+
+async function testEndSleep() {
+	ui.showToast({ message: t("结束睡眠判断..."), type: "warn" });
+	const result = await deviceStore.endSleepJudgment();
 	if (result) {
 		ui.showToast({ message: t("命令发送成功"), type: "success" });
 	} else {
