@@ -23,14 +23,12 @@ import {
 	parseHistoricalHeartRateData,
 	parseSleepData,
 	convertNumberToHexString
-} from "../utils/bluetooth";
+} from "../bluetooth";
 
-import type { HeartRateRecord, SleepData, DataReadyStatus } from "../utils/bluetooth";
-
-export type { HeartRateRecord, SleepData, DataReadyStatus };
+import type { HeartRateRecord, SleepData, SleepDataInput, DataReadyStatus } from "../bluetooth";
 
 // 数据管理导入
-import { bluetoothDataManager } from "../utils/bluetooth-data-manager";
+import { bluetoothDataManager } from "../bluetooth";
 
 //#ifndef H5
 //@ts-ignore
@@ -99,7 +97,7 @@ export class Device {
 	});
 	rtcTime = ref<number>(0);
 	historicalHeartRateData = ref<Array<HeartRateRecord>>([]);
-	sleepData = ref<SleepData | null>(null);
+	sleepData = ref<SleepDataInput | null>(null);
 
 	// 重连相关属性
 	reconnectAttempts = 0;
@@ -569,15 +567,15 @@ export class Device {
 				const [heartRate, ppi] = parseHeartRateData(hexData);
 				this.heartRate.value = heartRate;
 				this.ppi.value = ppi;
-				bluetoothDataManager.storeData("heartRate", heartRate);
+				bluetoothDataManager.storeData("heartRate", heartRate, ppi);
 			} else if (serviceId == LED_BUTTON_SERVICE_UUID) {
 				const bloodOxygen = parseBloodOxygenData(hexData);
 				this.bloodOxygen.value = bloodOxygen;
-				bluetoothDataManager.storeData("bloodOxygen", bloodOxygen);
+				bluetoothDataManager.storeData("bloodOxygen", bloodOxygen, null);
 			} else if (serviceId == BATTERY_SERVICE_UUID) {
 				const battery = parseBatteryData(hexData);
 				this.battery.value = battery;
-				bluetoothDataManager.storeData("battery", battery);
+				bluetoothDataManager.storeData("battery", battery, null);
 			} else if (serviceId == UART_SERVICE_UUID) {
 				if (hexData.indexOf("AAAA") != -1 || hexData.indexOf(",") != -1) {
 					const status = parseDataReadyStatus(hexData);
