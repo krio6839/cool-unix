@@ -67,29 +67,20 @@
 
 			<!-- TSB训练疲劳度参考表 -->
 			<view class="mb-6">
-				<view class="flex flex-row justify-between items-center mb-3" @tap="toggleCollapse">
+				<view class="flex flex-row justify-between items-center mb-3">
 					<cl-text :size="16" color="white" :pt="{ className: 'font-bold' }">
 						TSB训练疲劳度参考表
 					</cl-text>
-					<cl-icon
-						name="chevron-down"
-						color="white"
-						:size="16"
-						:class="{ 'rotate-180': collapseVisible }"
-					></cl-icon>
+					<cl-icon name="chevron-down" color="white" :size="16"></cl-icon>
 				</view>
-				<cl-collapse v-model="collapseVisible" :pt="{ className: 'rounded-lg p-3' }">
-					<view
-						class="flex flex-row justify-between mb-2"
-						v-for="(item, index) in tsbReference"
-						:key="index"
-					>
-						<cl-text :size="14" color="rgba(255,255,255,0.8)">{{ item.range }}</cl-text>
-						<cl-text :size="14" color="rgba(255,255,255,0.6)">{{
-							item.status
-						}}</cl-text>
-					</view>
-				</cl-collapse>
+				<view
+					class="flex flex-row justify-between mb-2"
+					v-for="(item, index) in tsbReference"
+					:key="index"
+				>
+					<cl-text :size="14" color="rgba(255,255,255,0.8)">{{ item.range }}</cl-text>
+					<cl-text :size="14" color="rgba(255,255,255,0.6)">{{ item.status }}</cl-text>
+				</view>
 			</view>
 		</view>
 	</cl-page>
@@ -112,9 +103,6 @@ const timeRanges = ref<ClTabsItem[]>([
 
 // 当前选中的时间范围
 const activeTimeRange = ref<string>("7d");
-
-// 折叠面板展开状态
-const collapseVisible = ref<boolean>(false);
 
 // TSB训练疲劳度参考表
 const tsbReference: TsbReferenceItem[] = [
@@ -221,11 +209,6 @@ function selectTimeRange(value: string) {
 	activeTimeRange.value = value;
 	// 这里可以根据选择的时间范围更新图表数据
 	console.log("选择时间范围:", value);
-}
-
-// 切换折叠面板状态
-function toggleCollapse() {
-	collapseVisible.value = !collapseVisible.value;
 }
 
 // 返回上一页

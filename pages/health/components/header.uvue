@@ -2,7 +2,17 @@
 	<view class="mb-4">
 		<view class="flex flex-row justify-between items-center mb-2">
 			<view class="flex flex-col">
-				<cl-text :size="22" color="white">{{ date }}</cl-text>
+				<cl-text :size="22" color="white">{{ formattedDate }}</cl-text>
+				<cl-select-date
+					ref="selectDateRef"
+					v-model="date"
+					:show-trigger="false"
+					type="date"
+					title="选择日期"
+					placeholder="请选择日期"
+					label-format="YYYY年MM月DD日"
+					value-format="YYYY-MM-DD"
+				></cl-select-date>
 				<cl-button
 					class="mt-2"
 					:size="'small'"
@@ -10,7 +20,7 @@
 					:plain="false"
 					rounded
 					color="#282828"
-					@tap="goToDateSelect"
+					@tap="openDatePicker"
 				>
 					选择日期
 				</cl-button>
@@ -35,25 +45,38 @@
 </template>
 
 <script lang="ts" setup>
-import { watch, computed } from "vue";
+import { watch, computed, ref } from "vue";
 import { Canvas } from "@/uni_modules/cool-canvas";
+import { dayUts } from "@/.cool";
 
 type Props = {
-	date: string;
 	label: string;
 	value: string | number;
 	progress: number;
 	type?: "arc" | "linear";
 	config: UTSJSONObject;
+	format?: string;
 };
 
 // 组件参数
 const props = withDefaults(defineProps<Props>(), {
-	type: "arc"
+	type: "arc",
+	format: "YYYY-MM-DD"
 });
 
-// 组件事件
-const emit = defineEmits(["date"]);
+// 日期双向绑定
+const date = defineModel<string>("date", {
+	default: dayUts()
+});
+
+// 日期选择器引用
+const selectDateRef = ref<any>(null);
+
+// 格式化日期显示
+const formattedDate = computed(() => {
+	if (!date.value) return "";
+	return dayUts(date.value).format(props.format);
+});
 
 // 唯一 canvasId
 const canvasId = "progressArcCanvas_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
@@ -217,9 +240,13 @@ watch(
 	{ immediate: false }
 );
 
-// 跳转到选择日期页面
-function goToDateSelect() {
-	emit("date");
+// 打开日期选择器
+function openDatePicker() {
+	if (selectDateRef.value != null) {
+		selectDateRef.value.open((value: string) => {
+			console.log("选择的日期:", value);
+		});
+	}
 }
 </script>
 

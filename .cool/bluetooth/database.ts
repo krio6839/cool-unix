@@ -1,3 +1,4 @@
+//#ifdef APP-ANDROID
 import {
 	openDatabase,
 	executeSql,
@@ -154,4 +155,10 @@ class BluetoothDatabase {
 	}
 }
 
+//@ts-ignore
 export const bluetoothDatabase = new BluetoothDatabase();
+// #endif
+// #ifndef APP-ANDROID
+//@ts-ignore
+export const bluetoothDatabase = null;
+// #endif

@@ -1,5 +1,5 @@
 <template>
-	<cl-page>
+	<cl-page :back-top="false">
 		<cl-topbar
 			fixed
 			:show-back="true"
@@ -17,7 +17,7 @@
 		<view class="p-3">
 			<!-- 顶部日期和总负荷 -->
 			<Header
-				:date="currentDate"
+				v-model:date="currentDate"
 				:label="'总负荷'"
 				:value="currentState.totalLoad"
 				:progress="currentState.loadProgress"
@@ -30,7 +30,6 @@
 				@go-to-date-select="goToDateSelect"
 			></Header>
 
-			<!-- 健康数据概览 -->
 			<Status :items="currentState.loadItems"></Status>
 
 			<!-- 当日实时负荷趋势图 -->
@@ -42,10 +41,39 @@
 			></Chart>
 
 			<!-- 负荷区间状态 -->
-			<StatusBar :items="currentState.loadZones"></StatusBar>
+			<view
+				v-for="(item, index) in currentState.loadZones"
+				:key="index"
+				class="relative w-full h-5 mb-0.5"
+			>
+				<cl-text
+					:size="12"
+					color="white"
+					:class="'absolute z-20'"
+					:style="{ left: '12rpx', top: '50%', transform: 'translateY(-50%)' }"
+					>{{ item.name }}</cl-text
+				>
+				<cl-text
+					:size="12"
+					color="#666666"
+					:class="'absolute z-20'"
+					:style="{ right: '12rpx', top: '50%', transform: 'translateY(-50%)' }"
+					>{{ item.rightText ?? item.percentage + "%" }}</cl-text
+				>
+				<cl-progress
+					:value="100"
+					:color="item.color ?? defaultColors[index % defaultColors.length]"
+					:show-text="false"
+					:stroke-width="20"
+					:pt="{
+						className: 'opacity-15'
+					}"
+				></cl-progress>
+			</view>
 
 			<!-- 负荷趋势图 -->
 			<Chart
+				class="mt-4"
 				:title="'负荷趋势'"
 				:showTool="true"
 				:option="loadZoneChartOption"
@@ -77,17 +105,44 @@
 			></Chart>
 
 			<!-- 心率区间分布 -->
-			<StatusBar :items="currentState.heartRateZoneItems"></StatusBar>
+			<view
+				v-for="(item, index) in currentState.heartRateZoneItems"
+				:key="index"
+				class="relative w-full h-5 mb-0.5"
+			>
+				<cl-text
+					:size="12"
+					color="white"
+					:class="'absolute z-20'"
+					:style="{ left: '12rpx', top: '50%', transform: 'translateY(-50%)' }"
+					>{{ item.name }}</cl-text
+				>
+				<cl-text
+					:size="12"
+					color="#666666"
+					:class="'absolute z-20'"
+					:style="{ right: '12rpx', top: '50%', transform: 'translateY(-50%)' }"
+					>{{ item.rightText ?? item.percentage + "%" }}</cl-text
+				>
+				<cl-progress
+					:value="100"
+					:color="item.color ?? defaultColors[index % defaultColors.length]"
+					:show-text="false"
+					:stroke-width="20"
+					:pt="{
+						className: 'opacity-15'
+					}"
+				></cl-progress>
+			</view>
 		</view>
 	</cl-page>
 </template>
 
 <script lang="ts" setup>
 import { isMp, dayUts, useStore } from "@/.cool";
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
-import StatusBar from "@/components/status-bar.uvue";
 import Chart from "./components/chart.uvue";
 
 const { user } = useStore();
@@ -96,7 +151,9 @@ const { user } = useStore();
 const currentState = computed(() => user.getCurrentStatusPageState());
 
 // 获取今天的日期
-const currentDate = dayUts().format("YYYY-MM-DD");
+const currentDate = ref(dayUts().format("YYYY-MM-DD"));
+
+const defaultColors = ["#FF0040", "#00D9FF", "#0066FF", "#B700FF", "#FFE100", "#00FF80"];
 
 // 当日实时负荷趋势图配置
 const realtimeChartOption = computed(() => {
