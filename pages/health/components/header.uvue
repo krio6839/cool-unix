@@ -70,11 +70,11 @@ const date = defineModel<string>("date", {
 });
 
 // 日期选择器引用
-const selectDateRef = ref<any>(null);
+const selectDateRef = ref<ClSelectDateComponentPublicInstance | null>(null);
 
 // 格式化日期显示
 const formattedDate = computed(() => {
-	if (!date.value) return "";
+	if (date.value == null || date.value == "") return "";
 	return dayUts(date.value).format(props.format);
 });
 
@@ -243,9 +243,7 @@ watch(
 // 打开日期选择器
 function openDatePicker() {
 	if (selectDateRef.value != null) {
-		selectDateRef.value.open((value: string) => {
-			console.log("选择的日期:", value);
-		});
+		selectDateRef.value.open(null);
 	}
 }
 </script>

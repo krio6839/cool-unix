@@ -1,5 +1,5 @@
 import { getServiceName, getCharacteristicName } from "../data/bluetooth-constants";
-import type { HeartRateRecord, DataReadyStatus, SleepDataInput, SleepStatus } from "./types";
+import type { HeartRateRecord, DataReadyStatus, SleepData, SleepStatus } from "./types";
 
 export { getServiceName, getCharacteristicName };
 
@@ -127,7 +127,7 @@ export const parseHistoricalHeartRateData = (hexData: string): Array<HeartRateRe
 	return records;
 };
 
-export const parseSleepData = (hexData: string): SleepDataInput => {
+export const parseSleepData = (hexData: string): SleepData => {
 	const cleanData = hexData.replace(/\s/g, "").toUpperCase();
 	const bytes: number[] = [];
 	for (let i = 0; i < cleanData.length; i += 2) {

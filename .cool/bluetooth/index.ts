@@ -1,13 +1,5 @@
 // 导出类型
-export type {
-	BluetoothDataType,
-	BluetoothData,
-	SleepData,
-	SleepDataInput,
-	SleepStatus,
-	HeartRateRecord,
-	DataReadyStatus
-} from "./types";
+export type * from "./types";
 
 // 导出常量
 export * from "./constants";
