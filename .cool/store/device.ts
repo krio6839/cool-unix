@@ -25,7 +25,7 @@ import {
 	convertNumberToHexString
 } from "../bluetooth";
 
-import type { HeartRateRecord, SleepData, SleepDataInput, DataReadyStatus } from "../bluetooth";
+import type { HeartRateRecord, DataReadyStatus, SleepData } from "../bluetooth";
 
 // 数据管理导入
 import { bluetoothDataManager } from "../bluetooth";
@@ -72,6 +72,7 @@ export class Device {
 	// 设备信息
 	devices: DeviceInfo[] = [];
 	currentDeviceId: string = "";
+	currentDeviceName: string = "";
 	lastConnectedDeviceId: string = "";
 
 	// 蓝牙相关
@@ -97,7 +98,7 @@ export class Device {
 	});
 	rtcTime = ref<number>(0);
 	historicalHeartRateData = ref<Array<HeartRateRecord>>([]);
-	sleepData = ref<SleepDataInput | null>(null);
+	sleepData = ref<SleepData | null>(null);
 
 	// 重连相关属性
 	reconnectAttempts = 0;
@@ -275,7 +276,7 @@ export class Device {
 						console.log("当前设备列表:", this.devices);
 						// console.log("lastConnectedDeviceId:", this.lastConnectedDeviceId);
 						if (this.currentDeviceId != "") return;
-						this.connectToDevice(device.deviceId);
+						this.connectToDevice(device.deviceId, device.name);
 					});
 				});
 			},
@@ -301,15 +302,17 @@ export class Device {
 	}
 
 	// 设备连接
-	connectToDevice(deviceId: string) {
+	connectToDevice(deviceId: string, deviceName?: string) {
 		this.kuxBluetooth.createBLEConnection({
 			deviceId,
 			success: (res) => {
 				console.log("连接设备成功:", res);
 				this.stopBluetoothSearch();
 				this.currentDeviceId = deviceId;
+				this.currentDeviceName = deviceName ?? "";
 				this.status.value = "CONNECTED";
 				this.saveLastConnectedDevice(deviceId);
+				bluetoothDataManager.setDeviceInfo(this.currentDeviceName, deviceId);
 				console.log("设备连接状态:", this.status.value);
 			},
 			fail: (err) => this.handleBluetoothError(err.errCode, err.errMsg)
@@ -326,23 +329,30 @@ export class Device {
 				success: (res) => {
 					this.status.value = "UNPAIRED";
 					this.currentDeviceId = "";
+					this.currentDeviceName = "";
 					this.services = [];
 					this.characteristics.clear();
 					this.resetReconnectState();
+					bluetoothDataManager.clearDeviceInfo();
 				},
 				fail: (err) => {
 					this.status.value = "UNPAIRED";
 					this.currentDeviceId = "";
+					this.currentDeviceName = "";
 					this.services = [];
 					this.characteristics.clear();
 					this.resetReconnectState();
+					bluetoothDataManager.clearDeviceInfo();
 				}
 			});
 		} else {
 			this.status.value = "UNPAIRED";
+			this.currentDeviceId = "";
+			this.currentDeviceName = "";
 			this.services = [];
 			this.characteristics.clear();
 			this.resetReconnectState();
+			bluetoothDataManager.clearDeviceInfo();
 		}
 	}
 
@@ -637,7 +647,7 @@ export class Device {
 
 		setTimeout(() => {
 			console.log("执行重连操作");
-			this.connectToDevice(this.lastConnectedDeviceId);
+			this.connectToDevice(this.lastConnectedDeviceId, "");
 			this.isReconnecting = false;
 			console.log("重连操作完成");
 		}, currentInterval);
@@ -661,7 +671,31 @@ export class Device {
 		bluetoothDataManager.destroy();
 	}
 
-	clear() {}
+	clear() {
+		console.log("清除设备相关数据");
+		this.status.value = "UNPAIRED";
+		this.currentDeviceId = "";
+		this.currentDeviceName = "";
+		this.lastConnectedDeviceId = "";
+		this.services = [];
+		this.characteristics.clear();
+		this.heartRate.value = 0;
+		this.bloodOxygen.value = 0;
+		this.battery.value = 0;
+		this.ppi.value = 0;
+		this.historicalHeartRateData.value = [];
+		this.sleepData.value = null;
+		this.dataReadyStatus.value = {
+			heartRateCount: 0,
+			sleepCount: 0
+		} as DataReadyStatus;
+		this.rtcTime.value = 0;
+		this._isCharging = false;
+		this._deviceOn = false;
+		this.errorMessage.value = "";
+		this.clearLastConnectedDevice();
+		bluetoothDataManager.clearDeviceInfo();
+	}
 }
 
 export const device = new Device();

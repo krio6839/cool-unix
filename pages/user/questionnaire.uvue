@@ -1,43 +1,45 @@
 <template>
 	<cl-page>
-		<!-- 问卷内容 -->
-		<!-- 第一页：用户类型选择 -->
-		<view v-if="currentStep === 1" class="flex px-4">
-			<view
-				v-for="(item, index) in userTypes"
-				:key="index"
-				class="option-card mb-3"
-				@click="selectUserType(item.value)"
-			>
-				<cl-text :size="16">{{ item.label }}</cl-text>
-				<view v-if="selectedUserType === item.value">
-					<cl-icon name="checkbox-circle-line" color="primary" :size="24"></cl-icon>
+		<view v-if="loading" class="flex items-center justify-center" style="height: 300px">
+			<cl-text>加载中...</cl-text>
+		</view>
+
+		<template v-else>
+			<view v-if="currentStep === 1" class="flex px-4">
+				<view
+					v-for="(item, index) in userTypes"
+					:key="index"
+					class="option-card mb-3"
+					@click="selectUserType(item.value)"
+				>
+					<cl-text :size="16">{{ item.label }}</cl-text>
+					<view v-if="selectedUserType === item.value">
+						<cl-icon name="checkbox-circle-line" color="primary" :size="24"></cl-icon>
+					</view>
 				</view>
 			</view>
-		</view>
 
-		<!-- 第二页：详细问卷 -->
-		<view v-else-if="currentStep === 2" class="flex px-4">
-			<view v-for="(question, qIndex) in questions" :key="qIndex" class="question-card">
-				<cl-text class="question-text">{{ question.text }}</cl-text>
-				<cl-radio
-					v-for="(option, oIndex) in question.options"
-					:key="oIndex"
-					v-model="question.selected"
-					:value="option.value"
-					:pt="{
-						className: 'my-2'
-					}"
-				>
-					{{ option.label }}
-				</cl-radio>
+			<view v-else-if="currentStep === 2" class="flex px-4">
+				<view v-for="(question, qIndex) in questions" :key="qIndex" class="question-card">
+					<cl-text class="question-text">{{ question.text }}</cl-text>
+					<cl-radio
+						v-for="(option, oIndex) in question.options"
+						:key="oIndex"
+						v-model="question.selected"
+						:value="option.value"
+						:pt="{
+							className: 'my-2'
+						}"
+					>
+						{{ option.label }}
+					</cl-radio>
+				</view>
 			</view>
-		</view>
+		</template>
 
-		<!-- 底部按钮 -->
 		<cl-footer :pt="{}">
 			<cl-button
-				v-if="currentStep === 1"
+				v-if="currentStep === 1 && !loading"
 				type="primary"
 				size="large"
 				rounded
@@ -47,7 +49,7 @@
 				下一步
 			</cl-button>
 			<cl-button
-				v-else-if="currentStep === 2"
+				v-else-if="currentStep === 2 && !submitting"
 				type="primary"
 				size="large"
 				rounded
@@ -56,126 +58,102 @@
 				提交问卷
 			</cl-button>
 		</cl-footer>
+
+		<VconsoleUnix />
 	</cl-page>
 </template>
 
 <script lang="ts" setup>
-import { parseClass, router } from "@/.cool";
+import { getQuestionnaireApi, submitQuestionnaireApi } from "@/.cool";
 import { ref, reactive } from "vue";
 
-// 类型定义
-type UserType = {
-	label: string;
-	value: string;
-};
+import type { QuestionnaireResponse,QuestionOption, UserType,Answer, SubmitRequest } from "@/.cool/types";
 
-type QuestionOption = {
-	label: string;
-	value: string;
-};
 
-type Question = {
+type QuestionSelect = {
 	text: string;
 	options: QuestionOption[];
 	selected: string;
 };
 
-// 步骤控制
+
 const currentStep = ref(1);
-
-// 用户类型选项
-const userTypes: UserType[] = [
-	{ label: "新手爱好者", value: "beginner" },
-	{ label: "严肃运动者", value: "serious" },
-	{ label: "职业运动员", value: "professional" }
-];
-
-// 选中的用户类型
+const userTypes = ref<UserType[]>([]);
 const selectedUserType = ref<string>("");
+const questions = reactive<QuestionSelect[]>([]);
+const loading = ref(false);
+const submitting = ref(false);
 
-// 问卷问题
-const questions = reactive<Question[]>([
-	{
-		text: "01.前几天连续训练负荷较大，HRV较低但储能情况良好",
-		options: [
-			{ label: "是", value: "yes" },
-			{ label: "否", value: "no" }
-		],
-		selected: "yes"
-	},
-	{
-		text: "01.前几天连续训练负荷较大，HRV较低但储能情况良好",
-		options: [
-			{ label: "预计明天HRV上升达到超量恢复黄金窗口", value: "window" },
-			{ label: "超量恢复黄金窗口", value: "window2" },
-			{ label: "建议降低训练量，注意恢复调整", value: "reduce" },
-			{ label: "注意恢复调整", value: "adjust" }
-		],
-		selected: "window"
-	},
-	{
-		text: "03.前几天连续训练负荷较大，HRV较低但储能情况良好",
-		options: [
-			{ label: "是", value: "yes" },
-			{ label: "否", value: "no" }
-		],
-		selected: "yes"
-	},
-	{
-		text: "04.前几天连续训练负荷较大，HRV较低但储能情况良好",
-		options: [
-			{ label: "是", value: "yes" },
-			{ label: "否", value: "no" }
-		],
-		selected: "yes"
-	}
-]);
+const loadQuestionnaire = function () {
+	loading.value = true;
 
-// 选择用户类型
-const selectUserType = (value: string): void => {
+	getQuestionnaireApi()
+		.then((data) => {
+			if (data != null) {
+				const typedData = data as QuestionnaireResponse;
+				userTypes.value = typedData.userTypes;
+				questions.splice(0, questions.length);
+				typedData.questions.forEach((q) => {
+					const firstOption = q.options.length > 0 ? q.options[0].value : "";
+					const newQuestion: QuestionSelect = {
+						text: q.text,
+						options: q.options,
+						selected: firstOption
+					};
+					questions.push(newQuestion);
+				});
+			}
+		})
+		.catch((err) => {
+			console.error("加载问卷失败:", err);
+		})
+		.finally(() => {
+			loading.value = false;
+		});
+};
+
+const selectUserType = function (value: string): void {
 	selectedUserType.value = value;
 };
 
-// 下一步
-const nextStep = (): void => {
+const nextStep = function (): void {
 	if (selectedUserType.value !== "") {
 		currentStep.value = 2;
 	}
 };
 
-type Answer = {
-	question: string;
-	selected: string;
-};
+const submitQuestionnaire = function (): void {
+	submitting.value = true;
 
-// 问卷结果类型
-type QuestionnaireResult = {
-	userType: string;
-	answers: Answer[];
-};
-
-// 提交问卷
-const submitQuestionnaire = (): void => {
-	// 收集问卷数据
-	const answers: Answer[] = questions.map(
-		(q: Question): Answer => ({
+	const answers: Answer[] = questions.map((q: QuestionSelect): Answer => {
+		return {
 			question: q.text,
 			selected: q.selected
-		})
-	);
-	const questionnaireData: QuestionnaireResult = {
+		};
+	});
+
+	const data: SubmitRequest = {
 		userType: selectedUserType.value,
-		answers: answers
+		answers
 	};
 
-	// 这里可以添加提交逻辑，比如调用API
-	console.log("问卷数据:", questionnaireData);
-
-	// 提交后跳转到其他页面
-	uni.redirectTo({
-		url: "/pages/device/index"
-	});
+	submitQuestionnaireApi(data)
+		.then((success) => {
+			if (success) {
+				uni.redirectTo({
+					url: "/pages/device/index"
+				});
+			}
+		})
+		.catch((err) => {
+			console.error("提交问卷失败:", err);
+		})
+		.finally(() => {
+			submitting.value = false;
+		});
 };
+
+loadQuestionnaire();
 </script>
 
 <style lang="scss" scoped>

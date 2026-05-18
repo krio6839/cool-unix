@@ -10,10 +10,10 @@ export const ignoreTokens: string[] = [];
 
 // 根据环境导出最终配置
 export const config = {
-	name: "Cool Unix",
+	name: "BOOM",
 	locale: "zh-ch",
 	website: "https://cool-js.com",
-	showDarkButton: isMp() ? false : true,
+	showDarkButton: false,
 	isCustomTabBar: true,
 	backTop: true,
 	wx: {

@@ -30,8 +30,8 @@ export class BluetoothDataManager {
 	/** 是否正在上传中 */
 	private isUploading: boolean = false;
 
-	/** 设备ID */
-	private deviceId: string = "";
+	/** 设备名称 */
+	private deviceName: string = "";
 
 	/** 设备蓝牙地址 */
 	private deviceAddress: string = "";
@@ -43,7 +43,6 @@ export class BluetoothDataManager {
 	constructor() {
 		this.initDatabase();
 		this.startUploadTimer();
-		this.cleanupOldData();
 	}
 
 	/**
@@ -51,9 +50,14 @@ export class BluetoothDataManager {
 	 * @param deviceId 设备ID
 	 * @param address 设备蓝牙地址
 	 */
-	setDeviceInfo(deviceId: string, address: string): void {
-		this.deviceId = deviceId;
+	setDeviceInfo(deviceName: string, address: string): void {
 		this.deviceAddress = address;
+		this.deviceName = deviceName;
+	}
+
+	clearDeviceInfo(): void {
+		this.deviceName = "";
+		this.deviceAddress = "";
 	}
 
 	/**
@@ -82,8 +86,11 @@ export class BluetoothDataManager {
 		value: number,
 		ppi: number | null = null
 	): Promise<void> {
+		return;
 		const id = this.generateId();
 		const timestamp = Date.now();
+
+		console.log("存储数据:", { id, timestamp, type, value, ppi });
 
 		let sql = `INSERT INTO bluetooth_data (id, timestamp, type, value, uploaded`;
 		let values = `VALUES ('${id}', ${timestamp}, '${type}', ${value}, 0`;
@@ -94,6 +101,7 @@ export class BluetoothDataManager {
 		}
 
 		sql += `) ${values})`;
+		console.log("INSERT SQL:", sql);
 
 		await bluetoothDatabase.execute(sql);
 	}
@@ -114,6 +122,7 @@ export class BluetoothDataManager {
 		const dataList: BluetoothData[] = [];
 		for (let i = 0; i < result.rows.length; i++) {
 			const row = result.rows[i];
+			console.log("查询到数据:", row);
 			dataList.push({
 				id: row[0],
 				timestamp: parseInt(row[1]),
@@ -121,7 +130,7 @@ export class BluetoothDataManager {
 				value: parseFloat(row[3]),
 				ppi: row[4] != null ? parseInt(row[4]) : null,
 				uploaded: row[5] == "1"
-			});
+			} as BluetoothData);
 		}
 		return dataList;
 	}
@@ -142,14 +151,16 @@ export class BluetoothDataManager {
 		const dataList: BluetoothData[] = [];
 		for (let i = 0; i < result.rows.length; i++) {
 			const row = result.rows[i];
-			dataList.push({
-				id: row[0],
-				timestamp: parseInt(row[1]),
+			const data = {
+				id: row[0] as string,
+				timestamp: parseInt(row[1] as string),
 				type: row[2] as BluetoothDataType,
 				value: parseFloat(row[3]),
-				ppi: row[4] != null ? parseInt(row[4]) : 0,
+				ppi: row[4] != null ? parseInt(row[4] as string) : 0,
 				uploaded: false
-			});
+			} as BluetoothData;
+			console.log("查询到数据:", i, data);
+			dataList.push(data);
 		}
 		return dataList;
 	}
@@ -175,8 +186,19 @@ export class BluetoothDataManager {
 		const now = Date.now();
 		const cutoffTime = now - MAX_DATA_AGE;
 
-		const sql = `DELETE FROM bluetooth_data WHERE uploaded = 1 AND timestamp < ${cutoffTime}`;
+		const sql = `DELETE FROM bluetooth_data WHERE uploaded = 1 AND CAST(timestamp AS INTEGER) < ${cutoffTime}`;
 		await bluetoothDatabase.execute(sql);
+	}
+
+	/**
+	 * 清空所有数据（包括蓝牙数据、睡眠数据和睡眠状态）
+	 */
+	async clearAllData(): Promise<void> {
+		console.log("清空所有数据库数据");
+		await bluetoothDatabase.execute("DELETE FROM bluetooth_data");
+		await bluetoothDatabase.execute("DELETE FROM sleep_data");
+		await bluetoothDatabase.execute("DELETE FROM sleep_status");
+		console.log("数据库数据清空完成");
 	}
 
 	/**
@@ -281,15 +303,18 @@ export class BluetoothDataManager {
 	 */
 	async uploadPpiData(): Promise<boolean> {
 		if (this.isUploading == true) {
+			console.log("正在上传中，跳过PPI上传");
 			return false;
 		}
 
 		const unuploadedData = await this.getUnuploadedData();
+		console.log("未上传的PPI数据数量:", unuploadedData.length, "全部数据:", unuploadedData);
 		if (unuploadedData.length == 0) {
 			return true;
 		}
 
-		if (this.deviceId == "") {
+		console.log("当前设备信息:", { deviceName: this.deviceName, address: this.deviceAddress });
+		if (this.deviceAddress == "") {
 			console.log("设备未连接，跳过PPI上传");
 			return false;
 		}
@@ -316,7 +341,7 @@ export class BluetoothDataManager {
 			this.buildUploadDatas(timestampMap, datas);
 
 			const requestData: PpiUploadRequest = {
-				device: this.deviceId,
+				device: this.deviceName,
 				address: this.deviceAddress,
 				timezone: "08:00",
 				datas
@@ -428,15 +453,18 @@ export class BluetoothDataManager {
 	 */
 	async uploadSleepData(): Promise<boolean> {
 		if (this.isUploading == true) {
+			console.log("正在上传中，跳过睡眠数据上传");
 			return false;
 		}
 
 		const unuploadedSleepData = await this.getUnuploadedSleepData();
+		console.log("未上传的睡眠数据数量:", unuploadedSleepData.length);
 		if (unuploadedSleepData.length == 0) {
 			return true;
 		}
 
-		if (this.deviceId == "") {
+		console.log("当前设备信息:", { deviceName: this.deviceName, address: this.deviceAddress });
+		if (this.deviceAddress == "") {
 			console.log("设备未连接，跳过睡眠数据上传");
 			return false;
 		}
@@ -453,7 +481,7 @@ export class BluetoothDataManager {
 			const requestData: SleepUploadRequest = {
 				address: this.deviceAddress,
 				datas,
-				device: this.deviceId,
+				device: this.deviceName,
 				recoverScore: "1.0",
 				sleepScore: "1.0",
 				time: this.formatTimestamp(Date.now()),
@@ -543,7 +571,7 @@ export class BluetoothDataManager {
 		this.stopUploadTimer();
 		//@ts-ignore
 		this.uploadTimer = setInterval(() => {
-			this.uploadData();
+			// this.uploadData();
 		}, UPLOAD_INTERVAL);
 	}
 
