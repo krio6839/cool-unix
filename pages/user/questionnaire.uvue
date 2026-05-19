@@ -58,8 +58,6 @@
 				提交问卷
 			</cl-button>
 		</cl-footer>
-
-		<VconsoleUnix />
 	</cl-page>
 </template>
 
@@ -67,15 +65,19 @@
 import { getQuestionnaireApi, submitQuestionnaireApi } from "@/.cool";
 import { ref, reactive } from "vue";
 
-import type { QuestionnaireResponse,QuestionOption, UserType,Answer, SubmitRequest } from "@/.cool/types";
-
+import type {
+	QuestionnaireResponse,
+	QuestionOption,
+	UserType,
+	Answer,
+	SubmitRequest
+} from "@/.cool/types";
 
 type QuestionSelect = {
 	text: string;
 	options: QuestionOption[];
 	selected: string;
 };
-
 
 const currentStep = ref(1);
 const userTypes = ref<UserType[]>([]);

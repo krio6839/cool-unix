@@ -17,21 +17,20 @@
 		<view class="p-3">
 			<!-- 顶部日期和总储能 -->
 			<Header
-				:date="currentDate"
+				v-model:date="currentDate"
 				:label="'总储能'"
-				:value="currentState.totalEnergy"
-				:progress="currentState.energyProgress"
+				:value="energy.totalEnergy.value"
+				:progress="energy.energyProgress.value"
 				:config="{
 					backgroundColor: '#282828',
 					startColor: '#4CAF50',
 					endColor: '#FF5C5C',
 					dotColor: '#000'
 				}"
-				@go-to-date-select="goToDateSelect"
 			></Header>
 
 			<!-- 储能数据概览 -->
-			<Status :items="currentState.energyItems"></Status>
+			<Status :items="energyItems"></Status>
 
 			<!-- 当日能量曲线 -->
 			<Chart
@@ -48,28 +47,65 @@
 				:height="200"
 				:show-footer="false"
 				:show-tool="true"
-			>
-			</Chart>
+				@days-change="onTrendDaysChange"
+			></Chart>
 		</view>
 	</cl-page>
 </template>
 
 <script lang="ts" setup>
-import { isMp, dayUts, useStore, type StatusPageState } from "@/.cool";
-import { ref, computed } from "vue";
+import { isMp, dayUts, useStore } from "@/.cool";
+import type { HealthItem, TimeValuePair, DateValuePair } from "@/.cool";
+import { ref, computed, onMounted, watch } from "vue";
+import { energy } from "@/.cool/store/energy";
 import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
 import Chart from "./components/chart.uvue";
 
-const { user } = useStore();
+const { device } = useStore();
+const currentDate = ref<string>(dayUts().format("YYYY-MM-DD"));
+const trendDays = ref<string>("7d");
 
-// 获取当前健康状态页面数据
-const currentState = computed<StatusPageState>(() => user.getCurrentStatusPageState());
+function getDaysFromOption(option: string): number {
+	if (option == "7d") {
+		return 7;
+	}
+	if (option == "14d") {
+		return 14;
+	}
+	if (option == "30d") {
+		return 30;
+	}
+	return 7;
+}
 
-// 获取今天的日期
-const currentDate = dayUts().format("YYYY-MM-DD");
+async function fetchEnergyStatus() {
+	await energy.fetchStatus(device.currentDeviceId, currentDate.value);
+}
 
-const energyChartOption = computed(() => {
+async function fetchEnergyTrend(days: string) {
+	const endDate = dayUts().format("YYYY-MM-DD");
+	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
+	await energy.fetchTrend(device.currentDeviceId, startDate, endDate);
+}
+
+function onTrendDaysChange(days: string) {
+	trendDays.value = days;
+	fetchEnergyTrend(days);
+}
+
+const energyItems = computed((): HealthItem[] => {
+	return [
+		{ label: "总充能", value: `${energy.totalCharge.value}` },
+		{ label: "总耗能", value: `${energy.totalConsume.value}` }
+	];
+});
+
+const energyChartOption = computed((): UTSJSONObject => {
+	const chartData = energy.energyChartData.value ?? [];
+	const timeData = chartData.map((item: TimeValuePair) => item.time);
+	const valueData = chartData.map((item: TimeValuePair) => item.value);
+
 	let option: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
@@ -86,20 +122,7 @@ const energyChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: [
-				"00:00",
-				"02:00",
-				"04:00",
-				"06:00",
-				"08:00",
-				"10:00",
-				"12:00",
-				"14:00",
-				"16:00",
-				"18:00",
-				"20:00",
-				"22:00"
-			],
+			data: timeData,
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -125,7 +148,7 @@ const energyChartOption = computed(() => {
 			{
 				name: "能量",
 				type: "line",
-				data: currentState.value.energyChartData,
+				data: valueData,
 				smooth: true,
 				symbol: "none",
 				lineStyle: {
@@ -157,7 +180,11 @@ const energyChartOption = computed(() => {
 	return option;
 });
 
-const bodyEnergyChartOption = computed(() => {
+const bodyEnergyChartOption = computed((): UTSJSONObject => {
+	const chartData = energy.bodyEnergyChartData.value ?? [];
+	const dateData = chartData.map((item: DateValuePair) => item.date);
+	const valueData = chartData.map((item: DateValuePair) => item.value);
+
 	let option: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
@@ -174,7 +201,7 @@ const bodyEnergyChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
+			data: dateData,
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -200,7 +227,7 @@ const bodyEnergyChartOption = computed(() => {
 			{
 				name: "身体储能",
 				type: "bar",
-				data: currentState.value.bodyEnergyChartData,
+				data: valueData,
 				itemStyle: {
 					color: {
 						type: "linear",
@@ -231,9 +258,14 @@ function goBack() {
 	uni.navigateBack();
 }
 
-function goToDateSelect() {
-	console.log("跳转到选择日期页面");
-}
+watch(
+	() => currentDate.value,
+	() => {
+		fetchEnergyStatus();
+		fetchEnergyTrend(trendDays.value);
+	},
+	{ immediate: true }
+);
 </script>
 
 <style lang="scss" scoped></style>

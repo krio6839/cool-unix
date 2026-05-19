@@ -71,7 +71,7 @@ export class Device {
 
 	// 设备信息
 	devices: DeviceInfo[] = [];
-	currentDeviceId: string = "";
+	currentDeviceId: string = "C6:21:DB:55:81:6D";
 	currentDeviceName: string = "";
 	lastConnectedDeviceId: string = "";
 

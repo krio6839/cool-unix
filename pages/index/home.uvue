@@ -146,12 +146,6 @@ const currentDate = ref<string>("");
 let refreshTimer: number = 0;
 const REFRESH_INTERVAL = 10 * 1000;
 
-function fetchHomeData(): void {
-	if (device.getPaired() && device.currentDeviceId != "") {
-		home.fetch(device.currentDeviceId);
-	}
-}
-
 // 格式化当前日期
 function formatDate() {
 	const date = dayUts();
@@ -167,10 +161,10 @@ function stopRefreshTimer() {
 
 function startRefreshTimer() {
 	stopRefreshTimer();
-	fetchHomeData();
+	home.fetch(device.currentDeviceId);
 	// @ts-ignore
 	refreshTimer = setInterval(() => {
-		fetchHomeData();
+		home.fetch(device.currentDeviceId);
 	}, REFRESH_INTERVAL);
 }
 

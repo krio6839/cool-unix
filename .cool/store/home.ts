@@ -26,6 +26,9 @@ export class Home {
 	});
 
 	fetch(deviceId: string): Promise<void> {
+		if (deviceId == null || deviceId === "") {
+			return Promise.reject("deviceId is null");
+		}
 		return new Promise((resolve, reject) => {
 			request({
 				url: `/devices/${deviceId}/go`,
@@ -44,23 +47,29 @@ export class Home {
 		});
 	}
 
-		setData(data: any): void {
+	setData(data: any): void {
 		if (isNull(data)) {
 			return;
 		}
 
 		const homeData = parse<HomeData>(data)!;
 		this.data.value = homeData;
-		this.healthStatus.value = homeData.healthStatus as HealthStatus ?? { status: 0, sleep: 0, load: 0 } as HealthStatus;
-		this.healthCardValues.value = homeData.healthCardValues as HealthCardValues ?? {
-			heartRate: null,
-			restingHeartRate: null,
-			oxygen: null,
-			hrv: null
-		} as HealthCardValues;
+		this.healthStatus.value =
+			(homeData.healthStatus as HealthStatus) ??
+			({ status: 0, sleep: 0, load: 0 } as HealthStatus);
+		this.healthCardValues.value =
+			(homeData.healthCardValues as HealthCardValues) ??
+			({
+				heartRate: null,
+				restingHeartRate: null,
+				oxygen: null,
+				hrv: null
+			} as HealthCardValues);
 		this.boomGoText.value = homeData.boomGoText ?? "";
 		this.energyPercentage.value = homeData.energyPercentage ?? 0;
-		this.details.value = homeData.details as TrainingDetails ?? { supercompensationTime: "" } as TrainingDetails;
+		this.details.value =
+			(homeData.details as TrainingDetails) ??
+			({ supercompensationTime: "" } as TrainingDetails);
 	}
 
 	clear(): void {
