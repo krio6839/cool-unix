@@ -73,13 +73,13 @@
 
 				<!-- 健康状态模块 -->
 				<view class="absolute bottom-0 left-0 right-0">
-					<HealthStatus :data="currentState.healthStatus"></HealthStatus>
+					<HealthStatus></HealthStatus>
 				</view>
 			</view>
 
 			<!-- 储能数据模块 -->
 			<view @tap="goToEnergyStorage">
-				<EnergyRing class="mb-4" :percentage="currentState.energyPercentage"></EnergyRing>
+				<EnergyRing class="mb-4" :percentage="home.energyPercentage.value"></EnergyRing>
 			</view>
 
 			<!-- BOOM GO -->
@@ -93,16 +93,16 @@
 						GO
 					</cl-text>
 				</view>
-				<cl-text :size="14" :pt="{ className: 'leading-relaxed' }"
-					>{{ currentState.boomGoText }}
-				</cl-text>
+				<cl-text :size="14" :pt="{ className: 'leading-relaxed' }">{{
+					home.boomGoText.value
+				}}</cl-text>
 			</view>
 
 			<!-- 超量恢复 -->
 			<view class="over-recovery mb-4 rounded-xl p-4 bg-black" @tap="goToRecovery">
 				<cl-text :size="16" :pt="{ className: 'font-bold mb-3' }">超量恢复</cl-text>
 				<cl-text :size="14" :pt="{ className: 'mb-3 text-surface-300' }">{{
-					currentState.details.supercompensationTime
+					home.details.value.supercompensationTime
 				}}</cl-text>
 				<view class="flex flex-row items-center justify-between">
 					<view class="flex-1 mr-3">
@@ -133,23 +133,24 @@
 </template>
 
 <script lang="ts" setup>
-import { isApp, isMp, useRefs, t, dayUts, router, useStore } from "@/.cool";
-import { ref, computed, onMounted } from "vue";
-import { useUi } from "@/uni_modules/cool-ui";
-import { config } from "@/config";
+import { isMp, dayUts, router, useStore } from "@/.cool";
+import { ref, onMounted, onUnmounted } from "vue";
 import CustomTabbar from "./components/tabbar.uvue";
 import EnergyRing from "./components/energy-ring.uvue";
 import HealthCard from "./components/health-card.uvue";
 import HealthStatus from "./components/health-status.uvue";
 import UserInfo from "./components/user-info.uvue";
 
-const ui = useUi();
-const refs = useRefs();
-const { user, device } = useStore();
+const { user, device, home } = useStore();
 const currentDate = ref<string>("");
+let refreshTimer: number = 0;
+const REFRESH_INTERVAL = 10 * 1000;
 
-// 获取当前训练状态
-const currentState = computed(() => user.getCurrentTrainingState());
+function fetchHomeData(): void {
+	if (device.getPaired() && device.currentDeviceId != "") {
+		home.fetch(device.currentDeviceId);
+	}
+}
 
 // 格式化当前日期
 function formatDate() {
@@ -157,7 +158,29 @@ function formatDate() {
 	currentDate.value = `${date.format("MM月DD日")}`;
 }
 
+function stopRefreshTimer() {
+	if (refreshTimer != 0) {
+		clearInterval(refreshTimer);
+		refreshTimer = 0;
+	}
+}
+
+function startRefreshTimer() {
+	stopRefreshTimer();
+	fetchHomeData();
+	// @ts-ignore
+	refreshTimer = setInterval(() => {
+		fetchHomeData();
+	}, REFRESH_INTERVAL);
+}
+
+onShow(() => {
+	startRefreshTimer();
+});
+
 onMounted(() => {
+	startRefreshTimer();
+
 	// 判断登录状态
 	if (user.token == null) {
 		// 未登录，跳转到登录页
@@ -173,10 +196,14 @@ onMounted(() => {
 				path: "/pages/device/index"
 			});
 		} else {
-			// 已配对，显示首页
+			// 已配对，显示首页并获取数据
 			formatDate();
 		}
 	}
+});
+
+onUnmounted(() => {
+	stopRefreshTimer();
 });
 
 function goToCalendar() {

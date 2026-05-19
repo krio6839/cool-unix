@@ -17,10 +17,10 @@
 		<view class="p-3">
 			<!-- 顶部日期和状态 -->
 			<Header
-				:date="today"
+				:date="selectedDate"
 				:label="'状态'"
-				:value="currentState.totalStatus"
-				:progress="currentState.statusProgress"
+				:value="statusData?.totalStatus ?? 0"
+				:progress="statusData?.statusProgress ?? 0"
 				:config="{
 					backgroundColor: '#282828',
 					startColor: '#D2FF5C',
@@ -31,7 +31,7 @@
 			></Header>
 
 			<!-- 健康数据概览 -->
-			<Status :items="currentState.healthItems"></Status>
+			<Status :items="healthItems"></Status>
 
 			<!-- 当日HRV变化趋势图 -->
 			<Chart :title="'当日HRV变化'" :option="hrvChartOption" :height="200"></Chart>
@@ -41,42 +41,129 @@
 				:option="readinessChartOption"
 				:height="200"
 				:showTool="true"
-			>
-			</Chart>
+				@days-change="onReadinessDaysChange"
+			></Chart>
 		</view>
 	</cl-page>
 </template>
 
 <script lang="ts" setup>
-import { isMp, dayUts, type StatusPageState } from "@/.cool";
-import { computed, ref } from "vue";
+import { isMp, dayUts, parse } from "@/.cool";
+import { ref, computed, onMounted } from "vue";
 import { useStore } from "@/.cool";
+import { getStatusDataApi, getReadinessDataApi } from "@/.cool/api/status";
+import type { StatusApiResponse, DateValuePair } from "@/.cool/types";
+import type { TrendType } from "@/.cool/types/home";
+import type { HealthItem } from "@/.cool/types/health";
 import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
 import Chart from "./components/chart.uvue";
-import type { ClTabsItem } from "@/uni_modules/cool-ui";
 
-const { user } = useStore();
+const { device } = useStore();
 
-// 获取当前健康状态页面数据
-const currentState = computed<StatusPageState>(() => user.getCurrentStatusPageState());
+const statusData = ref<StatusApiResponse | null>(null);
+const readinessData = ref<DateValuePair[]>([]);
+const selectedDate = ref<string>(dayUts().format("YYYY-MM-DD"));
+const readinessDays = ref<string>("7d");
 
-// 获取今天的日期
+async function fetchStatusData() {
+	if (device.getPaired() && device.currentDeviceId != "") {
+		try {
+			const data = await getStatusDataApi(device.currentDeviceId, selectedDate.value);
+			statusData.value = data;
+		} catch (err) {
+			console.error("获取状态数据失败:", err);
+		}
+	}
+}
+
+function getDaysFromOption(option: string): number {
+	switch (option) {
+		case "7d":
+			return 7;
+		case "14d":
+			return 14;
+		case "30d":
+			return 30;
+		default:
+			return 7;
+	}
+}
+
+async function fetchReadinessData(days: string) {
+	if (device.getPaired() && device.currentDeviceId != "") {
+		try {
+			const endDate = dayUts().format("YYYY-MM-DD");
+			const startDate = dayUts()
+				.subtract(getDaysFromOption(days), "day")
+				.format("YYYY-MM-DD");
+			const data = await getReadinessDataApi(device.currentDeviceId, startDate, endDate);
+			if (data != null) {
+				const parsed = parse<DateValuePair[]>(data);
+				if (parsed != null) {
+					readinessData.value = parsed;
+				} else {
+					readinessData.value = [];
+				}
+			} else {
+				readinessData.value = [];
+			}
+		} catch (err) {
+			console.error("获取准备度数据失败:", err);
+		}
+	}
+}
+
+function onReadinessDaysChange(days: string) {
+	readinessDays.value = days;
+	fetchReadinessData(days);
+}
+
+const healthItems = computed<HealthItem[]>(() => {
+	if (statusData.value == null) {
+		return [];
+	}
+	return [
+		{ label: "心率变异性", value: `${statusData.value.hrv}ms`, trend: "up" as TrendType },
+		{
+			label: "静息心率",
+			value: `${statusData.value.restingHeartRate}bpm`,
+			trend: "down" as TrendType
+		}
+	];
+});
+
+const hrvChartData = computed((): number[] => {
+	if (statusData.value == null) {
+		return [];
+	}
+	return statusData.value.hrvData.map((item) => item.value);
+});
+
+const readinessChartData = computed((): number[] => {
+	if (readinessData.value == null) {
+		return [];
+	}
+	return readinessData.value.map((item) => item.value);
+});
+
+onMounted(() => {
+	fetchStatusData();
+	fetchReadinessData(readinessDays.value);
+});
+
 const today = dayUts().format("YYYY-MM-DD");
 
 // 当日HRV变化趋势图配置
 const hrvChartOption = computed(() => {
-	// 计算HRV数据的平均值
-	const hrvData = currentState.value.hrvData;
+	const hrvData = hrvChartData.value;
 	const sum = hrvData.reduce((acc, val) => acc + val, 0);
 	const average = hrvData.length > 0 ? sum / hrvData.length : 0;
 
-	// 生成平均值数据（与xAxis数据长度相同）
 	const averageData = hrvData.map(function (_val: number): number {
 		return average;
 	});
 
-	// 正常范围的上下限（根据参考图设置）
 	const normalRangeMin = 65;
 	const normalRangeMax = 105;
 
@@ -272,7 +359,7 @@ const readinessChartOption = computed(() => {
 			{
 				name: "准备度",
 				type: "bar",
-				data: currentState.value.readinessData,
+				data: readinessChartData.value,
 				itemStyle: {
 					color: {
 						type: "linear",

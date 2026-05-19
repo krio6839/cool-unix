@@ -115,7 +115,7 @@ export function request(options: RequestOptions): Promise<any | null> {
 							)!;
 
 							switch (code) {
-								case 1000:
+								case 0:
 									resolve(data);
 									break;
 								default:

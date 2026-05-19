@@ -2,14 +2,19 @@
 	<view class="health-status w-full h-20 mb-4 p-4 shadow-md">
 		<view class="flex flex-row items-center justify-around h-full">
 			<template v-for="(item, index) in healthItems" :key="index">
-				<view v-if="index != 0" class="divider"></view>
+				<view
+					v-if="index != 0"
+					class="w-[1px] h-[50px] rounded-none opacity-10 border border-white/10"
+				></view>
 				<view
 					class="p-2 flex flex-col items-center flex-1"
 					@tap="handleItemClick(item.label)"
 				>
-					<cl-text :size="13" :pt="{ className: 'label-text' }">{{ item.label }}</cl-text>
+					<cl-text :size="13" :pt="{ className: 'font-bold text-white opacity-60' }">{{
+						item.label
+					}}</cl-text>
 					<view class="flex flex-row items-center mt-1">
-						<cl-text :size="17" :pt="{ className: 'value-text' }">
+						<cl-text :size="17" :pt="{ className: 'font-bold text-white' }">
 							{{ item.value }}
 						</cl-text>
 						<cl-icon
@@ -26,40 +31,98 @@
 </template>
 
 <script lang="ts" setup>
-import { router } from "@/.cool";
-import { computed } from "vue";
+import { router, useStore } from "@/.cool";
+import { computed, ref, watch, type PropType } from "vue";
 import type { HealthItem, HealthStatus } from "@/.cool";
 
-type Props = {
-	data: HealthStatus;
-};
+const { home } = useStore();
 
-const props = defineProps<Props>();
+const lastData = ref<HealthStatus | null>(null);
+const previousData = ref<HealthStatus | null>(null);
+
+const data = computed<HealthStatus | null>(() => {
+	return home.healthStatus.value as HealthStatus | null;
+});
+
+const update = () => {
+	const currentData = data.value;
+	if (currentData != null && previousData.value != null) {
+		const currentLastData = lastData.value;
+		const currentDataStatus = currentData.status;
+		const currentDataSleep = currentData.sleep;
+		const currentDataLoad = currentData.load;
+		if (currentDataStatus !== previousData.value.status) {
+			lastData.value = {
+				status: previousData.value.status,
+				sleep: currentLastData?.sleep ?? currentDataSleep,
+				load: currentLastData?.load ?? currentDataLoad
+			} as HealthStatus;
+		}
+		if (currentDataSleep !== previousData.value.sleep) {
+			lastData.value = {
+				status: currentLastData?.status ?? currentDataStatus,
+				sleep: previousData.value.sleep,
+				load: currentLastData?.load ?? currentDataLoad
+			} as HealthStatus;
+		}
+		if (currentDataLoad !== previousData.value.load) {
+			lastData.value = {
+				status: currentLastData?.status ?? currentDataStatus,
+				sleep: currentLastData?.sleep ?? currentDataSleep,
+				load: previousData.value.load
+			} as HealthStatus;
+		}
+	}
+	if (currentData != null) {
+		previousData.value = {
+			status: currentData.status,
+			sleep: currentData.sleep,
+			load: currentData.load
+		} as HealthStatus;
+	}
+};
 
 // 计算健康项目列表
 const healthItems = computed(() => {
-	const data = props.data as HealthStatus;
+	const last = lastData.value;
+
 	const item1: HealthItem = {
 		label: "状态",
-		value: data.status
+		value: data.value?.status ?? 0
 	};
 	const item2: HealthItem = {
 		label: "睡眠",
-		value: data.sleep
+		value: data.value?.sleep ?? 0
 	};
 	const item3: HealthItem = {
 		label: "负荷",
-		value: data.load
+		value: data.value?.load ?? 0
 	};
-	if (data.statusTrend != null) {
-		item1.trend = data.statusTrend;
+
+	if (last != null && data.value != null) {
+		const lastStatus = last.status ?? data.value.status ?? 0;
+		const currentStatus = data.value?.status;
+		if (currentStatus != null && currentStatus > lastStatus) {
+			item1.trend = "up";
+		} else if (currentStatus != null && currentStatus < lastStatus) {
+			item1.trend = "down";
+		}
+
+		const lastSleep = last.sleep ?? data.value.sleep ?? 0;
+		if (data.value.sleep > lastSleep) {
+			item2.trend = "up";
+		} else if (data.value.sleep < lastSleep) {
+			item2.trend = "down";
+		}
+
+		const lastLoad = last.load ?? data.value.load ?? 0;
+		if (data.value.load > lastLoad) {
+			item3.trend = "up";
+		} else if (data.value.load < lastLoad) {
+			item3.trend = "down";
+		}
 	}
-	if (data.sleepTrend != null) {
-		item2.trend = data.sleepTrend;
-	}
-	if (data.loadTrend != null) {
-		item3.trend = data.loadTrend;
-	}
+
 	return [item1, item2, item3];
 });
 
@@ -89,6 +152,8 @@ function handleItemClick(label: string) {
 		});
 	}
 }
+
+watch(data, () => update(), { immediate: true });
 </script>
 
 <style lang="scss" scoped>
@@ -102,33 +167,5 @@ function handleItemClick(label: string) {
 	overflow: hidden;
 	position: relative;
 	/* #endif */
-}
-
-.label-text {
-	font-family:
-		PingFang SC,
-		PingFang SC;
-	font-weight: bold;
-	color: #ffffff;
-	text-align: left;
-	font-style: normal;
-	opacity: 0.6;
-}
-
-.value-text {
-	font-family: Manrope, Manrope;
-	font-weight: bold;
-	color: #ffffff;
-	line-height: 22px;
-	text-align: right;
-	font-style: normal;
-}
-
-.divider {
-	width: 1px;
-	height: 50px;
-	border-radius: 0px;
-	border: 1px solid #ffffff;
-	opacity: 0.1;
 }
 </style>

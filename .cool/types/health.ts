@@ -1,4 +1,4 @@
-export type TrendType = "up" | "down";
+import type { TrendType } from "./home";
 
 export type HealthItem = {
 	label: string;
@@ -15,42 +15,9 @@ export type HealthCardItem = {
 	icon: string;
 };
 
-export type HealthStatus = {
-	status: number;
-	sleep: number;
-	load: number;
-	statusTrend?: TrendType;
-	sleepTrend?: TrendType;
-	loadTrend?: TrendType;
-};
-
-export type HealthCardValues = {
-	heartRate: number;
-	restingHeartRate: number;
-	oxygen: number;
-	hrv: number;
-};
-
-export type TrainingDetails = {
-	supercompensationTime: string;
-	suggestion?: string;
-	duration?: string;
-	target?: string;
-};
-
 export type UserInfoData = {
 	name: string;
 	lastLoginTime: string;
-};
-
-export type TrainingState = {
-	key: string;
-	userInfo: UserInfoData;
-	healthStatus: HealthStatus;
-	boomGoText: string;
-	energyPercentage: number;
-	healthCardValues: HealthCardValues;
-	details: TrainingDetails;
 };
 
 export type LoadZoneItem = {

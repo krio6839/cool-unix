@@ -72,6 +72,8 @@ const props = withDefaults(defineProps<ChartProps>(), {
 	showTool: false
 });
 
+const emit = defineEmits(["days-change"]);
+
 // 时间范围选项
 const timeRanges = ref<ClTabsItem[]>([
 	{ label: "7天", value: "7d" },
@@ -85,7 +87,7 @@ const selectedDays = ref<string>("7d");
 // 选择天数
 function selectDays(value: string) {
 	selectedDays.value = value;
-	console.log(`Selected ${value} days`);
+	emit("days-change", value);
 }
 
 //@ts-ignore

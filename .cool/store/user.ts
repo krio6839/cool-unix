@@ -2,8 +2,8 @@ import { computed, ref } from "vue";
 import { forInObject, isNull, isObject, parse, storage } from "../utils";
 import { router } from "../router";
 import { request } from "../service";
-import type { StatusPageState, TrainingState, UserInfo } from "../types";
-import { trainingStates, statusPageStates } from "../data/training-states";
+import type { StatusPageState, UserInfo } from "../types";
+import { statusPageStates } from "../data/training-states";
 
 export type Token = {
 	token: string; // 访问token
@@ -16,7 +16,7 @@ export type Token = {
 const mockUserInfo: UserInfo = {
 	unionid: "1",
 	id: 1,
-	nickName: "测试用户",
+	nickName: "张晓明",
 	phone: "18000000000",
 	avatarUrl: "",
 	gender: 0,
@@ -59,28 +59,10 @@ export class User {
 	}
 
 	/**
-	 * 获取当前训练状态
-	 */
-	getCurrentTrainingState(): TrainingState {
-		return trainingStates.find((state) => state.key === this.currentTrainingStateKey.value)!;
-	}
-
-	/**
 	 * 获取当前健康状态页面数据
 	 */
 	getCurrentStatusPageState(): StatusPageState {
 		return statusPageStates.find((state) => state.key === this.currentTrainingStateKey.value)!;
-	}
-
-	/**
-	 * 切换训练状态
-	 */
-	switchTrainingState() {
-		const currentIndex = trainingStates.findIndex(
-			(state) => state.key === this.currentTrainingStateKey.value
-		);
-		const nextIndex = (currentIndex + 1) % trainingStates.length;
-		this.currentTrainingStateKey.value = trainingStates[nextIndex].key;
 	}
 
 	/**

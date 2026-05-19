@@ -1753,7 +1753,7 @@ class GattCallback extends BluetoothGattCallback {
 		gatt: BluetoothGatt,
 		characteristic: BluetoothGattCharacteristic
 	): void {
-		console.log("特征值变化回调");
+		// console.log("特征值变化回调");
 		const data: ByteArray | null = characteristic.getValue() as ByteArray | null;
 		if (data != null) {
 			this.characteristicValueChangedCallback?.(data);

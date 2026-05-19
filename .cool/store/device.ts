@@ -571,7 +571,7 @@ export class Device {
 			const hexData = hexString;
 			const serviceId = res.serviceId.toLowerCase();
 			const characteristicId = res.characteristicId.toLowerCase();
-			console.log("响应数据:", hexData, serviceId, characteristicId);
+			// console.log("响应数据:", hexData, serviceId, characteristicId);
 
 			if (serviceId == HEART_RATE_SERVICE_UUID) {
 				const [heartRate, ppi] = parseHeartRateData(hexData);
