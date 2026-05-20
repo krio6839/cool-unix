@@ -115,12 +115,9 @@
 
 <script lang="ts" setup>
 import { ref, computed } from "vue";
+import { useStore } from "@/.cool";
 
-type Props = {
-	suggestedSleepDuration?: string;
-};
-
-const props = withDefaults(defineProps<Props>(), {});
+const { sleep } = useStore();
 
 const selectTimeRef = ref<ClSelectTimeComponentPublicInstance | null>(null);
 const selectedTime = ref<string>("07:30");
@@ -157,7 +154,7 @@ function parseSuggestedSleepTime(timeStr: string): number {
 
 const calculatedSleepTime = computed(() => {
 	const wakeUpTime = selectedTime.value;
-	const suggestedSleepDuration = props.suggestedSleepDuration ?? "7:30";
+	const suggestedSleepDuration = sleep.suggestedSleepDuration.value ?? "7:30";
 
 	const wakeUpMinutes = parseTimeToMinutes(wakeUpTime);
 	const sleepDurationMinutes = parseSuggestedSleepTime(suggestedSleepDuration);
@@ -199,13 +196,13 @@ const sleepWidthPercent = computed(() => {
 });
 
 const sleepHours = computed(() => {
-	const duration = props.suggestedSleepDuration ?? "7:30";
+	const duration = sleep.suggestedSleepDuration.value ?? "7:30";
 	const parts = duration.split(":");
 	return parts.length > 0 ? parts[0] : "7";
 });
 
 const sleepMinutes = computed(() => {
-	const duration = props.suggestedSleepDuration ?? "7:30";
+	const duration = sleep.suggestedSleepDuration.value ?? "7:30";
 	const parts = duration.split(":");
 	return parts.length > 1 ? parts[1] : "00";
 });

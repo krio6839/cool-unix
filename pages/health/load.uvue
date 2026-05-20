@@ -19,8 +19,8 @@
 			<Header
 				v-model:date="currentDate"
 				:label="'总负荷'"
-				:value="currentState.totalLoad"
-				:progress="currentState.loadProgress"
+				:value="load.totalLoad.value"
+				:progress="load.loadProgress.value"
 				:config="{
 					backgroundColor: '#282828',
 					startColor: '#D2FF5C',
@@ -30,19 +30,19 @@
 				@go-to-date-select="goToDateSelect"
 			></Header>
 
-			<Status :items="currentState.loadItems"></Status>
+			<Status :items="loadStatusItems"></Status>
 
 			<!-- 当日实时负荷趋势图 -->
 			<Chart
 				:title="'当日实时负荷'"
 				:showFooter="false"
-				:option="realtimeChartOption"
+				:option-data="realtimeChartOption"
 				:height="200"
 			></Chart>
 
 			<!-- 负荷区间状态 -->
 			<view
-				v-for="(item, index) in currentState.loadZones"
+				v-for="(item, index) in loadZoneItems"
 				:key="index"
 				class="relative w-full h-5 mb-0.5"
 			>
@@ -58,7 +58,7 @@
 					color="#666666"
 					:class="'absolute z-20'"
 					:style="{ right: '12rpx', top: '50%', transform: 'translateY(-50%)' }"
-					>{{ item.rightText ?? item.percentage + "%" }}</cl-text
+					>{{ item.rightText ?? (item.percentage ?? 0) + "%" }}</cl-text
 				>
 				<cl-progress
 					:value="100"
@@ -76,37 +76,40 @@
 				class="mt-4"
 				:title="'负荷趋势'"
 				:showTool="true"
-				:option="loadZoneChartOption"
+				:option-data="loadZoneChartOption"
 				:height="200"
+				@days-change="onLoadTrendDaysChange"
 			></Chart>
 
 			<!-- 运动负荷趋势图 -->
 			<Chart
 				:title="'运动负荷'"
 				:showTool="true"
-				:option="exerciseChartOption"
+				:option-data="exerciseChartOption"
 				:height="200"
+				@days-change="onSportLoadDaysChange"
 			></Chart>
 
 			<!-- 睡眠压力趋势图 -->
 			<Chart
 				:title="'睡眠压力趋势图'"
 				:showTool="true"
-				:option="sleepChartOption"
+				:option-data="sleepChartOption"
 				:height="200"
+				@days-change="onSleepPressureDaysChange"
 			></Chart>
 
 			<!-- 心率区间趋势图 -->
 			<Chart
 				:title="'心率区间趋势图'"
 				:showFooter="false"
-				:option="heartRateChartOption"
+				:option-data="heartRateChartOption"
 				:height="200"
 			></Chart>
 
 			<!-- 心率区间分布 -->
 			<view
-				v-for="(item, index) in currentState.heartRateZoneItems"
+				v-for="(item, index) in heartRateZoneItems"
 				:key="index"
 				class="relative w-full h-5 mb-0.5"
 			>
@@ -122,7 +125,7 @@
 					color="#666666"
 					:class="'absolute z-20'"
 					:style="{ right: '12rpx', top: '50%', transform: 'translateY(-50%)' }"
-					>{{ item.rightText ?? item.percentage + "%" }}</cl-text
+					>{{ item.rightText ?? (item.percentage ?? 0) + "%" }}</cl-text
 				>
 				<cl-progress
 					:value="100"
@@ -140,24 +143,103 @@
 
 <script lang="ts" setup>
 import { isMp, dayUts, useStore } from "@/.cool";
-import { computed, ref } from "vue";
+import type { HealthItem, TimeValuePair, DateValuePair, ZoneItem } from "@/.cool";
+import { ref, computed, onMounted, watch } from "vue";
 import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
 import Chart from "./components/chart.uvue";
 
-const { user } = useStore();
-
-// 获取当前健康状态页面数据
-const currentState = computed(() => user.getCurrentStatusPageState());
-
-// 获取今天的日期
-const currentDate = ref(dayUts().format("YYYY-MM-DD"));
+const { device, load } = useStore();
+const currentDate = ref<string>(dayUts().format("YYYY-MM-DD"));
+const loadTrendDays = ref<string>("7d");
+const sportLoadDays = ref<string>("7d");
+const sleepPressureDays = ref<string>("7d");
 
 const defaultColors = ["#FF0040", "#00D9FF", "#0066FF", "#B700FF", "#FFE100", "#00FF80"];
 
-// 当日实时负荷趋势图配置
-const realtimeChartOption = computed(() => {
-	const option: UTSJSONObject = {
+function getDaysFromOption(option: string): number {
+	if (option == "7d") {
+		return 7;
+	}
+	if (option == "14d") {
+		return 14;
+	}
+	if (option == "30d") {
+		return 30;
+	}
+	return 7;
+}
+
+async function fetchLoadStatus() {
+	await load.fetchStatus(device.currentDeviceId, currentDate.value);
+}
+
+async function fetchLoadTrend(days: string) {
+	const endDate = dayUts().format("YYYY-MM-DD");
+	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
+	await load.fetchTrend(device.currentDeviceId, startDate, endDate);
+}
+
+async function fetchSportLoad(days: string) {
+	const endDate = dayUts().format("YYYY-MM-DD");
+	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
+	await load.fetchSportLoad(device.currentDeviceId, startDate, endDate);
+}
+
+async function fetchSleepPressure(days: string) {
+	const endDate = dayUts().format("YYYY-MM-DD");
+	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
+	await load.fetchSleepPressure(device.currentDeviceId, startDate, endDate);
+}
+
+function onLoadTrendDaysChange(days: string) {
+	loadTrendDays.value = days;
+	fetchLoadTrend(days);
+}
+
+function onSportLoadDaysChange(days: string) {
+	sportLoadDays.value = days;
+	fetchSportLoad(days);
+}
+
+function onSleepPressureDaysChange(days: string) {
+	sleepPressureDays.value = days;
+	fetchSleepPressure(days);
+}
+
+const loadStatusItems = computed((): HealthItem[] => {
+	return [
+		{ label: "平均负荷", value: `${load.avgLoad.value}` },
+		{ label: "静息心率", value: `${load.restingHeartRate.value}` },
+		{ label: "步数", value: `${load.steps.value}` },
+		{ label: "卡路里", value: `${load.calories.value}` }
+	];
+});
+
+const loadZoneItems = computed((): ZoneItem[] => {
+	const zones = load.loadZones.value;
+	if (zones == null) {
+		return [];
+	}
+	const items = (zones["items"] as ZoneItem[]) ?? [];
+	return items;
+});
+
+const heartRateZoneItems = computed((): ZoneItem[] => {
+	const zones = load.heartRateZoneItems.value;
+	if (zones == null) {
+		return [];
+	}
+	const items = (zones["items"] as ZoneItem[]) ?? [];
+	return items;
+});
+
+const realtimeChartOption = computed((): UTSJSONObject => {
+	const chartData = load.realtimeLoadData.value ?? [];
+	const timeData = chartData.map((item: TimeValuePair) => item.time);
+	const valueData = chartData.map((item: TimeValuePair) => item.value);
+
+	let option: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
 			textStyle: {
@@ -173,20 +255,7 @@ const realtimeChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: [
-				"00:00",
-				"02:00",
-				"04:00",
-				"06:00",
-				"08:00",
-				"10:00",
-				"12:00",
-				"14:00",
-				"16:00",
-				"18:00",
-				"20:00",
-				"22:00"
-			],
+			data: timeData,
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -206,7 +275,7 @@ const realtimeChartOption = computed(() => {
 			{
 				name: "负荷",
 				type: "line",
-				data: currentState.value.realtimeLoadData,
+				data: valueData,
 				smooth: true,
 				symbol: "none",
 				lineStyle: {
@@ -236,12 +305,15 @@ const realtimeChartOption = computed(() => {
 		]
 	};
 
-	return JSON.stringify(option);
+	return option;
 });
 
-// 负荷趋势图配置
-const loadZoneChartOption = computed(() => {
-	const options: UTSJSONObject = {
+const loadZoneChartOption = computed((): UTSJSONObject => {
+	const chartData = load.loadTrendData.value ?? [];
+	const dateData = chartData.map((item: DateValuePair) => item.date);
+	const valueData = chartData.map((item: DateValuePair) => item.value);
+
+	let option: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
 			textStyle: {
@@ -257,7 +329,7 @@ const loadZoneChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
+			data: dateData,
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -277,7 +349,7 @@ const loadZoneChartOption = computed(() => {
 			{
 				name: "负荷",
 				type: "bar",
-				data: currentState.value.loadTrendData,
+				data: valueData,
 				itemStyle: {
 					color: {
 						type: "linear",
@@ -301,12 +373,15 @@ const loadZoneChartOption = computed(() => {
 			}
 		]
 	};
-	return JSON.stringify(options);
+	return option;
 });
 
-// 运动负荷趋势图配置
-const exerciseChartOption = computed(() => {
-	const options: UTSJSONObject = {
+const exerciseChartOption = computed((): UTSJSONObject => {
+	const chartData = load.sportLoadTrendData.value ?? [];
+	const dateData = chartData.map((item: DateValuePair) => item.date);
+	const valueData = chartData.map((item: DateValuePair) => item.value);
+
+	let option: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
 			axisPointer: {
@@ -330,7 +405,7 @@ const exerciseChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
+			data: dateData,
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -350,7 +425,7 @@ const exerciseChartOption = computed(() => {
 			{
 				name: "运动负荷",
 				type: "bar",
-				data: currentState.value.exerciseLoadData,
+				data: valueData,
 				itemStyle: {
 					color: {
 						type: "linear",
@@ -375,12 +450,15 @@ const exerciseChartOption = computed(() => {
 		]
 	};
 
-	return JSON.stringify(options);
+	return option;
 });
 
-// 睡眠压力趋势图配置
-const sleepChartOption = computed(() => {
-	const options: UTSJSONObject = {
+const sleepChartOption = computed((): UTSJSONObject => {
+	const chartData = load.sleepPressureTrendData.value ?? [];
+	const dateData = chartData.map((item: DateValuePair) => item.date);
+	const valueData = chartData.map((item: DateValuePair) => item.value);
+
+	let option: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
 			axisPointer: {
@@ -404,7 +482,7 @@ const sleepChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
+			data: dateData,
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -424,7 +502,7 @@ const sleepChartOption = computed(() => {
 			{
 				name: "睡眠压力",
 				type: "bar",
-				data: currentState.value.sleepPressureData,
+				data: valueData,
 				itemStyle: {
 					color: {
 						type: "linear",
@@ -449,12 +527,15 @@ const sleepChartOption = computed(() => {
 		]
 	};
 
-	return JSON.stringify(options);
+	return option;
 });
 
-// 心率区间趋势图配置
-const heartRateChartOption = computed(() => {
-	const option: UTSJSONObject = {
+const heartRateChartOption = computed((): UTSJSONObject => {
+	const chartData = load.heartRateZoneData.value ?? [];
+	const timeData = chartData.map((item: TimeValuePair) => item.time);
+	const valueData = chartData.map((item: TimeValuePair) => item.value);
+
+	let option: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
 			axisPointer: {
@@ -478,7 +559,7 @@ const heartRateChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: ["00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00"],
+			data: timeData,
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -498,7 +579,7 @@ const heartRateChartOption = computed(() => {
 			{
 				name: "心率",
 				type: "line",
-				data: currentState.value.heartRateZoneData,
+				data: valueData,
 				smooth: true,
 				symbol: "none",
 				lineStyle: {
@@ -509,20 +590,31 @@ const heartRateChartOption = computed(() => {
 		]
 	};
 
-	return JSON.stringify(option);
+	return option;
 });
 
-// 返回上一页
 function goBack() {
 	uni.navigateBack();
 }
 
-// 跳转到选择日期页面
 function goToDateSelect() {
-	// 这里可以添加跳转到日期选择页面的逻辑
 	console.log("跳转到选择日期页面");
-	// 示例：uni.navigateTo({ url: '/pages/date-select/date-select' });
 }
+
+watch(
+	currentDate,
+	() => {
+		fetchLoadStatus();
+	},
+	{ immediate: true }
+);
+
+onMounted(() => {
+	fetchLoadStatus();
+	fetchLoadTrend(loadTrendDays.value);
+	fetchSportLoad(sportLoadDays.value);
+	fetchSleepPressure(sleepPressureDays.value);
+});
 </script>
 
 <style lang="scss" scoped></style>

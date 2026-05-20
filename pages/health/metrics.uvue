@@ -18,7 +18,7 @@
 			<!-- 指标切换 -->
 			<view class="mb-6">
 				<cl-row :gutter="12">
-					<cl-col :span="12" v-for="(item, index) in metrics" :key="index">
+					<cl-col :span="12" v-for="(item, index) in metricItems" :key="index">
 						<view
 							class="h-12 mb-3 rounded-lg flex flex-row items-center justify-between px-4"
 							:class="{
@@ -96,14 +96,16 @@
 </template>
 
 <script lang="ts" setup>
-import { isMp } from "@/.cool";
-import { ref, computed } from "vue";
-import type { ChartOption, MetricItem } from "./types";
+import { isMp, dayUts, useStore, getDateRange } from "@/.cool";
+import { metrics } from "@/.cool/store/metrics";
+import { ref, computed, onMounted, watch } from "vue";
+import type { MetricItem } from "./types";
 import type { ClTabsItem } from "@/uni_modules/cool-ui";
 // @ts-ignore
 import Chart from "./components/chart.uvue";
 
-// 页面参数
+const { device } = useStore();
+
 interface Props {
 	metric: string;
 }
@@ -112,8 +114,9 @@ const props = withDefaults(defineProps<Props>(), {
 	metric: "heartRate"
 });
 
-// 指标选项
-const metrics: MetricItem[] = [
+const activeMetric = ref<string>(props.metric);
+
+const metricItems: MetricItem[] = [
 	{
 		label: "心率",
 		value: "heartRate",
@@ -140,57 +143,51 @@ const metrics: MetricItem[] = [
 	}
 ];
 
-// 当前选中的指标
-const activeMetric = ref<string>(props.metric);
-
-// 时间范围选项
 const timeRanges = ref<ClTabsItem[]>([
 	{ label: "7天", value: "7d" },
 	{ label: "30天", value: "30d" },
 	{ label: "60天", value: "60d" }
 ]);
 
-// 当前选中的时间范围
 const activeTimeRange = ref<string>("7d");
 
-// 数据更新时间
-const updateTime = ref<string>("09:32");
+const currentData = computed(() => metrics.currentData.value);
+const normalRange = computed(() => metrics.normalRange.value);
+const updateTime = computed(() => metrics.updateTime.value);
+const analysisText = computed(() => metrics.analysisText.value);
+const trendDates = computed(() => metrics.trendDates.value ?? []);
+const trendValues = computed(() => metrics.trendValues.value ?? []);
 
-// 当前数据
-const currentData = computed(() => {
-	switch (activeMetric.value) {
-		case "heartRate":
-			return "59bpm";
-		case "restingHeartRate":
-			return "62bpm";
-		case "bloodOxygen":
-			return "98%";
-		case "hrv":
-			return "65ms";
-		default:
-			return "59bpm";
+function getDaysFromOption(option: string): number {
+	if (option == "7d") {
+		return 7;
 	}
-});
-
-// 正常范围
-const normalRange = computed(() => {
-	switch (activeMetric.value) {
-		case "heartRate":
-			return "64-71bpm";
-		case "restingHeartRate":
-			return "55-65bpm";
-		case "bloodOxygen":
-			return "95-100%";
-		case "hrv":
-			return "40-100ms";
-		default:
-			return "64-71bpm";
+	if (option == "30d") {
+		return 30;
 	}
-});
+	if (option == "60d") {
+		return 60;
+	}
+	return 7;
+}
 
-// 图表配置
+async function fetchMetricsData() {
+	const deviceId = device.currentDeviceId;
+	if (deviceId == null || deviceId == "") {
+		console.log("设备未连接，跳过获取身体指标数据");
+		return;
+	}
+	const days = getDaysFromOption(activeTimeRange.value);
+	const { startDate, endDate } = getDateRange(days);
+	try {
+		await metrics.fetchMetrics(deviceId, activeMetric.value, startDate, endDate);
+	} catch (err) {
+		console.error("获取身体指标失败:", err);
+	}
+}
+
 const chartOption = computed(() => {
-	const option: UTSJSONObject = {
+	let option: UTSJSONObject = {
 		title: {
 			show: false
 		},
@@ -209,7 +206,7 @@ const chartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
+			data: trendDates.value,
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -235,7 +232,7 @@ const chartOption = computed(() => {
 			{
 				name: "当前值",
 				type: "line",
-				data: [62, 60, 58, 57, 59, 61, 60, 59],
+				data: trendValues.value,
 				itemStyle: {
 					color: "#D2FF5C"
 				},
@@ -261,46 +258,43 @@ const chartOption = computed(() => {
 						]
 					}
 				}
-			},
-			{
-				name: "正常范围",
-				type: "line",
-				data: [67, 66, 65, 65, 67, 68, 67, 66],
-				itemStyle: {
-					color: "#FF9800"
-				},
-				lineStyle: {
-					width: 2
-				}
 			}
 		]
 	};
 	return JSON.stringify(option);
 });
 
-// 分析文本
-const analysisText = ref<string>(
-	"前几天连续训练负荷较大，HRV较低但储能情况良好，预计明天HRV上升达到超量恢复黄金窗口。建议降低训练量，注意恢复调整前几天连续训练负荷较大，HRV较低但储能情况良好，预计明天HRV上升达到超量恢复黄金窗口。建议降低训练量，注意恢复调整"
-);
-
-// 选择指标
 function selectMetric(value: string) {
 	activeMetric.value = value;
-	// 这里可以根据选择的指标更新数据
-	console.log("选择指标:", value);
 }
 
-// 选择时间范围
 function selectTimeRange(value: string) {
 	activeTimeRange.value = value;
-	// 这里可以根据选择的时间范围更新图表数据
-	console.log("选择时间范围:", value);
 }
 
-// 返回上一页
 function goBack() {
 	uni.navigateBack();
 }
+
+onMounted(() => {
+	fetchMetricsData();
+});
+
+watch(
+	activeMetric,
+	() => {
+		fetchMetricsData();
+	},
+	{ immediate: false }
+);
+
+watch(
+	activeTimeRange,
+	() => {
+		fetchMetricsData();
+	},
+	{ immediate: false }
+);
 </script>
 
 <style lang="scss" scoped></style>

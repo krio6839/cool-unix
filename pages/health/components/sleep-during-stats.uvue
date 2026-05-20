@@ -52,8 +52,9 @@
 </template>
 
 <script lang="ts" setup>
-import type { TimeValueItem } from "@/.cool";
+import type { TimeValuePair } from "@/.cool";
 import { computed } from "vue";
+import { useStore } from "@/.cool";
 
 type MetricItem = {
 	icon: string;
@@ -65,15 +66,15 @@ type MetricItem = {
 
 type Props = {
 	title?: string;
-	list: TimeValueItem[];
 };
 
-type ModelValue = string;
-
 const props = withDefaults(defineProps<Props>(), {
-	title: "睡眠期间数据",
-	list: () => []
+	title: "睡眠期间数据"
 });
+
+const { sleep } = useStore();
+
+type ModelValue = string;
 
 const activeMetric = defineModel<ModelValue>("activeMetric", {
 	default: "heartRate"
@@ -110,8 +111,17 @@ const minLabel = "期间最低";
 const avgLabel = "期间平均";
 
 const chartOption = computed(() => {
-	const values = props.list.map((item) => item.value);
-	const xAxisData = props.list.map((item) => item.time);
+	let list: TimeValuePair[] = [];
+	if (activeMetric.value === "heartRate") {
+		list = sleep.sleepHeartRateData.value;
+	} else if (activeMetric.value === "hrv") {
+		list = sleep.sleepHrvData.value;
+	} else if (activeMetric.value === "oxygen") {
+		list = sleep.sleepOxygenData.value;
+	}
+
+	const values = list.map((item) => item.value);
+	const xAxisData = list.map((item) => item.time);
 
 	let color = "#D2FF5C";
 	let name = "心率";
@@ -192,7 +202,16 @@ type StatsData = {
 };
 
 const currentData = computed((): StatsData => {
-	const values: number[] = props.list.map((item) => item.value as number);
+	let list: TimeValuePair[] = [];
+	if (activeMetric.value === "heartRate") {
+		list = sleep.sleepHeartRateData.value;
+	} else if (activeMetric.value === "hrv") {
+		list = sleep.sleepHrvData.value;
+	} else if (activeMetric.value === "oxygen") {
+		list = sleep.sleepOxygenData.value;
+	}
+
+	const values: number[] = list.map((item) => item.value as number);
 	if (values.length === 0) {
 		return { max: "--", min: "--", average: "--" };
 	}

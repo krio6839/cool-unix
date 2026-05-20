@@ -60,46 +60,6 @@ export type SleepPattern = {
 	avgWakeTime: string;
 };
 
-export type StatusPageState = {
-	key: string;
-	totalStatus: number;
-	statusProgress: number;
-	healthItems: HealthItem[];
-	hrvData: number[];
-	readinessData: number[];
-	totalEnergy: number;
-	energyProgress: number;
-	energyItems: HealthItem[];
-	energyChartData: number[];
-	bodyEnergyChartData: number[];
-	maxEnergy: number;
-	averageEnergyRange: string;
-	totalLoad: number;
-	loadProgress: number;
-	loadItems: HealthItem[];
-	realtimeLoadData: number[];
-	loadZones: LoadZoneItem[];
-	loadTrendData: number[];
-	loadTrendInfo: LoadTrendItem;
-	exerciseLoadData: number[];
-	exerciseLoadTrendInfo: LoadTrendItem;
-	sleepPressureData: number[];
-	sleepPressureTrendInfo: LoadTrendItem;
-	heartRateZoneData: number[];
-	heartRateZoneItems: LoadZoneItem[];
-	totalSleep: number;
-	sleepProgress: number;
-	sleepItems: HealthItem[];
-	suggestedSleepDuration: string;
-	recoverySleep: RecoverySleep;
-	sleepHeartRateData: TimeValueItem[];
-	sleepHrvData: TimeValueItem[];
-	sleepOxygenData: TimeValueItem[];
-	sleepDurationData: number[];
-	// sleepDurationTrendInfo: SleepTrendItem;
-	sleepPattern: SleepPattern;
-};
-
 export type ChartDataItem = {
 	name: string;
 	type: string;

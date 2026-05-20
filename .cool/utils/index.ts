@@ -8,3 +8,5 @@ export * from "./path";
 export * from "./rect";
 export * from "./storage";
 export * from "./unit";
+export * from "./format";
+export * from "./date";

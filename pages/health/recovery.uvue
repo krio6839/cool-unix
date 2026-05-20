@@ -21,19 +21,25 @@
 					<cl-text :size="14" color="rgba(255,255,255,0.6)" :pt="{ className: 'mb-1' }"
 						>TSB</cl-text
 					>
-					<cl-text :size="24" color="white" :pt="{ className: 'font-bold' }">36</cl-text>
+					<cl-text :size="24" color="white" :pt="{ className: 'font-bold' }">
+						{{ recovery.tsb.value }}
+					</cl-text>
 				</view>
 				<view class="text-center">
 					<cl-text :size="14" color="rgba(255,255,255,0.6)" :pt="{ className: 'mb-1' }"
 						>短期负荷ATL</cl-text
 					>
-					<cl-text :size="24" color="white" :pt="{ className: 'font-bold' }">37</cl-text>
+					<cl-text :size="24" color="white" :pt="{ className: 'font-bold' }">
+						{{ recovery.atl.value }}
+					</cl-text>
 				</view>
 				<view class="text-center">
 					<cl-text :size="14" color="rgba(255,255,255,0.6)" :pt="{ className: 'mb-1' }"
 						>长期负荷CTL</cl-text
 					>
-					<cl-text :size="24" color="white" :pt="{ className: 'font-bold' }">54</cl-text>
+					<cl-text :size="24" color="white" :pt="{ className: 'font-bold' }">
+						{{ recovery.ctl.value }}
+					</cl-text>
 				</view>
 			</view>
 
@@ -50,11 +56,9 @@
 			</view>
 
 			<!-- 趋势图表 -->
-			<Chart :option="chartOption" :height="200" :showFooter="false"></Chart>
-
-			<!-- 时间范围选择 -->
+			<Chart :option-data="chartOption" :height="200" :show-footer="false"></Chart>
 			<cl-tabs
-				v-model="activeTimeRange"
+				v-model="currentTimeRange"
 				:list="timeRanges"
 				fill
 				showSlider
@@ -87,12 +91,14 @@
 </template>
 
 <script lang="ts" setup>
-import { isMp } from "@/.cool";
-import { ref, computed } from "vue";
-import type { TsbReferenceItem, ChartOption } from "./types";
+import { isMp, dayUts, useStore } from "@/.cool";
+import { ref, computed, onMounted } from "vue";
+import type { TsbReferenceItem } from "./types";
 import type { ClTabsItem } from "@/uni_modules/cool-ui";
-// @ts-ignore
+
 import Chart from "./components/chart.uvue";
+
+const { device, recovery } = useStore();
 
 // 时间范围选项
 const timeRanges = ref<ClTabsItem[]>([
@@ -100,9 +106,7 @@ const timeRanges = ref<ClTabsItem[]>([
 	{ label: "30天", value: "30d" },
 	{ label: "60天", value: "60d" }
 ]);
-
-// 当前选中的时间范围
-const activeTimeRange = ref<string>("7d");
+const currentTimeRange = ref<string>("7d");
 
 // TSB训练疲劳度参考表
 const tsbReference: TsbReferenceItem[] = [
@@ -114,12 +118,40 @@ const tsbReference: TsbReferenceItem[] = [
 	{ range: "-25>TSB", status: "极度疲劳" }
 ];
 
-// 图表配置
-const chartOption = computed(() => {
-	const option: UTSJSONObject = {
-		title: {
-			show: false
-		},
+function getDaysFromOption(option: string): number {
+	if (option == "7d") {
+		return 7;
+	}
+	if (option == "30d") {
+		return 30;
+	}
+	if (option == "60d") {
+		return 60;
+	}
+	return 7;
+}
+
+async function fetchRecoveryStatus() {
+	await recovery.fetchStatus(device.currentDeviceId);
+}
+
+async function fetchRecoveryTrend(days: string) {
+	const endDate = dayUts().format("YYYY-MM-DD");
+	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
+	await recovery.fetchTrend(device.currentDeviceId, startDate, endDate);
+}
+
+function onTrendDaysChange(days: string) {
+	currentTimeRange.value = days;
+	fetchRecoveryTrend(days);
+}
+
+const chartOption = computed((): UTSJSONObject => {
+	const atlData = recovery.atlTrendData.value ?? [];
+	const ctlData = recovery.ctlTrendData.value ?? [];
+	const dates = recovery.trendDates.value ?? [];
+
+	let option: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
 			textStyle: {
@@ -135,7 +167,7 @@ const chartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00"],
+			data: dates,
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -161,7 +193,7 @@ const chartOption = computed(() => {
 			{
 				name: "ATL",
 				type: "line",
-				data: [32, 34, 33, 35, 36, 37, 38, 37],
+				data: atlData,
 				itemStyle: {
 					color: "#D2FF5C"
 				},
@@ -191,7 +223,7 @@ const chartOption = computed(() => {
 			{
 				name: "CTL",
 				type: "line",
-				data: [48, 49, 50, 51, 52, 53, 54, 54],
+				data: ctlData,
 				itemStyle: {
 					color: "#FF9800"
 				},
@@ -201,20 +233,24 @@ const chartOption = computed(() => {
 			}
 		]
 	};
-	return JSON.stringify(option);
+	return option;
 });
 
 // 选择时间范围
 function selectTimeRange(value: string) {
-	activeTimeRange.value = value;
-	// 这里可以根据选择的时间范围更新图表数据
-	console.log("选择时间范围:", value);
+	currentTimeRange.value = value;
+	fetchRecoveryTrend(value);
 }
 
 // 返回上一页
 function goBack() {
 	uni.navigateBack();
 }
+
+onMounted(() => {
+	fetchRecoveryStatus();
+	fetchRecoveryTrend(currentTimeRange.value);
+});
 </script>
 
 <style lang="scss" scoped></style>

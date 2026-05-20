@@ -45,19 +45,15 @@
 </template>
 
 <script lang="ts" setup>
-type Props = {
-	percentage?: number;
-	duration?: string;
-	averagePercentage?: string;
-	averageDuration?: string;
-};
+import { computed } from "vue";
+import { useStore } from "@/.cool";
 
-const props = withDefaults(defineProps<Props>(), {
-	percentage: 65,
-	duration: "12.6",
-	averagePercentage: "0%",
-	averageDuration: "--"
-});
+const { sleep } = useStore();
+
+const percentage = computed(() => sleep.recoverySleepPercentage.value);
+const duration = computed(() => sleep.recoverySleepDuration.value);
+const averagePercentage = computed(() => sleep.avgRecoverySleepPercentage.value);
+const averageDuration = computed(() => sleep.avgRecoverySleepDuration.value);
 </script>
 
 <style lang="scss" scoped>

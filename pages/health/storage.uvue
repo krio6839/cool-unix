@@ -57,12 +57,11 @@
 import { isMp, dayUts, useStore } from "@/.cool";
 import type { HealthItem, TimeValuePair, DateValuePair } from "@/.cool";
 import { ref, computed, onMounted, watch } from "vue";
-import { energy } from "@/.cool/store/energy";
 import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
 import Chart from "./components/chart.uvue";
 
-const { device } = useStore();
+const { device, energy } = useStore();
 const currentDate = ref<string>(dayUts().format("YYYY-MM-DD"));
 const trendDays = ref<string>("7d");
 
@@ -259,7 +258,7 @@ function goBack() {
 }
 
 watch(
-	() => currentDate.value,
+	currentDate,
 	() => {
 		fetchEnergyStatus();
 		fetchEnergyTrend(trendDays.value);

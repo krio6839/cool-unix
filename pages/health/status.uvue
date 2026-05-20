@@ -17,30 +17,35 @@
 		<view class="p-3">
 			<!-- 顶部日期和状态 -->
 			<Header
-				:date="selectedDate"
+				v-model:date="selectedDate"
 				:label="'状态'"
-				:value="statusData?.totalStatus ?? 0"
-				:progress="statusData?.statusProgress ?? 0"
+				:value="status.totalStatus.value"
+				:progress="status.statusProgress.value"
 				:config="{
 					backgroundColor: '#282828',
 					startColor: '#D2FF5C',
 					endColor: '#2FABCB',
 					dotColor: '#000'
 				}"
-				@go-to-date-select="goToDateSelect"
 			></Header>
 
 			<!-- 健康数据概览 -->
 			<Status :items="healthItems"></Status>
 
 			<!-- 当日HRV变化趋势图 -->
-			<Chart :title="'当日HRV变化'" :option="hrvChartOption" :height="200"></Chart>
+			<Chart
+				:title="'当日HRV变化'"
+				:option-data="hrvChartOption"
+				:height="200"
+				:show-footer="false"
+			></Chart>
 
 			<Chart
 				:title="'训练准备度'"
-				:option="readinessChartOption"
+				:option-data="readinessChartOption"
 				:height="200"
-				:showTool="true"
+				:show-tool="true"
+				:show-footer="false"
 				@days-change="onReadinessDaysChange"
 			></Chart>
 		</view>
@@ -48,70 +53,38 @@
 </template>
 
 <script lang="ts" setup>
-import { isMp, dayUts, parse } from "@/.cool";
-import { ref, computed, onMounted } from "vue";
-import { useStore } from "@/.cool";
-import { getStatusDataApi, getReadinessDataApi } from "@/.cool/api/status";
-import type { StatusApiResponse, DateValuePair } from "@/.cool/types";
-import type { TrendType } from "@/.cool/types/home";
-import type { HealthItem } from "@/.cool/types/health";
+import { isMp, dayUts, useStore } from "@/.cool";
+import type { TrendType, TimeValuePair, DateValuePair, HealthItem } from "@/.cool";
+import { ref, computed, onMounted, watch } from "vue";
 import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
 import Chart from "./components/chart.uvue";
 
-const { device } = useStore();
-
-const statusData = ref<StatusApiResponse | null>(null);
-const readinessData = ref<DateValuePair[]>([]);
+const { device, status } = useStore();
 const selectedDate = ref<string>(dayUts().format("YYYY-MM-DD"));
 const readinessDays = ref<string>("7d");
 
 async function fetchStatusData() {
-	if (device.getPaired() && device.currentDeviceId != "") {
-		try {
-			const data = await getStatusDataApi(device.currentDeviceId, selectedDate.value);
-			statusData.value = data;
-		} catch (err) {
-			console.error("获取状态数据失败:", err);
-		}
-	}
+	await status.fetchStatus(device.currentDeviceId, selectedDate.value);
 }
 
 function getDaysFromOption(option: string): number {
-	switch (option) {
-		case "7d":
-			return 7;
-		case "14d":
-			return 14;
-		case "30d":
-			return 30;
-		default:
-			return 7;
+	if (option == "7d") {
+		return 7;
 	}
+	if (option == "14d") {
+		return 14;
+	}
+	if (option == "30d") {
+		return 30;
+	}
+	return 7;
 }
 
 async function fetchReadinessData(days: string) {
-	if (device.getPaired() && device.currentDeviceId != "") {
-		try {
-			const endDate = dayUts().format("YYYY-MM-DD");
-			const startDate = dayUts()
-				.subtract(getDaysFromOption(days), "day")
-				.format("YYYY-MM-DD");
-			const data = await getReadinessDataApi(device.currentDeviceId, startDate, endDate);
-			if (data != null) {
-				const parsed = parse<DateValuePair[]>(data);
-				if (parsed != null) {
-					readinessData.value = parsed;
-				} else {
-					readinessData.value = [];
-				}
-			} else {
-				readinessData.value = [];
-			}
-		} catch (err) {
-			console.error("获取准备度数据失败:", err);
-		}
-	}
+	const endDate = dayUts().format("YYYY-MM-DD");
+	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
+	await status.fetchReadiness(device.currentDeviceId, startDate, endDate);
 }
 
 function onReadinessDaysChange(days: string) {
@@ -119,48 +92,36 @@ function onReadinessDaysChange(days: string) {
 	fetchReadinessData(days);
 }
 
-const healthItems = computed<HealthItem[]>(() => {
-	if (statusData.value == null) {
-		return [];
-	}
+const healthItems = computed((): HealthItem[] => {
 	return [
-		{ label: "心率变异性", value: `${statusData.value.hrv}ms`, trend: "up" as TrendType },
+		{ label: "心率变异性", value: `${status.hrv.value}ms`, trend: "up" as TrendType },
 		{
 			label: "静息心率",
-			value: `${statusData.value.restingHeartRate}bpm`,
+			value: `${status.restingHeartRate.value}bpm`,
 			trend: "down" as TrendType
 		}
 	];
 });
 
-const hrvChartData = computed((): number[] => {
-	if (statusData.value == null) {
-		return [];
-	}
-	return statusData.value.hrvData.map((item) => item.value);
-});
-
-const readinessChartData = computed((): number[] => {
-	if (readinessData.value == null) {
-		return [];
-	}
-	return readinessData.value.map((item) => item.value);
-});
-
-onMounted(() => {
-	fetchStatusData();
-	fetchReadinessData(readinessDays.value);
-});
-
-const today = dayUts().format("YYYY-MM-DD");
+watch(
+	selectedDate,
+	() => {
+		fetchStatusData();
+		fetchReadinessData(readinessDays.value);
+	},
+	{ immediate: true }
+);
 
 // 当日HRV变化趋势图配置
-const hrvChartOption = computed(() => {
-	const hrvData = hrvChartData.value;
-	const sum = hrvData.reduce((acc, val) => acc + val, 0);
-	const average = hrvData.length > 0 ? sum / hrvData.length : 0;
+const hrvChartOption = computed((): UTSJSONObject => {
+	const hrvChartData = status.hrvData.value ?? [];
+	const hrvValues = hrvChartData.map((item: TimeValuePair) => item.value);
+	const timeData = hrvChartData.map((item: TimeValuePair) => item.time);
 
-	const averageData = hrvData.map(function (_val: number): number {
+	const sum = hrvValues.reduce((acc, val) => acc + val, 0);
+	const average = hrvValues.length > 0 ? sum / hrvValues.length : 0;
+
+	const averageData = hrvValues.map(function (_val: number): number {
 		return average;
 	});
 
@@ -184,20 +145,7 @@ const hrvChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: [
-				"00:00",
-				"02:00",
-				"04:00",
-				"06:00",
-				"08:00",
-				"10:00",
-				"12:00",
-				"14:00",
-				"16:00",
-				"18:00",
-				"20:00",
-				"22:00"
-			],
+			data: timeData,
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -227,11 +175,10 @@ const hrvChartOption = computed(() => {
 			}
 		},
 		series: [
-			// HRV散点（不显示线，只显示点）
 			{
 				name: "心率变异性",
 				type: "scatter",
-				data: hrvData,
+				data: hrvValues,
 				itemStyle: {
 					color: "#FE8C04"
 				},
@@ -239,11 +186,10 @@ const hrvChartOption = computed(() => {
 				symbolSize: 8,
 				z: 3
 			},
-			// 正常范围区域
 			{
 				name: "正常范围",
 				type: "bar",
-				data: hrvData.map(function (_val: number): number {
+				data: hrvValues.map(function (_val: number): number {
 					return normalRangeMax;
 				}),
 				itemStyle: {
@@ -267,7 +213,6 @@ const hrvChartOption = computed(() => {
 				},
 				z: 1
 			},
-			// 平均值横线
 			{
 				name: "平均",
 				type: "line",
@@ -312,11 +257,15 @@ const hrvChartOption = computed(() => {
 			left: "left"
 		}
 	};
-	return JSON.stringify(option);
+	return option;
 });
 
 // 训练准备度趋势图配置
-const readinessChartOption = computed(() => {
+const readinessChartOption = computed((): UTSJSONObject => {
+	const chartData = status.readinessData.value ?? [];
+	const dateData = chartData.map((item: DateValuePair) => item.date);
+	const valueData = chartData.map((item: DateValuePair) => item.value);
+
 	let option: UTSJSONObject = {
 		tooltip: {
 			trigger: "axis",
@@ -333,7 +282,7 @@ const readinessChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
+			data: dateData,
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -359,7 +308,7 @@ const readinessChartOption = computed(() => {
 			{
 				name: "准备度",
 				type: "bar",
-				data: readinessChartData.value,
+				data: valueData,
 				itemStyle: {
 					color: {
 						type: "linear",
@@ -383,19 +332,11 @@ const readinessChartOption = computed(() => {
 			}
 		]
 	};
-	return JSON.stringify(option);
+	return option;
 });
 
-// 返回上一页
 function goBack() {
 	uni.navigateBack();
-}
-
-// 跳转到选择日期页面
-function goToDateSelect() {
-	// 这里可以添加跳转到日期选择页面的逻辑
-	console.log("跳转到选择日期页面");
-	// 示例：uni.navigateTo({ url: '/pages/date-select/date-select' });
 }
 </script>
 

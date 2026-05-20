@@ -97,8 +97,19 @@ export function request(options: RequestOptions): Promise<any | null> {
 
 					// 404 未找到
 					else if (res.statusCode == 404) {
+						let message = `[404] ${url}`;
+						if (
+							typeof res.data == "object" &&
+							!Array.isArray(res.data) &&
+							!isNull(res.data)
+						) {
+							const detail = (res.data as UTSJSONObject)?.detail;
+							if (detail != null && typeof detail === "string") {
+								message = detail;
+							}
+						}
 						return reject({
-							message: `[404] ${url}`
+							message
 						} as Response);
 					}
 

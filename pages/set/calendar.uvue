@@ -143,8 +143,13 @@ function goToday() {
 	selectedDate.value = dayUts().format("YYYY-MM-DD");
 }
 
-function onChange(event: any) {
-	console.log("日期变化:", event);
+function onChange(dates: string[]) {
+	if (dates != null && dates.length > 0) {
+		const selectedDateStr = dates[0];
+		const date = new Date(selectedDateStr);
+		currentYear.value = date.getFullYear();
+		currentMonth.value = date.getMonth() + 1;
+	}
 	// 打开趋势图弹窗
 	showPopup.value = true;
 }

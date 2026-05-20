@@ -17,52 +17,40 @@
 		<view class="p-3">
 			<!-- 顶部日期和总睡眠 -->
 			<Header
-				:date="currentDate"
+				v-model:date="currentDate"
 				:label="'总睡眠'"
-				:value="currentState.totalSleep"
-				:progress="currentState.sleepProgress"
+				:value="sleep.totalSleep.value"
+				:progress="sleep.sleepProgress.value"
 				type="linear"
 				:config="{
 					backgroundColor: '#282828',
 					startColor: '#D2FF5C',
 					endColor: '#FF5C5C'
 				}"
-				@go-to-date-select="goToDateSelect"
 			></Header>
 
 			<!-- 健康数据概览 -->
-			<Status :items="currentState.sleepItems"></Status>
+			<Status :items="sleepItems"></Status>
 
 			<!-- 睡眠进度和恢复性睡眠 -->
-			<SleepProgress
-				:suggestedSleepDuration="currentState.suggestedSleepDuration"
-			></SleepProgress>
+			<SleepProgress></SleepProgress>
 
 			<!-- 恢复性睡眠 -->
-			<SleepRecovery
-				:percentage="currentState.recoverySleep.percentage"
-				:duration="currentState.recoverySleep.duration"
-			></SleepRecovery>
+			<SleepRecovery></SleepRecovery>
 
 			<!-- 睡眠期间数据 -->
-			<SleepDuringStats
-				v-model:activeMetric="sleepActiveMetric"
-				:list="selectedSleepData"
-			></SleepDuringStats>
+			<SleepDuringStats v-model:activeMetric="sleepActiveMetric"></SleepDuringStats>
 
 			<!-- 趋势图表 - 睡眠时长 -->
-			<SleepTrend
-				:sleepDurationData="currentState.sleepDurationData"
-				:sleepPattern="currentState.sleepPattern"
-			></SleepTrend>
+			<SleepTrend></SleepTrend>
 		</view>
 	</cl-page>
 </template>
 
 <script lang="ts" setup>
 import { isMp, dayUts, useStore } from "@/.cool";
-import type { TimeValueItem } from "@/.cool";
-import { ref, computed } from "vue";
+import type { HealthItem, TimeValuePair, DateValuePair } from "@/.cool";
+import { ref, computed, onMounted, watch } from "vue";
 import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
 import SleepProgress from "./components/sleep-progress.uvue";
@@ -70,30 +58,60 @@ import SleepRecovery from "./components/sleep-recovery.uvue";
 import SleepDuringStats from "./components/sleep-during-stats.uvue";
 import SleepTrend from "./components/sleep-trend.uvue";
 
-const { user } = useStore();
-
-// 获取当前健康状态页面数据
-const currentState = computed(() => user.getCurrentStatusPageState());
-
-// 获取今天的日期
+const { device, sleep } = useStore();
 const currentDate = ref<string>(dayUts().format("YYYY-MM-DD"));
-
-// 睡眠期间数据 - 当前选中的指标
+const trendDays = ref<string>("7d");
 const sleepActiveMetric = ref<string>("heartRate");
 
-// 选中的睡眠数据
-const selectedSleepData = computed((): TimeValueItem[] => {
-	const data = currentState.value;
+function getDaysFromOption(option: string): number {
+	if (option == "7d") {
+		return 7;
+	}
+	if (option == "14d") {
+		return 14;
+	}
+	if (option == "30d") {
+		return 30;
+	}
+	return 7;
+}
+
+async function fetchSleepStatus() {
+	await sleep.fetchStatus(device.currentDeviceId, currentDate.value);
+}
+
+async function fetchSleepMetric() {
+	await sleep.fetchMetric(device.currentDeviceId, currentDate.value);
+}
+
+async function fetchSleepTrend(days: string) {
+	const endDate = dayUts().format("YYYY-MM-DD");
+	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
+	await sleep.fetchTrend(device.currentDeviceId, startDate, endDate);
+	await sleep.fetchSleepMode(device.currentDeviceId, startDate, endDate);
+}
+
+function onTrendDaysChange(days: string) {
+	trendDays.value = days;
+	fetchSleepTrend(days);
+}
+
+const sleepItems = computed((): HealthItem[] => {
+	return [
+		{ label: "睡眠时长", value: sleep.sleepDuration.value ?? "--" },
+		{ label: "睡眠质量", value: `${sleep.sleepQuality.value ?? 0}` }
+	];
+});
+
+const selectedSleepData = computed((): TimeValuePair[] => {
 	const metric = sleepActiveMetric.value;
 
-	if (metric === "hrv" && data.sleepHrvData != null) {
-		return data.sleepHrvData;
-	} else if (metric === "oxygen" && data.sleepOxygenData != null) {
-		return data.sleepOxygenData;
-	} else if (metric === "heartRate" && data.sleepHeartRateData != null) {
-		return data.sleepHeartRateData;
+	if (metric === "hrv") {
+		return sleep.sleepHrvData.value ?? [];
+	} else if (metric === "oxygen") {
+		return sleep.sleepOxygenData.value ?? [];
 	} else {
-		return [];
+		return sleep.sleepHeartRateData.value ?? [];
 	}
 });
 
@@ -102,23 +120,21 @@ function goBack() {
 	uni.navigateBack();
 }
 
-// 跳转到选择日期页面
-function goToDateSelect() {
-	// 跳转到日期选择页面
-	uni.navigateTo({
-		url: "/pages/health/date-select/date-select"
-	});
-}
+watch(
+	currentDate,
+	() => {
+		fetchSleepStatus();
+		fetchSleepMetric();
+		fetchSleepTrend(trendDays.value);
+	},
+	{ immediate: true }
+);
 
-// 监听日期选择事件
-uni.$on("dateSelected", (date: string) => {
-	// 更新选中的日期
-	currentDate.value = date;
-	// 这里可以添加根据选择的日期获取对应数据的逻辑
-	console.log("Selected date:", date);
+onMounted(() => {
+	fetchSleepStatus();
+	fetchSleepMetric();
+	fetchSleepTrend(trendDays.value);
 });
 </script>
 
-<style lang="scss" scoped>
-/* 原子化类已在模板中直接使用，此处仅保留必要的样式 */
-</style>
+<style lang="scss" scoped></style>

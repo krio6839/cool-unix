@@ -2,7 +2,7 @@
 	<cl-popup
 		v-model="show"
 		direction="center"
-		:title="formatDate(props.date)"
+		:title="title"
 		:show-header="true"
 		:show-close="true"
 		:show-mask="true"
@@ -17,8 +17,12 @@
 	>
 		<view class="p-4">
 			<!-- 图表区域 -->
-			<view style="width: 100%; height: 300px">
-				<l-echart ref="chart" @finished="initChart"></l-echart>
+			<view style="width: 100%; height: 300px" class="relative">
+				<l-echart v-if="chartData.length > 0" ref="chart" @finished="initChart"></l-echart>
+				<view v-else class="flex flex-col items-center justify-center h-full">
+					<cl-icon name="file-warning-line" :size="40" color="#666"></cl-icon>
+					<text class="text-gray-500 text-sm mt-2">当天暂无数据</text>
+				</view>
 			</view>
 
 			<!-- 底部说明文字 -->
@@ -34,12 +38,12 @@
 
 <script setup lang="uts">
 import { ref, computed, watch } from "vue";
+import { request, useStore, formatDate, parse } from "@/.cool";
+import type { TimeValuePair } from "@/.cool/types";
+
+const { device } = useStore();
 
 const props = defineProps({
-	show: {
-		type: Boolean,
-		default: false
-	},
 	tab: {
 		type: String,
 		default: "energy"
@@ -50,7 +54,6 @@ const props = defineProps({
 	}
 });
 
-const emit = defineEmits(["update:show"]);
 
 // #ifdef MP
 // 引入小程序依赖包
@@ -61,20 +64,25 @@ const echarts = require("../../../uni_modules/lime-echart/static/echarts.min.js"
 const echarts = null;
 // #endif
 
-const show = ref(props.show);
+const show = defineModel<boolean>('show', {
+	default: false
+});
 const chart = ref<LEchartComponentPublicInstance | null>(null);
+const chartData = ref<TimeValuePair[]>([]);
+const isLoading = ref<boolean>(false);
 
-// 格式化日期显示
-function formatDate(dateStr: string): string {
-	const date = new Date(dateStr);
-	const month = date.getMonth() + 1;
-	const day = date.getDate();
-	return `${month}月${day}日`;
-}
+const title = computed(() => {
+	return formatDate(props.date, "MM-DD");
+});
 
 async function initChart() {
 	if (chart.value == null) return;
+
 	const chartInstance = await chart.value.init(echarts);
+	const times = chartData.value.map((item) => item.time);
+	const values = chartData.value.map((item) => item.value);
+	const maxValue = values.length > 0 ? Math.max(...values) : 0;
+
 	chartInstance.setOption({
 		backgroundColor: "transparent",
 		tooltip: {
@@ -90,7 +98,7 @@ async function initChart() {
 		},
 		xAxis: {
 			type: "category",
-			data: ["00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00"],
+			data: times,
 			axisLine: {
 				lineStyle: {
 					color: "#333"
@@ -117,7 +125,7 @@ async function initChart() {
 		},
 		series: [
 			{
-				data: [45, 50, 48, 62, 58, 60, 55],
+				data: values,
 				type: "line",
 				smooth: true,
 				itemStyle: {
@@ -136,7 +144,7 @@ async function initChart() {
 							},
 							label: {
 								color: "#fff",
-								formatter: "62%"
+								formatter: `${maxValue}%`
 							}
 						}
 					]
@@ -146,33 +154,39 @@ async function initChart() {
 	});
 }
 
-watch(
-	computed(() => props.show),
-	(newValue: boolean) => {
-		show.value = newValue;
+// 获取图表数据
+async function fetchChartData() {
+	if (device.getPaired() && device.currentDeviceId != "") {
+		isLoading.value = true;
+		try {
+			const data = await request({
+				url: `/devices/${device.currentDeviceId}/calendar_tables`,
+				method: "GET",
+				data: {
+					date: props.date,
+					tab: props.tab
+				} as UTSJSONObject
+			});
+			if (Array.isArray(data)) {
+				chartData.value = data.map((item) => (parse<TimeValuePair>(item)!));
+				console.log("解析后的数据:", chartData.value);
+					initChart();
+			}
+		} catch (err) {
+			console.error("获取图表数据失败:", err);
+		} finally {
+			isLoading.value = false;
+		}
 	}
-);
+}
 
 watch(
 	computed(() => show.value),
 	(newValue: boolean) => {
-		emit("update:show", newValue);
-	}
-);
-
-watch(
-	computed(() => props.tab),
-	() => {
-		// 当标签变化时重新初始化图表
-		initChart();
-	}
-);
-
-watch(
-	computed(() => props.date),
-	() => {
-		// 当日期变化时重新初始化图表
-		initChart();
+		show.value = newValue;
+		if (newValue) {
+			fetchChartData();
+		}
 	}
 );
 </script>

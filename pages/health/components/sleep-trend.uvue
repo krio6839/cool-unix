@@ -67,7 +67,9 @@
 						:pt="{ className: 'mb-1 block' }"
 						>平均入睡时间</cl-text
 					>
-					<cl-text :size="16" color="white">{{ props.sleepPattern.avgBedtime }}</cl-text>
+					<cl-text :size="16" color="white">{{
+						sleep.sleepModeData.value?.avgBedtime ?? ""
+					}}</cl-text>
 				</view>
 				<view class="flex-1">
 					<cl-text
@@ -76,7 +78,9 @@
 						:pt="{ className: 'mb-1 block' }"
 						>平均起床时间</cl-text
 					>
-					<cl-text :size="16" color="white">{{ props.sleepPattern.avgWakeTime }}</cl-text>
+					<cl-text :size="16" color="white">{{
+						sleep.sleepModeData.value?.avgWakeTime ?? ""
+					}}</cl-text>
 				</view>
 			</view>
 		</template>
@@ -87,7 +91,9 @@
 import { ref, computed } from "vue";
 import Chart from "./chart.uvue";
 import type { ClTabsItem } from "@/uni_modules/cool-ui";
-import type { SleepPattern } from "@/.cool/types/health";
+import { useStore } from "@/.cool";
+
+const { sleep } = useStore();
 
 type MetricType = "duration" | "regularity";
 
@@ -98,14 +104,6 @@ type MetricItem = {
 	value: MetricType;
 	bgColor: string;
 };
-
-const props = withDefaults(
-	defineProps<{
-		sleepDurationData: number[];
-		sleepPattern: SleepPattern;
-	}>(),
-	{}
-);
 
 const timeRanges = ref<ClTabsItem[]>([
 	{ label: "7天", value: "7d" },
@@ -146,13 +144,14 @@ function selectMetric(value: MetricType) {
 const weekDays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
 const sleepDurationChartOption = computed(() => {
-	const sleepDurationData = props.sleepDurationData;
+	const data = sleep.sleepTrendData.value;
+	const sleepDurationData = data.map((item) => item.value);
 	const sum = sleepDurationData.reduce((acc, val) => acc + val, 0);
 	const average = sleepDurationData.length > 0 ? sum / sleepDurationData.length : 0;
 
-  const averageData = sleepDurationData.map(function (_val: number): number {
-   return parseFloat(average.toFixed(2));
-  });
+	const averageData = sleepDurationData.map(function (_val: number): number {
+		return parseFloat(average.toFixed(2));
+	});
 
 	return JSON.stringify({
 		title: { show: false },
@@ -257,39 +256,40 @@ const sleepDurationChartOption = computed(() => {
 	});
 });
 
-const sleepRegularityChartOption = computed(() => {
-	const bedtimes = props.sleepPattern.bedtimes;
-	const wakeTimes = props.sleepPattern.wakeTimes;
-
-	function timeToMinutesFrom24(time: string): number {
-		const parts = time.split(":");
-		const hours = parseInt(parts[0]);
-		const minutes = parseInt(parts[1]);
-		const min = (hours - 12) * 60 + minutes;
-		if (min < 0) {
-			return 1440 + min;
-		}
-		return min;
+function timeToMinutesFrom24(time: string): number {
+	const parts = time.split(":");
+	const hours = parseInt(parts[0]);
+	const minutes = parseInt(parts[1]);
+	const min = (hours - 12) * 60 + minutes;
+	if (min < 0) {
+		return 1440 + min;
 	}
+	return min;
+}
 
-	const avgBedtimeMinutes = timeToMinutesFrom24(props.sleepPattern.avgBedtime);
-	const avgWakeTimeMinutes = timeToMinutesFrom24(props.sleepPattern.avgWakeTime);
+const sleepRegularityChartOption = computed(() => {
+	const mode = sleep.sleepModeData.value;
+	const bedtimes = mode?.bedtimes ?? [];
+	const wakeTimes = mode?.wakeTimes ?? [];
 
-	const bedtimeData = bedtimes.map(function (time: string): number {
-		return timeToMinutesFrom24(time);
+	const avgBedtimeMinutes = timeToMinutesFrom24(mode?.avgBedtime ?? "");
+	const avgWakeTimeMinutes = timeToMinutesFrom24(mode?.avgWakeTime ?? "");
+
+	const bedtimeData: number[] = bedtimes.map(function (item): number {
+		return timeToMinutesFrom24(item.value);
 	});
 
-	const sleepDurationData = wakeTimes.map(function (wake: string, index: number): number {
-		const wakeMinutes = timeToMinutesFrom24(wake);
-		const bedMinutes = timeToMinutesFrom24(bedtimes[index]);
+	const sleepDurationData: number[] = wakeTimes.map(function (item, index): number {
+		const wakeMinutes = timeToMinutesFrom24(item.value);
+		const bedMinutes = timeToMinutesFrom24(bedtimes[index].value);
 		return wakeMinutes - bedMinutes;
 	});
 
-	const avgBedtimeLineData = bedtimes.map(function (_t: string, _i: number): number {
+	const avgBedtimeLineData: number[] = bedtimes.map(function (_t, _i: number): number {
 		return avgBedtimeMinutes;
 	});
 
-	const avgWakeTimeLineData = bedtimes.map(function (_t: string, _i: number): number {
+	const avgWakeTimeLineData: number[] = bedtimes.map(function (_t, _i: number): number {
 		return avgWakeTimeMinutes;
 	});
 
