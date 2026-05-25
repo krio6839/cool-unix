@@ -56,11 +56,11 @@ export const UPLOAD_INTERVAL = 100 * 1000;
 export const MAX_DATA_AGE = 90 * 24 * 60 * 60 * 1000;
 
 /**
- * PPI数据上传接口路径（通过baseUrl自动拼接）
+ * PPI数据上传接口完整地址
  */
-export const UPLOAD_PPI_URL = "/upload/ppi";
+export const UPLOAD_PPI_URL = "http://47.100.30.18:8000/upload/ppi";
 
 /**
- * 睡眠数据上传接口路径（通过baseUrl自动拼接）
+ * 睡眠数据上传接口完整地址
  */
-export const UPLOAD_SLEEP_URL = "/upload/sleep";
+export const UPLOAD_SLEEP_URL = "http://47.100.30.18:8000/upload/sleep";

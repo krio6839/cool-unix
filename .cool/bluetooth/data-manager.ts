@@ -16,7 +16,8 @@ import type {
 	SleepUploadRequest,
 	SleepUploadDataItem,
 	HeartRateDataMap,
-	PpiDataItem
+	PpiDataItem,
+	PpiData
 } from "./types";
 
 /**
@@ -52,7 +53,7 @@ export class BluetoothDataManager {
 	 */
 	setDeviceInfo(deviceName: string, address: string): void {
 		this.deviceAddress = address;
-		this.deviceName = deviceName;
+		this.deviceName = deviceName + address.split(":").join("");
 	}
 
 	clearDeviceInfo(): void {
@@ -76,24 +77,30 @@ export class BluetoothDataManager {
 	}
 
 	/**
-	 * 存储蓝牙数据
+	 * 存储蓝牙数据（实时数据）
 	 * @param type 数据类型（心率/血氧/电池/PPI）
 	 * @param value 测量值
 	 * @param ppi 心率变异性（可选，仅心率数据有）
+	 * @param timestamp 时间戳（可选，默认当前时间）
 	 */
 	async storeData(
 		type: BluetoothDataType,
 		value: number,
-		ppi: number | null = null
+		ppi: number | null = null,
+		timestamp?: number
 	): Promise<void> {
-		return;
-		const id = this.generateId();
-		const timestamp = Date.now();
+		// 实时数据暂不存储，只记录日志
+		// TODO: 未来启用实时数据存储时取消此注释
+		// console.log("实时数据（暂不存储）:", { type, value, ppi });
+		// return;
 
-		console.log("存储数据:", { id, timestamp, type, value, ppi });
+		const id = this.generateId();
+		const ts = timestamp ?? Date.now();
+
+		console.log("存储数据:", { id, ts, type, value, ppi });
 
 		let sql = `INSERT INTO bluetooth_data (id, timestamp, type, value, uploaded`;
-		let values = `VALUES ('${id}', ${timestamp}, '${type}', ${value}, 0`;
+		let values = `VALUES ('${id}', ${ts}, '${type}', ${value}, 0`;
 
 		if (ppi != null) {
 			sql += `, ppi`;
@@ -103,6 +110,26 @@ export class BluetoothDataManager {
 		sql += `) ${values})`;
 		console.log("INSERT SQL:", sql);
 
+		await bluetoothDatabase.execute(sql);
+	}
+
+	/**
+	 * 存储历史心率血氧数据到 ppi_data 表
+	 * @param timestamp 时间戳（秒，设备返回的时间戳）
+	 * @param heartRate 心率值
+	 * @param bloodOxygen 血氧值
+	 * @param ppi 心率变异性
+	 */
+	async storeHistoricalHeartRateRecord(
+		timestamp: number,
+		heartRate: number,
+		bloodOxygen: number,
+		ppi: number
+	): Promise<void> {
+		// 存储到 ppi_data 表，一行包含所有数据
+		const id = this.generateId();
+		const sql = `INSERT INTO ppi_data (id, timestamp, hr, spo2, ppi, uploaded) VALUES ('${id}', ${timestamp}, ${heartRate}, ${bloodOxygen}, ${ppi}, 0)`;
+		console.log("存储PPI数据:", { id, timestamp, heartRate, bloodOxygen, ppi });
 		await bluetoothDatabase.execute(sql);
 	}
 
@@ -163,6 +190,50 @@ export class BluetoothDataManager {
 			dataList.push(data);
 		}
 		return dataList;
+	}
+
+	/**
+	 * 获取未上传的PPI数据（从ppi_data表）
+	 * @returns 未上传的PPI数据数组
+	 */
+	async getUnuploadedPpiData(): Promise<PpiData[]> {
+		const sql =
+			"SELECT id, timestamp, hr, spo2, ppi, uploaded FROM ppi_data WHERE uploaded = 0 ORDER BY timestamp ASC";
+		const result = await bluetoothDatabase.query(sql);
+
+		if (result == null) {
+			return [];
+		}
+
+		const dataList: PpiData[] = [];
+		for (let i = 0; i < result.rows.length; i++) {
+			const row = result.rows[i];
+			const data: PpiData = {
+				id: row[0] as string,
+				timestamp: parseInt(row[1] as string),
+				hr: parseInt(row[2] as string),
+				spo2: parseInt(row[3] as string),
+				ppi: parseInt(row[4] as string),
+				uploaded: false
+			};
+			console.log("查询到PPI数据:", i, data);
+			dataList.push(data);
+		}
+		return dataList;
+	}
+
+	/**
+	 * 标记PPI数据为已上传
+	 * @param ids 数据ID数组
+	 */
+	async markPpiDataAsUploaded(ids: string[]): Promise<void> {
+		if (ids.length == 0) {
+			return;
+		}
+
+		const idList = ids.map((id) => `'${id}'`).join(",");
+		const sql = `UPDATE ppi_data SET uploaded = 1 WHERE id IN (${idList})`;
+		await bluetoothDatabase.execute(sql);
 	}
 
 	/**
@@ -307,7 +378,7 @@ export class BluetoothDataManager {
 			return false;
 		}
 
-		const unuploadedData = await this.getUnuploadedData();
+		const unuploadedData = await this.getUnuploadedPpiData();
 		console.log("未上传的PPI数据数量:", unuploadedData.length, "全部数据:", unuploadedData);
 		if (unuploadedData.length == 0) {
 			return true;
@@ -322,23 +393,18 @@ export class BluetoothDataManager {
 		this.isUploading = true;
 
 		try {
-			const ppiData: BluetoothData[] = [];
-			const bloodOxygenData: BluetoothData[] = [];
+			// 直接从 ppi_data 表构建上传数据（每行已包含 hr, spo2, ppi）
+			const datas: PpiDataItem[] = [];
 			for (let i = 0; i < unuploadedData.length; i++) {
 				const item = unuploadedData[i];
-				if (item.type == "heartRate") {
-					ppiData.push(item);
-				} else if (item.type == "bloodOxygen") {
-					bloodOxygenData.push(item);
-				}
+				// timestamp 存储的是秒，需要转换为毫秒再格式化
+				datas.push({
+					time: this.formatTimestamp(item.timestamp * 1000),
+					hr: item.hr,
+					spo2: item.spo2,
+					ppi: item.ppi
+				});
 			}
-
-			const datas: PpiDataItem[] = [];
-			const timestampMap: Map<number, HeartRateDataMap> = new Map<number, HeartRateDataMap>();
-
-			this.mergeHeartRateData(ppiData, timestampMap);
-			this.mergeBloodOxygenData(bloodOxygenData, timestampMap);
-			this.buildUploadDatas(timestampMap, datas);
 
 			const requestData: PpiUploadRequest = {
 				device: this.deviceName,
@@ -364,7 +430,7 @@ export class BluetoothDataManager {
 			for (let i = 0; i < unuploadedData.length; i++) {
 				uploadedIds.push(unuploadedData[i].id);
 			}
-			await this.markAsUploaded(uploadedIds);
+			await this.markPpiDataAsUploaded(uploadedIds);
 			await this.cleanupOldData();
 
 			console.log("PPI上传成功");
@@ -540,17 +606,26 @@ export class BluetoothDataManager {
 
 	/**
 	 * 构建睡眠上传数据项
+	 * @note bedtime, sleepTime, wakeTime, getupTime 是offset（秒），以报告时间前的秒计
 	 */
 	private buildSleepUploadItem(sleepData: SleepData, statusDetail: string): SleepUploadDataItem {
+		// 由于存储的是offset（报告前的秒数），直接相减得到时间差
+		// bedSec: 就寝到入睡的秒数
+		// sleepSec: 入睡到醒来的秒数
+		// upSec: 醒来到起床的秒数
+		// wakeSec: 睡眠潜伏期（= bedSec）
+		const bedSec = sleepData.sleepTime - sleepData.bedtime;
+		const sleepSec = sleepData.wakeTime - sleepData.sleepTime;
+		const upSec = sleepData.getupTime - sleepData.wakeTime;
+		const wakeSec = sleepData.sleepTime - sleepData.bedtime;
+
 		return {
-			bedSec: Math.floor((sleepData.bedtime - sleepData.reportTimestamp) / 1000),
+			bedSec,
 			detail: statusDetail,
-			sleepSec: Math.floor((sleepData.wakeTime - sleepData.sleepTime) / 1000),
-			time: this.formatTimestamp(sleepData.reportTimestamp),
-			upSec: Math.floor((sleepData.getupTime - sleepData.wakeTime) / 1000),
-			wakeSec:
-				Math.floor((sleepData.wakeTime - sleepData.bedtime) / 1000) -
-				Math.floor((sleepData.wakeTime - sleepData.sleepTime) / 1000)
+			sleepSec,
+			time: this.formatTimestamp(sleepData.reportTimestamp * 1000), // 转为毫秒
+			upSec,
+			wakeSec
 		};
 	}
 
@@ -571,7 +646,7 @@ export class BluetoothDataManager {
 		this.stopUploadTimer();
 		//@ts-ignore
 		this.uploadTimer = setInterval(() => {
-			// this.uploadData();
+			this.uploadData();
 		}, UPLOAD_INTERVAL);
 	}
 

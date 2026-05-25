@@ -52,6 +52,18 @@ export type HeartRateDataMap = {
 };
 
 /**
+ * PPI数据记录（数据库记录）
+ */
+export type PpiData = {
+	id: string;
+	timestamp: number;
+	hr: number;
+	spo2: number;
+	ppi: number;
+	uploaded: boolean;
+};
+
+/**
  * 心率记录（用于历史数据解析）
  */
 export type HeartRateRecord = {

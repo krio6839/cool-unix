@@ -22,7 +22,8 @@ import {
 	parseRTCResponse,
 	parseHistoricalHeartRateData,
 	parseSleepData,
-	convertNumberToHexString
+	convertNumberToHexString,
+	convertNumberToHexStringLSB
 } from "../bluetooth";
 
 import type { HeartRateRecord, DataReadyStatus, SleepData } from "../bluetooth";
@@ -71,9 +72,10 @@ export class Device {
 
 	// 设备信息
 	devices: DeviceInfo[] = [];
-	currentDeviceId: string = "C6:21:DB:55:81:6D";
+	currentDeviceId: string = "";
 	currentDeviceName: string = "";
-	lastConnectedDeviceId: string = "";
+	// lastConnectedDeviceId: string = "FC:0E:57:D8:D8:F9";
+	lastConnectedDeviceId: string = "C6:21:DB:55:81:6D";
 
 	// 蓝牙相关
 	kuxBluetooth: IBluetooth;
@@ -134,7 +136,7 @@ export class Device {
 		}
 
 		const savedDeviceId = storage.get(KEY_LAST_DEVICE_ID) as string | null;
-		if (savedDeviceId != null && savedDeviceId != "") {
+		if (this.lastConnectedDeviceId == "" && savedDeviceId != null && savedDeviceId != "") {
 			this.lastConnectedDeviceId = savedDeviceId;
 		}
 	}
@@ -238,8 +240,8 @@ export class Device {
 					this.setLEDStatus("01");
 					setTimeout(() => {
 						this.getLEDStatus();
-						this.subscribeHeartRate();
-						this.subscribeBloodOxygen();
+						// this.subscribeHeartRate();
+						// this.subscribeBloodOxygen();
 						// this.subscribeBattery();
 						this.subscribeUART();
 					}, 500);
@@ -556,12 +558,76 @@ export class Device {
 	}
 
 	setDeviceTime(timestamp: number): Promise<boolean> {
-		const cmd = "75" + convertNumberToHexString(timestamp, 4);
+		const cmd = "75" + convertNumberToHexStringLSB(timestamp, 4);
 		return this.sendCommand(cmd);
 	}
 
 	endSleepJudgment(): Promise<boolean> {
 		return this.sendCommand("7A");
+	}
+
+	/**
+	 * 存储历史心率血氧记录到数据库
+	 * @param records 历史心率记录数组
+	 */
+	private async storeHistoricalRecords(records: Array<HeartRateRecord>): Promise<void> {
+		for (let i = 0; i < records.length; i++) {
+			const record = records[i];
+			await bluetoothDataManager.storeHistoricalHeartRateRecord(
+				record.timestamp,
+				record.heartRate,
+				record.bloodOxygen,
+				record.ppi
+			);
+		}
+		console.log("历史心率血氧数据存储完成，共", records.length, "条");
+	}
+
+	/**
+	 * 自动获取所有历史心率血氧数据
+	 * 根据 dataReadyStatus.heartRateCount 自动遍历获取
+	 */
+	async fetchAllHistoricalHeartRateData(): Promise<void> {
+		const status = this.dataReadyStatus.value;
+		if (status.heartRateCount <= 0) {
+			console.log("没有历史心率血氧数据");
+			return;
+		}
+
+		console.log("开始获取历史心率血氧数据，总共", status.heartRateCount, "条");
+		// 每页16条记录，循环获取
+		for (let i = 0; i < status.heartRateCount; i += 16) {
+			console.log("获取第", i, "页历史数据");
+			await this.getHistoricalHeartRateData(i);
+			// 等待数据返回（通过 onCharacteristicValueChange 接收）
+			await new Promise<void>((resolve) => {
+				setTimeout(() => resolve(), 500);
+			});
+		}
+		console.log("历史心率血氧数据获取完成");
+	}
+
+	/**
+	 * 自动获取所有睡眠数据
+	 * 根据 dataReadyStatus.sleepCount 自动遍历获取
+	 */
+	async fetchAllSleepData(): Promise<void> {
+		const status = this.dataReadyStatus.value;
+		if (status.sleepCount <= 0) {
+			console.log("没有睡眠数据");
+			return;
+		}
+
+		console.log("开始获取睡眠数据，总共", status.sleepCount, "条");
+		for (let i = 0; i < status.sleepCount; i++) {
+			console.log("获取第", i, "条睡眠数据");
+			await this.getSleepData(i);
+			// 等待数据返回（通过 onCharacteristicValueChange 接收）
+			await new Promise<void>((resolve) => {
+				setTimeout(() => resolve(), 500);
+			});
+		}
+		console.log("睡眠数据获取完成");
 	}
 
 	// 事件处理
@@ -571,38 +637,48 @@ export class Device {
 			const hexData = hexString;
 			const serviceId = res.serviceId.toLowerCase();
 			const characteristicId = res.characteristicId.toLowerCase();
-			// console.log("响应数据:", hexData, serviceId, characteristicId);
+			console.log("响应数据:", hexData, serviceId, characteristicId);
 
 			if (serviceId == HEART_RATE_SERVICE_UUID) {
 				const [heartRate, ppi] = parseHeartRateData(hexData);
 				this.heartRate.value = heartRate;
 				this.ppi.value = ppi;
-				bluetoothDataManager.storeData("heartRate", heartRate, ppi);
+				// 实时数据暂不存储（storeData 已禁用）
+				// bluetoothDataManager.storeData("heartRate", heartRate, ppi);
 			} else if (serviceId == LED_BUTTON_SERVICE_UUID) {
 				const bloodOxygen = parseBloodOxygenData(hexData);
 				this.bloodOxygen.value = bloodOxygen;
-				bluetoothDataManager.storeData("bloodOxygen", bloodOxygen, null);
+				// 实时数据暂不存储（storeData 已禁用）
+				// bluetoothDataManager.storeData("bloodOxygen", bloodOxygen, null);
 			} else if (serviceId == BATTERY_SERVICE_UUID) {
 				const battery = parseBatteryData(hexData);
 				this.battery.value = battery;
-				bluetoothDataManager.storeData("battery", battery, null);
+				// 实时数据暂不存储（storeData 已禁用）
+				// bluetoothDataManager.storeData("battery", battery, null);
 			} else if (serviceId == UART_SERVICE_UUID) {
-				if (hexData.indexOf("AAAA") != -1 || hexData.indexOf(",") != -1) {
+				console.log("UART_SERVICE_UUID:", hexData);
+				if (hexData.indexOf("2c") != -1) {
 					const status = parseDataReadyStatus(hexData);
 					this.dataReadyStatus.value = status;
 					console.log("数据就绪状态:", status);
-				} else if (hexData.indexOf("5254433A") != -1 || hexData.indexOf("RTC") != -1) {
+				} else if (hexData.indexOf("525443") != -1 || hexData.indexOf("RTC") != -1) {
 					const rtc = parseRTCResponse(hexData);
 					this.rtcTime.value = rtc;
 					console.log("RTC时间:", rtc);
-				} else if (hexData.length >= 128) {
+				} else if (hexData.length == 256) {
+					// 心率数据：16组×8字节=128字节=256 hex chars（恰好256）
 					const records = parseHistoricalHeartRateData(hexData);
 					this.historicalHeartRateData.value = records;
 					console.log("历史心率数据:", records);
+					// 存储历史心率血氧数据
+					this.storeHistoricalRecords(records);
 				} else if (hexData.length >= 48) {
+					// 睡眠数据：24字节头+N字节状态（可变长度）
 					const sleep = parseSleepData(hexData);
 					this.sleepData.value = sleep;
 					console.log("睡眠数据:", sleep);
+					// 存储历史睡眠数据
+					bluetoothDataManager.storeSleepData(sleep);
 				}
 			}
 		});

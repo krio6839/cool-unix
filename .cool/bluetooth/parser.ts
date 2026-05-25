@@ -82,25 +82,54 @@ export const parseBatteryData = (hexData: string): number => {
 
 export const parseDataReadyStatus = (hexData: string): DataReadyStatus => {
 	const cleanData = hexData.replace(/\s/g, "").toUpperCase();
-	const parts = cleanData.split(",");
-	if (parts.length != 2) {
-		return { heartRateCount: 0, sleepCount: 0 };
+
+	// 如果包含 AAAA 或 , 说明是直接的 ASCII 字符串
+	if (cleanData.indexOf("AAAA") != -1 || cleanData.indexOf(",") != -1) {
+		const parts = cleanData.split(",");
+		if (parts.length != 2) {
+			return { heartRateCount: 0, sleepCount: 0 };
+		}
+		const heartRateCount = parseInt(parts[0], 10) ?? 0;
+		const sleepCount = parseInt(parts[1], 10) ?? 0;
+		return { heartRateCount, sleepCount };
 	}
-	const heartRateCount = parseInt(parts[0], 10) ?? 0;
-	const sleepCount = parseInt(parts[1], 10) ?? 0;
-	return { heartRateCount, sleepCount };
+
+	// 否则假设是十六进制 ASCII 编码的数据（如 "3438302c30"）
+	// 转换为 ASCII 字符串后再解析
+	if (cleanData.length % 2 === 0) {
+		let asciiStr = "";
+		for (let i = 0; i < cleanData.length; i += 2) {
+			const charCode = parseInt(cleanData.substring(i, i + 2), 16);
+			if (!isNaN(charCode)) {
+				asciiStr += String.fromCharCode(charCode);
+			}
+		}
+		const parts = asciiStr.split(",");
+		if (parts.length === 2) {
+			const heartRateCount = parseInt(parts[0], 10) ?? 0;
+			const sleepCount = parseInt(parts[1], 10) ?? 0;
+			return { heartRateCount, sleepCount };
+		}
+	}
+
+	return { heartRateCount: 0, sleepCount: 0 };
 };
 
 export const parseRTCResponse = (hexData: string): number => {
-	const cleanData = hexData.replace(/\s/g, "").toUpperCase();
-	const rtcIndex = cleanData.indexOf("5254433A");
-	if (rtcIndex == -1) {
-		const num = parseInt(cleanData, 16);
-		return isNaN(num) ? 0 : num;
-	}
-	const numStr = cleanData.substring(rtcIndex + 8);
-	const num = parseInt(numStr, 16);
-	return isNaN(num) ? 0 : num;
+    // 1. 十六进制 → 文本
+    let text = "";
+    for (let i = 0; i < hexData.length; i += 2) {
+        const byte = hexData.substring(i, i + 2);
+        text += String.fromCharCode(parseInt(byte, 16));
+    }
+    
+    // 2. 提取 RTC: 后面的数字（UTS 严格模式写法）
+    const match = text.match(/RTC:(\d+)/);
+    if (match !== null && match[1] !== null) {
+        // 使用非空断言操作符确保类型为 string
+        return parseInt(match[1]!, 10);
+    }
+    return 0;
 };
 
 export const parseHistoricalHeartRateData = (hexData: string): Array<HeartRateRecord> => {
@@ -173,4 +202,14 @@ export const convertNumberToHexString = (num: number, byteLength: number): strin
 		hex = "0" + hex;
 	}
 	return hex;
+};
+
+export const convertNumberToHexStringLSB = (num: number, byteLength: number): string => {
+	// 将数字按小端序转换为字节数组
+	const result: string[] = [];
+	for (let i = 0; i < byteLength; i++) {
+		const byte = (num >> (i * 8)) & 0xff;
+		result.push(byte.toString(16).padStart(2, "0"));
+	}
+	return result.join("");
 };

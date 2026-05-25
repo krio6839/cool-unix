@@ -57,7 +57,6 @@ export function request(options: RequestOptions): Promise<any | null> {
 		url = config.baseUrl + url;
 	}
 
-	console.log(`[${method}] ${url} ${JSON.stringify(data)}`);
 
 	// 获取当前token
 	let Authorization: string | null = user.token;

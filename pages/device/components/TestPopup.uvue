@@ -395,6 +395,7 @@ async function testShutdown() {
 async function testSetDeviceTime() {
 	ui.showToast({ message: t("设置RTC时间..."), type: "warn" });
 	const timestamp = Math.floor(Date.now() / 1000);
+	console.log("当前时间戳:", timestamp);
 	const result = await deviceStore.setDeviceTime(timestamp);
 	if (result) {
 		ui.showToast({ message: t("设置成功") + timestamp, type: "success" });

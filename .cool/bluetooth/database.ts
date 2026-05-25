@@ -4,10 +4,12 @@ import {
 	executeSql,
 	selectSql,
 	closeDatabase,
+	deleteDatabase,
 	type OpenDatabaseOptions,
 	type ExecuteSqlOptions,
 	type SelectSqlOptions,
 	type CloseDatabaseOptions,
+	type DeleteDatabaseOptions,
 	type SelectSqlResult
 	//@ts-ignore
 } from "@/uni_modules/meibao-Sqlite";
@@ -62,6 +64,25 @@ class BluetoothDatabase {
 		});
 	}
 
+	// 删除数据库
+	delete(): Promise<boolean> {
+		return new Promise((resolve) => {
+			const options: DeleteDatabaseOptions = {
+				name: DB_NAME,
+				success: () => {
+					console.log("数据库删除成功");
+					this.isOpen = false;
+					resolve(true);
+				},
+				fail: (err) => {
+					console.error("数据库删除失败:", err.errMsg);
+					resolve(false);
+				}
+			};
+			deleteDatabase(options);
+		});
+	}
+
 	// 初始化表结构
 	private initTables(): void {
 		this.execute(`CREATE TABLE IF NOT EXISTS bluetooth_data (
@@ -99,6 +120,18 @@ class BluetoothDatabase {
       )`);
 
 		this.execute("CREATE INDEX IF NOT EXISTS idx_sleep_id ON sleep_status(sleep_id)");
+
+		this.execute(`CREATE TABLE IF NOT EXISTS ppi_data (
+        id TEXT PRIMARY KEY,
+        timestamp INTEGER NOT NULL,
+        hr INTEGER NOT NULL,
+        spo2 INTEGER NOT NULL,
+        ppi INTEGER NOT NULL,
+        uploaded INTEGER DEFAULT 0
+      )`);
+
+		this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_timestamp ON ppi_data(timestamp)");
+		this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_uploaded ON ppi_data(uploaded)");
 	}
 
 	// 执行 SQL 语句
