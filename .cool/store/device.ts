@@ -244,6 +244,8 @@ export class Device {
 						// this.subscribeBloodOxygen();
 						// this.subscribeBattery();
 						this.subscribeUART();
+						// 自动校准设备 RTC，确保后续 timestamp 是真实 Unix 时间戳
+						this.setDeviceTime(Math.floor(Date.now() / 1000));
 					}, 500);
 				});
 				this.resetReconnectState();
@@ -571,16 +573,25 @@ export class Device {
 	 * @param records 历史心率记录数组
 	 */
 	private async storeHistoricalRecords(records: Array<HeartRateRecord>): Promise<void> {
+		let insertCount = 0;
+		let skipCount = 0;
 		for (let i = 0; i < records.length; i++) {
 			const record = records[i];
-			await bluetoothDataManager.storeHistoricalHeartRateRecord(
+			const ok = await bluetoothDataManager.storeHistoricalHeartRateRecord(
 				record.timestamp,
 				record.heartRate,
 				record.bloodOxygen,
 				record.ppi
 			);
+			if (ok) {
+				insertCount++;
+			} else {
+				skipCount++;
+			}
 		}
-		console.log("历史心率血氧数据存储完成，共", records.length, "条");
+		console.log(
+			`历史心率血氧数据存储完成，新增 ${insertCount} 条，跳过(重复id) ${skipCount} 条`
+		);
 	}
 
 	/**

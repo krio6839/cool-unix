@@ -43,7 +43,7 @@ const isIgnoreToken = (url: string) => {
  * @returns Promise<T>
  */
 export function request(options: RequestOptions): Promise<any | null> {
-	let { url, method = "GET", data = {}, header = {}, timeout = 60000 } = options;
+	let { url, method = "GET", data, header = {}, timeout = 60000 } = options;
 
 	const { user } = useStore();
 
@@ -57,7 +57,6 @@ export function request(options: RequestOptions): Promise<any | null> {
 		url = config.baseUrl + url;
 	}
 
-
 	// 获取当前token
 	let Authorization: string | null = user.token;
 
@@ -69,10 +68,17 @@ export function request(options: RequestOptions): Promise<any | null> {
 	return new Promise((resolve, reject) => {
 		// 发起请求的实际函数
 		const next = () => {
+			// uni-app x 在 APP 端要求 data 必须是 UTSJSONObject / string / ArrayBuffer
+			// 这里统一把对象序列化为 string，避免含数组字段的强类型对象触发 errCode: 600008
+			let payload: any | null = data;
+			if (payload != null && typeof payload != "string") {
+				payload = JSON.stringify(payload) as any;
+			}
+
 			uni.request({
 				url,
 				method,
-				data,
+				data: payload,
 				header: {
 					Authorization,
 					language: locale.value,
@@ -81,6 +87,8 @@ export function request(options: RequestOptions): Promise<any | null> {
 				timeout,
 
 				success(res) {
+					console.log(res);
+
 					// 401 无权限
 					if (res.statusCode == 401) {
 						user.logout();
@@ -119,18 +127,34 @@ export function request(options: RequestOptions): Promise<any | null> {
 						} else if (!isObject(res.data as any)) {
 							resolve(res.data);
 						} else {
-							// 解析响应数据
-							const { code, message, data } = parse<Response>(
-								res.data ?? { code: 0 }
-							)!;
+							const obj = res.data as UTSJSONObject;
+							// 优先识别标准 code 字段
+							const codeVal = obj?.["code"];
+							const statusVal = obj?.["status"];
+							const hasCode = codeVal != null;
+							// 兼容非标准响应（如上传接口：{ message, status: "success" }）
+							const isSuccessStatus = statusVal == "success";
+							console.log(isSuccessStatus, hasCode);
+							if (hasCode) {
+								// 标准响应：按原有 code 校验
+								const { code, message, data } = parse<Response>(
+									res.data ?? { code: 0 }
+								)!;
 
-							switch (code) {
-								case 0:
-									resolve(data);
-									break;
-								default:
-									reject({ message, code } as Response);
-									break;
+								switch (code) {
+									case 0:
+										resolve(data);
+										break;
+									default:
+										reject({ message, code } as Response);
+										break;
+								}
+							} else if (isSuccessStatus) {
+								// 非标准成功响应：原样返回
+								resolve(res.data);
+							} else {
+								// 兜底：既无 code 也非 success，按成功处理并原样返回
+								resolve(res.data);
 							}
 						}
 					} else {
@@ -140,6 +164,7 @@ export function request(options: RequestOptions): Promise<any | null> {
 
 				// 网络请求失败
 				fail(err) {
+					console.error("[request fail]", method, url, err);
 					reject({ message: err.errMsg } as Response);
 				}
 			});

@@ -119,17 +119,18 @@ export class BluetoothDataManager {
 	 * @param heartRate 心率值
 	 * @param bloodOxygen 血氧值
 	 * @param ppi 心率变异性
+	 * @returns 是否插入成功（false 表示 id 已存在，已被忽略）
 	 */
 	async storeHistoricalHeartRateRecord(
 		timestamp: number,
 		heartRate: number,
 		bloodOxygen: number,
 		ppi: number
-	): Promise<void> {
-		// 直接使用 timestamp 作为 id，确保唯一性
-		const sql = `INSERT INTO ppi_data (id, timestamp, hr, spo2, ppi, uploaded) VALUES ('${timestamp}', ${timestamp}, ${heartRate}, ${bloodOxygen}, ${ppi}, 0)`;
+	): Promise<boolean> {
+		// 使用 INSERT OR IGNORE 替代 INSERT，遇到重复 id 时静默跳过
+		const sql = `INSERT OR IGNORE INTO ppi_data (id, timestamp, hr, spo2, ppi, uploaded) VALUES ('${timestamp}', ${timestamp}, ${heartRate}, ${bloodOxygen}, ${ppi}, 0)`;
 		console.log("存储PPI数据:", { id: timestamp, timestamp, heartRate, bloodOxygen, ppi });
-		await bluetoothDatabase.execute(sql);
+		return bluetoothDatabase.execute(sql);
 	}
 
 	/**

@@ -8,7 +8,11 @@ export const proxy = {
 		changeOrigin: true,
 		rewrite: (path: string) => path.replace("/dev", "")
 	},
-
+	upload: {
+		target: "http://47.100.30.18:8000/upload",
+		changeOrigin: true,
+		rewrite: (path: string) => path.replace("/upload", "")
+	},
 	// 生产环境配置
 	prod: {
 		// 官方测试地址
