@@ -81,7 +81,7 @@ async function fetchSleepStatus() {
 }
 
 async function fetchSleepMetric() {
-	await sleep.fetchMetric(device.currentDeviceId, currentDate.value);
+	await sleep.fetchMetric(device.currentDeviceId, currentDate.value, sleepActiveMetric.value);
 }
 
 async function fetchSleepTrend(days: string) {

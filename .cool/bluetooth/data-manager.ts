@@ -53,7 +53,7 @@ export class BluetoothDataManager {
 	 */
 	setDeviceInfo(deviceName: string, address: string): void {
 		this.deviceAddress = address;
-		this.deviceName = deviceName + address.split(":").join("");
+		this.deviceName = deviceName + "-" + address.split(":").join("");
 	}
 
 	clearDeviceInfo(): void {
@@ -73,7 +73,7 @@ export class BluetoothDataManager {
 	 * @returns 唯一ID字符串
 	 */
 	private generateId(): string {
-		return Date.now().toString(36) + Math.random().toString(36).substring(2);
+		return Date.now().toString();
 	}
 
 	/**
@@ -126,10 +126,9 @@ export class BluetoothDataManager {
 		bloodOxygen: number,
 		ppi: number
 	): Promise<void> {
-		// 存储到 ppi_data 表，一行包含所有数据
-		const id = this.generateId();
-		const sql = `INSERT INTO ppi_data (id, timestamp, hr, spo2, ppi, uploaded) VALUES ('${id}', ${timestamp}, ${heartRate}, ${bloodOxygen}, ${ppi}, 0)`;
-		console.log("存储PPI数据:", { id, timestamp, heartRate, bloodOxygen, ppi });
+		// 直接使用 timestamp 作为 id，确保唯一性
+		const sql = `INSERT INTO ppi_data (id, timestamp, hr, spo2, ppi, uploaded) VALUES ('${timestamp}', ${timestamp}, ${heartRate}, ${bloodOxygen}, ${ppi}, 0)`;
+		console.log("存储PPI数据:", { id: timestamp, timestamp, heartRate, bloodOxygen, ppi });
 		await bluetoothDatabase.execute(sql);
 	}
 
@@ -277,19 +276,18 @@ export class BluetoothDataManager {
 	 * @param sleepData 睡眠数据
 	 */
 	async storeSleepData(sleepData: SleepData): Promise<void> {
-		const sleepId = sleepData.id ?? this.generateId();
 		const { reportTimestamp, bedtime, sleepTime, wakeTime, getupTime, recordCount, statuses } =
 			sleepData;
 
-		const sleepSql = `INSERT INTO sleep_data (id, report_timestamp, bedtime, sleep_time, wake_time, getup_time, record_count, uploaded) 
-			VALUES ('${sleepId}', ${reportTimestamp}, ${bedtime}, ${sleepTime}, ${wakeTime}, ${getupTime}, ${recordCount}, 0)`;
+		const sleepSql = `INSERT INTO sleep_data (id, report_timestamp, bedtime, sleep_time, wake_time, getup_time, record_count, uploaded)
+			VALUES ('${reportTimestamp}', ${reportTimestamp}, ${bedtime}, ${sleepTime}, ${wakeTime}, ${getupTime}, ${recordCount}, 0)`;
 		await bluetoothDatabase.execute(sleepSql);
 
 		for (let i = 0; i < statuses.length; i++) {
 			const status = statuses[i];
-			const statusId = status.id ?? this.generateId();
-			const statusSql = `INSERT INTO sleep_status (id, sleep_id, minute_index, status) 
-				VALUES ('${statusId}', '${sleepId}', ${i}, ${status.status})`;
+			const statusId = reportTimestamp + i;
+			const statusSql = `INSERT INTO sleep_status (id, sleep_id, minute_index, status)
+				VALUES ('${statusId}', '${reportTimestamp}', ${i}, ${status.status})`;
 			await bluetoothDatabase.execute(statusSql);
 		}
 	}

@@ -135,10 +135,10 @@ export class Device {
 			this.currentWearLocation = savedLocation;
 		}
 
-		const savedDeviceId = storage.get(KEY_LAST_DEVICE_ID) as string | null;
-		if (this.lastConnectedDeviceId == "" && savedDeviceId != null && savedDeviceId != "") {
-			this.lastConnectedDeviceId = savedDeviceId;
-		}
+		// const savedDeviceId = storage.get(KEY_LAST_DEVICE_ID) as string | null;
+		// if (this.lastConnectedDeviceId == "" && savedDeviceId != null && savedDeviceId != "") {
+		// 	this.lastConnectedDeviceId = savedDeviceId;
+		// }
 	}
 
 	saveWearLocation(location: WearLocation): void {
@@ -594,17 +594,33 @@ export class Device {
 			return;
 		}
 
-		console.log("开始获取历史心率血氧数据，总共", status.heartRateCount, "条");
-		// 每页16条记录，循环获取
-		for (let i = 0; i < status.heartRateCount; i += 16) {
-			console.log("获取第", i, "页历史数据");
-			await this.getHistoricalHeartRateData(i);
-			// 等待数据返回（通过 onCharacteristicValueChange 接收）
+		// 清空旧数据（如果是手动获取全部）
+		this.historicalHeartRateData.value = [];
+
+		// 计算总页数（每页16条）
+		const pageCount = Math.ceil(status.heartRateCount / 16);
+		console.log(
+			"开始获取历史心率血氧数据，总共",
+			status.heartRateCount,
+			"条，共",
+			pageCount,
+			"页"
+		);
+
+		for (let page = 0; page < pageCount; page++) {
+			const recordIndex = page * 16;
+			console.log("获取第", page, "页，索引从", recordIndex, "开始");
+			await this.getHistoricalHeartRateData(recordIndex);
+			// 增加等待时间，确保设备有足够时间响应
 			await new Promise<void>((resolve) => {
-				setTimeout(() => resolve(), 500);
+				setTimeout(() => resolve(), 1000);
 			});
 		}
-		console.log("历史心率血氧数据获取完成");
+		console.log(
+			"历史心率血氧数据获取完成，共",
+			this.historicalHeartRateData.value.length,
+			"条"
+		);
 	}
 
 	/**
@@ -668,7 +684,10 @@ export class Device {
 				} else if (hexData.length == 256) {
 					// 心率数据：16组×8字节=128字节=256 hex chars（恰好256）
 					const records = parseHistoricalHeartRateData(hexData);
-					this.historicalHeartRateData.value = records;
+					this.historicalHeartRateData.value = [
+						...this.historicalHeartRateData.value,
+						...records
+					];
 					console.log("历史心率数据:", records);
 					// 存储历史心率血氧数据
 					this.storeHistoricalRecords(records);

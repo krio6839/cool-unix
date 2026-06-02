@@ -233,6 +233,33 @@
 				</cl-button>
 			</view>
 
+			<!-- 睡眠数据测试 -->
+			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+				{{ t("睡眠数据测试") }}
+			</cl-text>
+			<view class="flex flex-row flex-wrap mb-4">
+				<cl-button
+					type="primary"
+					color="#666"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testGetSleepDataByIndex"
+				>
+					{{ t("获取第N条睡眠") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#777"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testUploadSleepData"
+				>
+					{{ t("上传睡眠数据") }}
+				</cl-button>
+			</view>
+
 			<!-- 设备控制 -->
 			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
 				{{ t("设备控制") }}
@@ -269,6 +296,33 @@
 					{{ t("结束睡眠判断") }}
 				</cl-button>
 			</view>
+
+			<!-- 数据库操作 -->
+			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+				{{ t("数据库操作") }}
+			</cl-text>
+			<view class="flex flex-row flex-wrap mb-4">
+				<cl-button
+					type="primary"
+					color="#999"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testClearDatabase"
+				>
+					{{ t("清空数据库") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#aaa"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testDeleteDatabase"
+				>
+					{{ t("删除数据库") }}
+				</cl-button>
+			</view>
 		</scroll-view>
 	</cl-popup>
 </template>
@@ -276,6 +330,7 @@
 <script lang="ts" setup>
 import { t, useStore } from "@/.cool";
 import { useUi } from "@/uni_modules/cool-ui";
+import { bluetoothDataManager } from "@/.cool/bluetooth";
 
 const ui = useUi();
 const { device: deviceStore } = useStore();
@@ -411,6 +466,40 @@ async function testEndSleep() {
 		ui.showToast({ message: t("命令发送成功"), type: "success" });
 	} else {
 		ui.showToast({ message: t("命令发送失败"), type: "error" });
+	}
+}
+
+async function testClearDatabase() {
+	ui.showToast({ message: t("清空数据库..."), type: "warn" });
+	await bluetoothDataManager.clearAllData();
+	ui.showToast({ message: t("数据库已清空"), type: "success" });
+}
+
+async function testDeleteDatabase() {
+	ui.showToast({ message: t("删除数据库..."), type: "warn" });
+	await bluetoothDataManager.clearAllData();
+	ui.showToast({ message: t("数据库已删除"), type: "success" });
+}
+
+async function testGetSleepDataByIndex() {
+	const index = 0;
+	ui.showToast({ message: t("获取睡眠数据...") + index, type: "warn" });
+	const result = await deviceStore.getSleepData(index);
+	if (result) {
+		console.log("睡眠数据:", deviceStore.sleepData.value);
+		ui.showToast({ message: t("获取成功"), type: "success" });
+	} else {
+		ui.showToast({ message: t("获取失败"), type: "error" });
+	}
+}
+
+async function testUploadSleepData() {
+	ui.showToast({ message: t("上传睡眠数据..."), type: "warn" });
+	const result = await bluetoothDataManager.uploadSleepData();
+	if (result) {
+		ui.showToast({ message: t("上传成功"), type: "success" });
+	} else {
+		ui.showToast({ message: t("上传失败"), type: "error" });
 	}
 }
 </script>

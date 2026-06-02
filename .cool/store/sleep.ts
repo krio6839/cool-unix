@@ -53,12 +53,12 @@ export class Sleep {
 		});
 	}
 
-	fetchMetric(deviceId: string, date: string): Promise<void> {
+	fetchMetric(deviceId: string, date: string, metric: string): Promise<void> {
 		return new Promise((resolve, reject) => {
 			request({
 				url: `/devices/${deviceId}/sleep_metric`,
 				method: "GET",
-				data: { date } as UTSJSONObject
+				data: { date, metric } as UTSJSONObject
 			})
 				.then((res) => {
 					if (res != null && isObject(res)) {
