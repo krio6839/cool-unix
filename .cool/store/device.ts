@@ -1,5 +1,5 @@
 import { ref } from "vue";
-import { sleepTimeout, storage } from "../utils";
+import { PageWaiter, sleepTimeout, storage } from "../utils";
 import { t } from "../locale";
 
 // 蓝牙相关导入
@@ -93,8 +93,9 @@ export class Device {
 	// 标记本次分页获取过程中是否已收到"全 f"响应（说明后续无有效数据）
 	private _heartRateResponseAllEmpty: boolean = false;
 
-	// 当前页响应的 resolver（由 BLE 回调在解析到 256 字符 hex 时调用）
-	private _heartRatePageResolver: (() => void) | null = null;
+	// 分页等待器：心率分页 / 睡眠分页各持一个，复用同一原语
+	private _heartRatePageWaiter: PageWaiter = new PageWaiter();
+	private _sleepPageWaiter: PageWaiter = new PageWaiter();
 
 	// 健康数据
 	heartRate = ref(0);
@@ -611,8 +612,9 @@ export class Device {
 			return;
 		}
 
-		// 重置"全 f"响应标记
+		// 重置"全 f"响应标记与分页等待器
 		this._heartRateResponseAllEmpty = false;
+		this._heartRatePageWaiter.reset();
 
 		// 计算总页数（每页16条）
 		const pageCount = Math.ceil(status.heartRateCount / 16);
@@ -630,26 +632,11 @@ export class Device {
 			const recordIndex = page * 16;
 			console.log("获取第", page, "页，索引从", recordIndex, "开始");
 
-			// 准备一个待 resolve 的 Promise，等回调通知"本页响应已到达"
-			// 使用 Promise<boolean> 便于 Promise.race 推断 T；true=超时，false=收到响应
-			this._heartRatePageResolver = null;
-			const responsePromise = new Promise<boolean>((resolve) => {
-				// 包装为 0 参箭头函数以匹配 _heartRatePageResolver 的 Function0<Unit>? 字段类型
-				this._heartRatePageResolver = () => {
-					resolve(false);
-				};
-			});
-
 			await this.getHistoricalHeartRateData(recordIndex);
 
 			// 等待响应到达；超过超时时间则视为本页无响应，继续下一页
-			const timeoutPromise = new Promise<boolean>((resolve) => {
-				setTimeout(() => resolve(true), PAGE_RESPONSE_TIMEOUT_MS);
-			});
-			const result = await Promise.race([responsePromise, timeoutPromise]);
-			if (result == true) {
-				// 清空 resolver，避免迟到的响应误触发
-				this._heartRatePageResolver = null;
+			const timeout = await this._heartRatePageWaiter.wait(PAGE_RESPONSE_TIMEOUT_MS);
+			if (timeout == true) {
 				console.log(`第 ${page} 页响应超时（${PAGE_RESPONSE_TIMEOUT_MS}ms），继续下一页`);
 				continue;
 			}
@@ -673,14 +660,20 @@ export class Device {
 			return;
 		}
 
+		this._sleepPageWaiter.reset();
+		// 单条响应的最长等待时间（兜底）
+		const SLEEP_RESPONSE_TIMEOUT_MS = 1000;
 		console.log("开始获取睡眠数据，总共", status.sleepCount, "条");
+
 		for (let i = 0; i < status.sleepCount; i++) {
 			console.log("获取第", i, "条睡眠数据");
 			await this.getSleepData(i);
-			// 等待数据返回（通过 onCharacteristicValueChange 接收）
-			await new Promise<void>((resolve) => {
-				setTimeout(() => resolve(), 500);
-			});
+
+			// 等待数据返回（通过 onCharacteristicValueChange 接收并 notify）
+			const timeout = await this._sleepPageWaiter.wait(SLEEP_RESPONSE_TIMEOUT_MS);
+			if (timeout == true) {
+				console.log(`第 ${i} 条睡眠数据响应超时（${SLEEP_RESPONSE_TIMEOUT_MS}ms）`);
+			}
 		}
 		console.log("睡眠数据获取完成");
 	}
@@ -722,20 +715,16 @@ export class Device {
 				} else if (hexData.length == 256) {
 					// 心率数据：16组×8字节=128字节=256 hex chars（恰好256）
 					const records = parseHistoricalHeartRateData(hexData);
-					// 先打印日志和触发 resolver（确保不因为异步存储而错过）
+					// 先打印日志和通知等待者（确保不因为异步存储而错过）
 					console.log("历史心率数据:", records);
 					// 通知 fetchAllHistoricalHeartRateData 本页响应已到（先触发，再异步存储）
-					const resolver = this._heartRatePageResolver;
-					this._heartRatePageResolver = null;
-					if (resolver != null) {
-						resolver();
-					}
+					this._heartRatePageWaiter.onNotify();
 					// 当解析后无任何记录（说明原始数据为"全 f"），标记后续无数据
 					if (records.length == 0) {
 						this._heartRateResponseAllEmpty = true;
 						console.log("本次响应为全 f，无有效数据，标记停止获取");
 					}
-					// 存储历史心率血氧数据（异步，不阻塞 resolver）
+					// 存储历史心率血氧数据（异步，不阻塞 notify）
 					this.storeHistoricalRecords(records);
 				} else if (hexData.length >= 48) {
 					// 睡眠数据：24字节头+N字节状态（可变长度）
@@ -744,6 +733,8 @@ export class Device {
 					console.log("睡眠数据:", sleep);
 					// 存储历史睡眠数据
 					bluetoothDataManager.storeSleepData(sleep);
+					// 通知 fetchAllSleepData 当前条响应已到
+					this._sleepPageWaiter.onNotify();
 				}
 			}
 		});
