@@ -48,7 +48,7 @@ export const UART_RX_CHARACTERISTIC_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e
 /**
  * 上传间隔时间（毫秒）- 每10秒上传一次
  */
-export const UPLOAD_INTERVAL = 10 * 1000;
+export const UPLOAD_INTERVAL = 30 * 1000;
 
 /**
  * 最大数据保存时间（毫秒）- 90天

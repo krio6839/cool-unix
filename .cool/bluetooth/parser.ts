@@ -116,20 +116,20 @@ export const parseDataReadyStatus = (hexData: string): DataReadyStatus => {
 };
 
 export const parseRTCResponse = (hexData: string): number => {
-    // 1. 十六进制 → 文本
-    let text = "";
-    for (let i = 0; i < hexData.length; i += 2) {
-        const byte = hexData.substring(i, i + 2);
-        text += String.fromCharCode(parseInt(byte, 16));
-    }
-    
-    // 2. 提取 RTC: 后面的数字（UTS 严格模式写法）
-    const match = text.match(/RTC:(\d+)/);
-    if (match !== null && match[1] !== null) {
-        // 使用非空断言操作符确保类型为 string
-        return parseInt(match[1]!, 10);
-    }
-    return 0;
+	// 1. 十六进制 → 文本
+	let text = "";
+	for (let i = 0; i < hexData.length; i += 2) {
+		const byte = hexData.substring(i, i + 2);
+		text += String.fromCharCode(parseInt(byte, 16));
+	}
+
+	// 2. 提取 RTC: 后面的数字（UTS 严格模式写法）
+	const match = text.match(/RTC:(\d+)/);
+	if (match !== null && match[1] !== null) {
+		// 使用非空断言操作符确保类型为 string
+		return parseInt(match[1]!, 10);
+	}
+	return 0;
 };
 
 export const parseHistoricalHeartRateData = (hexData: string): Array<HeartRateRecord> => {
@@ -151,7 +151,9 @@ export const parseHistoricalHeartRateData = (hexData: string): Array<HeartRateRe
 		const heartRate = bytes[offset + 4];
 		const bloodOxygen = bytes[offset + 5];
 		const ppi = bytes[offset + 6] + (bytes[offset + 7] << 8);
-		records.push({ timestamp, heartRate, bloodOxygen, ppi });
+		if (timestamp != -1) {
+			records.push({ timestamp, heartRate, bloodOxygen, ppi });
+		}
 	}
 	return records;
 };

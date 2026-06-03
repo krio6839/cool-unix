@@ -87,6 +87,9 @@ export class Device {
 	_isCharging: boolean = false;
 	_deviceOn: boolean = false;
 
+	// 标记本次分页获取过程中是否已收到"全 f"响应（说明后续无有效数据）
+	private _heartRateResponseAllEmpty: boolean = false;
+
 	// 健康数据
 	heartRate = ref(0);
 	bloodOxygen = ref(0);
@@ -99,7 +102,6 @@ export class Device {
 		sleepCount: 0
 	});
 	rtcTime = ref<number>(0);
-	historicalHeartRateData = ref<Array<HeartRateRecord>>([]);
 	sleepData = ref<SleepData | null>(null);
 
 	// 重连相关属性
@@ -573,25 +575,15 @@ export class Device {
 	 * @param records 历史心率记录数组
 	 */
 	private async storeHistoricalRecords(records: Array<HeartRateRecord>): Promise<void> {
-		let insertCount = 0;
-		let skipCount = 0;
 		for (let i = 0; i < records.length; i++) {
 			const record = records[i];
-			const ok = await bluetoothDataManager.storeHistoricalHeartRateRecord(
+			await bluetoothDataManager.storeHistoricalHeartRateRecord(
 				record.timestamp,
 				record.heartRate,
 				record.bloodOxygen,
 				record.ppi
 			);
-			if (ok) {
-				insertCount++;
-			} else {
-				skipCount++;
-			}
 		}
-		console.log(
-			`历史心率血氧数据存储完成，新增 ${insertCount} 条，跳过(重复id) ${skipCount} 条`
-		);
 	}
 
 	/**
@@ -605,8 +597,8 @@ export class Device {
 			return;
 		}
 
-		// 清空旧数据（如果是手动获取全部）
-		this.historicalHeartRateData.value = [];
+		// 重置"全 f"响应标记
+		this._heartRateResponseAllEmpty = false;
 
 		// 计算总页数（每页16条）
 		const pageCount = Math.ceil(status.heartRateCount / 16);
@@ -626,12 +618,12 @@ export class Device {
 			await new Promise<void>((resolve) => {
 				setTimeout(() => resolve(), 1000);
 			});
+			// 如果本次响应为"全 f"，说明后续无数据，提前结束
+			if (this._heartRateResponseAllEmpty) {
+				console.log(`第 ${page} 页响应为全 f，无更多数据，提前结束获取`);
+				break;
+			}
 		}
-		console.log(
-			"历史心率血氧数据获取完成，共",
-			this.historicalHeartRateData.value.length,
-			"条"
-		);
 	}
 
 	/**
@@ -684,7 +676,7 @@ export class Device {
 				// bluetoothDataManager.storeData("battery", battery, null);
 			} else if (serviceId == UART_SERVICE_UUID) {
 				console.log("UART_SERVICE_UUID:", hexData);
-				if (hexData.indexOf("2c") != -1) {
+				if (hexData.indexOf("2c") != -1 && hexData.length < 48) {
 					const status = parseDataReadyStatus(hexData);
 					this.dataReadyStatus.value = status;
 					console.log("数据就绪状态:", status);
@@ -695,13 +687,14 @@ export class Device {
 				} else if (hexData.length == 256) {
 					// 心率数据：16组×8字节=128字节=256 hex chars（恰好256）
 					const records = parseHistoricalHeartRateData(hexData);
-					this.historicalHeartRateData.value = [
-						...this.historicalHeartRateData.value,
-						...records
-					];
 					console.log("历史心率数据:", records);
 					// 存储历史心率血氧数据
 					this.storeHistoricalRecords(records);
+					// 当解析后无任何记录（说明原始数据为"全 f"），标记后续无数据
+					if (records.length == 0) {
+						this._heartRateResponseAllEmpty = true;
+						console.log("本次响应为全 f，无有效数据，标记停止获取");
+					}
 				} else if (hexData.length >= 48) {
 					// 睡眠数据：24字节头+N字节状态（可变长度）
 					const sleep = parseSleepData(hexData);
@@ -789,7 +782,6 @@ export class Device {
 		this.bloodOxygen.value = 0;
 		this.battery.value = 0;
 		this.ppi.value = 0;
-		this.historicalHeartRateData.value = [];
 		this.sleepData.value = null;
 		this.dataReadyStatus.value = {
 			heartRateCount: 0,

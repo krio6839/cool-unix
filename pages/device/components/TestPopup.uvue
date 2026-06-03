@@ -429,7 +429,6 @@ async function testGetHistoricalData() {
 	ui.showToast({ message: t("获取心率血氧历史..."), type: "warn" });
 	const result = await deviceStore.getHistoricalHeartRateData(0);
 	if (result) {
-		console.log("历史数据:", deviceStore.historicalHeartRateData.value);
 		ui.showToast({ message: t("获取成功"), type: "success" });
 	} else {
 		ui.showToast({ message: t("获取失败"), type: "error" });
@@ -439,15 +438,7 @@ async function testGetHistoricalData() {
 async function testFetchAllHistoricalData() {
 	ui.showToast({ message: t("正在拉取所有历史心率血氧..."), type: "warn" });
 	try {
-		const before = deviceStore.historicalHeartRateData.value.length;
 		await deviceStore.fetchAllHistoricalHeartRateData();
-		const after = deviceStore.historicalHeartRateData.value.length;
-		const count = deviceStore.dataReadyStatus.value.heartRateCount;
-		console.log(`本次新增 ${after - before} 条，累计 ${after}/${count} 条`);
-		ui.showToast({
-			message: `${t("获取成功")} ${after}/${count}条`,
-			type: "success"
-		});
 	} catch (err) {
 		console.error("拉取所有历史数据失败:", err);
 		ui.showToast({ message: t("获取失败"), type: "error" });
