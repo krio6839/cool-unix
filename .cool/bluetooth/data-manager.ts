@@ -129,7 +129,7 @@ export class BluetoothDataManager {
 	): Promise<boolean> {
 		// 使用 INSERT OR IGNORE 替代 INSERT，遇到重复 id 时静默跳过
 		const sql = `INSERT OR IGNORE INTO ppi_data (id, timestamp, hr, spo2, ppi, uploaded) VALUES ('${timestamp}', ${timestamp}, ${heartRate}, ${bloodOxygen}, ${ppi}, 0)`;
-		console.log("存储PPI数据:", { id: timestamp, timestamp, heartRate, bloodOxygen, ppi });
+		// console.log("存储PPI数据:", { id: timestamp, timestamp, heartRate, bloodOxygen, ppi });
 		return bluetoothDatabase.execute(sql);
 	}
 
@@ -190,6 +190,21 @@ export class BluetoothDataManager {
 			dataList.push(data);
 		}
 		return dataList;
+	}
+
+	/**
+	 * 获取PPI数据总数
+	 * @returns ppi_data表中的总记录数
+	 */
+	async getPpiDataCount(): Promise<number> {
+		const sql = "SELECT COUNT(*) FROM ppi_data";
+		const result = await bluetoothDatabase.query(sql);
+
+		if (result == null || result.rows.length == 0) {
+			return 0;
+		}
+
+		return parseInt(result.rows[0][0] as string);
 	}
 
 	/**
@@ -269,6 +284,7 @@ export class BluetoothDataManager {
 		await bluetoothDatabase.execute("DELETE FROM bluetooth_data");
 		await bluetoothDatabase.execute("DELETE FROM sleep_data");
 		await bluetoothDatabase.execute("DELETE FROM sleep_status");
+		await bluetoothDatabase.execute("DELETE FROM ppi_data");
 		console.log("数据库数据清空完成");
 	}
 

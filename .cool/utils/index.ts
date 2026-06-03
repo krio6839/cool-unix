@@ -10,3 +10,4 @@ export * from "./storage";
 export * from "./unit";
 export * from "./format";
 export * from "./date";
+export * from "./sleepTimeout";

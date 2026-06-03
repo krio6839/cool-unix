@@ -233,6 +233,26 @@
 				</cl-button>
 				<cl-button
 					type="primary"
+					color="#4CAF50"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testQueryPpiDataCount"
+				>
+					{{ t("查询PPI总数") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#2196F3"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testQueryUnuploadedPpiData"
+				>
+					{{ t("查询未上传PPI") }}
+				</cl-button>
+				<cl-button
+					type="primary"
 					color="#777"
 					rounded
 					size="small"
@@ -443,6 +463,18 @@ async function testFetchAllHistoricalData() {
 		console.error("拉取所有历史数据失败:", err);
 		ui.showToast({ message: t("获取失败"), type: "error" });
 	}
+}
+
+async function testQueryPpiDataCount() {
+	ui.showToast({ message: t("查询PPI总数..."), type: "warn" });
+	const count = await bluetoothDataManager.getPpiDataCount();
+	ui.showToast({ message: t("PPI总数:") + count, type: "success" });
+}
+
+async function testQueryUnuploadedPpiData() {
+	ui.showToast({ message: t("查询未上传PPI..."), type: "warn" });
+	const data = await bluetoothDataManager.getUnuploadedPpiData();
+	ui.showToast({ message: t("未上传PPI数量:") + data.length, type: "success" });
 }
 
 async function testGetSleepData() {

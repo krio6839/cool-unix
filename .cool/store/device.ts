@@ -1,5 +1,5 @@
 import { ref } from "vue";
-import { storage } from "../utils";
+import { sleepTimeout, storage } from "../utils";
 import { t } from "../locale";
 
 // 蓝牙相关导入
@@ -77,6 +77,9 @@ export class Device {
 	// lastConnectedDeviceId: string = "FC:0E:57:D8:D8:F9";
 	lastConnectedDeviceId: string = "C6:21:DB:55:81:6D";
 
+	// 设备初始化状态标志，防止重复初始化
+	isDeviceInitialized = false;
+
 	// 蓝牙相关
 	kuxBluetooth: IBluetooth;
 	services: Array<GetBLEDeviceServicesSuccessService> = [];
@@ -89,6 +92,9 @@ export class Device {
 
 	// 标记本次分页获取过程中是否已收到"全 f"响应（说明后续无有效数据）
 	private _heartRateResponseAllEmpty: boolean = false;
+
+	// 当前页响应的 resolver（由 BLE 回调在解析到 256 字符 hex 时调用）
+	private _heartRatePageResolver: (() => void) | null = null;
 
 	// 健康数据
 	heartRate = ref(0);
@@ -137,10 +143,10 @@ export class Device {
 			this.currentWearLocation = savedLocation;
 		}
 
-		// const savedDeviceId = storage.get(KEY_LAST_DEVICE_ID) as string | null;
-		// if (this.lastConnectedDeviceId == "" && savedDeviceId != null && savedDeviceId != "") {
-		// 	this.lastConnectedDeviceId = savedDeviceId;
-		// }
+		const savedDeviceId = storage.get(KEY_LAST_DEVICE_ID) as string | null;
+		if (this.lastConnectedDeviceId == "" && savedDeviceId != null && savedDeviceId != "") {
+			this.lastConnectedDeviceId = savedDeviceId;
+		}
 	}
 
 	saveWearLocation(location: WearLocation): void {
@@ -236,6 +242,12 @@ export class Device {
 		this.kuxBluetooth.onBLEConnectionStateChange((res) => {
 			console.log("蓝牙连接状态变化:", res);
 			if (res.connected) {
+				// 防止重复初始化
+				if (this.isDeviceInitialized) {
+					console.log("设备已初始化，跳过");
+					return;
+				}
+				this.isDeviceInitialized = true;
 				console.log("设备已连接:", res.deviceId);
 				this.getDeviceServicesAndCharacteristics(res.deviceId).then(() => {
 					console.log("获取设备服务和特征值成功");
@@ -256,6 +268,8 @@ export class Device {
 					console.log("设备已断开:", res.deviceId);
 					this.status.value = "UNPAIRED";
 					this.currentDeviceId = "";
+					// 重置初始化状态，允许下次重连时重新初始化
+					this.isDeviceInitialized = false;
 					this.reconnect();
 				}
 			}
@@ -480,7 +494,7 @@ export class Device {
 		return new Promise<boolean>((resolve, reject) => {
 			const buffer = hexStringToArrayBuffer(value);
 			console.log("写入特征值:", serviceId, characteristicId, value, writeType);
-			console.log("写入特征值:", value, buffer);
+			// console.log("写入特征值:", value, buffer);
 			this.kuxBluetooth.writeBLECharacteristicValue({
 				deviceId: this.currentDeviceId,
 				serviceId,
@@ -548,7 +562,7 @@ export class Device {
 	}
 
 	getHistoricalHeartRateData(recordIndex: number): Promise<boolean> {
-		const cmd = "72" + convertNumberToHexString(recordIndex, 4);
+		const cmd = "72" + convertNumberToHexStringLSB(recordIndex, 4);
 		return this.sendCommand(cmd);
 	}
 
@@ -602,6 +616,8 @@ export class Device {
 
 		// 计算总页数（每页16条）
 		const pageCount = Math.ceil(status.heartRateCount / 16);
+		// 单页响应的最长等待时间（兜底）
+		const PAGE_RESPONSE_TIMEOUT_MS = 3000;
 		console.log(
 			"开始获取历史心率血氧数据，总共",
 			status.heartRateCount,
@@ -613,11 +629,31 @@ export class Device {
 		for (let page = 0; page < pageCount; page++) {
 			const recordIndex = page * 16;
 			console.log("获取第", page, "页，索引从", recordIndex, "开始");
-			await this.getHistoricalHeartRateData(recordIndex);
-			// 增加等待时间，确保设备有足够时间响应
-			await new Promise<void>((resolve) => {
-				setTimeout(() => resolve(), 1000);
+
+			// 准备一个待 resolve 的 Promise，等回调通知"本页响应已到达"
+			// 使用 Promise<boolean> 便于 Promise.race 推断 T；true=超时，false=收到响应
+			this._heartRatePageResolver = null;
+			const responsePromise = new Promise<boolean>((resolve) => {
+				// 包装为 0 参箭头函数以匹配 _heartRatePageResolver 的 Function0<Unit>? 字段类型
+				this._heartRatePageResolver = () => {
+					resolve(false);
+				};
 			});
+
+			await this.getHistoricalHeartRateData(recordIndex);
+
+			// 等待响应到达；超过超时时间则视为本页无响应，继续下一页
+			const timeoutPromise = new Promise<boolean>((resolve) => {
+				setTimeout(() => resolve(true), PAGE_RESPONSE_TIMEOUT_MS);
+			});
+			const result = await Promise.race([responsePromise, timeoutPromise]);
+			if (result == true) {
+				// 清空 resolver，避免迟到的响应误触发
+				this._heartRatePageResolver = null;
+				console.log(`第 ${page} 页响应超时（${PAGE_RESPONSE_TIMEOUT_MS}ms），继续下一页`);
+				continue;
+			}
+
 			// 如果本次响应为"全 f"，说明后续无数据，提前结束
 			if (this._heartRateResponseAllEmpty) {
 				console.log(`第 ${page} 页响应为全 f，无更多数据，提前结束获取`);
@@ -675,7 +711,6 @@ export class Device {
 				// 实时数据暂不存储（storeData 已禁用）
 				// bluetoothDataManager.storeData("battery", battery, null);
 			} else if (serviceId == UART_SERVICE_UUID) {
-				console.log("UART_SERVICE_UUID:", hexData);
 				if (hexData.indexOf("2c") != -1 && hexData.length < 48) {
 					const status = parseDataReadyStatus(hexData);
 					this.dataReadyStatus.value = status;
@@ -687,14 +722,21 @@ export class Device {
 				} else if (hexData.length == 256) {
 					// 心率数据：16组×8字节=128字节=256 hex chars（恰好256）
 					const records = parseHistoricalHeartRateData(hexData);
+					// 先打印日志和触发 resolver（确保不因为异步存储而错过）
 					console.log("历史心率数据:", records);
-					// 存储历史心率血氧数据
-					this.storeHistoricalRecords(records);
+					// 通知 fetchAllHistoricalHeartRateData 本页响应已到（先触发，再异步存储）
+					const resolver = this._heartRatePageResolver;
+					this._heartRatePageResolver = null;
+					if (resolver != null) {
+						resolver();
+					}
 					// 当解析后无任何记录（说明原始数据为"全 f"），标记后续无数据
 					if (records.length == 0) {
 						this._heartRateResponseAllEmpty = true;
 						console.log("本次响应为全 f，无有效数据，标记停止获取");
 					}
+					// 存储历史心率血氧数据（异步，不阻塞 resolver）
+					this.storeHistoricalRecords(records);
 				} else if (hexData.length >= 48) {
 					// 睡眠数据：24字节头+N字节状态（可变长度）
 					const sleep = parseSleepData(hexData);
