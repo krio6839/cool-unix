@@ -17,7 +17,8 @@ import type {
 	SleepUploadDataItem,
 	HeartRateDataMap,
 	PpiDataItem,
-	PpiData
+	PpiData,
+	HeartRateRecord
 } from "./types";
 
 /**
@@ -114,22 +115,23 @@ export class BluetoothDataManager {
 	}
 
 	/**
-	 * 存储历史心率血氧数据到 ppi_data 表
-	 * @param timestamp 时间戳（秒，设备返回的时间戳）
-	 * @param heartRate 心率值
-	 * @param bloodOxygen 血氧值
-	 * @param ppi 心率变异性
-	 * @returns 是否插入成功（false 表示 id 已存在，已被忽略）
+	 * 批量存储历史心率血氧数据到 ppi_data 表
+	 * 将多条记录拼接为单条 INSERT OR IGNORE SQL，
+	 * 将 N 次 SQLite execute 减为 1 次，显著降低调度开销。
+	 * @param records 历史心率记录数组
+	 * @returns 是否插入成功（false 表示数据库错误；重复 id 由 INSERT OR IGNORE 静默跳过）
 	 */
-	async storeHistoricalHeartRateRecord(
-		timestamp: number,
-		heartRate: number,
-		bloodOxygen: number,
-		ppi: number
-	): Promise<boolean> {
-		// 使用 INSERT OR IGNORE 替代 INSERT，遇到重复 id 时静默跳过
-		const sql = `INSERT OR IGNORE INTO ppi_data (id, timestamp, hr, spo2, ppi, uploaded) VALUES ('${timestamp}', ${timestamp}, ${heartRate}, ${bloodOxygen}, ${ppi}, 0)`;
-		// console.log("存储PPI数据:", { id: timestamp, timestamp, heartRate, bloodOxygen, ppi });
+	async storeHistoricalHeartRateRecordsBatch(records: Array<HeartRateRecord>): Promise<boolean> {
+		if (records.length == 0) {
+			return true;
+		}
+		const values = records
+			.map(
+				(r) =>
+					`('${r.timestamp}', ${r.timestamp}, ${r.heartRate}, ${r.bloodOxygen}, ${r.ppi}, 0)`
+			)
+			.join(",");
+		const sql = `INSERT OR IGNORE INTO ppi_data (id, timestamp, hr, spo2, ppi, uploaded) VALUES ${values}`;
 		return bluetoothDatabase.execute(sql);
 	}
 

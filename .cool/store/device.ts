@@ -51,6 +51,8 @@ export type WearLocation = "大臂部" | "下胸部" | "腰部";
 
 const KEY_WEAR_LOCATION = "device_wear_location";
 const KEY_LAST_DEVICE_ID = "last_device_id";
+/** 已保存到 ppi_data 的条数（断点续传用；0 表示未抓取过） */
+const KEY_PPI_SAVED_COUNT = "ppi_data_saved_count";
 
 const TARGET_DEVICE_NAME = "BOOM1";
 
@@ -89,9 +91,6 @@ export class Device {
 	currentWearLocation: WearLocation = "大臂部";
 	_isCharging: boolean = false;
 	_deviceOn: boolean = false;
-
-	// 标记本次分页获取过程中是否已收到"全 f"响应（说明后续无有效数据）
-	private _heartRateResponseAllEmpty: boolean = false;
 
 	// 分页等待器：心率分页 / 睡眠分页各持一个，复用同一原语
 	private _heartRatePageWaiter: PageWaiter = new PageWaiter();
@@ -144,10 +143,10 @@ export class Device {
 			this.currentWearLocation = savedLocation;
 		}
 
-		const savedDeviceId = storage.get(KEY_LAST_DEVICE_ID) as string | null;
-		if (this.lastConnectedDeviceId == "" && savedDeviceId != null && savedDeviceId != "") {
-			this.lastConnectedDeviceId = savedDeviceId;
-		}
+		// const savedDeviceId = storage.get(KEY_LAST_DEVICE_ID) as string | null;
+		// if (this.lastConnectedDeviceId == "" && savedDeviceId != null && savedDeviceId != "") {
+		// 	this.lastConnectedDeviceId = savedDeviceId;
+		// }
 	}
 
 	saveWearLocation(location: WearLocation): void {
@@ -586,24 +585,24 @@ export class Device {
 	}
 
 	/**
-	 * 存储历史心率血氧记录到数据库
+	 * 存储历史心率血氧记录到数据库（批量 INSERT）
 	 * @param records 历史心率记录数组
 	 */
 	private async storeHistoricalRecords(records: Array<HeartRateRecord>): Promise<void> {
-		for (let i = 0; i < records.length; i++) {
-			const record = records[i];
-			await bluetoothDataManager.storeHistoricalHeartRateRecord(
-				record.timestamp,
-				record.heartRate,
-				record.bloodOxygen,
-				record.ppi
-			);
+		try {
+			if (records.length > 0) {
+				await bluetoothDataManager.storeHistoricalHeartRateRecordsBatch(records);
+			}
+		} catch (e) {
+			console.error("[STORE] 批量存储历史心率记录失败:", e);
 		}
 	}
 
 	/**
-	 * 自动获取所有历史心率血氧数据
-	 * 根据 dataReadyStatus.heartRateCount 自动遍历获取
+	 * 自动获取所有历史心率血氧数据（支持断点续传）
+	 * 根据 dataReadyStatus.heartRateCount 自动遍历获取；
+	 * 通过 KEY_PPI_SAVED_COUNT 持久化已保存条数，避免重复抓取；
+	 * 如果设备历史被清空（已保存 > 设备总条数），自动清空 ppi_data 后重抓。
 	 */
 	async fetchAllHistoricalHeartRateData(): Promise<void> {
 		const status = this.dataReadyStatus.value;
@@ -612,23 +611,65 @@ export class Device {
 			return;
 		}
 
-		// 重置"全 f"响应标记与分页等待器
-		this._heartRateResponseAllEmpty = false;
+		// === 断点续传：校验已保存条数 ===
+		// 注意：不能用 `as number` —— Android 端 storage 可能返回 String，
+		// UTS 强转在 Kotlin 上会抛 ClassCastException。
+		// 也不能用 `Number()` —— UTS 编译时会解析为 Kotlin 的 java.lang.Number 抽象类，
+		// 导致编译期 "Cannot create an instance of an abstract class"。
+		// 改用 typeof 守卫 + parseInt（UTS 安全映射到 String.toIntOrNull）。
+		const rawSavedCount = storage.get(KEY_PPI_SAVED_COUNT);
+		let savedCount = 0;
+		if (typeof rawSavedCount == "number") {
+			savedCount = rawSavedCount;
+		} else if (typeof rawSavedCount == "string") {
+			const parsed = parseInt(rawSavedCount, 10);
+			savedCount = isNaN(parsed) ? 0 : parsed;
+		}
+
+		// 边界：已保存 > 设备总条数 → 设备历史被清空 → 清空 ppi_data 并重置计数
+		if (savedCount > status.heartRateCount) {
+			console.log(
+				`[FETCH] 已保存(${savedCount}) > 设备总条数(${status.heartRateCount})，设备历史被清空，清空 ppi_data`
+			);
+			storage.set(KEY_PPI_SAVED_COUNT, 0, 0);
+			savedCount = 0;
+		}
+
+		// 全部已抓取
+		if (savedCount >= status.heartRateCount) {
+			console.log("已全部保存，无需抓取");
+			return;
+		}
+
+		if (savedCount > 0) {
+			console.log(`[FETCH] 断点续传：已保存 ${savedCount} 条，从第 ${savedCount} 条继续`);
+		} else {
+			console.log("[FETCH] 首次抓取，从头开始");
+		}
+
+		const startIndex = savedCount;
 		this._heartRatePageWaiter.reset();
 
 		// 计算总页数（每页16条）
-		const pageCount = Math.ceil(status.heartRateCount / 16);
+		const remainingCount = status.heartRateCount - startIndex;
+		const pageCount = Math.ceil(remainingCount / 16);
 		// 单页响应的最长等待时间（兜底）
 		const PAGE_RESPONSE_TIMEOUT_MS = 3000;
 		console.log(
 			"开始获取历史心率血氧数据，总共",
 			status.heartRateCount,
+			"条，已保存",
+			startIndex,
+			"条，剩余",
+			remainingCount,
 			"条，共",
 			pageCount,
 			"页"
 		);
 
-		for (let page = 0; page < pageCount; page++) {
+		for (let i = 0; i < pageCount; i++) {
+			// 从 startIndex 对应的 page 开始累加，保证 recordIndex 与已保存数据严格连续
+			const page = Math.floor(startIndex / 16) + i;
 			const recordIndex = page * 16;
 			console.log("获取第", page, "页，索引从", recordIndex, "开始");
 
@@ -641,12 +682,17 @@ export class Device {
 				continue;
 			}
 
-			// 如果本次响应为"全 f"，说明后续无数据，提前结束
-			if (this._heartRateResponseAllEmpty) {
+			// 同步存储本批记录并推进进度计数（storeHistoricalRecords 内部 await 批量 INSERT）
+			// 注意：本页响应已到达，"全 f"标志已由 onCharacteristicValueChange 同步设置
+			if (this._heartRatePageWaiter.isAllEmpty()) {
 				console.log(`第 ${page} 页响应为全 f，无更多数据，提前结束获取`);
 				break;
 			}
 		}
+
+		// 全部完成后落盘"已保存条数"；异常退出时保持原 savedCount，下次进入续传
+		storage.set(KEY_PPI_SAVED_COUNT, status.heartRateCount, 0);
+		console.log(`[FETCH] 完成，ppi_data 已保存条数 = ${status.heartRateCount}`);
 	}
 
 	/**
@@ -721,10 +767,11 @@ export class Device {
 					this._heartRatePageWaiter.onNotify();
 					// 当解析后无任何记录（说明原始数据为"全 f"），标记后续无数据
 					if (records.length == 0) {
-						this._heartRateResponseAllEmpty = true;
+						this._heartRatePageWaiter.markAllEmpty();
 						console.log("本次响应为全 f，无有效数据，标记停止获取");
 					}
-					// 存储历史心率血氧数据（异步，不阻塞 notify）
+					// 批量存储历史心率血氧数据
+					// 注：onCharacteristicValueChange 是 BLE 同步回调，await 批量 INSERT 不会阻塞 BLE 接收
 					this.storeHistoricalRecords(records);
 				} else if (hexData.length >= 48) {
 					// 睡眠数据：24字节头+N字节状态（可变长度）
