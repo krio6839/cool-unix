@@ -55,7 +55,7 @@ export const UPLOAD_INTERVAL = 30 * 1000;
  */
 export const MAX_DATA_AGE = 90 * 24 * 60 * 60 * 1000;
 
-const UPLOAD_URL = "http://47.100.30.18:8000/upload";
+// const UPLOAD_URL = "http://47.100.30.18:8000/upload";
 
 /**
  * PPI数据上传接口完整地址
