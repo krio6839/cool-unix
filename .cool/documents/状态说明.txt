@@ -1,0 +1,222 @@
+BOOM状态说明
+1　功能说明
+1.1　运行状态
+正常运行时，绿灯每2秒快闪1次，蓝牙广播设备名称BOOM-0000。
+1.2　开关机
+1.2.1　进入休眠
+按住按键保持5s，指示灯先由绿色闪烁变为绿色长亮，再变蓝色长亮后，松开按键进入休眠。
+1.2.2　唤醒
+休眠状态，点按按键松开（按下时间<1s），唤醒。
+
+1.3　蓝牙
+1.3.1　设备蓝牙名称
+BOOM-设备编号（后4位），默认BOOM-0000
+
+1.3.2　蓝牙服务
+提供SMP和GATT两种服务，SMP专为DFU，GATT与手机进行通信。
+手机连接后，手机通过atts write实现命令发送，BOOM通过notify对手机命令进行响应。
+
+
+
+1.3.3　蓝牙协议格式
+协议采用TLV格式，T一个字节，L表示V的长度，两个字节按小端存储，V根据T来定义，按小端存储。
+响应包中，如果长度为0，表示设置或者查询包的格式或者参数有误。
+1.3.4　自定义广播数据
+自定义广播数据放在Manufacturer Specific Data（AD Type = 0xFF）中，内容包含如下数据结构，字节序：采用小端序（Little-Endian），刷新时间：每秒刷新。
+广播数据的格式如下：
+T	L	V	V说明
+0x50			见自定义广播数据
+
+
+1.3.5　GATT协议
+1.3.5.1　读固件版本号
+a)手机发送
+T	L	V	V说明
+0x30	0	无	
+b)BOOM响应
+T	L	V	V说明
+0x30	3		Byte0: major version
+Byte1: minor version
+Byte2: revision version
+
+1.3.5.2　手机设置设备编号
+a)手机发送
+T	L	V	V说明
+0x31	编号长度	编号内容	设备编号ASCII码，后4位组成蓝牙设备名称BOOM-XXXX
+b)BOOM响应
+T	L	V	V说明
+0x31	编号长度	编号内容	设备编号ASCII码
+
+1.3.5.3　手机读取设备编号
+a)手机发送
+T	L	V	V说明
+0x32	0	无	
+b)BOOM响应
+T	L	V	V说明
+0x32	编号长度	编号内容	设备编号ASCII码
+
+1.3.5.4　手机设置BOOM时戳
+a)手机发送
+T	L	V	V说明
+0x33	4	UINT32	UTC时戳
+b)BOOM响应
+T	L	V	V说明
+0x33	4	UINT32	Byte0：0-男;1-女;
+
+
+1.3.5.5　手机读取BOOM时戳
+a)手机发送
+T	L	V	V说明
+0x34	0	无	
+b)BOOM响应
+T	L	V	V说明
+0x34	4	UINT32	UTC时戳
+1.3.5.6　手机设置生物识别数据
+c)手机发送
+T	L	V	V说明
+0x35	8	vital_biometric_info_t	见附录数据结构说明
+d)BOOM响应
+T	L	V	V说明
+0x35	8	vital_biometric_info_t	见附录数据结构说明
+1.3.5.7　手机读取生物识别数据
+c)手机发送
+T	L	V	V说明
+0x36	0	无	
+d)BOOM响应
+T	L	V	V说明
+0x36	8	vital_biometric_info_t	见附录数据结构说明
+
+
+
+
+
+
+2　附录
+2.1　数据结构说明
+2.1.1　vital_biometric_info_t
+生物识别数据结构：
+typedef struct {
+    /** 
+     * Gender.
+     * 0 = Male
+     * 1 = Female
+     * Range: 0 ... 1
+     */
+    uint8_t gender;   // 偏移 0，1 字节
+
+    /** 
+     * 100 times value of weight [kg].
+     * Example: 6837 → 68.37 kg
+     * Range: 1000 ... 65000
+     */
+    uint16_t weight;   // 偏移 1，2 字节，小端：低位在前
+
+    /** 
+     * 100 times value of height [cm].
+     * Example: 17500 → 175.00 cm
+     * Range: 10000 ... 28000
+     */
+    uint16_t height;   // 偏移 3，2 字节，小端：低位在前
+
+    /** 
+     * Age [years].
+     * Range: 10 ... 99
+     */
+    uint8_t age;       // 偏移 5，1 字节
+
+    /** 
+     * PPG sensor mounting position.
+     * 0 = Wrist (手腕)
+     * 1 = Forearm (前臂)
+     * 2 = Upper arm (上臂)
+     * 3 = Head (头部)
+     * 4 = Below knee (膝盖下方)
+     * 5 = Thigh (大腿)
+     * 6 = Body (身体)
+     * Range: 0 ... 6
+     */
+    uint8_t ppg_position;   // 偏移 6，1 字节
+
+    /** 
+     * Basal heart rate [bpm].
+     * Range: 28 ... 240
+     */
+    uint8_t bhr;       // 偏移 7，1 字节
+
+} __attribute__((packed)) vital_biometric_info_t;
+2.1.2　custom_adv_data_t
+自定义广播数据：
+typedef struct
+{
+    /**
+     * UTC timestamp [seconds].
+     * Unix epoch time (seconds since 1970-01-01 00:00:00 UTC)
+     * Range: 0 ... 0xFFFFFFFF
+     */
+    uint32_t utc; // 偏移 0~3，4字节，小端：低位在前
+
+    /**
+     * Battery voltage sampling value [V], with 2 decimal places.
+     * Example: 387 → 3.87V
+     * Range: 0 ... 65535 (实际电池范围通常 300~420)
+     */
+    int16_t v; // 偏移 4~5，2字节，小端：低位在前
+
+    /**
+     * Status byte combining behavior type and activity status.
+     *
+     * Bit 7    : Reserved (must be 0)
+     * Bit 6    : PPG attachment status
+     *            - 0x0 = PPG detached
+     *            - 0x1 = PPG attached
+     * Bits 5-3 : Behavior type (3 bits, value 0-7)
+     *            0x0 = Rest (休息)
+     *            0x1 = Daily life (日常生活)
+     *            0x2 = Walking (步行)
+     *            0x3 = Running (跑步)
+     *            0x4 = Cycling (骑行)
+     *            0x5 = Aerobic exercise (有氧运动)
+     *            0x6 = Other sports (其他运动)
+     *            0x7 = Reserved
+     * Bits 2-0 : Activity status (3 bits, value 0-7)
+     *            0x0 = Deep sleep (深度睡眠)
+     *            0x1 = Light sleep (浅度睡眠)
+     *            0x2 = Other sleep (其他睡眠)
+     *            0x3 = Mental relaxation (精神放松状态)
+     *            0x4 = Low activity / ACT- (活动量低)
+     *            0x5 = High activity / ACT+ (活动量高)
+     *            0x6 = Mental excitement (精神兴奋状态)
+     *            0x7 = Physical stress (身体压力)
+     */
+    uint8_t status; // 偏移 6，1字节
+
+    /**
+     * Heart rate [bpm].
+     * Range: 0 ... 255 (通常有效范围 30-240)
+     */
+    uint8_t hr; // 偏移 7，1字节
+
+    /**
+     * Pulse to pulse interval [ms].
+     * Range: 0 ... 65535
+     */
+    uint16_t ppi; // 偏移 8~9，2字节，小端：低位在前
+
+    /**
+     * Blood oxygen saturation.
+     * Range: 700 ... 1000 (表示 70.0% ... 100.0%)
+     * Example: 950 → 95.0%
+     */
+    uint16_t spo2; // 偏移 10~11，2字节，小端：低位在前
+
+    /**
+     * Basal heart rate [bpm].
+     * Range: 28 ... 240
+     */
+    uint8_t bhr; // 偏移 12，1字节
+
+} __attribute__((packed)) custom_adv_data_t;
+
+2.1.3　
+
+
