@@ -48,6 +48,7 @@ export class Sleep {
 				})
 				.catch((err) => {
 					console.error("获取睡眠状态失败:", err);
+					this.clearStatus();
 					reject(err);
 				});
 		});
@@ -68,6 +69,7 @@ export class Sleep {
 				})
 				.catch((err) => {
 					console.error("获取睡眠指标失败:", err);
+					this.clearMetric();
 					reject(err);
 				});
 		});
@@ -88,6 +90,7 @@ export class Sleep {
 				})
 				.catch((err) => {
 					console.error("获取睡眠趋势失败:", err);
+					this.clearTrend();
 					reject(err);
 				});
 		});
@@ -108,6 +111,7 @@ export class Sleep {
 				})
 				.catch((err) => {
 					console.error("获取睡眠模式失败:", err);
+					this.clearSleepMode();
 					reject(err);
 				});
 		});
@@ -162,11 +166,8 @@ export class Sleep {
 		this.sleepModeData.value = modeData;
 	}
 
-	clear(): void {
+	clearStatus(): void {
 		this.statusData.value = null;
-
-		this.metricData.value = null;
-		this.trendData.value = [];
 		this.totalSleep.value = 0;
 		this.sleepProgress.value = 0;
 		this.sleepDuration.value = "";
@@ -176,11 +177,29 @@ export class Sleep {
 		this.recoverySleepDuration.value = "";
 		this.avgRecoverySleepPercentage.value = "";
 		this.avgRecoverySleepDuration.value = "";
+	}
+
+	clearMetric(): void {
+		this.metricData.value = null;
 		this.sleepHeartRateData.value = [];
 		this.sleepHrvData.value = [];
 		this.sleepOxygenData.value = [];
+	}
+
+	clearTrend(): void {
+		this.trendData.value = [];
 		this.sleepTrendData.value = [];
+	}
+
+	clearSleepMode(): void {
 		this.sleepModeData.value = null;
+	}
+
+	clear(): void {
+		this.clearStatus();
+		this.clearMetric();
+		this.clearTrend();
+		this.clearSleepMode();
 	}
 }
 

@@ -65,6 +65,7 @@ export class Energy {
 				})
 				.catch((err) => {
 					console.error("获取储能趋势失败:", err);
+					this.clear();
 					reject(err);
 				});
 		});

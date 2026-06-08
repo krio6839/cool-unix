@@ -97,6 +97,11 @@ export class Device {
 	private _heartRatePageWaiter: PageWaiter = new PageWaiter();
 	private _sleepPageWaiter: PageWaiter = new PageWaiter();
 
+	// 定时轮询相关
+	private _dataQueryTimer: number = 0;
+	private _isQueryingData = false;
+	private _dataQueryInterval = 30000; // 30秒查询一次
+
 	// 健康数据
 	heartRate = ref(0);
 	bloodOxygen = ref(0);
@@ -261,6 +266,8 @@ export class Device {
 						this.subscribeUART();
 						// 自动校准设备 RTC，确保后续 timestamp 是真实 Unix 时间戳
 						this.setDeviceTime(Math.floor(Date.now() / 1000));
+						// 启动定时数据查询
+						this.startDataQueryTimer();
 					}, 500);
 				});
 				this.resetReconnectState();
@@ -269,6 +276,8 @@ export class Device {
 					console.log("设备已断开:", res.deviceId);
 					this.status.value = "UNPAIRED";
 					this.currentDeviceId = "";
+					// 停止定时查询
+					this.stopDataQueryTimer();
 					// 重置初始化状态，允许下次重连时重新初始化
 					this.isDeviceInitialized = false;
 					this.reconnect();
@@ -343,6 +352,7 @@ export class Device {
 	disconnectDevice() {
 		if (this.currentDeviceId != "") {
 			this.stopBluetoothSearch();
+			this.stopDataQueryTimer();
 			this.disableAllNotifications();
 
 			this.kuxBluetooth.closeBLEConnection({
@@ -552,6 +562,79 @@ export class Device {
 
 	sendCommand(val: string): Promise<boolean> {
 		return this.writeCharacteristic(UART_SERVICE_UUID, UART_TX_CHARACTERISTIC_UUID, val);
+	}
+
+	/**
+	 * 启动定时数据查询
+	 * 连接成功后自动调用，循环查询数据就绪状态并按需获取历史数据
+	 */
+	startDataQueryTimer(): void {
+		if (this._dataQueryTimer != 0) {
+			console.log("[DATA_QUERY] 定时查询已在运行");
+			return;
+		}
+
+		console.log("[DATA_QUERY] 启动定时数据查询，间隔", this._dataQueryInterval, "ms");
+		this.queryDataStatusWithFetch();
+		// 使用 setInterval 确保固定间隔执行
+		// @ts-ignore
+		this._dataQueryTimer = setInterval(() => {
+			if (this._isQueryingData) {
+				console.log("[DATA_QUERY] 上一次查询尚未完成，跳过本次");
+				return;
+			}
+			this.queryDataStatusWithFetch();
+		}, this._dataQueryInterval);
+	}
+
+	/**
+	 * 停止定时数据查询
+	 */
+	stopDataQueryTimer(): void {
+		if (this._dataQueryTimer != 0) {
+			clearInterval(this._dataQueryTimer);
+			this._dataQueryTimer = 0;
+			console.log("[DATA_QUERY] 停止定时数据查询");
+		}
+	}
+
+	/**
+	 * 查询数据状态并按需获取历史数据
+	 * 等待响应后根据 heartRateCount 和 sleepCount 判断是否需要获取数据
+	 */
+	async queryDataStatusWithFetch(): Promise<void> {
+		if (this._isQueryingData) {
+			return;
+		}
+		this._isQueryingData = true;
+		console.log("[DATA_QUERY] 开始查询数据状态");
+
+		try {
+			// 发送查询命令
+			await this.queryDataReadyStatus();
+
+			// 等待响应更新（通过 onCharacteristicValueChange 异步更新 dataReadyStatus）
+			// 短暂等待让响应有机会到达
+			await new Promise<void>((resolve) => {
+				setTimeout(() => resolve(), 500);
+			});
+
+			const status = this.dataReadyStatus.value;
+			console.log("[DATA_QUERY] 数据状态:", status);
+
+			// 按需获取历史数据
+			if (status.heartRateCount > 0) {
+				console.log("[DATA_QUERY] 发现心率血氧历史数据，开始获取...");
+				await this.fetchAllHistoricalHeartRateData();
+			}
+
+			if (status.sleepCount > 0) {
+				console.log("[DATA_QUERY] 发现睡眠数据，开始获取...");
+				await this.fetchAllSleepData();
+			}
+		} finally {
+			this._isQueryingData = false;
+		}
 	}
 
 	queryDataReadyStatus(): Promise<boolean> {
@@ -853,6 +936,7 @@ export class Device {
 
 	clear() {
 		console.log("清除设备相关数据");
+		this.stopDataQueryTimer();
 		this.status.value = "UNPAIRED";
 		this.currentDeviceId = "";
 		this.currentDeviceName = "";

@@ -34,6 +34,7 @@ export class Status {
 				})
 				.catch((err) => {
 					console.error("获取状态数据失败:", err);
+					this.clear();
 					reject(err);
 				});
 		});
