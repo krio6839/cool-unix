@@ -84,6 +84,7 @@ function getDaysFromOption(option: string): number {
 async function fetchReadinessData(days: string) {
 	const endDate = dayUts().format("YYYY-MM-DD");
 	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
+	console.log(startDate, endDate, days);
 	await status.fetchReadiness(device.currentDeviceId, startDate, endDate);
 }
 

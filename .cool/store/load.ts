@@ -1,12 +1,11 @@
 import { ref } from "vue";
 import { request } from "../service";
-import { isNull, isObject, parse } from "../utils";
+import { isArray, isNull, isObject, parse } from "../utils";
 import type { LoadStatusApiResponse } from "../types/load";
 import type { TimeValuePair, DateValuePair } from "../types/common";
 
 export class Load {
 	data = ref<LoadStatusApiResponse | null>(null);
-	trendData = ref<DateValuePair[]>([]);
 	sportLoadData = ref<DateValuePair[]>([]);
 	sleepPressureData = ref<DateValuePair[]>([]);
 
@@ -57,8 +56,9 @@ export class Load {
 				data: { startDate, endDate } as UTSJSONObject
 			})
 				.then((res) => {
-					if (res != null && isObject(res)) {
-						this.setTrendData(res);
+					if (res != null && isArray(res)) {
+						const trendDataResult = parse<DateValuePair[]>(res)!;
+						this.loadTrendData.value = trendDataResult ?? [];
 					}
 					resolve();
 				})
@@ -77,7 +77,7 @@ export class Load {
 				data: { startDate, endDate } as UTSJSONObject
 			})
 				.then((res) => {
-					if (res != null && isObject(res)) {
+					if (res != null && isArray(res)) {
 						this.sportLoadData.value = parse<DateValuePair[]>(res)!;
 						this.sportLoadTrendData.value = this.sportLoadData.value ?? [];
 					}
@@ -98,7 +98,7 @@ export class Load {
 				data: { startDate, endDate } as UTSJSONObject
 			})
 				.then((res) => {
-					if (res != null && isObject(res)) {
+					if (res != null && isArray(res)) {
 						this.sleepPressureData.value = parse<DateValuePair[]>(res)!;
 						this.sleepPressureTrendData.value = this.sleepPressureData.value ?? [];
 					}
@@ -128,21 +128,14 @@ export class Load {
 		this.loadZones.value = (statusData.loadZones as UTSJSONObject) ?? null;
 		this.heartRateZoneData.value = statusData.heartRateZoneData ?? [];
 		this.heartRateZoneItems.value = (statusData.heartRateZoneItems as UTSJSONObject) ?? null;
-	}
 
-	setTrendData(data: any): void {
-		if (isNull(data)) {
-			return;
-		}
-
-		const trendDataResult = parse<DateValuePair[]>(data)!;
-		this.trendData.value = trendDataResult;
-		this.loadTrendData.value = trendDataResult ?? [];
+		console.log(this.loadZones.value);
+		console.log(this.heartRateZoneData.value);
+		console.log(this.heartRateZoneItems.value);
 	}
 
 	clear(): void {
 		this.data.value = null;
-		this.trendData.value = [];
 		this.sportLoadData.value = [];
 		this.sleepPressureData.value = [];
 		this.totalLoad.value = 0;

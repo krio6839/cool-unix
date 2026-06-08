@@ -1,5 +1,3 @@
-import type { DateValuePair } from "./common";
-
 export type SuperRecoveryApiResponse = {
 	tsb: number;
 	atl: number;
@@ -11,5 +9,3 @@ export type AtlCtlTrendData = {
 	atl: number;
 	ctl: number;
 };
-
-export type AtlCtlTrendApiResponse = AtlCtlTrendData[];

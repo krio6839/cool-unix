@@ -325,6 +325,16 @@
 				>
 					{{ t("结束睡眠判断") }}
 				</cl-button>
+				<cl-button
+					type="primary"
+					color="#888"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testGenerateMockData"
+				>
+					{{ t("生成模拟数据") }}
+				</cl-button>
 			</view>
 
 			<!-- 数据库操作 -->
@@ -518,6 +528,13 @@ async function testEndSleep() {
 	} else {
 		ui.showToast({ message: t("命令发送失败"), type: "error" });
 	}
+}
+
+function testGenerateMockData() {
+	ui.showToast({ message: t("发送模拟数据命令..."), type: "warn" });
+	// 'x' 的 ASCII 码是 120 = 0x78
+	// 通过 sendCommand 发送，sendCommand 会将 "78" 转换为 ArrayBuffer
+	deviceStore.sendCommand("78");
 }
 
 async function testClearDatabase() {

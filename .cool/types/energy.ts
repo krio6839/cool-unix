@@ -7,5 +7,3 @@ export type EnergyStatusApiResponse = {
 	totalConsume: number;
 	energyChartData: TimeValuePair[];
 };
-
-export type EnergyTrendApiResponse = DateValuePair[];

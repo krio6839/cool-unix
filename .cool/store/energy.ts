@@ -1,12 +1,11 @@
 import { ref } from "vue";
 import { request } from "../service";
-import { isNull, isObject, parse } from "../utils";
-import type { EnergyStatusApiResponse, EnergyTrendApiResponse } from "../types/energy";
+import { isArray, isNull, isObject, parse } from "../utils";
+import type { EnergyStatusApiResponse } from "../types/energy";
 import type { TimeValuePair, DateValuePair } from "../types/common";
 
 export class Energy {
 	data = ref<EnergyStatusApiResponse | null>(null);
-	trendData = ref<EnergyTrendApiResponse | null>(null);
 
 	totalEnergy = ref<number>(0);
 	energyProgress = ref<number>(0);
@@ -58,8 +57,9 @@ export class Energy {
 				} as UTSJSONObject
 			})
 				.then((res) => {
-					if (res != null && isObject(res)) {
-						this.setTrendData(res);
+					if (res != null && isArray(res)) {
+						const trendDataResult = parse<DateValuePair[]>(res)!;
+						this.bodyEnergyChartData.value = trendDataResult ?? [];
 					}
 					resolve();
 				})
@@ -85,19 +85,8 @@ export class Energy {
 		this.energyChartData.value = statusData.energyChartData ?? [];
 	}
 
-	setTrendData(data: any): void {
-		if (isNull(data)) {
-			return;
-		}
-
-		const trendDataResult = parse<EnergyTrendApiResponse>(data)!;
-		this.trendData.value = trendDataResult;
-		this.bodyEnergyChartData.value = trendDataResult ?? [];
-	}
-
 	clear(): void {
 		this.data.value = null;
-		this.trendData.value = null;
 		this.totalEnergy.value = 0;
 		this.energyProgress.value = 0;
 		this.totalCharge.value = 0;

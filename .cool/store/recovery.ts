@@ -1,11 +1,10 @@
 import { ref } from "vue";
 import { request } from "../service";
-import { isNull, isObject, parse } from "../utils";
-import type { SuperRecoveryApiResponse, AtlCtlTrendApiResponse } from "../types/recovery";
+import { isArray, isNull, isObject, parse } from "../utils";
+import type { SuperRecoveryApiResponse, AtlCtlTrendData } from "../types/recovery";
 
 export class Recovery {
 	data = ref<SuperRecoveryApiResponse | null>(null);
-	trendData = ref<AtlCtlTrendApiResponse | null>(null);
 
 	tsb = ref<number>(0);
 	atl = ref<number>(0);
@@ -42,7 +41,7 @@ export class Recovery {
 				data: { startDate, endDate } as UTSJSONObject
 			})
 				.then((res) => {
-					if (res != null && isObject(res)) {
+					if (res != null && isArray(res)) {
 						this.setTrendData(res);
 					}
 					resolve();
@@ -72,8 +71,7 @@ export class Recovery {
 			return;
 		}
 
-		const trendDataResult = parse<AtlCtlTrendApiResponse>(data)!;
-		this.trendData.value = trendDataResult;
+		const trendDataResult = parse<AtlCtlTrendData[]>(data)!;
 		this.atlTrendData.value = trendDataResult.map((item) => item.atl);
 		this.ctlTrendData.value = trendDataResult.map((item) => item.ctl);
 		this.trendDates.value = trendDataResult.map((item) => item.date);
@@ -81,7 +79,6 @@ export class Recovery {
 
 	clear(): void {
 		this.data.value = null;
-		this.trendData.value = null;
 		this.tsb.value = 0;
 		this.atl.value = 0;
 		this.ctl.value = 0;

@@ -82,7 +82,7 @@ export function request(options: RequestOptions): Promise<any | null> {
 			// uni-app x 在 APP 端要求 data 必须是 UTSJSONObject / string / ArrayBuffer
 			// 这里统一把对象序列化为 string，避免含数组字段的强类型对象触发 errCode: 600008
 			let payload: any | null = data;
-			if (payload != null && typeof payload != "string") {
+			if (method == "POST" && payload != null && typeof payload != "string") {
 				payload = JSON.stringify(payload) as any;
 			}
 
@@ -98,8 +98,6 @@ export function request(options: RequestOptions): Promise<any | null> {
 				timeout,
 
 				success(res) {
-					console.log(res);
-
 					// 401 无权限
 					if (res.statusCode == 401) {
 						user.logout();
