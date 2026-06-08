@@ -2,6 +2,7 @@ import { isDev, ignoreTokens, config } from "@/config";
 import { locale, t } from "../locale";
 import { isNull, isObject, parse, storage } from "../utils";
 import { useStore } from "../store";
+import { defaultErrorNotice, type ErrorNoticeShowType } from "./error-notice";
 
 // 请求参数类型定义
 export type RequestOptions = {
@@ -14,6 +15,7 @@ export type RequestOptions = {
 	withCredentials?: boolean; // 是否携带凭证
 	firstIpv4?: boolean; // 是否优先使用IPv4
 	enableChunked?: boolean; // 是否启用分块传输
+	showError?: ErrorNoticeShowType; // 错误提示方式：toast-轻提示, modal-确认弹窗, none-不显示，默认toast
 };
 
 // 响应数据类型定义
@@ -43,7 +45,7 @@ const isIgnoreToken = (url: string) => {
  * @returns Promise<T>
  */
 export function request(options: RequestOptions): Promise<any | null> {
-	let { url, method = "GET", data, header = {}, timeout = 60000 } = options;
+	let { url, method = "GET", data, header = {}, timeout = 60000, showError = "toast" } = options;
 
 	const { user } = useStore();
 
@@ -66,6 +68,15 @@ export function request(options: RequestOptions): Promise<any | null> {
 	}
 
 	return new Promise((resolve, reject) => {
+		// 带提示的拒绝函数
+		const rejectWithNotice = (res: Response) => {
+			defaultErrorNotice.show({
+				message: res.message ?? t("请求失败"),
+				showType: showError
+			});
+			reject(res);
+		};
+
 		// 发起请求的实际函数
 		const next = () => {
 			// uni-app x 在 APP 端要求 data 必须是 UTSJSONObject / string / ArrayBuffer
@@ -92,14 +103,12 @@ export function request(options: RequestOptions): Promise<any | null> {
 					// 401 无权限
 					if (res.statusCode == 401) {
 						user.logout();
-						reject({ message: t("无权限") } as Response);
+						rejectWithNotice({ message: t("无权限") } as Response);
 					}
 
 					// 502 服务异常
 					else if (res.statusCode == 502) {
-						reject({
-							message: t("服务异常")
-						} as Response);
+						rejectWithNotice({ message: t("服务异常") } as Response);
 					}
 
 					// 404 未找到
@@ -115,9 +124,7 @@ export function request(options: RequestOptions): Promise<any | null> {
 								message = detail;
 							}
 						}
-						return reject({
-							message
-						} as Response);
+						return rejectWithNotice({ message } as Response);
 					}
 
 					// 200 正常响应
@@ -146,7 +153,7 @@ export function request(options: RequestOptions): Promise<any | null> {
 										resolve(data);
 										break;
 									default:
-										reject({ message, code } as Response);
+										rejectWithNotice({ message, code } as Response);
 										break;
 								}
 							} else if (isSuccessStatus) {
@@ -158,14 +165,14 @@ export function request(options: RequestOptions): Promise<any | null> {
 							}
 						}
 					} else {
-						reject({ message: t("服务异常") } as Response);
+						rejectWithNotice({ message: t("服务异常") } as Response);
 					}
 				},
 
 				// 网络请求失败
 				fail(err) {
 					console.error("[request fail]", method, url, err);
-					reject({ message: err.errMsg } as Response);
+					rejectWithNotice({ message: err.errMsg } as Response);
 				}
 			});
 		};
@@ -193,7 +200,8 @@ export function request(options: RequestOptions): Promise<any | null> {
 								isRefreshing = false;
 							})
 							.catch((err) => {
-								reject(err);
+								const message = (err as Response)?.message ?? "刷新token失败";
+								rejectWithNotice({ message } as Response);
 								user.logout();
 							});
 					}

@@ -77,7 +77,8 @@ export class Device {
 	currentDeviceId: string = "";
 	currentDeviceName: string = "";
 	// lastConnectedDeviceId: string = "FC:0E:57:D8:D8:F9";
-	lastConnectedDeviceId: string = "C6:21:DB:55:81:6D";
+	// lastConnectedDeviceId: string = "C6:21:DB:55:81:6D";
+	lastConnectedDeviceId: string = "";
 
 	// 设备初始化状态标志，防止重复初始化
 	isDeviceInitialized = false;
@@ -143,10 +144,10 @@ export class Device {
 			this.currentWearLocation = savedLocation;
 		}
 
-		// const savedDeviceId = storage.get(KEY_LAST_DEVICE_ID) as string | null;
-		// if (this.lastConnectedDeviceId == "" && savedDeviceId != null && savedDeviceId != "") {
-		// 	this.lastConnectedDeviceId = savedDeviceId;
-		// }
+		const savedDeviceId = storage.get(KEY_LAST_DEVICE_ID) as string | null;
+		if (this.lastConnectedDeviceId == "" && savedDeviceId != null && savedDeviceId != "") {
+			this.lastConnectedDeviceId = savedDeviceId;
+		}
 	}
 
 	saveWearLocation(location: WearLocation): void {
