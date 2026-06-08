@@ -63,6 +63,7 @@
 
 <script lang="ts" setup>
 import { getQuestionnaireApi, submitQuestionnaireApi } from "@/.cool";
+import { useUi } from "@/uni_modules/cool-ui";
 import { ref, reactive } from "vue";
 
 import type {
@@ -79,6 +80,7 @@ type QuestionSelect = {
 	selected: string;
 };
 
+const ui = useUi();
 const currentStep = ref(1);
 const userTypes = ref<UserType[]>([]);
 const selectedUserType = ref<string>("");
@@ -108,6 +110,18 @@ const loadQuestionnaire = function () {
 		})
 		.catch((err) => {
 			console.error("加载问卷失败:", err);
+			ui.showToast({ message: "问卷加载失败", type: "error" });
+			ui.showConfirm({
+				title: "提示",
+				message: "问卷加载失败，是否跳过问卷直接进入？",
+				confirmText: "确定",
+				cancelText: "取消",
+				callback(action) {
+					if (action == "confirm") {
+						uni.redirectTo({ url: "/pages/device/index" });
+					}
+				}
+			});
 		})
 		.finally(() => {
 			loading.value = false;
@@ -149,6 +163,18 @@ const submitQuestionnaire = function (): void {
 		})
 		.catch((err) => {
 			console.error("提交问卷失败:", err);
+			ui.showToast({ message: "问卷提交失败", type: "error" });
+			ui.showConfirm({
+				title: "提示",
+				message: "问卷提交失败，是否跳过直接进入？",
+				confirmText: "确定",
+				cancelText: "取消",
+				callback(action) {
+					if (action == "confirm") {
+						uni.redirectTo({ url: "/pages/device/index" });
+					}
+				}
+			});
 		})
 		.finally(() => {
 			submitting.value = false;
