@@ -1,5 +1,5 @@
 import { ref } from "vue";
-import { PageWaiter, sleepTimeout, storage } from "../utils";
+import { PageWaiter, loadResumeCount, sleepTimeout, storage } from "../utils";
 import { t } from "../locale";
 
 // 蓝牙相关导入
@@ -703,32 +703,12 @@ export class Device {
 			return;
 		}
 
-		// === 断点续传：校验已保存条数 ===
-		// 注意：不能用 `as number` —— Android 端 storage 可能返回 String，
-		// UTS 强转在 Kotlin 上会抛 ClassCastException。
-		// 也不能用 `Number()` —— UTS 编译时会解析为 Kotlin 的 java.lang.Number 抽象类，
-		// 导致编译期 "Cannot create an instance of an abstract class"。
-		// 改用 typeof 守卫 + parseInt（UTS 安全映射到 String.toIntOrNull）。
-		const rawSavedCount = storage.get(KEY_PPI_SAVED_COUNT);
-		let savedCount = 0;
-		if (typeof rawSavedCount == "number") {
-			savedCount = rawSavedCount;
-		} else if (typeof rawSavedCount == "string") {
-			const parsed = parseInt(rawSavedCount, 10);
-			savedCount = isNaN(parsed) ? 0 : parsed;
-		}
-
-		// 边界：已保存 > 设备总条数 → 设备历史被清空 → 清空 ppi_data 并重置计数
-		if (savedCount > status.heartRateCount) {
-			console.log(
-				`[FETCH] 已保存(${savedCount}) > 设备总条数(${status.heartRateCount})，设备历史被清空，清空 ppi_data`
-			);
-			storage.set(KEY_PPI_SAVED_COUNT, 0, 0);
-			savedCount = 0;
-		}
-
-		// 全部已抓取
-		if (savedCount >= status.heartRateCount) {
+		// 断点续传：校验已保存条数（跨平台类型守卫、边界重置、是否完成均在工具内）
+		const { savedCount, isComplete } = loadResumeCount(
+			KEY_PPI_SAVED_COUNT,
+			status.heartRateCount
+		);
+		if (isComplete) {
 			console.log("已全部保存，无需抓取");
 			return;
 		}
@@ -801,30 +781,12 @@ export class Device {
 			return;
 		}
 
-		// === 断点续传：校验已保存条数 ===
-		// 注意：不能用 `as number` —— Android 端 storage 可能返回 String，
-		// UTS 强转在 Kotlin 上会抛 ClassCastException。
-		// 改用 typeof 守卫 + parseInt（UTS 安全映射到 String.toIntOrNull）。
-		const rawSavedCount = storage.get(KEY_SLEEP_SAVED_COUNT);
-		let savedCount = 0;
-		if (typeof rawSavedCount == "number") {
-			savedCount = rawSavedCount;
-		} else if (typeof rawSavedCount == "string") {
-			const parsed = parseInt(rawSavedCount, 10);
-			savedCount = isNaN(parsed) ? 0 : parsed;
-		}
-
-		// 边界：已保存 > 设备总条数 → 设备历史被清空 → 重置计数（sleep_data 暂不删，避免丢已上传数据）
-		if (savedCount > status.sleepCount) {
-			console.log(
-				`[FETCH] 已保存(${savedCount}) > 设备总条数(${status.sleepCount})，设备历史被清空，重置计数`
-			);
-			storage.set(KEY_SLEEP_SAVED_COUNT, 0, 0);
-			savedCount = 0;
-		}
-
-		// 全部已抓取
-		if (savedCount >= status.sleepCount) {
+		// 断点续传：校验已保存条数（跨平台类型守卫、边界重置、是否完成均在工具内）
+		const { savedCount, isComplete } = loadResumeCount(
+			KEY_SLEEP_SAVED_COUNT,
+			status.sleepCount
+		);
+		if (isComplete) {
 			console.log("睡眠数据已全部保存，无需抓取");
 			return;
 		}
