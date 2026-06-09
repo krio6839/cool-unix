@@ -19,10 +19,15 @@ import { storage } from "./storage";
  * if (isComplete) return;
  * // ... 从 savedCount 继续抓取
  */
+type ResumeResult = {
+	savedCount: number;
+	isComplete: boolean;
+};
+
 export function loadResumeCount(
 	key: string,
 	totalCount: number
-): { savedCount: number; isComplete: boolean } {
+): ResumeResult {
 	const raw = storage.get(key);
 	let savedCount = 0;
 	if (typeof raw == "number") {
