@@ -18,17 +18,9 @@ export type BluetoothData = {
 };
 
 /**
- * 睡眠状态
- */
-export type SleepStatus = {
-	id: string;
-	sleepId: string;
-	minuteIndex: number;
-	status: number; // -2: Deep sleep, -1: Light sleep, 0: REM, 1: WAKE
-};
-
-/**
  * 睡眠数据（同时作为输入和记录类型）
+ * detail 字段由 SleepResponseAssembler 装配时按 (signed_status + 2) 规则生成，
+ * 数据库仅存 detail 字符串，不再有独立的 sleep_status 表。
  */
 export type SleepData = {
 	id?: string;
@@ -38,7 +30,7 @@ export type SleepData = {
 	wakeTime: number;
 	getupTime: number;
 	recordCount: number;
-	statuses: SleepStatus[];
+	detail: string;
 	uploaded?: boolean;
 };
 

@@ -7,6 +7,9 @@ export * from "./constants";
 // 导出解析器
 export * from "./parser";
 
+// 导出睡眠响应装配器
+export * from "./sleep-assembler";
+
 // 导出数据管理器
 export * from "./data-manager";
 

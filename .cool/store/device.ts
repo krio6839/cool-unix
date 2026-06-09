@@ -21,9 +21,9 @@ import {
 	parseDataReadyStatus,
 	parseRTCResponse,
 	parseHistoricalHeartRateData,
-	parseSleepData,
 	convertNumberToHexString,
-	convertNumberToHexStringLSB
+	convertNumberToHexStringLSB,
+	SleepResponseAssembler
 } from "../bluetooth";
 
 import type { HeartRateRecord, DataReadyStatus, SleepData } from "../bluetooth";
@@ -53,6 +53,8 @@ const KEY_WEAR_LOCATION = "device_wear_location";
 const KEY_LAST_DEVICE_ID = "last_device_id";
 /** 已保存到 ppi_data 的条数（断点续传用；0 表示未抓取过） */
 const KEY_PPI_SAVED_COUNT = "ppi_data_saved_count";
+/** 已保存到 sleep_data 的条数（断点续传用；0 表示未抓取过） */
+const KEY_SLEEP_SAVED_COUNT = "sleep_data_saved_count";
 
 const TARGET_DEVICE_NAME = "BOOM1";
 
@@ -96,6 +98,8 @@ export class Device {
 	// 分页等待器：心率分页 / 睡眠分页各持一个，复用同一原语
 	private _heartRatePageWaiter: PageWaiter = new PageWaiter();
 	private _sleepPageWaiter: PageWaiter = new PageWaiter();
+	// 睡眠响应装配器：封装"头部识别 + 状态累积 + 超时 reset"状态机
+	private _sleepAssembler: SleepResponseAssembler = new SleepResponseAssembler();
 
 	// 定时轮询相关
 	private _dataQueryTimer: number = 0;
@@ -525,27 +529,31 @@ export class Device {
 		}, delay);
 	}
 
+	setLEDStatus(val: string): Promise<boolean> {
+		return this.writeCharacteristic(
+			LED_BUTTON_SERVICE_UUID,
+			LED_BUTTON_CHARACTERISTIC_UUID,
+			val
+		);
+	}
+
 	readBloodOxygen(): Promise<boolean> {
 		return this.readCharacteristic(LED_BUTTON_SERVICE_UUID, BLOOD_OXYGEN_CHARACTERISTIC_UUID);
 	}
 
-	subscribeBloodOxygen(): void {
-		this.enableNotify(LED_BUTTON_SERVICE_UUID, BLOOD_OXYGEN_CHARACTERISTIC_UUID);
+	subscribeBloodOxygen(): Promise<boolean> {
+		return this.enableNotify(LED_BUTTON_SERVICE_UUID, BLOOD_OXYGEN_CHARACTERISTIC_UUID);
 	}
 
-	subscribeHeartRate(): void {
-		this.enableNotify(HEART_RATE_SERVICE_UUID, HEART_RATE_CHARACTERISTIC_UUID);
+	subscribeHeartRate(): Promise<boolean> {
+		return this.enableNotify(HEART_RATE_SERVICE_UUID, HEART_RATE_CHARACTERISTIC_UUID);
 	}
 	// subscribeBattery(): void {
 	// 	this.enableNotify(BATTERY_SERVICE_UUID, BATTERY_CHARACTERISTIC_UUID);
 	// }
 
-	subscribeUART(): void {
-		this.enableNotify(UART_SERVICE_UUID, UART_RX_CHARACTERISTIC_UUID);
-	}
-
-	setLEDStatus(val: string) {
-		this.writeCharacteristic(LED_BUTTON_SERVICE_UUID, LED_BUTTON_CHARACTERISTIC_UUID, val);
+	subscribeUART(): Promise<boolean> {
+		return this.enableNotify(UART_SERVICE_UUID, UART_RX_CHARACTERISTIC_UUID);
 	}
 
 	async toggleDeviceStatus() {
@@ -780,8 +788,11 @@ export class Device {
 	}
 
 	/**
-	 * 自动获取所有睡眠数据
-	 * 根据 dataReadyStatus.sleepCount 自动遍历获取
+	 * 自动获取所有睡眠数据（支持断点续传）
+	 * 根据 dataReadyStatus.sleepCount 自动遍历获取；
+	 * 通过 KEY_SLEEP_SAVED_COUNT 持久化已保存条数，避免重复抓取；
+	 * 如果设备历史被清空（已保存 > 设备总条数），自动重置计数。
+	 * 两层超时：装配器内部 3000ms（头部已收但状态包丢失）+ 外部 waiter 5000ms（极端情况兜底）
 	 */
 	async fetchAllSleepData(): Promise<void> {
 		const status = this.dataReadyStatus.value;
@@ -790,29 +801,70 @@ export class Device {
 			return;
 		}
 
-		this._sleepPageWaiter.reset();
-		// 单条响应的最长等待时间（兜底）
-		const SLEEP_RESPONSE_TIMEOUT_MS = 1000;
-		console.log("开始获取睡眠数据，总共", status.sleepCount, "条");
+		// === 断点续传：校验已保存条数 ===
+		// 注意：不能用 `as number` —— Android 端 storage 可能返回 String，
+		// UTS 强转在 Kotlin 上会抛 ClassCastException。
+		// 改用 typeof 守卫 + parseInt（UTS 安全映射到 String.toIntOrNull）。
+		const rawSavedCount = storage.get(KEY_SLEEP_SAVED_COUNT);
+		let savedCount = 0;
+		if (typeof rawSavedCount == "number") {
+			savedCount = rawSavedCount;
+		} else if (typeof rawSavedCount == "string") {
+			const parsed = parseInt(rawSavedCount, 10);
+			savedCount = isNaN(parsed) ? 0 : parsed;
+		}
 
-		for (let i = 0; i < status.sleepCount; i++) {
+		// 边界：已保存 > 设备总条数 → 设备历史被清空 → 重置计数（sleep_data 暂不删，避免丢已上传数据）
+		if (savedCount > status.sleepCount) {
+			console.log(
+				`[FETCH] 已保存(${savedCount}) > 设备总条数(${status.sleepCount})，设备历史被清空，重置计数`
+			);
+			storage.set(KEY_SLEEP_SAVED_COUNT, 0, 0);
+			savedCount = 0;
+		}
+
+		// 全部已抓取
+		if (savedCount >= status.sleepCount) {
+			console.log("睡眠数据已全部保存，无需抓取");
+			return;
+		}
+
+		if (savedCount > 0) {
+			console.log(`[FETCH] 断点续传：已保存 ${savedCount} 条，从第 ${savedCount} 条继续`);
+		} else {
+			console.log("[FETCH] 首次抓取，从头开始");
+		}
+
+		this._sleepPageWaiter.reset();
+		this._sleepAssembler.reset();
+		// 兜底 timeout：极端情况（设备未回头部）下保护循环不卡死
+		// 正常情况由装配器内部 timer（3000ms）触发 reset
+		const SLEEP_RESPONSE_TIMEOUT_MS = 5000;
+		console.log("开始获取睡眠数据，总共", status.sleepCount, "条，已保存", savedCount, "条");
+
+		// 每条睡眠单独 read/write，索引与已保存数据严格连续
+		for (let i = savedCount; i < status.sleepCount; i++) {
 			console.log("获取第", i, "条睡眠数据");
 			await this.getSleepData(i);
 
-			// 等待数据返回（通过 onCharacteristicValueChange 接收并 notify）
+			// 等待响应到达；超过超时时间则视为本条无响应
 			const timeout = await this._sleepPageWaiter.wait(SLEEP_RESPONSE_TIMEOUT_MS);
 			if (timeout == true) {
 				console.log(`第 ${i} 条睡眠数据响应超时（${SLEEP_RESPONSE_TIMEOUT_MS}ms）`);
+				this._sleepAssembler.reset();
+				// 单条超时则中断本次循环，下次进入续传（避免半包数据"插队"已上传数据）
+				break;
 			}
+			// 每条成功后推进进度计数（落盘保证下次进入即从此位置继续）
+			storage.set(KEY_SLEEP_SAVED_COUNT, i + 1, 0);
 		}
-		console.log("睡眠数据获取完成");
+		console.log(`[FETCH] 睡眠数据获取完成，已保存 ${storage.get(KEY_SLEEP_SAVED_COUNT)} 条`);
 	}
 
 	// 事件处理
 	onCharacteristicValueChange(): void {
 		this.kuxBluetooth.onBLECharacteristicValueChange((res) => {
-			const hexString = arrayBufferToHexString(res.value);
-			const hexData = hexString;
+			const hexData = arrayBufferToHexString(res.value);
 			const serviceId = res.serviceId.toLowerCase();
 			const characteristicId = res.characteristicId.toLowerCase();
 			console.log("响应数据:", hexData, serviceId, characteristicId);
@@ -857,15 +909,22 @@ export class Device {
 					// 批量存储历史心率血氧数据
 					// 注：onCharacteristicValueChange 是 BLE 同步回调，await 批量 INSERT 不会阻塞 BLE 接收
 					this.storeHistoricalRecords(records);
-				} else if (hexData.length >= 48) {
-					// 睡眠数据：24字节头+N字节状态（可变长度）
-					const sleep = parseSleepData(hexData);
-					this.sleepData.value = sleep;
-					console.log("睡眠数据:", sleep);
-					// 存储历史睡眠数据
-					bluetoothDataManager.storeSleepData(sleep);
-					// 通知 fetchAllSleepData 当前条响应已到
-					this._sleepPageWaiter.onNotify();
+				} else if (hexData.length == 48) {
+					// 睡眠数据头部（24 字节）—— 最明确的入口
+					const sleep = this._sleepAssembler.push(hexData);
+					if (sleep == null) {
+						console.log("[SLEEP] 头部已接收，等待状态数据");
+					} else {
+						this._onSleepAssembled(sleep);
+					}
+				} else if (this._sleepAssembler.isAssembling()) {
+					// 后续状态字节流（包大小不固定）—— 合并到已识别头部
+					const sleep = this._sleepAssembler.push(hexData);
+					if (sleep == null) {
+						console.log("[SLEEP] 状态数据累积中");
+					} else {
+						this._onSleepAssembled(sleep);
+					}
 				}
 			}
 		});
@@ -882,6 +941,21 @@ export class Device {
 				console.log("_deviceOn", this._deviceOn);
 			}
 		});
+	}
+
+	/**
+	 * 睡眠响应装配完成后的统一处理：合法性校验 + 存储 + 通知 waiter
+	 * 提取为私有方法避免在 UART 分支中重复 4 处
+	 */
+	private _onSleepAssembled(sleep: SleepData): void {
+		if (sleep.bedtime == 0 && sleep.recordCount == 0) {
+			console.error("[SLEEP] 数据不合法，跳过存储，释放 waiter");
+		} else {
+			this.sleepData.value = sleep;
+			console.log("睡眠数据:", sleep);
+			bluetoothDataManager.storeSleepData(sleep);
+		}
+		this._sleepPageWaiter.onNotify();
 	}
 
 	// 重连机制
@@ -930,6 +1004,8 @@ export class Device {
 			fail: (err) => {}
 		});
 		//#endif
+		// 销毁睡眠响应装配器（清理 timer 句柄）
+		this._sleepAssembler.destroy();
 		// 销毁数据管理器
 		bluetoothDataManager.destroy();
 	}

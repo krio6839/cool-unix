@@ -11,7 +11,6 @@ import type {
 	BluetoothData,
 	BluetoothDataType,
 	SleepData,
-	SleepStatus,
 	PpiUploadRequest,
 	SleepUploadRequest,
 	SleepUploadDataItem,
@@ -233,7 +232,7 @@ export class BluetoothDataManager {
 				ppi: parseInt(row[4] as string),
 				uploaded: false
 			};
-			console.log("查询到PPI数据:", i, data);
+			// console.log("查询到PPI数据:", i, data);
 			dataList.push(data);
 		}
 		return dataList;
@@ -279,36 +278,30 @@ export class BluetoothDataManager {
 	}
 
 	/**
-	 * 清空所有数据（包括蓝牙数据、睡眠数据和睡眠状态）
+	 * 清空所有数据（包括蓝牙数据、睡眠数据、PPI数据）
 	 */
 	async clearAllData(): Promise<void> {
 		console.log("清空所有数据库数据");
 		await bluetoothDatabase.execute("DELETE FROM bluetooth_data");
 		await bluetoothDatabase.execute("DELETE FROM sleep_data");
-		await bluetoothDatabase.execute("DELETE FROM sleep_status");
 		await bluetoothDatabase.execute("DELETE FROM ppi_data");
 		console.log("数据库数据清空完成");
 	}
 
 	/**
 	 * 存储睡眠数据
-	 * @param sleepData 睡眠数据
+	 * 用 INSERT OR IGNORE 防御性去重：相同 reportTimestamp 已存在则静默跳过；
+	 * 配合 fetchAllSleepData 断点续传后，从源头避免重复存储与 uploaded 状态被重置。
+	 * @param sleepData 睡眠数据（detail 已由 SleepResponseAssembler 生成）
 	 */
 	async storeSleepData(sleepData: SleepData): Promise<void> {
-		const { reportTimestamp, bedtime, sleepTime, wakeTime, getupTime, recordCount, statuses } =
+		const { reportTimestamp, bedtime, sleepTime, wakeTime, getupTime, recordCount, detail } =
 			sleepData;
-
-		const sleepSql = `INSERT INTO sleep_data (id, report_timestamp, bedtime, sleep_time, wake_time, getup_time, record_count, uploaded)
-			VALUES ('${reportTimestamp}', ${reportTimestamp}, ${bedtime}, ${sleepTime}, ${wakeTime}, ${getupTime}, ${recordCount}, 0)`;
+		const sleepId = reportTimestamp.toString();
+		const sleepSql = `INSERT OR IGNORE INTO sleep_data
+			(id, report_timestamp, bedtime, sleep_time, wake_time, getup_time, record_count, detail, uploaded)
+			VALUES ('${sleepId}', ${reportTimestamp}, ${bedtime}, ${sleepTime}, ${wakeTime}, ${getupTime}, ${recordCount}, '${detail}', 0)`;
 		await bluetoothDatabase.execute(sleepSql);
-
-		for (let i = 0; i < statuses.length; i++) {
-			const status = statuses[i];
-			const statusId = reportTimestamp + i;
-			const statusSql = `INSERT INTO sleep_status (id, sleep_id, minute_index, status)
-				VALUES ('${statusId}', '${reportTimestamp}', ${i}, ${status.status})`;
-			await bluetoothDatabase.execute(statusSql);
-		}
 	}
 
 	/**
@@ -317,7 +310,7 @@ export class BluetoothDataManager {
 	 */
 	async getUnuploadedSleepData(): Promise<SleepData[]> {
 		const sql =
-			"SELECT id, report_timestamp, bedtime, sleep_time, wake_time, getup_time, record_count FROM sleep_data WHERE uploaded = 0";
+			"SELECT id, report_timestamp, bedtime, sleep_time, wake_time, getup_time, record_count, detail FROM sleep_data WHERE uploaded = 0";
 		const result = await bluetoothDatabase.query(sql);
 
 		if (result == null) {
@@ -328,33 +321,15 @@ export class BluetoothDataManager {
 
 		for (let i = 0; i < result.rows.length; i++) {
 			const row = result.rows[i];
-			const sleepId = row[0];
-
-			const statusSql = `SELECT minute_index, status FROM sleep_status WHERE sleep_id = '${sleepId}' ORDER BY minute_index`;
-			const statusResult = await bluetoothDatabase.query(statusSql);
-
-			const statuses: SleepStatus[] = [];
-			if (statusResult != null) {
-				for (let j = 0; j < statusResult.rows.length; j++) {
-					const statusRow = statusResult.rows[j];
-					statuses.push({
-						id: this.generateId(),
-						sleepId,
-						minuteIndex: parseInt(statusRow[0]),
-						status: parseInt(statusRow[1])
-					});
-				}
-			}
-
 			sleepDataList.push({
-				id: sleepId,
-				reportTimestamp: parseInt(row[1]),
-				bedtime: parseInt(row[2]),
-				sleepTime: parseInt(row[3]),
-				wakeTime: parseInt(row[4]),
-				getupTime: parseInt(row[5]),
-				recordCount: parseInt(row[6]),
-				statuses,
+				id: row[0],
+				reportTimestamp: parseInt(row[1] as string),
+				bedtime: parseInt(row[2] as string),
+				sleepTime: parseInt(row[3] as string),
+				wakeTime: parseInt(row[4] as string),
+				getupTime: parseInt(row[5] as string),
+				recordCount: parseInt(row[6] as string),
+				detail: (row[7] ?? "") as string,
 				uploaded: false
 			});
 		}
@@ -557,8 +532,7 @@ export class BluetoothDataManager {
 		try {
 			const sleepData = unuploadedSleepData[0];
 
-			const statusDetail = this.buildStatusDetail(sleepData.statuses);
-			const dataItem = this.buildSleepUploadItem(sleepData, statusDetail);
+			const dataItem = this.buildSleepUploadItem(sleepData);
 			const datas: SleepUploadDataItem[] = [dataItem];
 
 			const requestData: SleepUploadRequest = {
@@ -602,47 +576,18 @@ export class BluetoothDataManager {
 	}
 
 	/**
-	 * 构建睡眠状态详情字符串
-	 */
-	private buildStatusDetail(statuses: SleepStatus[]): string {
-		const detailArray: string[] = [];
-		for (let i = 0; i < statuses.length; i++) {
-			const status = statuses[i].status;
-			if (status == -2 || status == 3) {
-				detailArray.push("3");
-			} else if (status == -1 || status == 2) {
-				detailArray.push("2");
-			} else if (status == 0 || status == 1) {
-				detailArray.push("1");
-			} else {
-				detailArray.push("0");
-			}
-		}
-		return detailArray.join("");
-	}
-
-	/**
 	 * 构建睡眠上传数据项
-	 * @note bedtime, sleepTime, wakeTime, getupTime 是offset（秒），以报告时间前的秒计
+	 * 数据库 4 个 offset 秒字段直接对应上传 4 个 Sec 字段，不做减法
+	 * （用户决策："拿到什么就是什么"）
 	 */
-	private buildSleepUploadItem(sleepData: SleepData, statusDetail: string): SleepUploadDataItem {
-		// 由于存储的是offset（报告前的秒数），直接相减得到时间差
-		// bedSec: 就寝到入睡的秒数
-		// sleepSec: 入睡到醒来的秒数
-		// upSec: 醒来到起床的秒数
-		// wakeSec: 睡眠潜伏期（= bedSec）
-		const bedSec = sleepData.sleepTime - sleepData.bedtime;
-		const sleepSec = sleepData.wakeTime - sleepData.sleepTime;
-		const upSec = sleepData.getupTime - sleepData.wakeTime;
-		const wakeSec = sleepData.sleepTime - sleepData.bedtime;
-
+	private buildSleepUploadItem(sleepData: SleepData): SleepUploadDataItem {
 		return {
-			bedSec,
-			detail: statusDetail,
-			sleepSec,
+			bedSec: sleepData.bedtime,
+			detail: sleepData.detail,
+			sleepSec: sleepData.sleepTime,
 			time: this.formatTimestamp(sleepData.reportTimestamp * 1000), // 转为毫秒
-			upSec,
-			wakeSec
+			upSec: sleepData.wakeTime,
+			wakeSec: sleepData.getupTime
 		};
 	}
 

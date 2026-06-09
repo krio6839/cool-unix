@@ -1,5 +1,5 @@
 import { getServiceName, getCharacteristicName } from "../data/bluetooth-constants";
-import type { HeartRateRecord, DataReadyStatus, SleepData, SleepStatus } from "./types";
+import type { HeartRateRecord, DataReadyStatus, SleepData } from "./types";
 
 export { getServiceName, getCharacteristicName };
 
@@ -165,37 +165,60 @@ export const parseSleepData = (hexData: string): SleepData => {
 		bytes.push(parseInt(cleanData.substring(i, i + 2), 16));
 	}
 
-	const reportTimestamp = bytes[0] + (bytes[1] << 8) + (bytes[2] << 16) + (bytes[3] << 24);
-	const bedtime = bytes[4] + (bytes[5] << 8) + (bytes[6] << 16) + (bytes[7] << 24);
-	const sleepTime = bytes[8] + (bytes[9] << 8) + (bytes[10] << 16) + (bytes[11] << 24);
-	const wakeTime = bytes[12] + (bytes[13] << 8) + (bytes[14] << 16) + (bytes[15] << 24);
-	const getupTime = bytes[16] + (bytes[17] << 8) + (bytes[18] << 16) + (bytes[19] << 24);
-	const recordCount = bytes[20] + (bytes[21] << 8) + (bytes[22] << 16) + (bytes[23] << 24);
+	const reportTimestamp = parseUint32LE(bytes, 0);
+	const bedtime = parseUint32LE(bytes, 4);
+	const sleepTime = parseUint32LE(bytes, 8);
+	const wakeTime = parseUint32LE(bytes, 12);
+	const getupTime = parseUint32LE(bytes, 16);
+	const recordCount = parseUint32LE(bytes, 20);
+	const statusHex = cleanData.substring(48);
+	const detail = parseStatusBytesToDetail(statusHex);
 
-	const statuses: SleepStatus[] = [];
-	for (let i = 24; i < bytes.length; i++) {
-		const val = bytes[i];
-		let statusNum = 0;
-		if (val == 254) {
-			statusNum = -2;
-		} else if (val == 255) {
-			statusNum = -1;
-		} else if (val == 0) {
-			statusNum = 0;
-		} else if (val == 1) {
-			statusNum = 1;
-		} else {
-			statusNum = val;
-		}
-		statuses.push({
-			id: "",
-			sleepId: "",
-			minuteIndex: i - 24,
-			status: statusNum
-		});
+	return {
+		reportTimestamp,
+		bedtime,
+		sleepTime,
+		wakeTime,
+		getupTime,
+		recordCount,
+		detail
+	};
+};
+
+/**
+ * 把状态字节流（recordCount 字节）按用户规则生成 detail 字符串。
+ * 规则：状态字节按有符号解析，detail_char = (signed_value + 2).toString()，逐字节拼接。
+ *   - 0xFE (signed=-2) → "0"
+ *   - 0xFF (signed=-1) → "1"
+ *   - 0x00 → "2"
+ *   - 0x01 → "3"
+ *   - 0x02 → "4"
+ *   - 0x03 → "5"
+ */
+export const parseStatusBytesToDetail = (hexData: string): string => {
+	const cleanData = hexData.replace(/\s/g, "").toUpperCase();
+	let detail = "";
+	for (let i = 0; i < cleanData.length; i += 2) {
+		const unsigned = parseInt(cleanData.substring(i, i + 2), 16);
+		const signed = unsigned > 127 ? unsigned - 256 : unsigned;
+		detail += (signed + 2).toString();
 	}
+	return detail;
+};
 
-	return { reportTimestamp, bedtime, sleepTime, wakeTime, getupTime, recordCount, statuses };
+/**
+ * 从字节数组按 LSB 模式解析 uint32。
+ * @param bytes 字节数组
+ * @param offset 起始字节偏移
+ * @returns 解析出的 32 位无符号整数（可能 > 2^31 会被当作 number 看待，BLE 协议上为秒计数）
+ */
+export const parseUint32LE = (bytes: number[], offset: number): number => {
+	const b0 = bytes[offset] ?? 0;
+	const b1 = bytes[offset + 1] ?? 0;
+	const b2 = bytes[offset + 2] ?? 0;
+	const b3 = bytes[offset + 3] ?? 0;
+	// 通过 >>> 0 把 32 位有符号结果转无符号；超过 32 位有符号时 number 转为浮点，保持精度直至 2^53
+	return (b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)) >>> 0;
 };
 
 export const convertNumberToHexString = (num: number, byteLength: number): string => {
