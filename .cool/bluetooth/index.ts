@@ -15,3 +15,6 @@ export * from "./data-manager";
 
 // 导出数据库
 export * from "./database";
+
+// 导出 kux 工具
+export * from "./kux";

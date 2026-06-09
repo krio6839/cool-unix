@@ -1,0 +1,218 @@
+//#ifndef H5
+//@ts-ignore
+import { useKuxBluetooth } from "@/uni_modules/kux-bluetooth";
+
+import type {
+	IBluetooth,
+	InitConfig,
+	DeviceInfo,
+	GetBLEDeviceServicesSuccess,
+	GetBLEDeviceServicesSuccessService,
+	GetBLEDeviceCharacteristicsSuccess,
+	BLEDeviceCharacteristic,
+	OpenBluetoothAdapterSuccess,
+	StartBluetoothDevicesDiscoveryOptions,
+	ApiCommonSuccessCallback,
+	OnBluetoothAdapterStateChangeCallback,
+	OnBLEConnectionStateChangeCallback,
+	OnBluetoothDeviceFoundCallback,
+	OnBLECharacteristicValueChangeCallback,
+	OnReadBLECharacteristicValueCallback
+	//@ts-ignore
+} from "@/uni_modules/kux-bluetooth/utssdk/interface";
+
+// 业务层需要用到的类型,从这里统一 re-export
+export type { DeviceInfo, GetBLEDeviceServicesSuccessService, BLEDeviceCharacteristic };
+
+const DEFAULT_CONFIG: InitConfig = {
+	needLocation: true,
+	accessBackgroundLocation: false
+};
+
+// 模块级单例:整个项目共用一个 IBluetooth 实例
+//@ts-ignore
+const kx = useKuxBluetooth(DEFAULT_CONFIG) as IBluetooth;
+
+// ====== 适配器 ======
+export function openAdapter(): Promise<OpenBluetoothAdapterSuccess> {
+	return new Promise((resolve, reject) => {
+		kx.openBluetoothAdapter({
+			success: (res: OpenBluetoothAdapterSuccess) => resolve(res),
+			fail: (err: any) => reject(err)
+		});
+	});
+}
+
+export function closeAdapter(): Promise<boolean> {
+	return new Promise((resolve) => {
+		kx.closeBluetoothAdapter({
+			success: (_res: ApiCommonSuccessCallback) => resolve(true),
+			fail: (_err: any) => resolve(false)
+		});
+	});
+}
+
+// ====== 扫描 ======
+export function startDiscovery(): Promise<boolean> {
+	return new Promise((resolve) => {
+		kx.startBluetoothDevicesDiscovery({
+			success: (res: ApiCommonSuccessCallback) => resolve(true),
+			fail: (err: any) => resolve(false)
+		} as StartBluetoothDevicesDiscoveryOptions);
+	});
+}
+
+export function stopDiscovery(): Promise<boolean> {
+	return new Promise((resolve) => {
+		kx.stopBluetoothDevicesDiscovery({
+			success: (_res: ApiCommonSuccessCallback) => resolve(true),
+			fail: (_err: any) => resolve(false)
+		});
+	});
+}
+
+export function onDeviceFound(cb: OnBluetoothDeviceFoundCallback): void {
+	kx.onBluetoothDeviceFound(cb);
+}
+
+export function offDeviceFound(): void {
+	kx.offBluetoothDeviceFound();
+}
+
+// ====== 连接 ======
+export function connect(deviceId: string, timeout?: number): Promise<boolean> {
+	return new Promise((resolve) => {
+		kx.createBLEConnection({
+			deviceId,
+			timeout,
+			success: (_res: ApiCommonSuccessCallback) => resolve(true),
+			fail: (_err: any) => resolve(false)
+		});
+	});
+}
+
+export function disconnect(deviceId: string): Promise<boolean> {
+	return new Promise((resolve) => {
+		kx.closeBLEConnection({
+			deviceId,
+			success: (_res: ApiCommonSuccessCallback) => resolve(true),
+			fail: (_err: any) => resolve(false)
+		});
+	});
+}
+
+export function onConnectionStateChange(cb: OnBLEConnectionStateChangeCallback): void {
+	kx.onBLEConnectionStateChange(cb);
+}
+
+// ====== 服务 / 特征 ======
+export function getServices(deviceId: string): Promise<GetBLEDeviceServicesSuccessService[]> {
+	return new Promise((resolve, reject) => {
+		kx.getBLEDeviceServices({
+			deviceId,
+			success: (res: GetBLEDeviceServicesSuccess) => resolve(res.services ?? []),
+			fail: (err: any) => reject(err)
+		});
+	});
+}
+
+export function getCharacteristics(
+	deviceId: string,
+	serviceId: string
+): Promise<BLEDeviceCharacteristic[]> {
+	return new Promise((resolve) => {
+		kx.getBLEDeviceCharacteristics({
+			deviceId,
+			serviceId,
+			success: (res: GetBLEDeviceCharacteristicsSuccess) =>
+				resolve(res.characteristics ?? []),
+			fail: (_err: any) => resolve([])
+		});
+	});
+}
+
+// ====== 特征操作 ======
+export function readCharacteristic(
+	deviceId: string,
+	serviceId: string,
+	charId: string
+): Promise<boolean> {
+	return new Promise((resolve) => {
+		kx.readBLECharacteristicValue({
+			deviceId,
+			serviceId,
+			characteristicId: charId,
+			success: (_res: ApiCommonSuccessCallback) => resolve(true),
+			fail: (_err: any) => resolve(false)
+		});
+	});
+}
+
+export function writeCharacteristic(
+	deviceId: string,
+	serviceId: string,
+	charId: string,
+	value: ArrayBuffer,
+	writeType: "write" | "writeNoResponse" = "write"
+): Promise<boolean> {
+	return new Promise((resolve) => {
+		kx.writeBLECharacteristicValue({
+			deviceId,
+			serviceId,
+			characteristicId: charId,
+			value,
+			writeType,
+			success: (_res: ApiCommonSuccessCallback) => resolve(true),
+			fail: (_err: any) => resolve(false)
+		});
+	});
+}
+
+/**
+ * notify/indicate 启用或停用
+ * state=true 时返回 Promise(等回调)
+ * state=false 时 fire-and-forget(不返回,跟原 device.ts disableNotify 行为一致)
+ */
+export function notifyCharacteristic(
+	deviceId: string,
+	serviceId: string,
+	charId: string,
+	state: boolean,
+	type: "notification" | "indication" = "notification"
+): Promise<boolean> {
+	if (state == false) {
+		kx.notifyBLECharacteristicValueChange({
+			deviceId,
+			serviceId,
+			characteristicId: charId,
+			state: false,
+			type
+		});
+		return Promise.resolve(false);
+	}
+	return new Promise((resolve) => {
+		kx.notifyBLECharacteristicValueChange({
+			deviceId,
+			serviceId,
+			characteristicId: charId,
+			state: true,
+			type,
+			success: (_res: ApiCommonSuccessCallback) => resolve(true),
+			fail: (_err: any) => resolve(false)
+		});
+	});
+}
+
+// ====== 事件订阅(透传) ======
+export function onAdapterStateChange(cb: OnBluetoothAdapterStateChangeCallback): void {
+	kx.onBluetoothAdapterStateChange(cb);
+}
+
+export function onCharacteristicValueChange(cb: OnBLECharacteristicValueChangeCallback): void {
+	kx.onBLECharacteristicValueChange(cb);
+}
+
+export function onReadCharacteristicValue(cb: OnReadBLECharacteristicValueCallback): void {
+	kx.onReadBLECharacteristicValue(cb);
+}
+//#endif

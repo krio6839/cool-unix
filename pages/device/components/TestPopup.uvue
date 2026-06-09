@@ -370,7 +370,8 @@
 <script lang="ts" setup>
 import { t, useStore } from "@/.cool";
 import { useUi } from "@/uni_modules/cool-ui";
-import { bluetoothDataManager } from "@/.cool/bluetooth";
+import { bluetoothDataManager, BATTERY_SERVICE_UUID, BATTERY_CHARACTERISTIC_UUID } from "@/.cool/bluetooth";
+import { readCharacteristic } from "@/.cool/bluetooth/kux";
 
 const ui = useUi();
 const { device: deviceStore } = useStore();
@@ -404,9 +405,10 @@ function testReconnect() {
 
 async function testReadBattery() {
 	ui.showToast({ message: t("读取电池..."), type: "warn" });
-	await deviceStore.readCharacteristic(
-		"0000180f-0000-1000-8000-00805f9b34fb",
-		"00002a19-0000-1000-8000-00805f9b34fb"
+	await readCharacteristic(
+		deviceStore.currentDeviceId,
+		BATTERY_SERVICE_UUID,
+		BATTERY_CHARACTERISTIC_UUID
 	);
 }
 
