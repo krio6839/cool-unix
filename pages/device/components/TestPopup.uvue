@@ -128,7 +128,7 @@
 					rounded
 					size="small"
 					class="mr-2 mb-2"
-					@tap="deviceStore.subscribeUART()"
+					@tap="deviceStore.protocol.subscribeUART()"
 				>
 					{{ t("订阅UART") }}
 				</cl-button>
@@ -139,16 +139,6 @@
 				{{ t("设备信息") }}
 			</cl-text>
 			<view class="flex flex-row flex-wrap mb-4">
-				<cl-button
-					type="primary"
-					color="#555"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testGetDeviceInfo"
-				>
-					{{ t("获取设备信息") }}
-				</cl-button>
 				<cl-button
 					type="primary"
 					color="#555"
@@ -370,7 +360,11 @@
 <script lang="ts" setup>
 import { t, useStore } from "@/.cool";
 import { useUi } from "@/uni_modules/cool-ui";
-import { bluetoothDataManager, BATTERY_SERVICE_UUID, BATTERY_CHARACTERISTIC_UUID } from "@/.cool/bluetooth";
+import {
+	bluetoothDataManager,
+	BATTERY_SERVICE_UUID,
+	BATTERY_CHARACTERISTIC_UUID
+} from "@/.cool/bluetooth";
 import { readCharacteristic } from "@/.cool/bluetooth/kux";
 
 const ui = useUi();
@@ -382,25 +376,25 @@ const show = defineModel("show", {
 
 async function testReadBloodOxygen() {
 	ui.showToast({ message: t("读取中..."), type: "warn" });
-	await deviceStore.readBloodOxygen();
+	await deviceStore.protocol.readBloodOxygen();
 }
 
 async function toggleDevice() {
-	await deviceStore.toggleDeviceStatus();
+	await deviceStore.protocol.toggleDeviceStatus();
 }
 
 async function subscribeHeartRate() {
-	deviceStore.subscribeHeartRate();
+	deviceStore.protocol.subscribeHeartRate();
 }
 
 async function testDisconnect() {
 	ui.showToast({ message: t("断开连接中..."), type: "warn" });
-	deviceStore.disconnectDevice();
+	deviceStore.connection.disconnectDevice();
 }
 
 function testReconnect() {
 	ui.showToast({ message: t("测试重连..."), type: "warn" });
-	deviceStore.reconnect();
+	deviceStore.connection.reconnect();
 }
 
 async function testReadBattery() {
@@ -414,22 +408,7 @@ async function testReadBattery() {
 
 function testGetLEDStatus() {
 	ui.showToast({ message: t("获取LED状态..."), type: "warn" });
-	deviceStore.getLEDStatus();
-}
-
-function testGetDeviceInfo() {
-	const info = {
-		status: deviceStore.status.value,
-		deviceId: deviceStore.currentDeviceId,
-		services: deviceStore.services.length,
-		characteristics: deviceStore.characteristics.size,
-		heartRate: deviceStore.heartRate.value,
-		bloodOxygen: deviceStore.bloodOxygen.value,
-		battery: deviceStore.battery.value,
-		ppi: deviceStore.ppi.value
-	};
-	console.log("设备信息:", info);
-	ui.showToast({ message: t("设备信息已输出到控制台"), type: "success" });
+	deviceStore.protocol.getLEDStatus();
 }
 
 function testClearError() {
@@ -439,7 +418,7 @@ function testClearError() {
 
 async function testQueryDataReady() {
 	ui.showToast({ message: t("查询数据状态..."), type: "warn" });
-	const result = await deviceStore.queryDataReadyStatus();
+	const result = await deviceStore.protocol.queryDataReadyStatus();
 	if (result) {
 		ui.showToast({ message: t("查询成功"), type: "success" });
 	} else {
@@ -449,7 +428,7 @@ async function testQueryDataReady() {
 
 async function testGetDeviceTime() {
 	ui.showToast({ message: t("获取RTC时间..."), type: "warn" });
-	const result = await deviceStore.getDeviceTime();
+	const result = await deviceStore.protocol.getDeviceTime();
 	if (result) {
 		ui.showToast({ message: t("获取成功"), type: "success" });
 	} else {
@@ -459,7 +438,7 @@ async function testGetDeviceTime() {
 
 async function testGetHistoricalData() {
 	ui.showToast({ message: t("获取心率血氧历史..."), type: "warn" });
-	const result = await deviceStore.getHistoricalHeartRateData(0);
+	const result = await deviceStore.protocol.getHistoricalHeartRateData(0);
 	if (result) {
 		ui.showToast({ message: t("获取成功"), type: "success" });
 	} else {
@@ -470,7 +449,7 @@ async function testGetHistoricalData() {
 async function testFetchAllHistoricalData() {
 	ui.showToast({ message: t("正在拉取所有历史心率血氧..."), type: "warn" });
 	try {
-		await deviceStore.fetchAllHistoricalHeartRateData();
+		await deviceStore.data.fetchAllHistoricalHeartRateData();
 	} catch (err) {
 		console.error("拉取所有历史数据失败:", err);
 		ui.showToast({ message: t("获取失败"), type: "error" });
@@ -491,7 +470,7 @@ async function testQueryUnuploadedPpiData() {
 
 async function testGetSleepData() {
 	ui.showToast({ message: t("获取睡眠数据..."), type: "warn" });
-	const result = await deviceStore.getSleepData(0);
+	const result = await deviceStore.protocol.getSleepData(0);
 	if (result) {
 		console.log("睡眠数据:", deviceStore.sleepData.value);
 		ui.showToast({ message: t("获取成功"), type: "success" });
@@ -502,7 +481,7 @@ async function testGetSleepData() {
 
 async function testShutdown() {
 	ui.showToast({ message: t("设备关机..."), type: "warn" });
-	const result = await deviceStore.shutdownDevice();
+	const result = await deviceStore.protocol.shutdownDevice();
 	if (result) {
 		ui.showToast({ message: t("关机命令发送成功"), type: "success" });
 	} else {
@@ -514,7 +493,7 @@ async function testSetDeviceTime() {
 	ui.showToast({ message: t("设置RTC时间..."), type: "warn" });
 	const timestamp = Math.floor(Date.now() / 1000);
 	console.log("当前时间戳:", timestamp);
-	const result = await deviceStore.setDeviceTime(timestamp);
+	const result = await deviceStore.protocol.setDeviceTime(timestamp);
 	if (result) {
 		ui.showToast({ message: t("设置成功") + timestamp, type: "success" });
 	} else {
@@ -524,7 +503,7 @@ async function testSetDeviceTime() {
 
 async function testEndSleep() {
 	ui.showToast({ message: t("结束睡眠判断..."), type: "warn" });
-	const result = await deviceStore.endSleepJudgment();
+	const result = await deviceStore.protocol.endSleepJudgment();
 	if (result) {
 		ui.showToast({ message: t("命令发送成功"), type: "success" });
 	} else {
@@ -536,7 +515,7 @@ function testGenerateMockData() {
 	ui.showToast({ message: t("发送模拟数据命令..."), type: "warn" });
 	// 'x' 的 ASCII 码是 120 = 0x78
 	// 通过 sendCommand 发送，sendCommand 会将 "78" 转换为 ArrayBuffer
-	deviceStore.sendCommand("78");
+	deviceStore.protocol.sendCommand("78");
 }
 
 async function testClearDatabase() {
@@ -554,7 +533,7 @@ async function testDeleteDatabase() {
 async function testGetSleepDataByIndex() {
 	const index = 0;
 	ui.showToast({ message: t("获取睡眠数据...") + index, type: "warn" });
-	const result = await deviceStore.getSleepData(index);
+	const result = await deviceStore.protocol.getSleepData(index);
 	if (result) {
 		console.log("睡眠数据:", deviceStore.sleepData.value);
 		ui.showToast({ message: t("获取成功"), type: "success" });

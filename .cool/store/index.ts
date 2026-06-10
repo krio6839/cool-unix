@@ -1,6 +1,6 @@
 import { Dict, dict } from "./dict";
 import { User, user } from "./user";
-import { Device, device } from "./device";
+import { Device, device } from "./device/index";
 import { Home, home } from "./home";
 import { Energy, energy } from "./energy";
 import { Status, status } from "./status";
@@ -39,7 +39,7 @@ export function useStore(): Store {
 
 export * from "./dict";
 export * from "./user";
-export * from "./device";
+export * from "./device/index";
 export * from "./home";
 export * from "./energy";
 export * from "./status";
