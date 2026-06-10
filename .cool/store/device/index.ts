@@ -141,19 +141,6 @@ export class Device {
 		this.isReconnecting = false;
 	}
 
-	handleBluetoothError(errCode: number, errMsg: string): void {
-		console.log(`蓝牙错误 ${errCode}:`, errMsg);
-
-		switch (errCode) {
-			case -1:
-				break;
-			default:
-				this.errorMessage.value = errMsg ?? t("蓝牙错误");
-				this.status.value = "UNPAIRED";
-				break;
-		}
-	}
-
 	// 资源管理
 	destroy() {
 		//#ifndef H5

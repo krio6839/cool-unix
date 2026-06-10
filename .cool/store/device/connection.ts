@@ -31,13 +31,7 @@ export class DeviceConnection {
 		console.log("开始初始化蓝牙");
 		this.device.clearError();
 		//#ifndef H5
-		try {
-			await openAdapter();
-		} catch (err) {
-			const e = err as UTSJSONObject;
-			this.device.handleBluetoothError(e["errCode"] as number, e["errMsg"] as string);
-			throw err;
-		}
+		await openAdapter();
 		//#endif
 	}
 
@@ -67,6 +61,7 @@ export class DeviceConnection {
 	}
 
 	onBLEConnectionStateChange(): void {
+		console.log("开始监听蓝牙连接状态变化");
 		//#ifndef H5
 		onConnectionStateChange((res) => {
 			console.log("蓝牙连接状态变化:", res);
@@ -80,15 +75,13 @@ export class DeviceConnection {
 				console.log("设备已连接:", res.deviceId);
 				this.device.protocol.getDeviceServicesAndCharacteristics(res.deviceId).then(() => {
 					console.log("获取设备服务和特征值成功");
+					this.device.protocol.subscribeUART();
 					this.device.protocol.setLEDStatus("01");
-					setTimeout(() => {
-						this.device.protocol.getLEDStatus();
-						this.device.protocol.subscribeUART();
-						// 自动校准设备 RTC，确保后续 timestamp 是真实 Unix 时间戳
-						this.device.protocol.setDeviceTime(Math.floor(Date.now() / 1000));
-						// 启动定时数据查询
-						this.device.data.startDataQueryTimer();
-					}, 500);
+					this.device.protocol.getLEDStatus(500);
+					// 自动校准设备 RTC，确保后续 timestamp 是真实 Unix 时间戳
+					this.device.protocol.setDeviceTime(Math.floor(Date.now() / 1000));
+					// 启动定时数据查询
+					this.device.data.startDataQueryTimer();
 				});
 				this.device.resetReconnectState();
 			} else {
@@ -115,7 +108,8 @@ export class DeviceConnection {
 		this.device.status.value = "SEARCHING";
 		const ok = await startDiscovery();
 		if (!ok) {
-			console.log("开始搜索失败");
+			this.device.status.value = "UNPAIRED";
+			this.device.errorMessage.value = t("搜索设备失败");
 			return;
 		}
 		console.log("开始搜索目标设备:", TARGET_DEVICE_NAME);
@@ -149,7 +143,8 @@ export class DeviceConnection {
 		//#ifndef H5
 		const ok = await connect(deviceId, 100000);
 		if (!ok) {
-			console.log("连接设备失败:", deviceId);
+			this.device.status.value = "UNPAIRED";
+			this.device.errorMessage.value = t("连接设备失败");
 			return;
 		}
 		console.log("连接设备成功:", deviceId);

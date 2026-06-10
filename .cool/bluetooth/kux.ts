@@ -1,3 +1,7 @@
+//#ifdef H5
+type UniError = any;
+//#endif
+
 //#ifndef H5
 //@ts-ignore
 import { useKuxBluetooth } from "@/uni_modules/kux-bluetooth";
@@ -12,6 +16,7 @@ import type {
 	BLEDeviceCharacteristic,
 	OpenBluetoothAdapterSuccess,
 	StartBluetoothDevicesDiscoveryOptions,
+	CreateBLEConnectionOptions,
 	ApiCommonSuccessCallback,
 	OnBluetoothAdapterStateChangeCallback,
 	OnBLEConnectionStateChangeCallback,
@@ -33,12 +38,28 @@ const DEFAULT_CONFIG: InitConfig = {
 //@ts-ignore
 const kx = useKuxBluetooth(DEFAULT_CONFIG) as IBluetooth;
 
+export function handleBluetoothError(err: UniError): boolean {
+	console.log(`蓝牙错误 ${err.errCode}: ${err.errMsg}`);
+
+	switch (err.errCode) {
+		case -1:
+			return true;
+		default:
+			return false;
+	}
+}
+
 // ====== 适配器 ======
 export function openAdapter(): Promise<OpenBluetoothAdapterSuccess> {
 	return new Promise((resolve, reject) => {
 		kx.openBluetoothAdapter({
 			success: (res: OpenBluetoothAdapterSuccess) => resolve(res),
-			fail: (err: any) => reject(err)
+			fail: (err: UniError) => {
+				const status = handleBluetoothError(err);
+				if (status) {
+					reject(err);
+				}
+			}
 		});
 	});
 }
@@ -56,8 +77,12 @@ export function closeAdapter(): Promise<boolean> {
 export function startDiscovery(): Promise<boolean> {
 	return new Promise((resolve) => {
 		kx.startBluetoothDevicesDiscovery({
+			powerLevel: "high",
 			success: (res: ApiCommonSuccessCallback) => resolve(true),
-			fail: (err: any) => resolve(false)
+			fail: (err: UniError) => {
+				const status = handleBluetoothError(err);
+				resolve(status);
+			}
 		} as StartBluetoothDevicesDiscoveryOptions);
 	});
 }
@@ -66,7 +91,7 @@ export function stopDiscovery(): Promise<boolean> {
 	return new Promise((resolve) => {
 		kx.stopBluetoothDevicesDiscovery({
 			success: (_res: ApiCommonSuccessCallback) => resolve(true),
-			fail: (_err: any) => resolve(false)
+			fail: (_err: UniError) => resolve(false)
 		});
 	});
 }
@@ -86,8 +111,11 @@ export function connect(deviceId: string, timeout?: number): Promise<boolean> {
 			deviceId,
 			timeout,
 			success: (_res: ApiCommonSuccessCallback) => resolve(true),
-			fail: (_err: any) => resolve(false)
-		});
+			fail: (err: UniError) => {
+				const status = handleBluetoothError(err);
+				resolve(status);
+			}
+		} as CreateBLEConnectionOptions);
 	});
 }
 
