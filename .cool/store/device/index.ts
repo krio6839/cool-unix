@@ -9,7 +9,13 @@ import type { DeviceInfo } from "../../bluetooth/kux";
 import { disconnect, closeAdapter } from "../../bluetooth/kux";
 //#endif
 
-import { DeviceStatusEnum, KEY_WEAR_LOCATION, KEY_LAST_DEVICE_ID } from "./types";
+import {
+	DeviceStatusEnum,
+	KEY_WEAR_LOCATION,
+	KEY_BOUND_DEVICE_ID,
+	KEY_PPI_SAVED_COUNT,
+	KEY_SLEEP_SAVED_COUNT
+} from "./types";
 import type { WearLocation } from "./types";
 export type { WearLocation, DeviceStatus } from "./types";
 export { DeviceStatusEnum } from "./types";
@@ -32,7 +38,7 @@ export class Device {
 	//#endif
 	currentDeviceId: string = "";
 	currentDeviceName: string = "";
-	lastConnectedDeviceId: string = "";
+	boundDeviceId: string = "";
 
 	// 设备初始化状态标志，防止重复初始化
 	isDeviceInitialized = false;
@@ -93,9 +99,9 @@ export class Device {
 			this.currentWearLocation = savedLocation;
 		}
 
-		const savedDeviceId = storage.get(KEY_LAST_DEVICE_ID) as string | null;
-		if (this.lastConnectedDeviceId == "" && savedDeviceId != null && savedDeviceId != "") {
-			this.lastConnectedDeviceId = savedDeviceId;
+		const savedDeviceId = storage.get(KEY_BOUND_DEVICE_ID) as string | null;
+		if (this.boundDeviceId == "" && savedDeviceId != null && savedDeviceId != "") {
+			this.boundDeviceId = savedDeviceId;
 		}
 	}
 
@@ -104,14 +110,20 @@ export class Device {
 		storage.set(KEY_WEAR_LOCATION, location, 0);
 	}
 
-	saveLastConnectedDevice(deviceId: string): void {
-		this.lastConnectedDeviceId = deviceId;
-		storage.set(KEY_LAST_DEVICE_ID, deviceId, 0);
+	saveBoundDevice(deviceId: string): void {
+		this.boundDeviceId = deviceId;
+		storage.set(KEY_BOUND_DEVICE_ID, deviceId, 0);
 	}
 
-	clearLastConnectedDevice(): void {
-		this.lastConnectedDeviceId = "";
-		storage.remove(KEY_LAST_DEVICE_ID);
+	clearBoundDevice(): void {
+		this.boundDeviceId = "";
+		storage.remove(KEY_BOUND_DEVICE_ID);
+	}
+
+	clearAllSavedData(): void {
+		storage.remove(KEY_PPI_SAVED_COUNT);
+		storage.remove(KEY_SLEEP_SAVED_COUNT);
+		this.clearBoundDevice();
 	}
 
 	// 状态管理
@@ -160,7 +172,7 @@ export class Device {
 		this.data.stopDataQueryTimer();
 		this.connection._resetConnectionState();
 		//#endif
-		this.lastConnectedDeviceId = "";
+		this.boundDeviceId = "";
 		this.heartRate.value = 0;
 		this.bloodOxygen.value = 0;
 		this.battery.value = 0;
@@ -173,7 +185,6 @@ export class Device {
 		this.rtcTime.value = 0;
 		this._deviceOn = false;
 		this.errorMessage.value = "";
-		this.clearLastConnectedDevice();
 	}
 }
 

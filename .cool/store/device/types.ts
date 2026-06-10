@@ -1,7 +1,7 @@
 export type WearLocation = "大臂部" | "下胸部" | "腰部";
 
 export const KEY_WEAR_LOCATION = "device_wear_location";
-export const KEY_LAST_DEVICE_ID = "last_device_id";
+export const KEY_BOUND_DEVICE_ID = "bound_device_id";
 /** 已保存到 ppi_data 的条数（断点续传用；0 表示未抓取过） */
 export const KEY_PPI_SAVED_COUNT = "ppi_data_saved_count";
 /** 已保存到 sleep_data 的条数（断点续传用；0 表示未抓取过） */
