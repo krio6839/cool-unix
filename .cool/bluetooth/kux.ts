@@ -76,10 +76,15 @@ export function closeAdapter(): Promise<boolean> {
 // ====== 扫描 ======
 export function startDiscovery(): Promise<boolean> {
 	return new Promise((resolve) => {
+		console.log("[SCAN] startDiscovery 请求");
 		kx.startBluetoothDevicesDiscovery({
 			powerLevel: "high",
-			success: (res: ApiCommonSuccessCallback) => resolve(true),
+			success: (res: ApiCommonSuccessCallback) => {
+				console.log("[SCAN] startDiscovery 成功");
+				resolve(true);
+			},
 			fail: (err: UniError) => {
+				console.warn("[SCAN] startDiscovery 失败:", err);
 				const status = handleBluetoothError(err);
 				resolve(status);
 			}

@@ -76,7 +76,6 @@
 					{{ t("测试重连") }}
 				</cl-button>
 				<cl-button
-					v-if="deviceStore.devices.length > 1"
 					type="primary"
 					color="#F44336"
 					rounded
@@ -394,14 +393,16 @@ function testSwitchDevice() {
 	const otherDevices = deviceStore.devices.filter(
 		(d) => d.deviceId != deviceStore.currentDeviceId
 	);
-	if (otherDevices.length == 0) return;
+	if (otherDevices.length == 0) {
+		ui.showToast({ message: t("没有其他设备可以切换"), type: "error" });
+		return;
+	}
 	actionSheetRef.value!.open({
-		title: t("提示"),
-		description: t("删除好友会同时删除所有聊天记录"),
+		title: t("切换设备"),
 		list: otherDevices.map(
 			(d) =>
 				({
-					label: d.name ?? d.deviceId,
+					label: `${d.name}-${d.deviceId}`,
 					callback: () => {
 						ui.showConfirm({
 							title: t("切换设备"),
