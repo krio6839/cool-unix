@@ -183,16 +183,7 @@ onMounted(() => {
 			mode: "reLaunch"
 		});
 	} else {
-		// 已登录，判断配对状态
-		if (device.getPaired() == false) {
-			// 未配对，跳转到配对页面
-			router.push({
-				path: "/pages/device/index"
-			});
-		} else {
-			// 已配对，显示首页并获取数据
-			formatDate();
-		}
+		formatDate();
 	}
 });
 
