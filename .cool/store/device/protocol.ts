@@ -88,15 +88,13 @@ export class DeviceProtocol {
 	}
 
 	// 设备功能
-	getLEDStatus(delay = 0) {
+	async getLEDStatus() {
 		//#ifndef H5
-		setTimeout(() => {
-			readCharacteristic(
-				this.device.currentDeviceId,
-				LED_BUTTON_SERVICE_UUID,
-				LED_BUTTON_CHARACTERISTIC_UUID
-			);
-		}, delay);
+		return readCharacteristic(
+			this.device.currentDeviceId,
+			LED_BUTTON_SERVICE_UUID,
+			LED_BUTTON_CHARACTERISTIC_UUID
+		);
 		//#endif
 	}
 
@@ -154,15 +152,26 @@ export class DeviceProtocol {
 		const newState = !this.device._deviceOn;
 		const val = newState ? "01" : "00";
 		//#ifndef H5
-		await writeCharacteristic(
+		const writeOk = await writeCharacteristic(
 			this.device.currentDeviceId,
 			LED_BUTTON_SERVICE_UUID,
 			LED_BUTTON_CHARACTERISTIC_UUID,
 			hexStringToArrayBuffer(val),
 			"write"
 		);
+		if (writeOk) {
+			// 00001525 特征是 notify-only（不支持 read），iOS 端 kux 库的
+			// onReadBLECharacteristicValue 又是空实现，所以 read 回调永远拿不到值。
+			// 写入成功 = 状态已切换，直接乐观更新本地状态。
+			this.device._deviceOn = newState;
+			console.log("[DEVICE] toggleDeviceStatus 写入成功,_deviceOn=", this.device._deviceOn);
+		} else {
+			console.warn(
+				"[DEVICE] toggleDeviceStatus 写入失败,_deviceOn 保持不变:",
+				this.device._deviceOn
+			);
+		}
 		//#endif
-		this.getLEDStatus(500);
 	}
 
 	sendCommand(val: string): Promise<boolean> {

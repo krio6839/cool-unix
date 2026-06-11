@@ -166,12 +166,19 @@ export function readCharacteristic(
 	charId: string
 ): Promise<boolean> {
 	return new Promise((resolve) => {
+		console.log("[BLE] read 请求:", charId);
 		kx.readBLECharacteristicValue({
 			deviceId,
 			serviceId,
 			characteristicId: charId,
-			success: (_res: ApiCommonSuccessCallback) => resolve(true),
-			fail: (_err: any) => resolve(false)
+			success: (_res: ApiCommonSuccessCallback) => {
+				console.log("[BLE] read 成功:", charId);
+				resolve(true);
+			},
+			fail: (_err: any) => {
+				console.warn("[BLE] read 失败:", charId, _err);
+				resolve(false);
+			}
 		});
 	});
 }
@@ -183,15 +190,22 @@ export function writeCharacteristic(
 	value: ArrayBuffer,
 	writeType: "write" | "writeNoResponse" = "write"
 ): Promise<boolean> {
-	return new Promise((resolve) => {
+	return new Promise((resolve, reject) => {
+		console.log("写入特征值:", charId, value);
 		kx.writeBLECharacteristicValue({
 			deviceId,
 			serviceId,
 			characteristicId: charId,
 			value,
 			writeType,
-			success: (_res: ApiCommonSuccessCallback) => resolve(true),
-			fail: (_err: any) => resolve(false)
+			success: (_res: ApiCommonSuccessCallback) => {
+				console.log("[BLE] write 成功:", charId);
+				resolve(true);
+			},
+			fail: (_err: any) => {
+				console.warn("[BLE] write 失败:", charId, _err);
+				reject(false);
+			}
 		});
 	});
 }
@@ -209,24 +223,41 @@ export function notifyCharacteristic(
 	type: "notification" | "indication" = "notification"
 ): Promise<boolean> {
 	if (state == false) {
-		kx.notifyBLECharacteristicValueChange({
-			deviceId,
-			serviceId,
-			characteristicId: charId,
-			state: false,
-			type
+		return new Promise((resolve) => {
+			console.log("[BLE] notify 关闭:", charId);
+			kx.notifyBLECharacteristicValueChange({
+				deviceId,
+				serviceId,
+				characteristicId: charId,
+				state: false,
+				type,
+				success: (_res: ApiCommonSuccessCallback) => {
+					console.log("[BLE] notify 关闭成功:", charId);
+					resolve(true);
+				},
+				fail: (_err: any) => {
+					console.warn("[BLE] notify 关闭失败:", charId, _err);
+					resolve(false);
+				}
+			});
 		});
-		return Promise.resolve(false);
 	}
 	return new Promise((resolve) => {
+		console.log("[BLE] notify 启用:", charId);
 		kx.notifyBLECharacteristicValueChange({
 			deviceId,
 			serviceId,
 			characteristicId: charId,
 			state: true,
 			type,
-			success: (_res: ApiCommonSuccessCallback) => resolve(true),
-			fail: (_err: any) => resolve(false)
+			success: (_res: ApiCommonSuccessCallback) => {
+				console.log("[BLE] notify 启用成功:", charId);
+				resolve(true);
+			},
+			fail: (_err: any) => {
+				console.warn("[BLE] notify 启用失败:", charId, _err);
+				resolve(false);
+			}
 		});
 	});
 }

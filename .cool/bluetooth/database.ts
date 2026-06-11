@@ -110,11 +110,11 @@ class BluetoothDatabase {
         uploaded INTEGER DEFAULT 0
       )`);
 
-		// 兼容老库：旧表若无 detail 列则补上
-		this.execute(`ALTER TABLE sleep_data ADD COLUMN detail TEXT NOT NULL DEFAULT ''`);
+		// // 兼容老库：旧表若无 detail 列则补上
+		// this.execute(`ALTER TABLE sleep_data ADD COLUMN detail TEXT NOT NULL DEFAULT ''`);
 
-		// 删除 sleep_status 表（已合并到 sleep_data.detail 字段）
-		this.execute(`DROP TABLE IF EXISTS sleep_status`);
+		// // 删除 sleep_status 表（已合并到 sleep_data.detail 字段）
+		// this.execute(`DROP TABLE IF EXISTS sleep_status`);
 
 		this.execute("CREATE INDEX IF NOT EXISTS idx_sleep_report ON sleep_data(report_timestamp)");
 		this.execute("CREATE INDEX IF NOT EXISTS idx_sleep_uploaded ON sleep_data(uploaded)");

@@ -100,9 +100,11 @@ export class EventHandler {
 			if (buffer == null) return;
 			const hexString = arrayBufferToHexString(buffer);
 			console.log("十六进制数据 hexString:", hexString);
-			if (res.characteristicId == LED_BUTTON_CHARACTERISTIC_UUID) {
+			// kux 库返回的 characteristicId 大小写不固定,统一小写后再比较
+			const charId = (res.characteristicId ?? "").toLowerCase();
+			if (charId == LED_BUTTON_CHARACTERISTIC_UUID.toLowerCase()) {
 				this.device._deviceOn = hexString == "01";
-				console.log("_deviceOn", this.device._deviceOn);
+				console.log("[DEVICE] read 回调更新 _deviceOn=", this.device._deviceOn);
 			}
 		});
 		//#endif

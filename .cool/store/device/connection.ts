@@ -18,6 +18,7 @@ import {
 //#endif
 
 import type { Device } from "./index";
+import { sleepTimeout } from "@/.cool/utils";
 
 export class DeviceConnection {
 	private device: Device;
@@ -60,6 +61,54 @@ export class DeviceConnection {
 		//#endif
 	}
 
+	async afterConnected(deviceId: string) {
+		try {
+			await this.device.protocol.getDeviceServicesAndCharacteristics(deviceId);
+			console.log("获取设备服务和特征值成功");
+			await this.device.protocol.subscribeUART();
+			await sleepTimeout(200);
+			const ledOk = await this.device.protocol.setLEDStatus("01");
+			if (!ledOk) {
+				console.warn("[DEVICE] 启动 PPG 写入失败（kux 库返回 false）");
+			} else {
+				// 直接乐观更新本地状态,避免被错误的初始 _deviceOn=false 误导。
+				this.device._deviceOn = true;
+				console.log("[DEVICE] 启动 PPG 写入成功,_deviceOn=true");
+			}
+
+			// 给设备 200ms 处理 LED 启动命令
+			await sleepTimeout(200);
+
+			// setDeviceTime 写入 + 等待 RTC 响应
+			const now = Math.floor(Date.now() / 1000);
+			const beforeRtc = this.device.rtcTime.value; // 记录写入前的 RTC
+			const rtcWriteOk = await this.device.protocol.setDeviceTime(now);
+			if (!rtcWriteOk) {
+				console.warn("[DEVICE] setDeviceTime 写入失败（kux 库返回 false）");
+			}
+
+			// 等 500ms 看 RTC 响应（应该是 RTC:新时间戳 文本）
+			await sleepTimeout(500);
+			if (this.device.rtcTime.value == beforeRtc || this.device.rtcTime.value == 0) {
+				console.warn(
+					`[DEVICE] setDeviceTime 后 RTC 未变化（仍为 ${this.device.rtcTime.value}），重试一次`
+				);
+				const retry = await this.device.protocol.setDeviceTime(
+					Math.floor(Date.now() / 1000)
+				);
+				console.log("[DEVICE] setDeviceTime 重试写入:", retry);
+				await sleepTimeout(500);
+			}
+			console.log("[DEVICE] 当前 RTC:", this.device.rtcTime.value);
+
+			// 启动定时数据查询
+			this.device.data.startDataQueryTimer();
+		} catch (e) {
+			console.error("[DEVICE] afterConnected 流程异常:", e);
+			throw e;
+		}
+	}
+
 	onBLEConnectionStateChange(): void {
 		console.log("开始监听蓝牙连接状态变化");
 		//#ifndef H5
@@ -73,16 +122,7 @@ export class DeviceConnection {
 				}
 				this.device.isDeviceInitialized = true;
 				console.log("设备已连接:", res.deviceId);
-				this.device.protocol.getDeviceServicesAndCharacteristics(res.deviceId).then(() => {
-					console.log("获取设备服务和特征值成功");
-					this.device.protocol.subscribeUART();
-					this.device.protocol.setLEDStatus("01");
-					this.device.protocol.getLEDStatus(500);
-					// 自动校准设备 RTC，确保后续 timestamp 是真实 Unix 时间戳
-					this.device.protocol.setDeviceTime(Math.floor(Date.now() / 1000));
-					// 启动定时数据查询
-					this.device.data.startDataQueryTimer();
-				});
+				this.afterConnected(res.deviceId);
 				this.device.resetReconnectState();
 			} else {
 				if (res.deviceId == this.device.currentDeviceId) {
