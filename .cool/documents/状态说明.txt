@@ -15,7 +15,13 @@ BOOM-设备编号（后4位），默认BOOM-0000
 1.3.2　蓝牙服务
 提供SMP和GATT两种服务，SMP专为DFU，GATT与手机进行通信。
 手机连接后，手机通过atts write实现命令发送，BOOM通过notify对手机命令进行响应。
-
+Unknown ServiceUUID:75c276c3-8f97-20bc-a143-b354244886d4 PRIMARY SERVICE
+Unknown CharacteristicUUID: 6acf4f08-cc9d-d495-6b41-aa7e60c4e8a6Properties: WRITE, WRITE NO RESPONSE
+UUID: d3d46a35-4394-e9aa-5a43-e7921120aa..Properties: NOTIFYDescriptors:
+Unknown Characteristic
+Client Characteristic Configuration
+UUID:0x2902
+Value: Notifications and indications disabled
 
 
 1.3.3　蓝牙协议格式
