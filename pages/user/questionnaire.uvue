@@ -110,7 +110,6 @@ const loadQuestionnaire = function () {
 		})
 		.catch((err) => {
 			console.error("加载问卷失败:", err);
-			ui.showToast({ message: "问卷加载失败", type: "error" });
 			ui.showConfirm({
 				title: "提示",
 				message: "问卷加载失败，是否跳过问卷直接进入？",
@@ -163,7 +162,6 @@ const submitQuestionnaire = function (): void {
 		})
 		.catch((err) => {
 			console.error("提交问卷失败:", err);
-			ui.showToast({ message: "问卷提交失败", type: "error" });
 			ui.showConfirm({
 				title: "提示",
 				message: "问卷提交失败，是否跳过直接进入？",
