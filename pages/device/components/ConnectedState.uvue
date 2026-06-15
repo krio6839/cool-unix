@@ -11,7 +11,7 @@
 			color="#000"
 			type="primary"
 			rounded
-			@tap="enterPairingMode"
+			@tap="onConfirm"
 		>
 			{{ t("确认") }}
 		</cl-button>
@@ -23,7 +23,7 @@ import { t } from "@/.cool";
 
 const emit = defineEmits(["click"]);
 
-function enterPairingMode() {
+function onConfirm() {
 	emit("click");
 }
 </script>
