@@ -17,7 +17,7 @@ import {
 } from "../../bluetooth/kux";
 //#endif
 
-import type { Device } from "./index";
+import type { Device, ShowDevicePickerOptions } from "./index";
 import { sleepTimeout } from "@/.cool/utils";
 import { router } from "@/.cool";
 
@@ -72,6 +72,10 @@ export class DeviceConnection {
 				// 首次进入(boundDeviceId == "")才显示 PAIRING
 				if (this.device.boundDeviceId == "") {
 					this.device.status.value = "PAIRING";
+					// 修复:PAIRING 状态必须实际启动扫描,
+					// 否则 PairingState 组件显示"准备配对"+ loading,
+					// 用户体感"在搜但实际没搜"
+					this.startBluetoothSearch("pairing");
 				}
 				this.device.errorMessage.value = "";
 
@@ -366,32 +370,24 @@ export class DeviceConnection {
 			return;
 		}
 
-		if (count == 1) {
-			const only = this.device.devices[0];
-			const displayName = only.name ?? only.localName ?? "";
-			console.log(`[SCAN] 仅 1 个设备,自动连接: ${only.deviceId}`);
-			this.device.devices = []; // 清空列表(连接后不需要)
-			this.connectToDevice(only.deviceId, displayName);
-			return;
-		}
-
-		// 2+ 个:直接弹 actionSheet 让用户选择
+		// 直接弹 actionSheet 让用户选择
 		// 取消 → status=UNPAIRED + 清空 devices + errorMessage 提示重新配对
 		console.log(`[SCAN] 发现 ${count} 个设备,直接弹窗让用户选择`);
-		this.device.showDevicePicker(
-			(deviceId) => {
+		const options = {
+			onSelect: (deviceId: string, _device: DeviceInfo) => {
 				// 选 1 个:连接(connectToFoundDevice 内部会清空 devices)
 				console.log(`[SCAN] 用户选择连接: ${deviceId}`);
 				this.connectToFoundDevice(deviceId);
 			},
-			() => {
+			onCancel: () => {
 				// 取消:状态清零
 				console.log(`[SCAN] 用户取消,降级为未配对`);
 				this.device.devices = [];
 				this.device.status.value = "UNPAIRED";
 				this.device.errorMessage.value = t("已取消,请重新配对");
 			}
-		);
+		} as ShowDevicePickerOptions;
+		this.device.showDevicePicker(options);
 	}
 
 	stopBluetoothSearch(): Promise<boolean> {

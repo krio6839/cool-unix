@@ -182,9 +182,19 @@ onMounted(() => {
 			path: "/pages/user/login",
 			mode: "reLaunch"
 		});
-	} else {
-		formatDate();
+		return;
 	}
+
+	// 已登录但未绑定设备 → 引导去设备页配对
+	if (device.boundDeviceId == "") {
+		router.push({
+			path: "/pages/device/index",
+			mode: "reLaunch"
+		});
+		return;
+	}
+
+	formatDate();
 });
 
 onUnmounted(() => {

@@ -26,6 +26,14 @@ import { DeviceProtocol } from "./protocol";
 import { DataFetcher } from "./data-fetcher";
 import { EventHandler } from "./event-handler";
 
+// 设备选择 actionSheet 调用参数(对象参数,UTS 不支持内联对象字面量类型)
+export type ShowDevicePickerOptions = {
+	onSelect: (deviceId: string, device: DeviceInfo) => void;
+	onCancel?: () => void;
+	title?: string;
+	list?: DeviceInfo[];
+};
+
 export class Device {
 	// 基本状态属性
 	status = ref<keyof typeof DeviceStatusEnum>("UNPAIRED");
@@ -161,61 +169,47 @@ export class Device {
 
 	//#ifndef H5
 	/**
-	 * 打开设备选择 actionSheet(共享给所有需要的地方)
-	 * - PairingState 的"选择设备"按钮 → index.uvue 处理
-	 * - TestPopup 的 testSwitchDevice
-	 * - 等等
-	 * - actionSheetRef 由 pages/device/index.uvue 在 onMounted 注入
-	 */
-	openDeviceActionSheet(options: ClActionSheetOptions): void {
-		if (this.actionSheetRef == null) {
-			console.warn("[ACTION-SHEET] actionSheetRef 未注入,无法弹窗");
-			return;
-		}
-		this.actionSheetRef.open(options);
-	}
-
-	/**
 	 * 弹设备选择 actionSheet
-	 * - 从 deviceStore.devices 当前快照生成选项列表
+	 * - 未传 list 时,使用 deviceStore.devices 当前快照;传入 list 时使用自定义设备列表
 	 * - 关闭 cl-action-sheet 的默认取消按钮,改为手动加"取消"项
 	 *   (这样可以区分"选设备"和"取消",让调用方决定取消行为)
+	 * - 选中/取消后会自动关闭弹窗,再触发回调
 	 * - 供 connection.ts 在 count >= 2 时直接调用,无需 UI 按钮
+	 * - actionSheetRef 由 pages/device/index.uvue 在 onMounted 注入
 	 *
-	 * @param onSelect 选中设备回调,接收 deviceId
-	 * @param onCancel 取消回调(可选,默认无操作)
-	 * @param title 弹窗标题,默认"选择要连接的设备"
+	 * 参数对象字段:
+	 * - onSelect 选中设备回调,接收 deviceId 与完整 device 信息
+	 * - onCancel 取消回调(可选,默认无操作)
+	 * - title 弹窗标题,默认"选择要连接的设备"
+	 * - list 自定义设备列表,默认使用 deviceStore.devices
 	 */
-	showDevicePicker(
-		onSelect: (deviceId: string) => void,
-		onCancel?: () => void,
-		title: string = t("选择要连接的设备")
-	): void {
+	showDevicePicker(options: ShowDevicePickerOptions): void {
 		if (this.actionSheetRef == null) {
 			console.warn("[ACTION-SHEET] actionSheetRef 未注入,无法弹窗");
 			return;
 		}
-		const snapshot = this.devices; // 拍快照,避免弹窗期间 devices 被修改
-		if (snapshot.length < 2) {
-			console.warn("[PICKER] 设备数量 < 2,无法弹窗");
-			return;
-		}
+		const { onSelect, onCancel, title, list } = options;
+		const finalTitle: string = title ?? t("选择要连接的设备");
+		const snapshot = (list ?? this.devices).slice(); // 拍快照,避免弹窗期间被修改
 		this.actionSheetRef.open({
-			title,
+			title: finalTitle,
 			showCancel: false, // 关闭默认取消,手动加
 			list: [
 				...snapshot.map(
 					(d) =>
 						({
-							label: `${d.name ?? d.localName ?? "BOOM1"} · ${d.RSSI ?? "?"} dBm`,
+							label: `${d.name}-${d.deviceId} · ${d.RSSI ?? "?"} dBm`,
 							callback: () => {
-								onSelect(d.deviceId);
+								// 先关闭弹窗,再触发回调,避免弹窗挡住后续 UI
+								this.actionSheetRef?.close();
+								onSelect(d.deviceId, d);
 							}
 						}) as ClActionSheetItem
 				),
 				{
 					label: t("取消"),
 					callback: () => {
+						this.actionSheetRef?.close();
 						onCancel?.();
 					}
 				} as ClActionSheetItem

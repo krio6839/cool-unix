@@ -364,20 +364,18 @@
 				</cl-button>
 			</view>
 		</scroll-view>
-
-		<!-- actionSheet 改由 index.uvue 共享,通过 deviceStore.openDeviceActionSheet 触发 -->
 	</cl-popup>
 </template>
 
 <script lang="ts" setup>
 import { t, useStore } from "@/.cool";
-import { useUi, type ClActionSheetItem, type ClActionSheetOptions } from "@/uni_modules/cool-ui";
+import { useUi } from "@/uni_modules/cool-ui";
 import {
 	bluetoothDataManager,
 	BATTERY_SERVICE_UUID,
 	BATTERY_CHARACTERISTIC_UUID
 } from "@/.cool/bluetooth";
-import { readCharacteristic } from "@/.cool/bluetooth/kux";
+import { readCharacteristic, type DeviceInfo } from "@/.cool/bluetooth/kux";
 
 const ui = useUi();
 const { device: deviceStore } = useStore();
@@ -394,26 +392,22 @@ function testSwitchDevice() {
 		ui.showToast({ message: t("没有其他设备可以切换"), type: "error" });
 		return;
 	}
-	deviceStore.openDeviceActionSheet({
-		title: t("切换设备"),
-		list: otherDevices.map(
-			(d) =>
-				({
-					label: `${d.name}-${d.deviceId}`,
-					callback: () => {
-						ui.showConfirm({
-							title: t("切换设备"),
-							message: t("切换设备将清空所有历史数据，确定继续吗？"),
-							callback(action: string) {
-								if (action == "confirm") {
-									deviceStore.connection.switchDevice(d.deviceId, d.name);
-								}
-							}
-						});
+	deviceStore.showDevicePicker({
+		onSelect: (deviceId: string, device: DeviceInfo) => {
+			// store 已自动关闭弹窗
+			ui.showConfirm({
+				title: t("切换设备"),
+				message: t("切换设备将清空所有历史数据，确定继续吗？"),
+				callback(action: string) {
+					if (action == "confirm") {
+						deviceStore.connection.switchDevice(deviceId, device.name);
 					}
-				}) as ClActionSheetItem
-		)
-	} as ClActionSheetOptions);
+				}
+			});
+		},
+		title: t("切换设备"),
+		list: otherDevices
+	});
 }
 
 async function testReadBloodOxygen() {
