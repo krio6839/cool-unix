@@ -71,7 +71,7 @@ export class Recovery {
 			return;
 		}
 
-		const trendDataResult = parse<AtlCtlTrendData[]>(data)!;
+		const trendDataResult = (data as any[]).map((item) => parse<AtlCtlTrendData>(item)!);
 		this.atlTrendData.value = trendDataResult.map((item) => item.atl);
 		this.ctlTrendData.value = trendDataResult.map((item) => item.ctl);
 		this.trendDates.value = trendDataResult.map((item) => item.date);

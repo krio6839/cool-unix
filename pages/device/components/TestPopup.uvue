@@ -368,6 +368,7 @@
 </template>
 
 <script lang="ts" setup>
+//#ifndef H5
 import { t, useStore } from "@/.cool";
 import { useUi } from "@/uni_modules/cool-ui";
 import {
@@ -587,4 +588,5 @@ async function testUploadSleepData() {
 		ui.showToast({ message: t("上传失败"), type: "error" });
 	}
 }
+//#endif
 </script>

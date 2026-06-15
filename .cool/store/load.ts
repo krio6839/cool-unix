@@ -6,8 +6,6 @@ import type { TimeValuePair, DateValuePair } from "../types/common";
 
 export class Load {
 	data = ref<LoadStatusApiResponse | null>(null);
-	sportLoadData = ref<DateValuePair[]>([]);
-	sleepPressureData = ref<DateValuePair[]>([]);
 
 	totalLoad = ref<number>(0);
 	loadProgress = ref<number>(0);
@@ -57,8 +55,9 @@ export class Load {
 			})
 				.then((res) => {
 					if (res != null && isArray(res)) {
-						const trendDataResult = parse<DateValuePair[]>(res)!;
-						this.loadTrendData.value = trendDataResult ?? [];
+						this.loadTrendData.value = (res as any[]).map(
+							(item) => parse<DateValuePair>(item)!
+						);
 					}
 					resolve();
 				})
@@ -78,8 +77,8 @@ export class Load {
 			})
 				.then((res) => {
 					if (res != null && isArray(res)) {
-						this.sportLoadData.value = parse<DateValuePair[]>(res)!;
-						this.sportLoadTrendData.value = this.sportLoadData.value ?? [];
+						const list = (res as any[]).map((item) => parse<DateValuePair>(item)!);
+						this.sportLoadTrendData.value = list;
 					}
 					resolve();
 				})
@@ -99,8 +98,8 @@ export class Load {
 			})
 				.then((res) => {
 					if (res != null && isArray(res)) {
-						this.sleepPressureData.value = parse<DateValuePair[]>(res)!;
-						this.sleepPressureTrendData.value = this.sleepPressureData.value ?? [];
+						const list = (res as any[]).map((item) => parse<DateValuePair>(item)!);
+						this.sleepPressureTrendData.value = list;
 					}
 					resolve();
 				})
@@ -136,8 +135,6 @@ export class Load {
 
 	clear(): void {
 		this.data.value = null;
-		this.sportLoadData.value = [];
-		this.sleepPressureData.value = [];
 		this.totalLoad.value = 0;
 		this.loadProgress.value = 0;
 		this.avgLoad.value = 0;

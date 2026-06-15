@@ -50,7 +50,7 @@
 <script lang="ts" setup>
 import { isMp, dayUts, useStore } from "@/.cool";
 import type { HealthItem, TimeValuePair, DateValuePair } from "@/.cool";
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, watch } from "vue";
 import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
 import SleepProgress from "./components/sleep-progress.uvue";
@@ -60,21 +60,8 @@ import SleepTrend from "./components/sleep-trend.uvue";
 
 const { device, sleep } = useStore();
 const currentDate = ref<string>(dayUts().format("YYYY-MM-DD"));
-const trendDays = ref<string>("7d");
-const sleepActiveMetric = ref<string>("heartRate");
 
-function getDaysFromOption(option: string): number {
-	if (option == "7d") {
-		return 7;
-	}
-	if (option == "14d") {
-		return 14;
-	}
-	if (option == "30d") {
-		return 30;
-	}
-	return 7;
-}
+const sleepActiveMetric = ref<string>("heartRate");
 
 async function fetchSleepStatus() {
 	await sleep.fetchStatus(device.currentDeviceId, currentDate.value);
@@ -82,18 +69,6 @@ async function fetchSleepStatus() {
 
 async function fetchSleepMetric() {
 	await sleep.fetchMetric(device.currentDeviceId, currentDate.value, sleepActiveMetric.value);
-}
-
-async function fetchSleepTrend(days: string) {
-	const endDate = dayUts().format("YYYY-MM-DD");
-	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
-	await sleep.fetchTrend(device.currentDeviceId, startDate, endDate);
-	await sleep.fetchSleepMode(device.currentDeviceId, startDate, endDate);
-}
-
-function onTrendDaysChange(days: string) {
-	trendDays.value = days;
-	fetchSleepTrend(days);
 }
 
 const sleepItems = computed((): HealthItem[] => {
@@ -125,16 +100,9 @@ watch(
 	() => {
 		fetchSleepStatus();
 		fetchSleepMetric();
-		fetchSleepTrend(trendDays.value);
 	},
 	{ immediate: true }
 );
-
-onMounted(() => {
-	fetchSleepStatus();
-	fetchSleepMetric();
-	fetchSleepTrend(trendDays.value);
-});
 </script>
 
 <style lang="scss" scoped></style>

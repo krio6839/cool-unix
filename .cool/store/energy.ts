@@ -58,8 +58,8 @@ export class Energy {
 			})
 				.then((res) => {
 					if (res != null && isArray(res)) {
-						const trendDataResult = parse<DateValuePair[]>(res)!;
-						this.bodyEnergyChartData.value = trendDataResult ?? [];
+						const list = (res as any[]).map((item) => parse<DateValuePair>(item)!);
+						this.bodyEnergyChartData.value = list;
 					}
 					resolve();
 				})

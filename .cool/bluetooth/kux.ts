@@ -1,5 +1,6 @@
 //#ifdef H5
 type UniError = any;
+
 //#endif
 
 //#ifndef H5

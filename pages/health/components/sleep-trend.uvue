@@ -88,12 +88,12 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, computed } from "vue";
+import { ref, computed, watch } from "vue";
 import Chart from "./chart.uvue";
 import type { ClTabsItem } from "@/uni_modules/cool-ui";
-import { useStore } from "@/.cool";
+import { dayUts, useStore } from "@/.cool";
 
-const { sleep } = useStore();
+const { device, sleep } = useStore();
 
 type MetricType = "duration" | "regularity";
 
@@ -139,6 +139,19 @@ function selectDays(value: string) {
 
 function selectMetric(value: MetricType) {
 	activeMetric.value = value;
+}
+
+function getDaysFromOption(option: string): number {
+	if (option == "7d") {
+		return 7;
+	}
+	if (option == "14d") {
+		return 14;
+	}
+	if (option == "30d") {
+		return 30;
+	}
+	return 7;
 }
 
 const weekDays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -394,6 +407,15 @@ const sleepRegularityChartOption = computed(() => {
 		}
 	});
 });
+
+async function fetchSleepTrend(days: string) {
+	const endDate = dayUts().format("YYYY-MM-DD");
+	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
+	sleep.fetchTrend(device.currentDeviceId, startDate, endDate);
+	sleep.fetchSleepMode(device.currentDeviceId, startDate, endDate);
+}
+
+watch(selectedDays, fetchSleepTrend, { immediate: true });
 </script>
 
 <style lang="scss" scoped></style>

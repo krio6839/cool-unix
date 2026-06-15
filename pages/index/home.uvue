@@ -186,6 +186,7 @@ onMounted(() => {
 	}
 
 	// 已登录但未绑定设备 → 引导去设备页配对
+	//#ifndef H5
 	if (device.boundDeviceId == "") {
 		router.push({
 			path: "/pages/device/index",
@@ -193,6 +194,7 @@ onMounted(() => {
 		});
 		return;
 	}
+	//#endif
 
 	formatDate();
 });
