@@ -1,6 +1,7 @@
 import { ref } from "vue";
 import { storage } from "../../utils";
 import { t } from "../../locale";
+import { type ClActionSheetOptions, type ClActionSheetItem } from "@/uni_modules/cool-ui";
 
 import type { DataReadyStatus, SleepData } from "../../bluetooth";
 
@@ -24,6 +25,9 @@ import { DeviceConnection } from "./connection";
 import { DeviceProtocol } from "./protocol";
 import { DataFetcher } from "./data-fetcher";
 import { EventHandler } from "./event-handler";
+
+// actionSheet 共享 ref 的最小类型(不直接 import ClActionSheetComponentPublicInstance,避免 UTS 跨文件类型解析问题)
+type ClActionSheetComponentPublicInstance = any;
 
 export class Device {
 	// 基本状态属性
@@ -73,6 +77,11 @@ export class Device {
 	readonly protocol: DeviceProtocol;
 	readonly data: DataFetcher;
 	readonly event: EventHandler;
+	//#endif
+
+	// 共享 actionSheet 引用(由 pages/device/index.uvue 在 onMounted 注入)
+	//#ifndef H5
+	actionSheetRef: ClActionSheetComponentPublicInstance | null;
 	//#endif
 
 	constructor() {
@@ -152,6 +161,71 @@ export class Device {
 		this.data.destroy();
 		//#endif
 	}
+
+	//#ifndef H5
+	/**
+	 * 打开设备选择 actionSheet(共享给所有需要的地方)
+	 * - PairingState 的"选择设备"按钮 → index.uvue 处理
+	 * - TestPopup 的 testSwitchDevice
+	 * - 等等
+	 * - actionSheetRef 由 pages/device/index.uvue 在 onMounted 注入
+	 */
+	openDeviceActionSheet(options: ClActionSheetOptions): void {
+		if (this.actionSheetRef == null) {
+			console.warn("[ACTION-SHEET] actionSheetRef 未注入,无法弹窗");
+			return;
+		}
+		this.actionSheetRef.open(options);
+	}
+
+	/**
+	 * 弹设备选择 actionSheet
+	 * - 从 deviceStore.devices 当前快照生成选项列表
+	 * - 关闭 cl-action-sheet 的默认取消按钮,改为手动加"取消"项
+	 *   (这样可以区分"选设备"和"取消",让调用方决定取消行为)
+	 * - 供 connection.ts 在 count >= 2 时直接调用,无需 UI 按钮
+	 *
+	 * @param onSelect 选中设备回调,接收 deviceId
+	 * @param onCancel 取消回调(可选,默认无操作)
+	 * @param title 弹窗标题,默认"选择要连接的设备"
+	 */
+	showDevicePicker(
+		onSelect: (deviceId: string) => void,
+		onCancel?: () => void,
+		title: string = t("选择要连接的设备")
+	): void {
+		if (this.actionSheetRef == null) {
+			console.warn("[ACTION-SHEET] actionSheetRef 未注入,无法弹窗");
+			return;
+		}
+		const snapshot = this.devices; // 拍快照,避免弹窗期间 devices 被修改
+		if (snapshot.length < 2) {
+			console.warn("[PICKER] 设备数量 < 2,无法弹窗");
+			return;
+		}
+		this.actionSheetRef.open({
+			title,
+			showCancel: false, // 关闭默认取消,手动加
+			list: [
+				...snapshot.map(
+					(d) =>
+						({
+							label: `${d.name ?? d.localName ?? "BOOM1"} · ${d.RSSI ?? "?"} dBm`,
+							callback: () => {
+								onSelect(d.deviceId);
+							}
+						}) as ClActionSheetItem
+				),
+				{
+					label: t("取消"),
+					callback: () => {
+						onCancel?.();
+					}
+				} as ClActionSheetItem
+			]
+		} as ClActionSheetOptions);
+	}
+	//#endif
 
 	clear() {
 		console.log("清除设备相关数据");

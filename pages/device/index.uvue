@@ -84,6 +84,9 @@
 		<!-- 测试弹窗组件 -->
 		<TestPopup v-model="showPopup"></TestPopup>
 
+		<!-- 共享 actionSheet(由 store 注入 ref 供 PairingState/TestPopup 等使用) -->
+		<cl-action-sheet :ref="(e) => (deviceStore.actionSheetRef = e)"></cl-action-sheet>
+
 		<!-- #endif -->
 	</cl-page>
 </template>

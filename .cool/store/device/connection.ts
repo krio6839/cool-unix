@@ -34,12 +34,12 @@ export class DeviceConnection {
 	private _isSilentReconnecting: boolean = false;
 	private _reconnectAttempts: number = 0;
 
-	// 配对页扫描配置(只在 enterPairingMode 中使用,UI 上可显示状态)
-	private static readonly PAIRING_SCAN_TIMEOUT_MS = 15000;
-	private static readonly PAIRING_SCAN_RETRY_COUNT = 2;
+	// 配对页扫描配置
+	private static readonly PAIRING_SCAN_TIMEOUT_MS = 30000;
+	// 扫描模式:pairing=配对(0/1/2+ 处理);reconnect=重连(只连 boundDeviceId)
+	private _scanMode: "pairing" | "reconnect" = "pairing";
 	private _isSearching: boolean = false;
 	private _pairingScanTimer: number = 0;
-	private _pairingScanRetryCount: number = 0;
 
 	constructor(device: Device) {
 		this.device = device;
@@ -136,22 +136,22 @@ export class DeviceConnection {
 	/**
 	 * 启动配对扫描(不跳转)
 	 * - 适用于:用户停留在任意页面,后台静默直连失败时
-	 * - 行为:设 SEARCHING 状态 + 启动扫描
-	 * - 不跳转,让扫描在后台跑;若扫描期间找到设备,自动连上
-	 * - 若扫描 3 次都超时,_handlePairingScanTimeout 会调 _redirectToPairingPage
+	 * - 行为:设 SEARCHING 状态 + 启动扫描(reconnect mode:只连 boundDeviceId)
+	 * - 不跳转,让扫描在后台跑;若扫描期间找到绑定设备,自动连上
+	 * - 若扫描 30s 超时未找到绑定设备,_handlePairingScanTimeout 会提示错误
 	 */
 	private _startPairingScan(): void {
 		// 先把状态设好,设备页 onLoad 时 UI 就是 SEARCHING,不会闪 UNPAIRED
 		this.device.status.value = "SEARCHING";
 		this.device.errorMessage.value = "";
 		// 启动扫描(异步,不 await — 扫描可以后台跑)
-		this.startBluetoothSearch();
+		// mode=reconnect:只连 boundDeviceId,不连其他设备
+		this.startBluetoothSearch("reconnect");
 	}
 
 	/**
-	 * 跳转设备页(在扫描最终失败时调用)
-	 * - 适用于:扫描 3 次都超时,需要用户手动操作时
-	 * - 行为:reLaunch 到设备页 + 设 UNPAIRED 状态 + 显示错误
+	 * 跳转设备页(原 retry 流程使用,现已被 _handlePairingScanTimeout 取代 — 保留以备将来需要)
+	 * - 不再被任何方法调用,保留避免破坏可能的引用关系
 	 */
 	private _redirectToPairingPage(): void {
 		this.device.status.value = "UNPAIRED";
@@ -257,17 +257,18 @@ export class DeviceConnection {
 	/**
 	 * 启动配对页扫描(只在 enterPairingMode 中调用,UI 上可显示 SEARCHING 状态)
 	 * - 设备名匹配用 name || localName fallback(Nordic 设备只广播 localName 时也能匹配)
-	 * - 15s 未找到 → 自动 retry 2 次 → 仍失败 → UI 提示
+	 * - 30s 未找到 → _handlePairingScanTimeout 按数量 + mode 分支
 	 * - 防重入:同一时间只能有一个扫描在跑
+	 * @param mode pairing=配对(0/1/2+ 处理);reconnect=重连(只连 boundDeviceId)
 	 */
-	async startBluetoothSearch() {
+	async startBluetoothSearch(mode: "pairing" | "reconnect" = "pairing") {
 		//#ifndef H5
 		if (this._isSearching) {
 			console.log("[SCAN] 搜索已在进行,跳过");
 			return;
 		}
 		this._isSearching = true;
-		this._pairingScanRetryCount = 0;
+		this._scanMode = mode;
 
 		try {
 			this.device.devices = [];
@@ -286,19 +287,21 @@ export class DeviceConnection {
 				this.device.errorMessage.value = t("搜索设备失败,请检查蓝牙和位置权限");
 				return;
 			}
-			console.log("开始搜索目标设备:", TARGET_DEVICE_NAME);
+			console.log("开始搜索目标设备:", TARGET_DEVICE_NAME, "mode:", mode);
 			this._schedulePairingScanTimeout();
 
 			onDeviceFound((devices) => {
-				const found = devices.find((d) => {
-					// Nordic 设备的广播包经常只设 localName,不设 GAP name
-					// 优先用 name,fallback 到 localName
-					const name = d.name ?? d.localName ?? "";
-					return name == TARGET_DEVICE_NAME;
-				});
-				if (found != null) {
-					this._handleFoundDevice(found);
-				}
+				// 累计所有匹配设备,不去重(去重在 _handleFoundDevice 内部用 deviceId 判断)
+				devices
+					.filter((d) => {
+						// Nordic 设备的广播包经常只设 localName,不设 GAP name
+						// 优先用 name,fallback 到 localName
+						const name = d.name ?? d.localName ?? "";
+						return name == TARGET_DEVICE_NAME;
+					})
+					.forEach((d) => {
+						this._handleFoundDevice(d);
+					});
 			});
 		} finally {
 			this._isSearching = false;
@@ -307,19 +310,18 @@ export class DeviceConnection {
 	}
 
 	/**
-	 * 处理已发现的目标设备:清超时 + 推送 UI + 启动连接
+	 * 处理已发现的目标设备:只入列表 + 按 RSSI 排序 + 不连接
+	 * - 找到 N 个都入列表,等扫描周期结束后统一处理
+	 * - 连接由 _handlePairingScanTimeout 根据 _scanMode + devices.length 决定
 	 */
 	private _handleFoundDevice(found: DeviceInfo): void {
-		this._clearPairingScanTimeout();
-		console.log("发现目标设备:", found);
-		const displayName = found.name ?? found.localName ?? "";
+		console.log("发现目标设备:", found.deviceId);
 		if (!this.device.devices.some((d) => d.deviceId == found.deviceId)) {
 			this.device.devices.push(found);
 		}
-		console.log("当前设备列表:", this.device.devices);
-		if (this.device.currentDeviceId == "") {
-			this.connectToDevice(found.deviceId, displayName);
-		}
+		// 按 RSSI 降序排序(信号最强在最前)
+		this.device.devices.sort((a, b) => (b.RSSI ?? -100) - (a.RSSI ?? -100));
+		console.log("当前设备列表长度:", this.device.devices.length);
 	}
 
 	private _schedulePairingScanTimeout(): void {
@@ -338,20 +340,65 @@ export class DeviceConnection {
 	}
 
 	private async _handlePairingScanTimeout(): Promise<void> {
-		console.warn(
-			`[SCAN] 配对扫描超时（${DeviceConnection.PAIRING_SCAN_TIMEOUT_MS}ms 未找到设备）`
-		);
+		const mode = this._scanMode;
+		const count = this.device.devices.length;
+		console.log(`[SCAN] 配对扫描结束,mode=${mode},共发现 ${count} 个目标设备`);
 		await this.stopBluetoothSearch();
-		if (this._pairingScanRetryCount < DeviceConnection.PAIRING_SCAN_RETRY_COUNT) {
-			this._pairingScanRetryCount++;
-			console.log(
-				`[SCAN] 自动重试 (${this._pairingScanRetryCount}/${DeviceConnection.PAIRING_SCAN_RETRY_COUNT})`
-			);
-			this.startBluetoothSearch();
-		} else {
-			// 仍找不到 → 跳转设备页让用户处理
-			this._redirectToPairingPage();
+
+		// === 重连 mode:只连 boundDeviceId,绝不连其他设备 ===
+		if (mode == "reconnect") {
+			if (count == 0) {
+				this.device.status.value = "UNPAIRED";
+				this.device.errorMessage.value = t("未找到绑定设备,请靠近设备后重试");
+				return;
+			}
+			const bound = this.device.devices.find((d) => d.deviceId == this.device.boundDeviceId);
+			if (bound == null) {
+				// 范围内有其他 BOOM1 设备,但都不是绑定的那个
+				this.device.status.value = "UNPAIRED";
+				this.device.errorMessage.value = t("绑定设备不在范围内,请靠近已绑定设备");
+				return;
+			}
+			const displayName = bound.name ?? bound.localName ?? "";
+			console.log(`[SCAN] 重连模式,自动连接绑定设备: ${bound.deviceId}`);
+			this.device.devices = [];
+			this.connectToDevice(bound.deviceId, displayName);
+			return;
 		}
+
+		// === 配对 mode:0/1/2+ 标准流程 ===
+		if (count == 0) {
+			this.device.status.value = "UNPAIRED";
+			this.device.errorMessage.value = t("未找到设备,请确认设备已开机且在范围内");
+			return;
+		}
+
+		if (count == 1) {
+			const only = this.device.devices[0];
+			const displayName = only.name ?? only.localName ?? "";
+			console.log(`[SCAN] 仅 1 个设备,自动连接: ${only.deviceId}`);
+			this.device.devices = []; // 清空列表(连接后不需要)
+			this.connectToDevice(only.deviceId, displayName);
+			return;
+		}
+
+		// 2+ 个:直接弹 actionSheet 让用户选择
+		// 取消 → status=UNPAIRED + 清空 devices + errorMessage 提示重新配对
+		console.log(`[SCAN] 发现 ${count} 个设备,直接弹窗让用户选择`);
+		this.device.showDevicePicker(
+			(deviceId) => {
+				// 选 1 个:连接(connectToFoundDevice 内部会清空 devices)
+				console.log(`[SCAN] 用户选择连接: ${deviceId}`);
+				this.connectToFoundDevice(deviceId);
+			},
+			() => {
+				// 取消:状态清零
+				console.log(`[SCAN] 用户取消,降级为未配对`);
+				this.device.devices = [];
+				this.device.status.value = "UNPAIRED";
+				this.device.errorMessage.value = t("已取消,请重新配对");
+			}
+		);
 	}
 
 	stopBluetoothSearch(): Promise<boolean> {
@@ -375,6 +422,22 @@ export class DeviceConnection {
 		//#endif
 		await this._markConnected(deviceId, deviceName ?? "");
 		console.log("设备连接状态:", this.device.status.value);
+	}
+
+	/**
+	 * 用户从设备列表(actionSheet)点选某个设备后,启动连接
+	 * - 供 index.uvue 的 onDeviceSelected 调用
+	 * - 不做 boundDeviceId 检查(配对 mode 下 boundDeviceId == "",无限制)
+	 */
+	public connectToFoundDevice(deviceId: string): void {
+		const found = this.device.devices.find((d) => d.deviceId == deviceId);
+		if (found == null) {
+			console.warn("[SCAN] 设备列表中找不到 deviceId:", deviceId);
+			return;
+		}
+		const displayName = found.name ?? found.localName ?? "";
+		// this.device.devices = []; // 清空列表(连接后不需要)
+		this.connectToDevice(deviceId, displayName);
 	}
 
 	async disconnectDevice() {

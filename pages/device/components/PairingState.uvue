@@ -104,7 +104,7 @@ function selectLocationItem(location: string) {
 
 function confirmLocation() {
 	showPopup.value = false;
-	ui.showToast({ message: `已选择位置：${selectedLocation.value}`, type: "success" });
+	ui.showToast({ message: `已选择位置:${selectedLocation.value}`, type: "success" });
 	emit("select", selectedLocation.value);
 }
 </script>

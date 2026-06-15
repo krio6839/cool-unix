@@ -365,13 +365,12 @@
 			</view>
 		</scroll-view>
 
-		<cl-action-sheet ref="actionSheetRef"></cl-action-sheet>
+		<!-- actionSheet 改由 index.uvue 共享,通过 deviceStore.openDeviceActionSheet 触发 -->
 	</cl-popup>
 </template>
 
 <script lang="ts" setup>
 import { t, useStore } from "@/.cool";
-import { ref } from "vue";
 import { useUi, type ClActionSheetItem, type ClActionSheetOptions } from "@/uni_modules/cool-ui";
 import {
 	bluetoothDataManager,
@@ -387,8 +386,6 @@ const show = defineModel("show", {
 	default: false
 });
 
-const actionSheetRef = ref<ClActionSheetComponentPublicInstance | null>(null);
-
 function testSwitchDevice() {
 	const otherDevices = deviceStore.devices.filter(
 		(d) => d.deviceId != deviceStore.currentDeviceId
@@ -397,7 +394,7 @@ function testSwitchDevice() {
 		ui.showToast({ message: t("没有其他设备可以切换"), type: "error" });
 		return;
 	}
-	actionSheetRef.value!.open({
+	deviceStore.openDeviceActionSheet({
 		title: t("切换设备"),
 		list: otherDevices.map(
 			(d) =>
