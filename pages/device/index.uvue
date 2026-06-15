@@ -85,14 +85,14 @@
 		<TestPopup v-model="showPopup"></TestPopup>
 
 		<!-- 共享 actionSheet(由 store 注入 ref 供 PairingState/TestPopup 等使用) -->
-		<cl-action-sheet :ref="(e) => (deviceStore.actionSheetRef = e)"></cl-action-sheet>
+		<cl-action-sheet :ref="setActionSheetRef"></cl-action-sheet>
 
 		<!-- #endif -->
 	</cl-page>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, type ComponentPublicInstance } from "vue";
 import { router, t, useStore } from "@/.cool";
 
 import UnpairedState from "./components/UnpairedState.uvue";
@@ -103,6 +103,11 @@ import TestPopup from "./components/TestPopup.uvue";
 const { device: deviceStore } = useStore();
 
 const showPopup = ref(false);
+
+// ref 回调:把 cl-action-sheet 实例注入到 store 中供 PairingState / TestPopup 等共享使用
+function setActionSheetRef(e: Element | ComponentPublicInstance | null) {
+	deviceStore.actionSheetRef = e as ClActionSheetComponentPublicInstance | null;
+}
 
 const connectedDeviceName = ref<string>("Cool Unix 设备");
 

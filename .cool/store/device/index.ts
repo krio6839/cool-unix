@@ -26,9 +26,6 @@ import { DeviceProtocol } from "./protocol";
 import { DataFetcher } from "./data-fetcher";
 import { EventHandler } from "./event-handler";
 
-// actionSheet 共享 ref 的最小类型(不直接 import ClActionSheetComponentPublicInstance,避免 UTS 跨文件类型解析问题)
-type ClActionSheetComponentPublicInstance = any;
-
 export class Device {
 	// 基本状态属性
 	status = ref<keyof typeof DeviceStatusEnum>("UNPAIRED");
@@ -81,7 +78,7 @@ export class Device {
 
 	// 共享 actionSheet 引用(由 pages/device/index.uvue 在 onMounted 注入)
 	//#ifndef H5
-	actionSheetRef: ClActionSheetComponentPublicInstance | null;
+	actionSheetRef: ClActionSheetComponentPublicInstance | null = null;
 	//#endif
 
 	constructor() {
