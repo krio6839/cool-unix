@@ -347,16 +347,9 @@ export class DeviceConnection {
 
 		// === 重连 mode:只连 boundDeviceId,绝不连其他设备 ===
 		if (mode == "reconnect") {
-			if (count == 0) {
-				this.device.status.value = "UNPAIRED";
-				this.device.errorMessage.value = t("未找到绑定设备,请靠近设备后重试");
-				return;
-			}
 			const bound = this.device.devices.find((d) => d.deviceId == this.device.boundDeviceId);
 			if (bound == null) {
-				// 范围内有其他 BOOM1 设备,但都不是绑定的那个
-				this.device.status.value = "UNPAIRED";
-				this.device.errorMessage.value = t("绑定设备不在范围内,请靠近已绑定设备");
+				this._redirectToPairingPage();
 				return;
 			}
 			const displayName = bound.name ?? bound.localName ?? "";
