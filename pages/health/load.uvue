@@ -223,22 +223,22 @@ const loadZoneItems = computed((): ZoneItem[] => {
 	}
 	return [
 		{
-			name: "过载",
+			name: "负荷过载",
 			percentage: z.overload.percentage,
 			rightText: `${z.overload.percentage}%｜${z.overload.hours}小时`
 		},
 		{
-			name: "注意",
+			name: "注意压力",
 			percentage: z.warning.percentage,
 			rightText: `${z.warning.percentage}%｜${z.warning.hours}小时`
 		},
 		{
-			name: "正常",
+			name: "状态正常",
 			percentage: z.normal.percentage,
 			rightText: `${z.normal.percentage}%｜${z.normal.hours}小时`
 		},
 		{
-			name: "优秀",
+			name: "状态优秀",
 			percentage: z.excellent.percentage,
 			rightText: `${z.excellent.percentage}%｜${z.excellent.hours}小时`
 		}
