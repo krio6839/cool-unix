@@ -217,21 +217,47 @@ const loadStatusItems = computed((): HealthItem[] => {
 });
 
 const loadZoneItems = computed((): ZoneItem[] => {
-	const zones = load.loadZones.value;
-	if (zones == null) {
+	const z = load.loadZones.value;
+	if (z == null) {
 		return [];
 	}
-	const items = (zones["items"] as ZoneItem[]) ?? [];
-	return items;
+	return [
+		{
+			name: "过载",
+			percentage: z.overload.percentage,
+			rightText: `${z.overload.percentage}%｜${z.overload.hours}小时`
+		},
+		{
+			name: "注意",
+			percentage: z.warning.percentage,
+			rightText: `${z.warning.percentage}%｜${z.warning.hours}小时`
+		},
+		{
+			name: "正常",
+			percentage: z.normal.percentage,
+			rightText: `${z.normal.percentage}%｜${z.normal.hours}小时`
+		},
+		{
+			name: "优秀",
+			percentage: z.excellent.percentage,
+			rightText: `${z.excellent.percentage}%｜${z.excellent.hours}小时`
+		}
+	];
 });
 
 const heartRateZoneItems = computed((): ZoneItem[] => {
-	const zones = load.heartRateZoneItems.value;
-	if (zones == null) {
+	const h = load.heartRateZoneItems.value;
+	if (h == null) {
 		return [];
 	}
-	const items = (zones["items"] as ZoneItem[]) ?? [];
-	return items;
+	return [
+		{ name: "Zone 0", percentage: h.zone0 },
+		{ name: "Zone 1", percentage: h.zone1 },
+		{ name: "Zone 2", percentage: h.zone2 },
+		{ name: "Zone 3", percentage: h.zone3 },
+		{ name: "Zone 4", percentage: h.zone4 },
+		{ name: "Zone 5", percentage: h.zone5 }
+	];
 });
 
 const realtimeChartOption = computed((): UTSJSONObject => {

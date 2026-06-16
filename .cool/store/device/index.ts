@@ -45,7 +45,8 @@ export class Device {
 	//#ifndef H5
 	devices: DeviceInfo[] = [];
 	//#endif
-	currentDeviceId: string = "";
+	// currentDeviceId: string = "";
+	currentDeviceId: string = "C6:21:DB:55:81:6D";
 	currentDeviceName: string = "";
 	boundDeviceId: string = "";
 

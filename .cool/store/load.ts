@@ -1,7 +1,7 @@
 import { ref } from "vue";
 import { request } from "../service";
 import { isArray, isNull, isObject, parse } from "../utils";
-import type { LoadStatusApiResponse } from "../types/load";
+import type { LoadStatusApiResponse, LoadZones, HeartRateZoneItems } from "../types/load";
 import type { TimeValuePair, DateValuePair } from "../types/common";
 
 export class Load {
@@ -14,9 +14,9 @@ export class Load {
 	steps = ref<number>(0);
 	calories = ref<number>(0);
 	realtimeLoadData = ref<TimeValuePair[]>([]);
-	loadZones = ref<UTSJSONObject | null>(null);
+	loadZones = ref<LoadZones | null>(null);
 	heartRateZoneData = ref<TimeValuePair[]>([]);
-	heartRateZoneItems = ref<UTSJSONObject | null>(null);
+	heartRateZoneItems = ref<HeartRateZoneItems | null>(null);
 	loadTrendData = ref<DateValuePair[]>([]);
 	sportLoadTrendData = ref<DateValuePair[]>([]);
 	sleepPressureTrendData = ref<DateValuePair[]>([]);
@@ -124,13 +124,9 @@ export class Load {
 		this.steps.value = statusData.steps ?? 0;
 		this.calories.value = statusData.calories ?? 0;
 		this.realtimeLoadData.value = statusData.realtimeLoadData ?? [];
-		this.loadZones.value = (statusData.loadZones as UTSJSONObject) ?? null;
+		this.loadZones.value = statusData.loadZones ?? null;
 		this.heartRateZoneData.value = statusData.heartRateZoneData ?? [];
-		this.heartRateZoneItems.value = (statusData.heartRateZoneItems as UTSJSONObject) ?? null;
-
-		console.log(this.loadZones.value);
-		console.log(this.heartRateZoneData.value);
-		console.log(this.heartRateZoneItems.value);
+		this.heartRateZoneItems.value = statusData.heartRateZoneItems ?? null;
 	}
 
 	clear(): void {
