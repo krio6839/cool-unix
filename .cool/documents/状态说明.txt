@@ -8,13 +8,36 @@ BOOM状态说明
 1.2.2　唤醒
 休眠状态，点按按键松开（按下时间<1s），唤醒。
 
-1.3　蓝牙
-1.3.1　设备蓝牙名称
+1.3　通信协议
+设备有三类通信场景：
+(1)蓝牙自定义广播
+(2)蓝牙GATT协议
+(3)USB Custom HID协议
+根据上面三类场景，定义下面两种通信协议，分别适用不同的通信场景。
+1.3.1　蓝牙自定义广播协议
+蓝牙自定义广播数据放在Manufacturer Specific Data（AD Type = 0xFF）中，内容包含如下数据结构，字节序：采用小端序（Little-Endian），刷新时间：每秒刷新。
+广播数据的格式如下：
+T	L	V	V说明
+0x50			见自定义广播数据
+
+1.3.2　蓝牙GATT协议和USB Custom HID协议
+蓝牙GATT协议和USB Custom HID的上下行通信协议格式如下，适合单帧/多帧传输，以组成最大512字节的payload：
+字段	长度(字节)	说明
+DataIdentifier	2	Bit15:Start Bit
+Bit14:End Bit
+Bit9 - 13Bit: SquenceNumber
+Bit0 - 8Bit:ValidDataNumber
+Payload	TLV格式Payload	
+注意：若无特殊说明，在蓝牙GATT协议和USB Custom HID的协议说明中只说明payload部分的格式，而在获得payload前必须先根据上表的格式进行解包。
+
+1.4　蓝牙
+1.4.1　设备蓝牙名称
 BOOM-设备编号（后4位），默认BOOM-0000
 
-1.3.2　蓝牙服务
+1.4.2　蓝牙服务
 提供SMP和GATT两种服务，SMP专为DFU，GATT与手机进行通信。
 手机连接后，手机通过atts write实现命令发送，BOOM通过notify对手机命令进行响应。
+
 Unknown ServiceUUID:75c276c3-8f97-20bc-a143-b354244886d4 PRIMARY SERVICE
 Unknown CharacteristicUUID: 6acf4f08-cc9d-d495-6b41-aa7e60c4e8a6Properties: WRITE, WRITE NO RESPONSE
 UUID: d3d46a35-4394-e9aa-5a43-e7921120aa..Properties: NOTIFYDescriptors:
@@ -24,18 +47,20 @@ UUID:0x2902
 Value: Notifications and indications disabled
 
 
-1.3.3　蓝牙协议格式
-协议采用TLV格式，T一个字节，L表示V的长度，两个字节按小端存储，V根据T来定义，按小端存储。
+
+1.4.3　蓝牙自定义广播
+见蓝牙自定义广播协议。
+1.4.4　GATT协议
+协议中的Payload采用TLVC格式，按小端存储，格式如下：
+字段	长度(字节)	说明
+T	2	数据标识，小端存储
+L	2	V的长度，小端存储
+V		根据T来定义，小端存储
+C	2	MODBUS CRC校验小端存储
+
 响应包中，如果长度为0，表示设置或者查询包的格式或者参数有误。
-1.3.4　自定义广播数据
-自定义广播数据放在Manufacturer Specific Data（AD Type = 0xFF）中，内容包含如下数据结构，字节序：采用小端序（Little-Endian），刷新时间：每秒刷新。
-广播数据的格式如下：
-T	L	V	V说明
-0x50			见自定义广播数据
 
-
-1.3.5　GATT协议
-1.3.5.1　读固件版本号
+1.4.4.1　读固件版本号
 a)手机发送
 T	L	V	V说明
 0x30	0	无	
@@ -44,24 +69,33 @@ T	L	V	V说明
 0x30	3		Byte0: major version
 Byte1: minor version
 Byte2: revision version
-
-1.3.5.2　手机设置设备编号
+示例：
+06 C0 30 00 00 00 0F 24
+09 C0 30 00 03 00 01 00 03 7E C2
+1.4.4.2　手机设置设备编号
 a)手机发送
 T	L	V	V说明
 0x31	编号长度	编号内容	设备编号ASCII码，后4位组成蓝牙设备名称BOOM-XXXX
 b)BOOM响应
 T	L	V	V说明
 0x31	编号长度	编号内容	设备编号ASCII码
+示例：
+0E C0 31 00 08 00 31 32 33 34 35 36 37 38 C5 57
+0E C0 31 00 08 00 31 32 33 34 35 36 37 38 C5 57
 
-1.3.5.3　手机读取设备编号
+13 C0 31 00 0D 00 41 42 43 44 2D 30 30 30 39 36 35 34 33 C7 37
+13 C0 31 00 0D 00 41 42 43 44 2D 30 30 30 39 36 35 34 33 C7 37
+1.4.4.3　手机读取设备编号
 a)手机发送
 T	L	V	V说明
 0x32	0	无	
 b)BOOM响应
 T	L	V	V说明
-0x32	编号长度	编号内容	设备编号ASCII码
-
-1.3.5.4　手机设置BOOM时戳
+0x31	编号长度	编号内容	设备编号ASCII码
+示例：
+06 C0 32 00 00 00 0E 9C
+0E C0 31 00 08 00 31 32 33 34 35 36 37 38 C5 57
+1.4.4.4　手机设置BOOM时戳
 a)手机发送
 T	L	V	V说明
 0x33	4	UINT32	UTC时戳
@@ -69,22 +103,27 @@ b)BOOM响应
 T	L	V	V说明
 0x33	4	UINT32	Byte0：0-男;1-女;
 
-
-1.3.5.5　手机读取BOOM时戳
+示例：
+0A C0 33 00 04 00 62 1A 30 6A A8 DE
+0A C0 33 00 04 00 62 1A 30 6A A8 DE
+1.4.4.5　手机读取BOOM时戳
 a)手机发送
 T	L	V	V说明
 0x34	0	无	
 b)BOOM响应
 T	L	V	V说明
-0x34	4	UINT32	UTC时戳
-1.3.5.6　手机设置生物识别数据
+0x33	4	UINT32	UTC时戳
+示例：
+06 C0 34 00 00 00 0E 14
+0A C0 33 00 04 00 91 43 6D 38 F2 E4
+1.4.4.6　手机设置生物识别数据
 c)手机发送
 T	L	V	V说明
 0x35	8	vital_biometric_info_t	见附录数据结构说明
 d)BOOM响应
 T	L	V	V说明
 0x35	8	vital_biometric_info_t	见附录数据结构说明
-1.3.5.7　手机读取生物识别数据
+1.4.4.7　手机读取生物识别数据
 c)手机发送
 T	L	V	V说明
 0x36	0	无	
@@ -95,6 +134,21 @@ T	L	V	V说明
 
 
 
+1.4.4.8　手机控制震动马达
+e)手机发送
+T	L	V	V说明
+0x40	2+n*2-1	Byte 0: 循环次数
+Byte 1: 震动次数
+Byte 2-3: 震动时间（ms）
+……
+Byte 4-5: 静默时间（ms）
+Byte 6-7: 震动时间（ms）
+……	字节序：小端
+震动次数最大10
+f)BOOM响应
+T	L	V	V说明
+0x40	1	震动结果	0：成功
+其它：失败原因
 
 
 2　附录
