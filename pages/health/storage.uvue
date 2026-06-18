@@ -79,13 +79,13 @@ function getDaysFromOption(option: string): number {
 }
 
 async function fetchEnergyStatus() {
-	await energy.fetchStatus(device.currentDeviceId, currentDate.value);
+	await energy.fetchStatus(device.boundDeviceId, currentDate.value);
 }
 
 async function fetchEnergyTrend(days: string) {
 	const endDate = dayUts().format("YYYY-MM-DD");
 	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
-	await energy.fetchTrend(device.currentDeviceId, startDate, endDate);
+	await energy.fetchTrend(device.boundDeviceId, startDate, endDate);
 }
 
 function onTrendDaysChange(days: string) {

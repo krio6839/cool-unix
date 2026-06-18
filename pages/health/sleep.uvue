@@ -64,16 +64,16 @@ const currentDate = ref<string>(dayUts().format("YYYY-MM-DD"));
 const sleepActiveMetric = ref<string>("heartRate");
 
 async function fetchSleepStatus() {
-	await sleep.fetchStatus(device.currentDeviceId, currentDate.value);
+	await sleep.fetchStatus(device.boundDeviceId, currentDate.value);
 }
 
 async function fetchSleepMetric() {
-	await sleep.fetchMetric(device.currentDeviceId, currentDate.value, sleepActiveMetric.value);
+	await sleep.fetchMetric(device.boundDeviceId, currentDate.value, sleepActiveMetric.value);
 }
 
 const sleepItems = computed((): HealthItem[] => {
 	return [
-		{ label: "睡眠时长", value: sleep.sleepDuration.value ?? "--" },
+		{ label: "睡眠时长", value: `${sleep.sleepDuration.value ?? "--"}` },
 		{ label: "睡眠质量", value: `${sleep.sleepQuality.value ?? 0}` }
 	];
 });

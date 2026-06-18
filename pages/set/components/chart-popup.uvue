@@ -156,11 +156,11 @@ async function initChart() {
 
 // 获取图表数据
 async function fetchChartData() {
-	if (device.getPaired() && device.currentDeviceId != "") {
+	if (device.boundDeviceId != "") {
 		isLoading.value = true;
 		try {
 			const data = await request({
-				url: `/devices/${device.currentDeviceId}/calendar_tables`,
+				url: `/devices/${device.boundDeviceId}/calendar_tables`,
 				method: "GET",
 				data: {
 					date: props.date,

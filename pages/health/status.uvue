@@ -65,7 +65,7 @@ const selectedDate = ref<string>(dayUts().format("YYYY-MM-DD"));
 const readinessDays = ref<string>("7d");
 
 async function fetchStatusData() {
-	await status.fetchStatus(device.currentDeviceId, selectedDate.value);
+	await status.fetchStatus(device.boundDeviceId, selectedDate.value);
 }
 
 function getDaysFromOption(option: string): number {
@@ -85,7 +85,7 @@ async function fetchReadinessData(days: string) {
 	const endDate = dayUts().format("YYYY-MM-DD");
 	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
 	console.log(startDate, endDate, days);
-	await status.fetchReadiness(device.currentDeviceId, startDate, endDate);
+	await status.fetchReadiness(device.boundDeviceId, startDate, endDate);
 }
 
 function onReadinessDaysChange(days: string) {

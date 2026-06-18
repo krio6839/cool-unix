@@ -48,10 +48,18 @@
 				</view>
 
 				<view
-					class="h-8 w-8 rounded-full border border-solid border-white opacity-60 flex flex-row items-center justify-center mr-3"
+					class="h-8 w-8 rounded-full border border-solid flex flex-row items-center justify-center mr-3"
+					:class="{
+						'border-white opacity-60': device.status.value === 'CONNECTED',
+						'border-[#FF5C5C] opacity-100': device.status.value !== 'CONNECTED'
+					}"
 					@tap="goToDevice"
 				>
-					<cl-icon name="link" color="white" :size="16"></cl-icon>
+					<cl-icon
+						:name="device.status.value === 'CONNECTED' ? 'link' : 'forbid-line'"
+						:color="device.status.value === 'CONNECTED' ? 'white' : '#FF5C5C'"
+						:size="16"
+					></cl-icon>
 				</view>
 
 				<view

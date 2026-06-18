@@ -132,13 +132,13 @@ function getDaysFromOption(option: string): number {
 }
 
 async function fetchRecoveryStatus() {
-	await recovery.fetchStatus(device.currentDeviceId);
+	await recovery.fetchStatus(device.boundDeviceId);
 }
 
 async function fetchRecoveryTrend(days: string) {
 	const endDate = dayUts().format("YYYY-MM-DD");
 	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
-	await recovery.fetchTrend(device.currentDeviceId, startDate, endDate);
+	await recovery.fetchTrend(device.boundDeviceId, startDate, endDate);
 }
 
 function onTrendDaysChange(days: string) {

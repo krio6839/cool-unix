@@ -45,7 +45,7 @@ const isIgnoreToken = (url: string) => {
  * @returns Promise<T>
  */
 export function request(options: RequestOptions): Promise<any | null> {
-	let { url, method = "GET", data, header = {}, timeout = 60000, showError = "toast" } = options;
+	let { url, method = "GET", data, header = {}, timeout = 60000, showError } = options;
 
 	const { user } = useStore();
 

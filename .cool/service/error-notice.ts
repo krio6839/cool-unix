@@ -37,7 +37,7 @@ function modalNotice(message: string): void {
 export const defaultErrorNotice: ErrorNotice = {
 	show(options: ErrorNoticeOptions): void {
 		const message = options.message;
-		const type = options.showType ?? "toast";
+		const type = options.showType;
 		if (type == "toast") {
 			toastNotice(message);
 		} else if (type == "modal") {

@@ -171,25 +171,25 @@ function getDaysFromOption(option: string): number {
 }
 
 async function fetchLoadStatus() {
-	await load.fetchStatus(device.currentDeviceId, currentDate.value);
+	await load.fetchStatus(device.boundDeviceId, currentDate.value);
 }
 
 async function fetchLoadTrend(days: string) {
 	const endDate = dayUts().format("YYYY-MM-DD");
 	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
-	await load.fetchTrend(device.currentDeviceId, startDate, endDate);
+	await load.fetchTrend(device.boundDeviceId, startDate, endDate);
 }
 
 async function fetchSportLoad(days: string) {
 	const endDate = dayUts().format("YYYY-MM-DD");
 	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
-	await load.fetchSportLoad(device.currentDeviceId, startDate, endDate);
+	await load.fetchSportLoad(device.boundDeviceId, startDate, endDate);
 }
 
 async function fetchSleepPressure(days: string) {
 	const endDate = dayUts().format("YYYY-MM-DD");
 	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
-	await load.fetchSleepPressure(device.currentDeviceId, startDate, endDate);
+	await load.fetchSleepPressure(device.boundDeviceId, startDate, endDate);
 }
 
 function onLoadTrendDaysChange(days: string) {

@@ -53,6 +53,7 @@
 			<view class="w-full relative mb-2">
 				<view class="w-full h-2 bg-surface-700 rounded-full"></view>
 				<view
+					v-if="hasValidDuration"
 					class="h-2 rounded-full absolute top-0"
 					:style="{
 						left: sleepStartPercent + '%',
@@ -115,7 +116,7 @@
 
 <script lang="ts" setup>
 import { ref, computed } from "vue";
-import { useStore } from "@/.cool";
+import { useStore, isEmpty, isNumber } from "@/.cool";
 
 const { sleep } = useStore();
 
@@ -123,6 +124,9 @@ const selectTimeRef = ref<ClSelectTimeComponentPublicInstance | null>(null);
 const selectedTime = ref<string>("07:30");
 
 function parseTimeToMinutes(timeStr: string): number {
+	if (isEmpty(timeStr)) {
+		return NaN;
+	}
 	const parts = timeStr.split(":");
 	const hours = parseInt(parts[0], 10);
 	const minutes = parseInt(parts[1], 10);
@@ -130,13 +134,22 @@ function parseTimeToMinutes(timeStr: string): number {
 }
 
 function minutesToTime(minutes: number): string {
+	if (!isNumber(minutes)) {
+		return "--";
+	}
 	const hours = Math.floor(minutes / 60) % 24;
 	const mins = minutes % 60;
 	return `${hours.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}`;
 }
 
 function timeToPosition(timeStr: string): number {
+	if (isEmpty(timeStr) || timeStr.includes("NaN")) {
+		return 0;
+	}
 	const minutes = parseTimeToMinutes(timeStr);
+	if (!isNumber(minutes)) {
+		return 0;
+	}
 	const fromNoon = minutes - 12 * 60;
 	let hoursFromNoon = fromNoon / 60;
 	if (hoursFromNoon < 0) {
@@ -146,6 +159,9 @@ function timeToPosition(timeStr: string): number {
 }
 
 function parseSuggestedSleepTime(timeStr: string): number {
+	if (isEmpty(timeStr)) {
+		return NaN;
+	}
 	const parts = timeStr.split(":");
 	const hours = parseInt(parts[0], 10);
 	const minutes = parseInt(parts[1], 10);
@@ -153,11 +169,14 @@ function parseSuggestedSleepTime(timeStr: string): number {
 }
 
 const calculatedSleepTime = computed(() => {
-	const wakeUpTime = selectedTime.value;
-	const suggestedSleepDuration = sleep.suggestedSleepDuration.value ?? "7:30";
+	const sleepDurationMinutes = parseSuggestedSleepTime(sleep.suggestedSleepDuration.value);
 
-	const wakeUpMinutes = parseTimeToMinutes(wakeUpTime);
-	const sleepDurationMinutes = parseSuggestedSleepTime(suggestedSleepDuration);
+	// 无数据时直接返回占位，避免污染后续计算链
+	if (!isNumber(sleepDurationMinutes)) {
+		return "--";
+	}
+
+	const wakeUpMinutes = parseTimeToMinutes(selectedTime.value);
 
 	// 计算就寝时间：起床时间减去建议睡眠时间
 	let sleepTimeMinutes = wakeUpMinutes - sleepDurationMinutes;
@@ -188,6 +207,9 @@ const sleepStartPercent = computed(() => {
 const sleepWidthPercent = computed(() => {
 	const sleepMinutes = parseTimeToMinutes(calculatedSleepTime.value);
 	const wakeMinutes = parseTimeToMinutes(selectedTime.value);
+	if (!isNumber(sleepMinutes) || !isNumber(wakeMinutes)) {
+		return 0;
+	}
 	let duration = wakeMinutes - sleepMinutes;
 	if (duration <= 0) {
 		duration += 24 * 60;
@@ -196,15 +218,29 @@ const sleepWidthPercent = computed(() => {
 });
 
 const sleepHours = computed(() => {
-	const duration = sleep.suggestedSleepDuration.value ?? "7:30";
-	const parts = duration.split(":");
-	return parts.length > 0 ? parts[0] : "7";
+	const raw = sleep.suggestedSleepDuration.value;
+	if (isEmpty(raw)) {
+		return "--";
+	}
+	const value = parseInt(raw.split(":")[0], 10);
+	return isNumber(value) ? `${value}` : "--";
 });
 
 const sleepMinutes = computed(() => {
-	const duration = sleep.suggestedSleepDuration.value ?? "7:30";
-	const parts = duration.split(":");
-	return parts.length > 1 ? parts[1] : "00";
+	const raw = sleep.suggestedSleepDuration.value;
+	if (isEmpty(raw)) {
+		return "--";
+	}
+	const parts = raw.split(":");
+	if (parts.length < 2) {
+		return "--";
+	}
+	const value = parseInt(parts[1], 10);
+	return isNumber(value) ? `${value.toString().padStart(2, "0")}` : "--";
+});
+
+const hasValidDuration = computed(() => {
+	return sleepWidthPercent.value > 0;
 });
 
 const emit = defineEmits<{

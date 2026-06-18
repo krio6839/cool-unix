@@ -411,8 +411,8 @@ const sleepRegularityChartOption = computed(() => {
 async function fetchSleepTrend(days: string) {
 	const endDate = dayUts().format("YYYY-MM-DD");
 	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
-	sleep.fetchTrend(device.currentDeviceId, startDate, endDate);
-	sleep.fetchSleepMode(device.currentDeviceId, startDate, endDate);
+	sleep.fetchTrend(device.boundDeviceId, startDate, endDate);
+	sleep.fetchSleepMode(device.boundDeviceId, startDate, endDate);
 }
 
 watch(selectedDays, fetchSleepTrend, { immediate: true });
