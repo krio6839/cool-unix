@@ -22,3 +22,4 @@ export * from "./boom-constants";
 export * from "./boom-types";
 export * from "./boom-codec";
 export * from "./boom-parser";
+export * from "./boom-doc-examples";

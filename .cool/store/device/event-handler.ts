@@ -46,51 +46,60 @@ export class EventHandler {
 
 	/**
 	 * 订阅 BOOM GATT Service 的 notify characteristic
-	 * 收到 arrayBuffer → 16 进制 → TLVC → CRC 校验 → 按 T 码分派到 event 字段
+	 * 收到 arrayBuffer → 转给 handleNotifyData 统一处理
 	 */
 	onCharacteristicValueChange(): void {
 		//#ifndef H5
 		onCharacteristicValueChange((res) => {
-			const hexData = arrayBufferToHexString(res.value);
-			const serviceId = (res.serviceId ?? "").toLowerCase();
 			// 过滤：只处理 BOOM GATT Service
+			const serviceId = (res.serviceId ?? "").toLowerCase();
 			if (serviceId != BOOM_GATT_SERVICE_UUID.toLowerCase()) return;
-
-			const f = decodeTlvc(hexData);
-			if (f == null) {
-				console.warn("[BOOM] CRC 校验失败:", hexData);
-				return;
-			}
-
-			// 按 T 码分派到对应字段
-			switch (f.t) {
-				case BOOM_CMD.READ_FIRMWARE_VERSION:
-					this.firmwareVersion = parseFirmwareVersion(f.v);
-					console.log("[BOOM] 固件版本:", this.firmwareVersion);
-					break;
-				case BOOM_CMD.SET_DEVICE_NUMBER:
-				case BOOM_CMD.READ_DEVICE_NUMBER:
-					this.deviceNumber = parseDeviceNumber(f.v);
-					console.log("[BOOM] 设备编号:", this.deviceNumber);
-					break;
-				case BOOM_CMD.SET_BOOM_TIMESTAMP:
-				case BOOM_CMD.READ_BOOM_TIMESTAMP:
-					this.boomTimestamp = parseTimestamp(f.v);
-					console.log("[BOOM] 时戳:", this.boomTimestamp);
-					break;
-				case BOOM_CMD.SET_BIOMETRIC:
-				case BOOM_CMD.READ_BIOMETRIC:
-					this.biometricInfo = parseBiometric(f.v);
-					console.log("[BOOM] 生物识别:", this.biometricInfo);
-					break;
-				case BOOM_CMD.CONTROL_VIBRATION:
-					this.lastVibration = parseVibrationResult(f.v);
-					console.log("[BOOM] 震动结果:", this.lastVibration);
-					break;
-				default:
-					console.log("[BOOM] 未知 T:", f.t, "数据:", hexData);
-			}
+			this.handleNotifyData(res.value);
 		});
 		//#endif
+	}
+
+	/**
+	 * 处理 GATT notify 收到的 ArrayBuffer
+	 * 路径: arrayBufferToHexString → decodeTlvc (CRC 校验) → 按 T 码分派到 event 字段
+	 *
+	 * 真实 GATT 与 Mock 共用此方法（mock 模拟 notify 时也调它）
+	 */
+	handleNotifyData(value: ArrayBuffer): void {
+		const hexData = arrayBufferToHexString(value);
+		const f = decodeTlvc(hexData);
+		if (f == null) {
+			console.warn("[BOOM] CRC 校验失败:", hexData);
+			return;
+		}
+
+		// 按 T 码分派到对应字段
+		switch (f.t) {
+			case BOOM_CMD.READ_FIRMWARE_VERSION:
+				this.firmwareVersion = parseFirmwareVersion(f.v);
+				console.log("[BOOM] 固件版本:", this.firmwareVersion);
+				break;
+			case BOOM_CMD.SET_DEVICE_NUMBER:
+			case BOOM_CMD.READ_DEVICE_NUMBER:
+				this.deviceNumber = parseDeviceNumber(f.v);
+				console.log("[BOOM] 设备编号:", this.deviceNumber);
+				break;
+			case BOOM_CMD.SET_BOOM_TIMESTAMP:
+			case BOOM_CMD.READ_BOOM_TIMESTAMP:
+				this.boomTimestamp = parseTimestamp(f.v);
+				console.log("[BOOM] 时戳:", this.boomTimestamp);
+				break;
+			case BOOM_CMD.SET_BIOMETRIC:
+			case BOOM_CMD.READ_BIOMETRIC:
+				this.biometricInfo = parseBiometric(f.v);
+				console.log("[BOOM] 生物识别:", this.biometricInfo);
+				break;
+			case BOOM_CMD.CONTROL_VIBRATION:
+				this.lastVibration = parseVibrationResult(f.v);
+				console.log("[BOOM] 震动结果:", this.lastVibration);
+				break;
+			default:
+				console.log("[BOOM] 未知 T:", f.t, "数据:", hexData);
+		}
 	}
 }
