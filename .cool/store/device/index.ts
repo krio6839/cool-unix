@@ -259,3 +259,6 @@ export class Device {
 
 /** 全局单例 */
 export const device = new Device();
+
+/* 重新导出蓝牙模块的类型，方便上层（page/uvue）import type 使用 */
+export type { VitalBiometric, VibrationSpec, RealtimeBroadcast } from "../../bluetooth";

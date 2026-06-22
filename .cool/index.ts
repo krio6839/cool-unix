@@ -13,3 +13,4 @@ export * from "./types";
 export * from "./icons";
 export * from "./page";
 export * from "./locale";
+export * from "./bluetooth";

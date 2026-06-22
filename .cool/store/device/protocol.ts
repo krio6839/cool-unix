@@ -20,7 +20,7 @@ import {
 	serializeBiometric,
 	serializeVibration
 } from "../../bluetooth";
-import type { VibrationSpec } from "../../bluetooth";
+import type { VibrationSpec, VitalBiometric } from "../../bluetooth";
 
 //#ifndef H5
 import {
@@ -161,14 +161,7 @@ export class DeviceProtocol {
 	}
 
 	/** 0x35 写生物识别（请求 V=8B） */
-	setBiometric(b: {
-		gender: number;
-		weight: number;
-		height: number;
-		age: number;
-		ppgPosition: number;
-		bhr: number;
-	}): Promise<boolean> {
+	setBiometric(b: VitalBiometric): Promise<boolean> {
 		return this.sendTlvc(BOOM_CMD.SET_BIOMETRIC, serializeBiometric(b));
 	}
 
