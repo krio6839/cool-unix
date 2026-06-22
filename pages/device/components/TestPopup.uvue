@@ -228,6 +228,19 @@ import { computed } from "vue";
 import { t, useStore } from "@/.cool";
 import { useUi } from "@/uni_modules/cool-ui";
 
+/* 0x50 实时数据展示用 computed 类型（9 字段全部 string） */
+type RtText = {
+	hr: string;
+	spo2: string;
+	voltage: string;
+	ppi: string;
+	ppgAttached: string;
+	behavior: string;
+	activity: string;
+	bhr: string;
+	receivedAt: string;
+};
+
 const ui = useUi();
 const { device: deviceStore } = useStore();
 
@@ -249,7 +262,7 @@ const bioText = computed<string>(() => {
 	return `性别${b.gender} 体重${b.weight} 身高${b.height} 年龄${b.age} PPG${b.ppgPosition} BHR${b.bhr}`;
 });
 
-const rtText = computed(() => {
+const rtText = computed<RtText>(() => {
 	const r = deviceStore.realtime;
 	if (r == null) {
 		return {

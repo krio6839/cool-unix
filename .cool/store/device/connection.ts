@@ -29,6 +29,7 @@ import {
 	onConnectionStateChange,
 	onAdapterStateChange
 } from "../../bluetooth/kux";
+import type { DeviceInfo } from "../../bluetooth/kux";
 //#endif
 
 import type { Device, ShowDevicePickerOptions } from "./index";
@@ -191,11 +192,17 @@ export class DeviceConnection {
 				if (name.startsWith(TARGET_DEVICE_NAME_PREFIX)) {
 					const devices = this.device.devices;
 					if (!devices.some((x) => x.deviceId == deviceId)) {
+						// DeviceInfo 必填 8 字段全填齐
 						devices.push({
 							name,
+							localName: name, // BOOM 设备 localName 通常 == name
 							deviceId,
-							RSSI: (d["RSSI"] as number) ?? 0
-						});
+							RSSI: (d["RSSI"] as number) ?? 0,
+							advertisData: [],
+							advertisServiceUUIDs: [],
+							serviceData: null,
+							connectable: true
+						} as DeviceInfo);
 					}
 				}
 
@@ -214,10 +221,19 @@ export class DeviceConnection {
 
 	/**
 	 * 从扫描结果中提取 Manufacturer Specific Data → 解析 0x50 实时广播
+	 * 优先 manufacturerData（uni-app x 标准字段），兜底用 number[] → hex
 	 * 未来扩展：睡眠/血氧历史数据可能也走此通道（见 parseCustomAdvExtended）
 	 */
 	private _tryParseBroadcast(d: UTSJSONObject): void {
-		const mfgData = (d["advertisData"] as string) ?? (d["manufacturerData"] as string) ?? "";
+		// 优先 manufacturerData（标准字段）
+		let mfgData: string = (d["manufacturerData"] as string) ?? "";
+		// 兜底：advertisData 是 number[]，转 hex 字符串
+		if (mfgData == "") {
+			const ad = (d["advertisData"] as Array<number> | null) ?? null;
+			if (ad != null && ad.length > 0) {
+				mfgData = ad.map((b: number) => (b & 0xff).toString(16).padStart(2, "0")).join("");
+			}
+		}
 		if (mfgData == "") return;
 		const parsed = parseCustomAdvData(mfgData);
 		if (parsed != null) {
