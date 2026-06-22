@@ -42,14 +42,18 @@ export class Device {
 	errorMessage = ref<string>("");
 
 	// 设备信息
+	currentDeviceName: string = "";
 	//#ifndef H5
 	devices: DeviceInfo[] = [];
-	//#endif
 	currentDeviceId: string = "";
-	// currentDeviceId: string = "C6:21:DB:55:81:6D";
-	currentDeviceName: string = "";
 	boundDeviceId: string = "";
-	// boundDeviceId: string = "C6:21:DB:55:81:6D";
+	//#endif
+	//#ifdef H5
+	//@ts-ignore
+	currentDeviceId: string = "C6:21:DB:55:81:6D";
+	//@ts-ignore
+	boundDeviceId: string = "C6:21:DB:55:81:6D";
+	//#endif
 
 	// 设备初始化状态标志，防止重复初始化
 	isDeviceInitialized = false;
