@@ -49,6 +49,7 @@ export class Device {
 	// currentDeviceId: string = "C6:21:DB:55:81:6D";
 	currentDeviceName: string = "";
 	boundDeviceId: string = "";
+	// boundDeviceId: string = "C6:21:DB:55:81:6D";
 
 	// 设备初始化状态标志，防止重复初始化
 	isDeviceInitialized = false;
