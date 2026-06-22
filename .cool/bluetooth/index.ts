@@ -1,14 +1,11 @@
-// 导出类型
+// 导出通用类型
 export type * from "./types";
 
-// 导出常量
+// 导出上传相关常量（不含旧 BLE UUID）
 export * from "./constants";
 
-// 导出解析器
+// 导出 hex ↔ ArrayBuffer 通用工具
 export * from "./parser";
-
-// 导出睡眠响应装配器
-export * from "./sleep-assembler";
 
 // 导出数据管理器
 export * from "./data-manager";
@@ -18,3 +15,9 @@ export * from "./database";
 
 // 导出 kux 工具
 export * from "./kux";
+
+// 新 BOOM 设备协议
+export * from "./boom-constants";
+export * from "./boom-types";
+export * from "./boom-codec";
+export * from "./boom-parser";

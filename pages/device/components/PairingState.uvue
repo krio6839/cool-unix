@@ -54,7 +54,7 @@
 					@tap="selectLocationItem(location)"
 				>
 					<cl-icon
-						v-if="selectedLocation === location"
+						v-if="selectedLocation == location"
 						name="checkbox-circle-line"
 						color="primary"
 						:size="24"

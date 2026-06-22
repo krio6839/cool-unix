@@ -1,221 +1,244 @@
 import {
-	HEART_RATE_SERVICE_UUID,
-	UART_SERVICE_UUID,
-	LED_BUTTON_SERVICE_UUID,
-	LED_BUTTON_CHARACTERISTIC_UUID,
-	BLOOD_OXYGEN_CHARACTERISTIC_UUID,
-	HEART_RATE_CHARACTERISTIC_UUID,
-	hexStringToArrayBuffer,
-	UART_TX_CHARACTERISTIC_UUID,
-	UART_RX_CHARACTERISTIC_UUID,
-	convertNumberToHexString,
-	convertNumberToHexStringLSB
+    hexStringToArrayBuffer,
+    BOOM_GATT_SERVICE_UUID,
+    encodeTlvc,
+    wrapDataIdentifier,
+    BOOM_CMD,
+    serializeDeviceNumber,
+    serializeTimestamp,
+    serializeBiometric,
+    serializeVibration
 } from "../../bluetooth";
+import type { VibrationSpec, VitalBiometric } from "../../bluetooth";
 
 //#ifndef H5
 import {
-	getServices,
-	getCharacteristics,
-	readCharacteristic,
-	writeCharacteristic,
-	notifyCharacteristic
+    getServices,
+    getCharacteristics,
+    writeCharacteristic,
+    notifyCharacteristic
 } from "../../bluetooth/kux";
 
 import type {
-	GetBLEDeviceServicesSuccessService,
-	BLEDeviceCharacteristic
+    GetBLEDeviceServicesSuccessService,
+    BLEDeviceCharacteristic
 } from "../../bluetooth/kux";
 //#endif
 
 import type { Device } from "./index";
 
+/**
+ * BOOM 设备 TLVC 协议层
+ * 负责：
+ * 1. 发现 BOOM GATT Service（75c276c3-8f97-20bc-a143-b354244886d4）下的 write / notify 特征
+ * 2. 启用 notify
+ * 3. 8 个高层命令的发送封装（0x30/0x31/0x32/0x33/0x34/0x35/0x36/0x40）
+ */
 export class DeviceProtocol {
-	private device: Device;
+    private device: Device;
 
-	// 服务和特征值
-	services: Array<GetBLEDeviceServicesSuccessService> = [];
-	characteristics: Map<string, Array<BLEDeviceCharacteristic>> = new Map();
+    services: Array<GetBLEDeviceServicesSuccessService> = [];
+    characteristics: Map<string, Array<BLEDeviceCharacteristic>> = new Map();
 
-	constructor(device: Device) {
-		this.device = device;
-	}
+    /** BOOM 设备的 write / notify 特征 UUID（动态发现） */
+    writeCharUuid: string = "";
+    notifyCharUuid: string = "";
 
-	async getDeviceServicesAndCharacteristics(deviceId: string): Promise<void> {
-		//#ifndef H5
-		const maxRetries = 10;
-		let retryInterval = 300;
-		const maxRetryInterval = 3000;
+    constructor(device: Device) {
+        this.device = device;
+    }
 
-		for (let i = 0; i < maxRetries; i++) {
-			try {
-				const services = await getServices(deviceId);
-				this.services = services;
+    /**
+     * 获取设备所有 services + characteristics，并从中动态发现 BOOM GATT 服务的 write/notify 特征 UUID
+     */
+    async getDeviceServicesAndCharacteristics(deviceId: string): Promise<void> {
+        //#ifndef H5
+        const services = await getServices(deviceId);
+        this.services = services;
+        const results = await Promise.all(
+            services.map((s: GetBLEDeviceServicesSuccessService) =>
+                getCharacteristics(deviceId, s.uuid)
+            )
+        );
+        services.forEach((s, i) => {
+            const chars = results[i] ?? [];
+            this.characteristics.set(s.uuid, chars);
+        });
 
-				const characteristicsResults = await Promise.all(
-					services.map((service: GetBLEDeviceServicesSuccessService) =>
-						getCharacteristics(deviceId, service.uuid)
-					)
-				);
+        // 发现 BOOM GATT 服务的 write / notify 特征
+        for (let i = 0; i < this.services.length; i++) {
+            const s = this.services[i];
+            if (s == null) continue;
+            if (s.uuid.toLowerCase() != BOOM_GATT_SERVICE_UUID.toLowerCase()) continue;
+            const chars = this.characteristics.get(s.uuid);
+            if (chars == null) continue;
+            for (let j = 0; j < chars.length; j++) {
+                const c = chars[j];
+                if (c == null) continue;
+                const p = c.properties;
+                if (p == null) continue;
+                if (p.write == true && this.writeCharUuid == "")
+                    this.writeCharUuid = c.uuid;
+                if ((p.notify == true || p.indicate == true) && this.notifyCharUuid == "")
+                    this.notifyCharUuid = c.uuid;
+            }
+        }
+        //#endif
+    }
 
-				services.forEach((service: GetBLEDeviceServicesSuccessService, index: number) => {
-					const characteristics = characteristicsResults[index];
-					this.characteristics.set(service.uuid, characteristics);
-				});
+    /** 启用 BOOM GATT notify */
+    async enableNotify(): Promise<boolean> {
+        //#ifndef H5
+        if (this.notifyCharUuid == "") return false;
+        return notifyCharacteristic(
+            this.device.currentDeviceId,
+            BOOM_GATT_SERVICE_UUID,
+            this.notifyCharUuid,
+            true,
+            "notification"
+        );
+        //#endif
+        return false;
+    }
 
-				return;
-			} catch (e) {
-				// 重试获取服务
-			}
-			retryInterval = Math.min(retryInterval * 1.5, maxRetryInterval);
-			await new Promise<void>((resolve) => {
-				setTimeout(() => resolve(), retryInterval);
-			});
-		}
-		throw new Error("获取设备服务失败：服务未发现");
-		//#endif
-	}
+    /** 内部：发一个 TLVC 命令（自动包成单帧 DataIdentifier） */
+    private async sendTlvc(t: number, vHex: string): Promise<boolean> {
+        // Mock 模式：直接走 MockProvider，不下发真实 GATT
+        if (this.device.useMock) {
+            this._dispatchMock(t, vHex);
+            return true;
+        }
+        //#ifndef H5
+        if (this.writeCharUuid == "") return false;
+        const frame = wrapDataIdentifier(encodeTlvc(t, vHex));
+        return writeCharacteristic(
+            this.device.currentDeviceId,
+            BOOM_GATT_SERVICE_UUID,
+            this.writeCharUuid,
+            hexStringToArrayBuffer(frame),
+            "write"
+        );
+        //#endif
+        return false;
+    }
 
-	disableAllNotifications() {
-		//#ifndef H5
-		notifyCharacteristic(
-			this.device.currentDeviceId,
-			HEART_RATE_SERVICE_UUID,
-			HEART_RATE_CHARACTERISTIC_UUID,
-			false,
-			"notification"
-		);
-		//#endif
-	}
+    /**
+     * Mock 模式：按 T 码调用 MockProvider 对应方法
+     * 不走真实 GATT，纯本地内存模拟，让 TestPopup 不连真设备也能看到 event 字段更新
+     */
+    private _dispatchMock(t: number, vHex: string): void {
+        switch (t) {
+            case BOOM_CMD.READ_FIRMWARE_VERSION:
+                this.device.mock.mockReadFirmware();
+                break;
+            case BOOM_CMD.SET_DEVICE_NUMBER:
+                this.device.mock.mockSetDeviceNumber(this._asciiFromHex(vHex));
+                break;
+            case BOOM_CMD.READ_DEVICE_NUMBER:
+                this.device.mock.mockReadDeviceNumber();
+                break;
+            case BOOM_CMD.SET_BOOM_TIMESTAMP:
+                this.device.mock.mockSetTimestamp(this._u32FromHex(vHex));
+                break;
+            case BOOM_CMD.READ_BOOM_TIMESTAMP:
+                this.device.mock.mockReadTimestamp();
+                break;
+            case BOOM_CMD.SET_BIOMETRIC:
+                this.device.mock.mockSetBiometric(this._biometricFromHex(vHex));
+                break;
+            case BOOM_CMD.READ_BIOMETRIC:
+                this.device.mock.mockReadBiometric();
+                break;
+            case BOOM_CMD.CONTROL_VIBRATION: {
+                const parsed = this._vibrationFromHex(vHex);
+                this.device.mock.mockControlVibration(parsed.loops, parsed.count, parsed.onOffMs);
+                break;
+            }
+            default:
+                console.warn("[BOOM-MOCK] 未知 T:", t);
+        }
+    }
 
-	// 设备功能
-	async getLEDStatus() {
-		//#ifndef H5
-		return readCharacteristic(
-			this.device.currentDeviceId,
-			LED_BUTTON_SERVICE_UUID,
-			LED_BUTTON_CHARACTERISTIC_UUID
-		);
-		//#endif
-	}
+    /* ===== Mock 辅助：hex → 业务对象 ===== */
 
-	setLEDStatus(val: string): Promise<boolean> {
-		//#ifndef H5
-		return writeCharacteristic(
-			this.device.currentDeviceId,
-			LED_BUTTON_SERVICE_UUID,
-			LED_BUTTON_CHARACTERISTIC_UUID,
-			hexStringToArrayBuffer(val),
-			"write"
-		);
-		//#endif
-		return Promise.resolve(true);
-	}
+    private _asciiFromHex(h: string): string {
+        let s = "";
+        for (let i = 0; i < h.length; i += 2) {
+            const code = parseInt(h.substring(i, i + 2), 16);
+            s += String.fromCharCode(code);
+        }
+        return s;
+    }
 
-	readBloodOxygen(): Promise<boolean> {
-		//#ifndef H5
-		return readCharacteristic(
-			this.device.currentDeviceId,
-			LED_BUTTON_SERVICE_UUID,
-			BLOOD_OXYGEN_CHARACTERISTIC_UUID
-		);
-		//#endif
-		return Promise.resolve(true);
-	}
+    private _u32FromHex(h: string): number {
+        if (h.length < 8) return 0;
+        return parseInt(h.substring(0, 2), 16)
+             | (parseInt(h.substring(2, 4), 16) << 8)
+             | (parseInt(h.substring(4, 6), 16) << 16)
+             | (parseInt(h.substring(6, 8), 16) << 24);
+    }
 
-	subscribeHeartRate(): Promise<boolean> {
-		//#ifndef H5
-		return notifyCharacteristic(
-			this.device.currentDeviceId,
-			HEART_RATE_SERVICE_UUID,
-			HEART_RATE_CHARACTERISTIC_UUID,
-			true,
-			"notification"
-		);
-		//#endif
-		return Promise.resolve(true);
-	}
+    private _u16FromHex(h: string, off: number): number {
+        return parseInt(h.substring(off, off + 2), 16)
+             | (parseInt(h.substring(off + 2, off + 4), 16) << 8);
+    }
 
-	subscribeUART(): Promise<boolean> {
-		//#ifndef H5
-		return notifyCharacteristic(
-			this.device.currentDeviceId,
-			UART_SERVICE_UUID,
-			UART_RX_CHARACTERISTIC_UUID,
-			true,
-			"notification"
-		);
-		//#endif
-		return Promise.resolve(true);
-	}
+    private _biometricFromHex(h: string): {
+        gender: number; weight: number; height: number;
+        age: number; ppgPosition: number; bhr: number;
+    } {
+        if (h.length < 16) {
+            return { gender: 0, weight: 0, height: 0, age: 0, ppgPosition: 0, bhr: 0 };
+        }
+        return {
+            gender:      parseInt(h.substring(0, 2), 16),
+            weight:      this._u16FromHex(h, 2),
+            height:      this._u16FromHex(h, 6),
+            age:         parseInt(h.substring(10, 12), 16),
+            ppgPosition: parseInt(h.substring(12, 14), 16),
+            bhr:         parseInt(h.substring(14, 16), 16)
+        };
+    }
 
-	async toggleDeviceStatus() {
-		const newState = !this.device._deviceOn;
-		const val = newState ? "01" : "00";
-		//#ifndef H5
-		const writeOk = await writeCharacteristic(
-			this.device.currentDeviceId,
-			LED_BUTTON_SERVICE_UUID,
-			LED_BUTTON_CHARACTERISTIC_UUID,
-			hexStringToArrayBuffer(val),
-			"write"
-		);
-		if (writeOk) {
-			// 00001525 特征是 notify-only（不支持 read），iOS 端 kux 库的
-			// onReadBLECharacteristicValue 又是空实现，所以 read 回调永远拿不到值。
-			// 写入成功 = 状态已切换，直接乐观更新本地状态。
-			this.device._deviceOn = newState;
-			console.log("[DEVICE] toggleDeviceStatus 写入成功,_deviceOn=", this.device._deviceOn);
-		} else {
-			console.warn(
-				"[DEVICE] toggleDeviceStatus 写入失败,_deviceOn 保持不变:",
-				this.device._deviceOn
-			);
-		}
-		//#endif
-	}
+    private _vibrationFromHex(h: string): {
+        loops: number; count: number; onOffMs: number[];
+    } {
+        if (h.length < 4) {
+            return { loops: 0, count: 0, onOffMs: [] };
+        }
+        const loops = parseInt(h.substring(0, 2), 16);
+        const count = parseInt(h.substring(2, 4), 16);
+        const onOffMs: number[] = [];
+        for (let i = 0; i < count * 2; i++) {
+            onOffMs.push(this._u16FromHex(h, 4 + i * 4));
+        }
+        return { loops, count, onOffMs };
+    }
 
-	sendCommand(val: string): Promise<boolean> {
-		//#ifndef H5
-		return writeCharacteristic(
-			this.device.currentDeviceId,
-			UART_SERVICE_UUID,
-			UART_TX_CHARACTERISTIC_UUID,
-			hexStringToArrayBuffer(val),
-			"write"
-		);
-		//#endif
-		return Promise.resolve(true);
-	}
-
-	// UART 命令封装
-	queryDataReadyStatus(): Promise<boolean> {
-		return this.sendCommand("71");
-	}
-
-	getDeviceTime(): Promise<boolean> {
-		return this.sendCommand("74");
-	}
-
-	getHistoricalHeartRateData(recordIndex: number): Promise<boolean> {
-		const cmd = "72" + convertNumberToHexStringLSB(recordIndex, 4);
-		return this.sendCommand(cmd);
-	}
-
-	getSleepData(index: number): Promise<boolean> {
-		const cmd = "73" + convertNumberToHexString(index, 1);
-		return this.sendCommand(cmd);
-	}
-
-	shutdownDevice(): Promise<boolean> {
-		return this.sendCommand("65");
-	}
-
-	setDeviceTime(timestamp: number): Promise<boolean> {
-		const cmd = "75" + convertNumberToHexStringLSB(timestamp, 4);
-		return this.sendCommand(cmd);
-	}
-
-	endSleepJudgment(): Promise<boolean> {
-		return this.sendCommand("7A");
-	}
+    /* ===== 0x30 ~ 0x40 高层命令 ===== */
+    readFirmwareVersion(): Promise<boolean> {
+        return this.sendTlvc(BOOM_CMD.READ_FIRMWARE_VERSION, "");
+    }
+    setDeviceNumber(s: string): Promise<boolean> {
+        return this.sendTlvc(BOOM_CMD.SET_DEVICE_NUMBER, serializeDeviceNumber(s));
+    }
+    readDeviceNumber(): Promise<boolean> {
+        return this.sendTlvc(BOOM_CMD.READ_DEVICE_NUMBER, "");
+    }
+    setTimestamp(sec: number): Promise<boolean> {
+        return this.sendTlvc(BOOM_CMD.SET_BOOM_TIMESTAMP, serializeTimestamp(sec));
+    }
+    readTimestamp(): Promise<boolean> {
+        return this.sendTlvc(BOOM_CMD.READ_BOOM_TIMESTAMP, "");
+    }
+    setBiometric(b: VitalBiometric): Promise<boolean> {
+        return this.sendTlvc(BOOM_CMD.SET_BIOMETRIC, serializeBiometric(b));
+    }
+    readBiometric(): Promise<boolean> {
+        return this.sendTlvc(BOOM_CMD.READ_BIOMETRIC, "");
+    }
+    controlVibration(spec: VibrationSpec): Promise<boolean> {
+        if (spec.count > 10) spec.count = 10;
+        return this.sendTlvc(BOOM_CMD.CONTROL_VIBRATION, serializeVibration(spec));
+    }
 }

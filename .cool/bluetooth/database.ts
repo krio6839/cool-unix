@@ -4,13 +4,16 @@ import {
 	executeSql,
 	selectSql,
 	closeDatabase,
-	deleteDatabase,
-	type OpenDatabaseOptions,
-	type ExecuteSqlOptions,
-	type SelectSqlOptions,
-	type CloseDatabaseOptions,
-	type DeleteDatabaseOptions,
-	type SelectSqlResult
+	deleteDatabase
+	//@ts-ignore
+} from "@/uni_modules/meibao-Sqlite";
+import type {
+	OpenDatabaseOptions,
+	ExecuteSqlOptions,
+	SelectSqlOptions,
+	CloseDatabaseOptions,
+	DeleteDatabaseOptions,
+	SelectSqlResult
 	//@ts-ignore
 } from "@/uni_modules/meibao-Sqlite";
 

@@ -29,7 +29,7 @@
 
 		<!-- 已连接状态 -->
 		<!-- #ifndef H5 -->
-		<view v-if="deviceStore.status.value === 'CONNECTED'" class="flex-1">
+		<view v-if="deviceStore.status.value == 'CONNECTED'" class="flex-1">
 			<ConnectedState
 				:connectedDeviceName="connectedDeviceName"
 				@click="handleConfirmClick"
@@ -39,12 +39,12 @@
 		<!-- 配对状态和搜索状态 -->
 		<view
 			v-else-if="
-				deviceStore.status.value === 'PAIRING' || deviceStore.status.value === 'SEARCHING'
+				deviceStore.status.value == 'PAIRING' || deviceStore.status.value == 'SEARCHING'
 			"
 			class="flex-1"
 		>
 			<PairingState
-				:searching="deviceStore.status.value === 'SEARCHING'"
+				:searching="deviceStore.status.value == 'SEARCHING'"
 				@select="onSelect"
 			></PairingState>
 		</view>
@@ -65,7 +65,7 @@
 
 		<!-- 错误提示 -->
 		<view
-			v-else-if="deviceStore.errorMessage.value !== ''"
+			v-else-if="deviceStore.errorMessage.value != ''"
 			class="flex-1 flex flex-col items-center justify-center px-8"
 		>
 			<cl-text color="red" :size="16" class="mb-4">
@@ -117,11 +117,11 @@ watch(
 const connectedDeviceName = ref<string>("Cool Unix 设备");
 
 const titleText = computed(() => {
-	if (deviceStore.status.value === "CONNECTED") {
+	if (deviceStore.status.value == "CONNECTED") {
 		return t("设备详情");
 	} else if (deviceStore.isReconnecting) {
 		return t("重连中");
-	} else if (deviceStore.status.value === "PAIRING" || deviceStore.status.value === "SEARCHING") {
+	} else if (deviceStore.status.value == "PAIRING" || deviceStore.status.value == "SEARCHING") {
 		return t("产品配对");
 	} else {
 		return t("未配对");

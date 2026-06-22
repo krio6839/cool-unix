@@ -1,60 +1,192 @@
 <template>
-	<cl-popup v-model="show" :title="t('设备测试')" direction="bottom" :size="600">
+	<cl-popup v-model="show" :title="t('BOOM 设备测试')" direction="bottom" :size="700">
 		<scroll-view class="p-4 flex flex-col" scroll-y="true" style="height: 100%">
-			<!-- 设备状态信息 -->
+			<!-- Mock 模拟（无设备时使用） -->
+			<view class="mb-4 p-3 bg-blue-900 rounded">
+				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+					{{ t("Mock 模拟（无设备时使用）") }}
+				</cl-text>
+				<view class="flex flex-row flex-wrap">
+					<cl-button
+						type="primary"
+						:color="deviceStore.useMock ? '#900' : '#06f'"
+						rounded
+						size="small"
+						class="mr-2 mb-2"
+						@tap="toggleMock"
+					>
+						{{ deviceStore.useMock ? t("停止 Mock") : t("启动 Mock") }}
+					</cl-button>
+				</view>
+				<cl-text color="gray-300" :size="12">
+					{{ t("启动后：每 1s 推送 0x50 实时广播 + 8 个 GATT 命令直接看到 event 更新") }}
+				</cl-text>
+			</view>
+
+			<!-- 设备状态 -->
 			<view class="mb-4 p-3 bg-gray-800 rounded">
 				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-					{{ t("设备状态") }}
+					{{ t("BOOM 协议状态") }}
 				</cl-text>
 				<view class="flex flex-row flex-wrap">
 					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("连接状态") }}</cl-text>
-						<cl-text color="white" :size="14">{{ deviceStore.status.value }}</cl-text>
+						<cl-text color="gray-400" :size="12">{{ t("固件版本") }}</cl-text>
+						<cl-text color="white" :size="14">{{ fwText }}</cl-text>
 					</view>
 					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("心率") }}</cl-text>
-						<cl-text color="white" :size="14"
-							>{{ deviceStore.heartRate.value }} BPM</cl-text
-						>
-					</view>
-					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("血氧") }}</cl-text>
-						<cl-text color="white" :size="14"
-							>{{ deviceStore.bloodOxygen.value }}%</cl-text
-						>
-					</view>
-					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("电池") }}</cl-text>
-						<cl-text color="white" :size="14">{{ deviceStore.battery.value }}%</cl-text>
-					</view>
-					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("PPI") }}</cl-text>
-						<cl-text color="white" :size="14">{{ deviceStore.ppi.value }}</cl-text>
-					</view>
-					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("设备ID") }}</cl-text>
-						<cl-text color="white" :size="12" :line="1">{{
-							deviceStore.currentDeviceId
+						<cl-text color="gray-400" :size="12">{{ t("设备编号") }}</cl-text>
+						<cl-text color="white" :size="14">{{
+							deviceStore.event.deviceNumber
 						}}</cl-text>
+					</view>
+					<view class="w-1/2 mb-2">
+						<cl-text color="gray-400" :size="12">{{ t("BOOM 时戳") }}</cl-text>
+						<cl-text color="white" :size="14">{{
+							deviceStore.event.boomTimestamp
+						}}</cl-text>
+					</view>
+					<view class="w-1/2 mb-2">
+						<cl-text color="gray-400" :size="12">{{ t("生物识别") }}</cl-text>
+						<cl-text color="white" :size="12">{{ bioText }}</cl-text>
 					</view>
 				</view>
 			</view>
 
-			<!-- 设备控制测试 -->
+			<!-- 0x50 实时广播 -->
+			<view class="mb-4 p-3 bg-gray-800 rounded">
+				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+					{{ t("0x50 实时广播") }}
+				</cl-text>
+				<view class="flex flex-row flex-wrap">
+					<view class="w-1/2 mb-2">
+						<cl-text color="gray-400" :size="12">{{ t("心率") }}</cl-text>
+						<cl-text color="white" :size="14">{{ rtText.hr }} bpm</cl-text>
+					</view>
+					<view class="w-1/2 mb-2">
+						<cl-text color="gray-400" :size="12">{{ t("血氧") }}</cl-text>
+						<cl-text color="white" :size="14">{{ rtText.spo2 }} %</cl-text>
+					</view>
+					<view class="w-1/2 mb-2">
+						<cl-text color="gray-400" :size="12">{{ t("电池电压") }}</cl-text>
+						<cl-text color="white" :size="14">{{ rtText.voltage }} V</cl-text>
+					</view>
+					<view class="w-1/2 mb-2">
+						<cl-text color="gray-400" :size="12">{{ t("PPI") }}</cl-text>
+						<cl-text color="white" :size="14">{{ rtText.ppi }} ms</cl-text>
+					</view>
+					<view class="w-1/2 mb-2">
+						<cl-text color="gray-400" :size="12">{{ t("PPG 佩戴") }}</cl-text>
+						<cl-text color="white" :size="14">{{ rtText.ppgAttached }}</cl-text>
+					</view>
+					<view class="w-1/2 mb-2">
+						<cl-text color="gray-400" :size="12">{{ t("行为 / 活动") }}</cl-text>
+						<cl-text color="white" :size="14">
+							{{ rtText.behavior }} / {{ rtText.activity }}
+						</cl-text>
+					</view>
+					<view class="w-1/2 mb-2">
+						<cl-text color="gray-400" :size="12">{{ t("基础心率") }}</cl-text>
+						<cl-text color="white" :size="14">{{ rtText.bhr }} bpm</cl-text>
+					</view>
+					<view class="w-1/2 mb-2">
+						<cl-text color="gray-400" :size="12">{{ t("上次接收") }}</cl-text>
+						<cl-text color="white" :size="12">{{ rtText.receivedAt }}</cl-text>
+					</view>
+				</view>
+			</view>
+
+			<!-- BOOM GATT 协议测试（8 个按钮） -->
 			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-				{{ t("设备控制") }}
+				{{ t("BOOM GATT 协议测试") }}
 			</cl-text>
 			<view class="flex flex-row flex-wrap mb-4">
 				<cl-button
 					type="primary"
-					color="#333"
+					color="#444"
 					rounded
 					size="small"
 					class="mr-2 mb-2"
-					@tap="toggleDevice"
+					@tap="testReadFirmware"
 				>
-					{{ t("开关设备") }}
+					{{ t("0x30 读固件") }}
 				</cl-button>
+				<cl-button
+					type="primary"
+					color="#444"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testReadDeviceNumber"
+				>
+					{{ t("0x32 读设备编号") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#444"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testReadTimestamp"
+				>
+					{{ t("0x34 读时戳") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#444"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testReadBiometric"
+				>
+					{{ t("0x36 读生物识别") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#666"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testSetDeviceNumber"
+				>
+					{{ t("0x31 写设备编号") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#666"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testSetTimestamp"
+				>
+					{{ t("0x33 写时戳") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#666"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testSetBiometric"
+				>
+					{{ t("0x35 写生物识别") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#888"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testVibration"
+				>
+					{{ t("0x40 震动马达") }}
+				</cl-button>
+			</view>
+
+			<!-- 设备控制 -->
+			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+				{{ t("设备控制") }}
+			</cl-text>
+			<view class="flex flex-row flex-wrap mb-4">
 				<cl-button
 					type="primary"
 					color="#333"
@@ -77,80 +209,6 @@
 				</cl-button>
 				<cl-button
 					type="primary"
-					color="#F44336"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testSwitchDevice"
-				>
-					{{ t("切换设备") }}
-				</cl-button>
-			</view>
-
-			<!-- 数据读取测试 -->
-			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-				{{ t("数据读取") }}
-			</cl-text>
-			<view class="flex flex-row flex-wrap mb-4">
-				<cl-button
-					type="primary"
-					color="#444"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testReadBloodOxygen"
-				>
-					{{ t("读取血氧") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#444"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testReadBattery"
-				>
-					{{ t("读取电池") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#444"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testGetLEDStatus"
-				>
-					{{ t("获取LED状态") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#444"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="subscribeHeartRate"
-				>
-					{{ t("订阅心率") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#444"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="deviceStore.protocol.subscribeUART()"
-				>
-					{{ t("订阅UART") }}
-				</cl-button>
-			</view>
-
-			<!-- 设备信息 -->
-			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-				{{ t("设备信息") }}
-			</cl-text>
-			<view class="flex flex-row flex-wrap mb-4">
-				<cl-button
-					type="primary"
 					color="#555"
 					rounded
 					size="small"
@@ -160,223 +218,15 @@
 					{{ t("清除错误") }}
 				</cl-button>
 			</view>
-
-			<!-- 历史数据状态 -->
-			<view class="mb-4 p-3 bg-gray-800 rounded">
-				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-					{{ t("历史数据状态") }}
-				</cl-text>
-				<view class="flex flex-row flex-wrap">
-					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("心率血氧记录数") }}</cl-text>
-						<cl-text color="white" :size="14">{{
-							deviceStore.dataReadyStatus.value.heartRateCount
-						}}</cl-text>
-					</view>
-					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("睡眠记录数") }}</cl-text>
-						<cl-text color="white" :size="14">{{
-							deviceStore.dataReadyStatus.value.sleepCount
-						}}</cl-text>
-					</view>
-					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("RTC时间") }}</cl-text>
-						<cl-text color="white" :size="14">{{ deviceStore.rtcTime.value }}</cl-text>
-					</view>
-				</view>
-			</view>
-
-			<!-- 历史数据查询 -->
-			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-				{{ t("历史数据查询") }}
-			</cl-text>
-			<view class="flex flex-row flex-wrap mb-4">
-				<cl-button
-					type="primary"
-					color="#777"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testQueryDataReady"
-				>
-					{{ t("查询数据状态") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#777"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testGetDeviceTime"
-				>
-					{{ t("获取RTC时间") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#777"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testGetHistoricalData"
-				>
-					{{ t("获取心率血氧历史") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#777"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testFetchAllHistoricalData"
-				>
-					{{ t("获取全部历史心率血氧") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#4CAF50"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testQueryPpiDataCount"
-				>
-					{{ t("查询PPI总数") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#2196F3"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testQueryUnuploadedPpiData"
-				>
-					{{ t("查询未上传PPI") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#777"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testGetSleepData"
-				>
-					{{ t("获取睡眠数据") }}
-				</cl-button>
-			</view>
-
-			<!-- 睡眠数据测试 -->
-			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-				{{ t("睡眠数据测试") }}
-			</cl-text>
-			<view class="flex flex-row flex-wrap mb-4">
-				<cl-button
-					type="primary"
-					color="#666"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testGetSleepDataByIndex"
-				>
-					{{ t("获取第N条睡眠") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#777"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testUploadSleepData"
-				>
-					{{ t("上传睡眠数据") }}
-				</cl-button>
-			</view>
-
-			<!-- 设备控制 -->
-			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-				{{ t("设备控制") }}
-			</cl-text>
-			<view class="flex flex-row flex-wrap mb-4">
-				<cl-button
-					type="primary"
-					color="#888"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testShutdown"
-				>
-					{{ t("设备关机") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#888"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testSetDeviceTime"
-				>
-					{{ t("设置RTC时间") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#888"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testEndSleep"
-				>
-					{{ t("结束睡眠判断") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#888"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testGenerateMockData"
-				>
-					{{ t("生成模拟数据") }}
-				</cl-button>
-			</view>
-
-			<!-- 数据库操作 -->
-			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-				{{ t("数据库操作") }}
-			</cl-text>
-			<view class="flex flex-row flex-wrap mb-4">
-				<cl-button
-					type="primary"
-					color="#999"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testClearDatabase"
-				>
-					{{ t("清空数据库") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#aaa"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testDeleteDatabase"
-				>
-					{{ t("删除数据库") }}
-				</cl-button>
-			</view>
 		</scroll-view>
 	</cl-popup>
 </template>
 
 <script lang="ts" setup>
 //#ifndef H5
+import { computed } from "vue";
 import { t, useStore } from "@/.cool";
 import { useUi } from "@/uni_modules/cool-ui";
-import {
-	bluetoothDataManager,
-	BATTERY_SERVICE_UUID,
-	BATTERY_CHARACTERISTIC_UUID
-} from "@/.cool/bluetooth";
-import { readCharacteristic, type DeviceInfo } from "@/.cool/bluetooth/kux";
 
 const ui = useUi();
 const { device: deviceStore } = useStore();
@@ -385,207 +235,133 @@ const show = defineModel("show", {
 	default: false
 });
 
-function testSwitchDevice() {
-	const otherDevices = deviceStore.devices.filter(
-		(d) => d.deviceId != deviceStore.currentDeviceId
-	);
-	if (otherDevices.length == 0) {
-		ui.showToast({ message: t("没有其他设备可以切换"), type: "error" });
-		return;
+/* ===== 展示用 computed ===== */
+
+const fwText = computed<string>(() => {
+	const f = deviceStore.event.firmwareVersion;
+	if (f == null) return "-";
+	return `${f.major}.${f.minor}.${f.revision}`;
+});
+
+const bioText = computed<string>(() => {
+	const b = deviceStore.event.biometricInfo;
+	if (b == null) return "-";
+	return `性别${b.gender} 体重${b.weight} 身高${b.height} 年龄${b.age} PPG${b.ppgPosition} BHR${b.bhr}`;
+});
+
+const rtText = computed(() => {
+	const r = deviceStore.realtime;
+	if (r == null) {
+		return {
+			hr: "-",
+			spo2: "-",
+			voltage: "-",
+			ppi: "-",
+			ppgAttached: "-",
+			behavior: "-",
+			activity: "-",
+			bhr: "-",
+			receivedAt: "-"
+		};
 	}
-	deviceStore.showDevicePicker({
-		onSelect: (deviceId: string, device: DeviceInfo) => {
-			// store 已自动关闭弹窗
-			ui.showConfirm({
-				title: t("切换设备"),
-				message: t("切换设备将清空所有历史数据，确定继续吗？"),
-				callback(action: string) {
-					if (action == "confirm") {
-						deviceStore.connection.switchDevice(deviceId, device.name);
-					}
-				}
-			});
-		},
-		title: t("切换设备"),
-		list: otherDevices
+	return {
+		hr: r.hr.toString(),
+		spo2: r.spo2Pct.toFixed(1),
+		voltage: (r.voltageMv / 100).toFixed(2),
+		ppi: r.ppi.toString(),
+		ppgAttached: r.ppgAttached ? t("已佩戴") : t("未佩戴"),
+		behavior: r.behavior.toString(),
+		activity: r.activity.toString(),
+		bhr: r.bhr.toString(),
+		receivedAt: new Date(r.receivedAt).toLocaleTimeString()
+	};
+});
+
+/* ===== 8 个协议测试按钮 ===== */
+
+async function testReadFirmware(): Promise<void> {
+	ui.showToast({ message: t("0x30 发送..."), type: "warn" });
+	const ok = await deviceStore.protocol.readFirmwareVersion();
+	ui.showToast({ message: ok ? t("已发送") : t("失败"), type: ok ? "success" : "error" });
+}
+
+async function testReadDeviceNumber(): Promise<void> {
+	ui.showToast({ message: t("0x32 发送..."), type: "warn" });
+	const ok = await deviceStore.protocol.readDeviceNumber();
+	ui.showToast({ message: ok ? t("已发送") : t("失败"), type: ok ? "success" : "error" });
+}
+
+async function testReadTimestamp(): Promise<void> {
+	ui.showToast({ message: t("0x34 发送..."), type: "warn" });
+	const ok = await deviceStore.protocol.readTimestamp();
+	ui.showToast({ message: ok ? t("已发送") : t("失败"), type: ok ? "success" : "error" });
+}
+
+async function testReadBiometric(): Promise<void> {
+	ui.showToast({ message: t("0x36 发送..."), type: "warn" });
+	const ok = await deviceStore.protocol.readBiometric();
+	ui.showToast({ message: ok ? t("已发送") : t("失败"), type: ok ? "success" : "error" });
+}
+
+async function testSetDeviceNumber(): Promise<void> {
+	// 固定测试值
+	const ok = await deviceStore.protocol.setDeviceNumber("ABCD-00012345");
+	ui.showToast({ message: ok ? t("0x31 已发送") : t("失败"), type: ok ? "success" : "error" });
+}
+
+async function testSetTimestamp(): Promise<void> {
+	const ok = await deviceStore.protocol.setTimestamp(Math.floor(Date.now() / 1000));
+	ui.showToast({ message: ok ? t("0x33 已发送") : t("失败"), type: ok ? "success" : "error" });
+}
+
+async function testSetBiometric(): Promise<void> {
+	// 固定测试值：男 6837(68.37kg) 17500(175cm) 30 岁 PPG=0(手腕) BHR=70
+	const ok = await deviceStore.protocol.setBiometric({
+		gender: 0,
+		weight: 6837,
+		height: 17500,
+		age: 30,
+		ppgPosition: 0,
+		bhr: 70
 	});
+	ui.showToast({ message: ok ? t("0x35 已发送") : t("失败"), type: ok ? "success" : "error" });
 }
 
-async function testReadBloodOxygen() {
-	ui.showToast({ message: t("读取中..."), type: "warn" });
-	await deviceStore.protocol.readBloodOxygen();
+async function testVibration(): Promise<void> {
+	// loops=1, count=3, 5 段 on/off: [200ms震, 100ms静, 200ms震, 100ms静, 200ms震]
+	const ok = await deviceStore.protocol.controlVibration({
+		loops: 1,
+		count: 3,
+		onOffMs: [200, 100, 200, 100, 200]
+	});
+	ui.showToast({ message: ok ? t("0x40 已发送") : t("失败"), type: ok ? "success" : "error" });
 }
 
-async function toggleDevice() {
-	await deviceStore.protocol.toggleDeviceStatus();
-}
+/* ===== 设备控制 ===== */
 
-async function subscribeHeartRate() {
-	deviceStore.protocol.subscribeHeartRate();
-}
-
-async function testDisconnect() {
-	ui.showToast({ message: t("断开连接中..."), type: "warn" });
+function testDisconnect(): void {
 	deviceStore.connection.disconnectDevice();
 }
 
-function testReconnect() {
+function testReconnect(): void {
 	ui.showToast({ message: t("测试重连..."), type: "warn" });
 	deviceStore.connection.reconnect();
 }
 
-async function testReadBattery() {
-	ui.showToast({ message: t("读取电池..."), type: "warn" });
-	await readCharacteristic(
-		deviceStore.currentDeviceId,
-		BATTERY_SERVICE_UUID,
-		BATTERY_CHARACTERISTIC_UUID
-	);
-}
-
-function testGetLEDStatus() {
-	ui.showToast({ message: t("获取LED状态..."), type: "warn" });
-	deviceStore.protocol.getLEDStatus();
-}
-
-function testClearError() {
+function testClearError(): void {
 	deviceStore.clearError();
 	ui.showToast({ message: t("错误已清除"), type: "success" });
 }
 
-async function testQueryDataReady() {
-	ui.showToast({ message: t("查询数据状态..."), type: "warn" });
-	const result = await deviceStore.protocol.queryDataReadyStatus();
-	if (result) {
-		ui.showToast({ message: t("查询成功"), type: "success" });
+/* ===== Mock 模拟（无设备时使用） ===== */
+
+function toggleMock(): void {
+	if (deviceStore.useMock) {
+		deviceStore.stopMock();
+		ui.showToast({ message: t("Mock 已停止"), type: "success" });
 	} else {
-		ui.showToast({ message: t("查询失败"), type: "error" });
-	}
-}
-
-async function testGetDeviceTime() {
-	ui.showToast({ message: t("获取RTC时间..."), type: "warn" });
-	const result = await deviceStore.protocol.getDeviceTime();
-	if (result) {
-		ui.showToast({ message: t("获取成功"), type: "success" });
-	} else {
-		ui.showToast({ message: t("获取失败"), type: "error" });
-	}
-}
-
-async function testGetHistoricalData() {
-	ui.showToast({ message: t("获取心率血氧历史..."), type: "warn" });
-	const result = await deviceStore.protocol.getHistoricalHeartRateData(0);
-	if (result) {
-		ui.showToast({ message: t("获取成功"), type: "success" });
-	} else {
-		ui.showToast({ message: t("获取失败"), type: "error" });
-	}
-}
-
-async function testFetchAllHistoricalData() {
-	ui.showToast({ message: t("正在拉取所有历史心率血氧..."), type: "warn" });
-	try {
-		await deviceStore.data.fetchAllHistoricalHeartRateData();
-	} catch (err) {
-		console.error("拉取所有历史数据失败:", err);
-		ui.showToast({ message: t("获取失败"), type: "error" });
-	}
-}
-
-async function testQueryPpiDataCount() {
-	ui.showToast({ message: t("查询PPI总数..."), type: "warn" });
-	const count = await bluetoothDataManager.getPpiDataCount();
-	ui.showToast({ message: t("PPI总数:") + count, type: "success" });
-}
-
-async function testQueryUnuploadedPpiData() {
-	ui.showToast({ message: t("查询未上传PPI..."), type: "warn" });
-	const data = await bluetoothDataManager.getUnuploadedPpiData();
-	ui.showToast({ message: t("未上传PPI数量:") + data.length, type: "success" });
-}
-
-async function testGetSleepData() {
-	ui.showToast({ message: t("获取睡眠数据..."), type: "warn" });
-	const result = await deviceStore.protocol.getSleepData(0);
-	if (result) {
-		console.log("睡眠数据:", deviceStore.sleepData.value);
-		ui.showToast({ message: t("获取成功"), type: "success" });
-	} else {
-		ui.showToast({ message: t("获取失败"), type: "error" });
-	}
-}
-
-async function testShutdown() {
-	ui.showToast({ message: t("设备关机..."), type: "warn" });
-	const result = await deviceStore.protocol.shutdownDevice();
-	if (result) {
-		ui.showToast({ message: t("关机命令发送成功"), type: "success" });
-	} else {
-		ui.showToast({ message: t("关机命令发送失败"), type: "error" });
-	}
-}
-
-async function testSetDeviceTime() {
-	ui.showToast({ message: t("设置RTC时间..."), type: "warn" });
-	const timestamp = Math.floor(Date.now() / 1000);
-	console.log("当前时间戳:", timestamp);
-	const result = await deviceStore.protocol.setDeviceTime(timestamp);
-	if (result) {
-		ui.showToast({ message: t("设置成功") + timestamp, type: "success" });
-	} else {
-		ui.showToast({ message: t("设置失败"), type: "error" });
-	}
-}
-
-async function testEndSleep() {
-	ui.showToast({ message: t("结束睡眠判断..."), type: "warn" });
-	const result = await deviceStore.protocol.endSleepJudgment();
-	if (result) {
-		ui.showToast({ message: t("命令发送成功"), type: "success" });
-	} else {
-		ui.showToast({ message: t("命令发送失败"), type: "error" });
-	}
-}
-
-function testGenerateMockData() {
-	ui.showToast({ message: t("发送模拟数据命令..."), type: "warn" });
-	// 'x' 的 ASCII 码是 120 = 0x78
-	// 通过 sendCommand 发送，sendCommand 会将 "78" 转换为 ArrayBuffer
-	deviceStore.protocol.sendCommand("78");
-}
-
-async function testClearDatabase() {
-	ui.showToast({ message: t("清空数据库..."), type: "warn" });
-	await bluetoothDataManager.clearAllData();
-	ui.showToast({ message: t("数据库已清空"), type: "success" });
-}
-
-async function testDeleteDatabase() {
-	ui.showToast({ message: t("删除数据库..."), type: "warn" });
-	await bluetoothDataManager.clearAllData();
-	ui.showToast({ message: t("数据库已删除"), type: "success" });
-}
-
-async function testGetSleepDataByIndex() {
-	const index = 0;
-	ui.showToast({ message: t("获取睡眠数据...") + index, type: "warn" });
-	const result = await deviceStore.protocol.getSleepData(index);
-	if (result) {
-		console.log("睡眠数据:", deviceStore.sleepData.value);
-		ui.showToast({ message: t("获取成功"), type: "success" });
-	} else {
-		ui.showToast({ message: t("获取失败"), type: "error" });
-	}
-}
-
-async function testUploadSleepData() {
-	ui.showToast({ message: t("上传睡眠数据..."), type: "warn" });
-	const result = await bluetoothDataManager.uploadSleepData();
-	if (result) {
-		ui.showToast({ message: t("上传成功"), type: "success" });
-	} else {
-		ui.showToast({ message: t("上传失败"), type: "error" });
+		deviceStore.startMock();
+		ui.showToast({ message: t("Mock 已启动，1s 后开始推送广播"), type: "success" });
 	}
 }
 //#endif
