@@ -1,5 +1,6 @@
 /**
  * BOOM 设备 Mock 模拟器（开发/演示用）
+ *
  * - 启动后每秒推送一次伪 0x50 广播数据 → device.realtime
  * - 提供 mockReadXxx / mockSetXxx 方法模拟 GATT 响应
  * - 不走真实 kux 接口，纯本地内存模拟
@@ -16,19 +17,26 @@ import {
 	parseDeviceNumber,
 	parseTimestamp,
 	parseBiometric,
-	parseVibrationResult
+	parseVibrationResult,
+	encodeU8,
+	encodeU16LE,
+	encodeI16LE,
+	encodeU32LE,
+	encodeAscii
 } from "../../bluetooth";
-import type { RealtimeBroadcast } from "../../bluetooth";
+import type { RealtimeBroadcast, VitalBiometric } from "../../bluetooth";
 
 export class MockProvider {
 	private device: Device;
+
+	/* ===== 模拟内部状态（每 tick 抖动）===== */
 	private _timer: number = 0;
-	private _hr: number = 72; // 心率基线
-	private _spo2: number = 980; // 血氧基线（98.0%）
-	private _voltage: number = 387; // 电池 3.87V
-	private _behavior: number = 1; // 日常
-	private _activity: number = 5; // 活动量高
-	private _ppg: boolean = true;
+	private _hr: number = 72; // 心率基线（bpm）
+	private _spo2: number = 980; // 血氧基线（98.0%，×10）
+	private _voltage: number = 387; // 电池电压（3.87V，mV）
+	private _behavior: number = 1; // 当前行为（0=休息 1=日常 2=步行 …）
+	private _activity: number = 5; // 当前活动量（4=低 5=高）
+	private _ppg: boolean = true; // 是否佩戴 PPG
 
 	constructor(device: Device) {
 		this.device = device;
@@ -43,6 +51,7 @@ export class MockProvider {
 		}, 1000);
 	}
 
+	/** 停止定时器 */
 	stop(): void {
 		if (this._timer != 0) {
 			clearInterval(this._timer);
@@ -50,11 +59,15 @@ export class MockProvider {
 		}
 	}
 
+	/**
+	 * 每秒 tick：随机抖动心率 + 10% 概率切到睡眠/放松
+	 * → 手工拼 13B 广播 hex → parseCustomAdvData → 写入 device.realtime
+	 */
 	private _tick(): void {
 		// 心率在基线附近 ±5 波动
 		this._hr = 72 + Math.floor(Math.random() * 11) - 5;
-		// 偶尔下降（模拟睡眠/放松）
 		if (Math.random() < 0.1) {
+			// 偶尔下降：模拟睡眠/放松
 			this._hr = 60 + Math.floor(Math.random() * 8);
 			this._behavior = 0; // 休息
 			this._activity = 3; // 精神放松
@@ -66,18 +79,18 @@ export class MockProvider {
 		const status =
 			((this._ppg ? 1 : 0) << 6) | ((this._behavior & 0x07) << 3) | (this._activity & 0x07);
 		const utc = Math.floor(Date.now() / 1000);
-		const ppi = 60000 / Math.max(this._hr, 1);
+		const ppi = Math.floor(60000 / Math.max(this._hr, 1));
 		const bhr = 70;
 
 		// 手工拼 13B 广播 hex（LE）
 		const vHex =
-			this._u32le(utc) +
-			this._i16le(this._voltage) +
-			this._u8(status) +
-			this._u8(this._hr) +
-			this._u16le(Math.floor(ppi)) +
-			this._u16le(this._spo2) +
-			this._u8(bhr);
+			encodeU32LE(utc) +
+			encodeI16LE(this._voltage) +
+			encodeU8(status) +
+			encodeU8(this._hr) +
+			encodeU16LE(ppi) +
+			encodeU16LE(this._spo2) +
+			encodeU8(bhr);
 
 		const parsed = parseCustomAdvData(vHex);
 		if (parsed != null) {
@@ -86,61 +99,53 @@ export class MockProvider {
 		}
 	}
 
-	/* ===== GATT 命令 mock 响应 ===== */
+	/* ===== GATT 命令 mock 响应（写入 device.event）===== */
 
+	/** 0x30 读固件版本（mock 返回 "1.0.3"） */
 	mockReadFirmware(): string {
-		const v = "010003"; // 1.0.3
+		const v = "010003";
 		this.device.event.firmwareVersion = parseFirmwareVersion(v);
 		return v;
 	}
 
+	/** 0x31 写设备编号 */
 	mockSetDeviceNumber(s: string): string {
-		let h = "";
-		for (let i = 0; i < s.length; i++) {
-			const code = s.charCodeAt(i);
-			h += code.toString(16).padStart(2, "0");
-		}
+		const h = encodeAscii(s);
 		this.device.event.deviceNumber = parseDeviceNumber(h);
 		return h;
 	}
 
+	/** 0x32 读设备编号（mock 返回 "ABCD-00012345"） */
 	mockReadDeviceNumber(): string {
-		const s = "ABCD-00012345";
-		return this.mockSetDeviceNumber(s);
+		return this.mockSetDeviceNumber("ABCD-00012345");
 	}
 
+	/** 0x33 写时戳 */
 	mockSetTimestamp(sec: number): string {
-		const h = this._u32le(sec);
+		const h = encodeU32LE(sec);
 		this.device.event.boomTimestamp = parseTimestamp(h);
 		return h;
 	}
 
+	/** 0x34 读时戳（mock 返回当前时间） */
 	mockReadTimestamp(): string {
 		return this.mockSetTimestamp(Math.floor(Date.now() / 1000));
 	}
 
-	mockSetBiometric(b: {
-		gender: number;
-		weight: number;
-		height: number;
-		age: number;
-		ppgPosition: number;
-		bhr: number;
-	}): string {
-		const le16 = (n: number): string =>
-			(n & 0xff).toString(16).padStart(2, "0") +
-			((n >> 8) & 0xff).toString(16).padStart(2, "0");
+	/** 0x35 写生物识别 */
+	mockSetBiometric(b: VitalBiometric): string {
 		const h =
-			b.gender.toString(16).padStart(2, "0") +
-			le16(b.weight) +
-			le16(b.height) +
-			b.age.toString(16).padStart(2, "0") +
-			b.ppgPosition.toString(16).padStart(2, "0") +
-			b.bhr.toString(16).padStart(2, "0");
+			encodeU8(b.gender) +
+			encodeU16LE(b.weight) +
+			encodeU16LE(b.height) +
+			encodeU8(b.age) +
+			encodeU8(b.ppgPosition) +
+			encodeU8(b.bhr);
 		this.device.event.biometricInfo = parseBiometric(h);
 		return h;
 	}
 
+	/** 0x36 读生物识别（mock 返回默认 30 岁男性 175cm/68.37kg） */
 	mockReadBiometric(): string {
 		return this.mockSetBiometric({
 			gender: 0,
@@ -152,31 +157,15 @@ export class MockProvider {
 		});
 	}
 
+	/**
+	 * 0x40 震动马达控制（mock 总是返回成功）
+	 * @param _loops  循环次数（保留参数，后续可按 loops 模拟间隔）
+	 * @param _count  震动次数（保留参数）
+	 * @param _onOffMs on/off 时长数组（保留参数）
+	 */
 	mockControlVibration(_loops: number, _count: number, _onOffMs: number[]): string {
-		const v = "00"; // 0=成功
+		const v = encodeU8(0); // 0=成功
 		this.device.event.lastVibration = parseVibrationResult(v);
 		return v;
-	}
-
-	/* ===== LE 编码辅助 ===== */
-
-	private _u8(n: number): string {
-		return (n & 0xff).toString(16).padStart(2, "0");
-	}
-
-	private _u16le(n: number): string {
-		return (
-			(n & 0xff).toString(16).padStart(2, "0") +
-			((n >> 8) & 0xff).toString(16).padStart(2, "0")
-		);
-	}
-
-	private _i16le(n: number): string {
-		const v = n < 0 ? n + 0x10000 : n;
-		return this._u16le(v);
-	}
-
-	private _u32le(n: number): string {
-		return this._u16le(n & 0xffff) + this._u16le((n >>> 16) & 0xffff);
 	}
 }

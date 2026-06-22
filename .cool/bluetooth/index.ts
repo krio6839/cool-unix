@@ -17,6 +17,7 @@ export * from "./database";
 export * from "./kux";
 
 // 新 BOOM 设备协议
+export * from "./boom-bytes";
 export * from "./boom-constants";
 export * from "./boom-types";
 export * from "./boom-codec";

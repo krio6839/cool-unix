@@ -1,3 +1,17 @@
+/**
+ * BOOM 设备连接管理
+ *
+ * 职责：
+ * - 蓝牙适配器初始化、状态监听
+ * - 设备扫描：设备名前缀匹配 "BOOM-"
+ * - 已连接设备 / 当前通信设备的 0x50 广播解析 → device.realtime
+ * - 静默直连（重连）+ 配对扫描（首次配对 / 直连失败后降级）
+ * - 连接成功后的 GATT 流程（services 发现 → notify 启用 → 0x30 读固件 → 0x33 写时戳）
+ *
+ * 未来扩展：睡眠 / 血氧历史数据可能也走 0x50 广播通道，
+ * 详见 connection.ts:_tryParseBroadcast 与 boom-parser.parseCustomAdvExtended。
+ */
+
 import { t } from "../../locale";
 import { TARGET_DEVICE_NAME_PREFIX } from "./types";
 import { BOOM_GATT_SERVICE_UUID, parseCustomAdvData, toRealtimeBroadcast } from "../../bluetooth";
@@ -5,389 +19,395 @@ import type { RealtimeBroadcast } from "../../bluetooth";
 
 //#ifndef H5
 import {
-    openAdapter,
-    startDiscovery,
-    stopDiscovery,
-    onDeviceFound,
-    offDeviceFound,
-    connect,
-    disconnect,
-    onConnectionStateChange,
-    onAdapterStateChange
+	openAdapter,
+	startDiscovery,
+	stopDiscovery,
+	onDeviceFound,
+	offDeviceFound,
+	connect,
+	disconnect,
+	onConnectionStateChange,
+	onAdapterStateChange
 } from "../../bluetooth/kux";
 //#endif
 
 import type { Device, ShowDevicePickerOptions } from "./index";
 import { sleepTimeout } from "@/.cool/utils";
-import { router } from "@/.cool";
 
-// 设备页面路由路径
+/** 设备页面路由路径（保留以备将来跳转） */
 const PAGE_DEVICE = "/pages/device/index";
 
-/**
- * BOOM 设备连接管理
- * - 设备名匹配前缀 "BOOM-"
- * - 连接成功后做 BOOM GATT 流程（0x30 读固件 → 0x33 写时戳 → 0x34 读回时戳）
- * - 0x50 广播从扫描结果中解析 → 写入 device.realtime
- *   （未来扩展：睡眠/血氧历史数据可能也走此通道，见 parseCustomAdvExtended）
- */
 export class DeviceConnection {
-    private device: Device;
+	private device: Device;
 
-    // 静默直连配置
-    private static readonly RECONNECT_RETRY_COUNT = 3;
-    private static readonly RECONNECT_RETRY_INTERVAL_MS = 3000;
-    private static readonly DIRECT_CONNECT_TIMEOUT_MS = 8000;
-    private _isSilentReconnecting: boolean = false;
-    private _reconnectAttempts: number = 0;
+	/* ===== 静默直连（重连）配置 ===== */
+	private static readonly RECONNECT_RETRY_COUNT = 3; // 最多重试次数
+	private static readonly RECONNECT_RETRY_INTERVAL_MS = 3000; // 每次间隔
+	private static readonly DIRECT_CONNECT_TIMEOUT_MS = 8000; // 单次直连超时
+	private _isSilentReconnecting: boolean = false;
+	private _reconnectAttempts: number = 0;
 
-    // 配对页扫描配置
-    private static readonly PAIRING_SCAN_TIMEOUT_MS = 30000;
-    private _scanMode: "pairing" | "reconnect" = "pairing";
-    private _isSearching: boolean = false;
-    private _pairingScanTimer: number = 0;
+	/* ===== 配对页扫描配置 ===== */
+	private static readonly PAIRING_SCAN_TIMEOUT_MS = 30000; // 扫描总时长
+	private _scanMode: "pairing" | "reconnect" = "pairing";
+	private _isSearching: boolean = false;
+	private _pairingScanTimer: number = 0;
 
-    constructor(device: Device) {
-        this.device = device;
-    }
+	constructor(device: Device) {
+		this.device = device;
+	}
 
-    // 蓝牙初始化
-    async initBluetooth(): Promise<void> {
-        console.log("开始初始化蓝牙");
-        this.device.clearError();
-        //#ifndef H5
-        await openAdapter();
-        //#endif
-    }
+	/* ===== 蓝牙适配器初始化 ===== */
 
-    onBluetoothAdapterStateChange(): void {
-        //#ifndef H5
-        console.log("开始监听蓝牙适配器状态变化");
-        onAdapterStateChange((res) => {
-            console.log("蓝牙适配器状态变化:", res);
-            this.device.discovering = res.discovering;
-            if (this.device.available == res.available) return;
-            this.device.available = res.available;
-            if (!res.available) {
-                console.log("蓝牙已关闭");
-                this.device.status.value = "UNPAIRED";
-                this.device.errorMessage.value = t("蓝牙未开启");
-            } else {
-                console.log("蓝牙已开启");
-                if (this.device.boundDeviceId == "") {
-                    this.device.status.value = "PAIRING";
-                    this.startBluetoothSearch("pairing");
-                }
-                this.device.errorMessage.value = "";
+	/** 打开蓝牙适配器 */
+	async initBluetooth(): Promise<void> {
+		console.log("开始初始化蓝牙");
+		this.device.clearError();
+		//#ifndef H5
+		await openAdapter();
+		//#endif
+	}
 
-                if (this.device.boundDeviceId != "" && this.device.currentDeviceId == "") {
-                    this._silentReconnect();
-                }
-            }
-        });
-        //#endif
-    }
+	/** 订阅蓝牙适配器开关变化 */
+	onBluetoothAdapterStateChange(): void {
+		//#ifndef H5
+		console.log("开始监听蓝牙适配器状态变化");
+		onAdapterStateChange((res) => {
+			console.log("蓝牙适配器状态变化:", res);
+			this.device.discovering = res.discovering;
+			if (this.device.available == res.available) return;
+			this.device.available = res.available;
+			if (!res.available) {
+				// 蓝牙关闭：清理状态
+				console.log("蓝牙已关闭");
+				this.device.status.value = "UNPAIRED";
+				this.device.errorMessage.value = t("蓝牙未开启");
+			} else {
+				// 蓝牙开启：自动恢复（已绑定→静默直连，未绑定→配对扫描）
+				console.log("蓝牙已开启");
+				if (this.device.boundDeviceId == "") {
+					this.device.status.value = "PAIRING";
+					this.startBluetoothSearch("pairing");
+				}
+				this.device.errorMessage.value = "";
 
-    /**
-     * 静默直连已绑定设备
-     * 失败 3 次后降级为后台配对扫描
-     */
-    private async _silentReconnect(): Promise<void> {
-        if (this._isSilentReconnecting) {
-            console.log("[RECONNECT] 静默重连已在进行,跳过");
-            return;
-        }
-        if (this.device.boundDeviceId == "" || this.device.currentDeviceId != "") {
-            return;
-        }
-        this._isSilentReconnecting = true;
-        this._reconnectAttempts = 0;
+				if (this.device.boundDeviceId != "" && this.device.currentDeviceId == "") {
+					this._silentReconnect();
+				}
+			}
+		});
+		//#endif
+	}
 
-        try {
-            while (this._reconnectAttempts < DeviceConnection.RECONNECT_RETRY_COUNT) {
-                if (this.device.currentDeviceId != "") break;
-                this._reconnectAttempts++;
-                console.log(
-                    `[RECONNECT] 静默直连第 ${this._reconnectAttempts} 次,设备:`,
-                    this.device.boundDeviceId
-                );
+	/* ===== 静默直连（重连）===== */
 
-                const ok = await connect(
-                    this.device.boundDeviceId,
-                    DeviceConnection.DIRECT_CONNECT_TIMEOUT_MS
-                );
-                if (ok) {
-                    console.log("[RECONNECT] 静默直连成功");
-                    await this._markConnected(this.device.boundDeviceId, "");
-                    this._reconnectAttempts = 0;
-                    return;
-                }
+	/**
+	 * 静默直连已绑定设备
+	 * 失败 RECONNECT_RETRY_COUNT 次后降级为后台配对扫描
+	 */
+	private async _silentReconnect(): Promise<void> {
+		if (this._isSilentReconnecting) {
+			console.log("[RECONNECT] 静默重连已在进行,跳过");
+			return;
+		}
+		if (this.device.boundDeviceId == "" || this.device.currentDeviceId != "") {
+			return;
+		}
+		this._isSilentReconnecting = true;
+		this._reconnectAttempts = 0;
 
-                await sleepTimeout(DeviceConnection.RECONNECT_RETRY_INTERVAL_MS);
-            }
+		try {
+			while (this._reconnectAttempts < DeviceConnection.RECONNECT_RETRY_COUNT) {
+				if (this.device.currentDeviceId != "") break;
+				this._reconnectAttempts++;
+				console.log(
+					`[RECONNECT] 静默直连第 ${this._reconnectAttempts} 次,设备:`,
+					this.device.boundDeviceId
+				);
 
-            // 3 次都失败 → 启动配对扫描(后台)
-            console.warn(
-                `[RECONNECT] 静默直连 ${DeviceConnection.RECONNECT_RETRY_COUNT} 次都失败,启动配对扫描(后台)`
-            );
-            this._startPairingScan();
-        } finally {
-            this._isSilentReconnecting = false;
-        }
-    }
+				const ok = await connect(
+					this.device.boundDeviceId,
+					DeviceConnection.DIRECT_CONNECT_TIMEOUT_MS
+				);
+				if (ok) {
+					console.log("[RECONNECT] 静默直连成功");
+					await this._markConnected(this.device.boundDeviceId, "");
+					this._reconnectAttempts = 0;
+					return;
+				}
 
-    private _startPairingScan(): void {
-        this.device.status.value = "SEARCHING";
-        this.device.errorMessage.value = "";
-        this.startBluetoothSearch("reconnect");
-    }
+				await sleepTimeout(DeviceConnection.RECONNECT_RETRY_INTERVAL_MS);
+			}
 
-    private async _markConnected(deviceId: string, deviceName: string): Promise<void> {
-        await this.stopBluetoothSearch();
-        this.device.currentDeviceId = deviceId;
-        this.device.currentDeviceName = deviceName;
-        this.device.status.value = "CONNECTED";
-        this.device.saveBoundDevice(deviceId);
-    }
+			// 3 次都失败 → 启动配对扫描(后台)
+			console.warn(
+				`[RECONNECT] 静默直连 ${DeviceConnection.RECONNECT_RETRY_COUNT} 次都失败,启动配对扫描(后台)`
+			);
+			this._startPairingScan();
+		} finally {
+			this._isSilentReconnecting = false;
+		}
+	}
 
-    /**
-     * 启动扫描
-     * - 设备名前缀匹配 "BOOM-"
-     * - 0x50 广播数据从 Manufacturer Specific Data 字段解析 → 写入 device.realtime
-     * @param mode pairing=配对 / reconnect=重连（仅连 boundDeviceId）
-     */
-    startBluetoothSearch(mode: "pairing" | "reconnect"): void {
-        this._scanMode = mode;
-        this._isSearching = true;
-        //#ifndef H5
-        startDiscovery();
-        onDeviceFound((res) => {
-            const list = (res as UTSJSONObject)["devices"] as Array<UTSJSONObject> | null;
-            if (list == null) return;
-            for (let i = 0; i < list.length; i++) {
-                const d = list[i];
-                if (d == null) continue;
-                const name = (d["name"] as string) ?? "";
-                const deviceId = (d["deviceId"] as string) ?? "";
-                if (deviceId == "") continue;
+	private _startPairingScan(): void {
+		this.device.status.value = "SEARCHING";
+		this.device.errorMessage.value = "";
+		this.startBluetoothSearch("reconnect");
+	}
 
-                // 命中 BOOM-XXXX 才入列
-                if (name.startsWith(TARGET_DEVICE_NAME_PREFIX)) {
-                    const devices = this.device.devices;
-                    if (!devices.some((x) => x.deviceId == deviceId)) {
-                        devices.push({
-                            name,
-                            deviceId,
-                            RSSI: (d["RSSI"] as number) ?? 0
-                        });
-                    }
-                }
+	/** 标记已连接：刷新状态 + 持久化绑定 */
+	private async _markConnected(deviceId: string, deviceName: string): Promise<void> {
+		await this.stopBluetoothSearch();
+		this.device.currentDeviceId = deviceId;
+		this.device.currentDeviceName = deviceName;
+		this.device.status.value = "CONNECTED";
+		this.device.saveBoundDevice(deviceId);
+	}
 
-                // 已绑定的设备（或当前正在通信的设备）出现 0x50 广播 → 解析实时数据
-                if (deviceId == this.device.currentDeviceId) {
-                    this._tryParseBroadcast(d);
-                }
-            }
-        });
-        //@ts-ignore
-        this._pairingScanTimer = setTimeout(() => {
-            this.stopBluetoothSearch();
-        }, DeviceConnection.PAIRING_SCAN_TIMEOUT_MS);
-        //#endif
-    }
+	/* ===== 设备扫描 ===== */
 
-    /**
-     * 从扫描结果中提取 Manufacturer Specific Data → 解析 0x50 实时广播
-     * 未来扩展：睡眠/血氧历史数据可能也走此通道（见 parseCustomAdvExtended）
-     */
-    private _tryParseBroadcast(d: UTSJSONObject): void {
-        const mfgData = (d["advertisData"] as string)
-                     ?? (d["manufacturerData"] as string)
-                     ?? "";
-        if (mfgData == "") return;
-        const parsed = parseCustomAdvData(mfgData);
-        if (parsed != null) {
-            const r: RealtimeBroadcast = toRealtimeBroadcast(parsed);
-            this.device.realtime = r;
-        }
-    }
+	/**
+	 * 启动扫描
+	 * - 设备名前缀匹配 "BOOM-"
+	 * - 0x50 广播数据从 Manufacturer Specific Data 字段解析 → 写入 device.realtime
+	 * @param mode pairing=配对 / reconnect=重连（仅连 boundDeviceId）
+	 */
+	startBluetoothSearch(mode: "pairing" | "reconnect"): void {
+		this._scanMode = mode;
+		this._isSearching = true;
+		//#ifndef H5
+		startDiscovery();
+		onDeviceFound((res) => {
+			const list = (res as UTSJSONObject)["devices"] as Array<UTSJSONObject> | null;
+			if (list == null) return;
+			for (let i = 0; i < list.length; i++) {
+				const d = list[i];
+				if (d == null) continue;
+				const name = (d["name"] as string) ?? "";
+				const deviceId = (d["deviceId"] as string) ?? "";
+				if (deviceId == "") continue;
 
-    stopBluetoothSearch(): void {
-        //#ifndef H5
-        if (this._pairingScanTimer != 0) {
-            clearTimeout(this._pairingScanTimer);
-            this._pairingScanTimer = 0;
-        }
-        if (this._isSearching) {
-            stopDiscovery();
-            offDeviceFound();
-            this._isSearching = false;
-        }
-        //#endif
-    }
+				// 命中 BOOM-XXXX 才入列
+				if (name.startsWith(TARGET_DEVICE_NAME_PREFIX)) {
+					const devices = this.device.devices;
+					if (!devices.some((x) => x.deviceId == deviceId)) {
+						devices.push({
+							name,
+							deviceId,
+							RSSI: (d["RSSI"] as number) ?? 0
+						});
+					}
+				}
 
-    /**
-     * 连接设备
-     * @param deviceId
-     * @param deviceName 可选
-     */
-    async connectToDevice(deviceId: string, deviceName?: string): Promise<void> {
-        this.device.status.value = "SEARCHING";
-        //#ifndef H5
-        const ok = await connect(deviceId, 100000);
-        if (!ok) {
-            this.device.status.value = "PAIRING";
-            return;
-        }
-        console.log("连接设备成功:", deviceId);
-        //#endif
-        await this._markConnected(deviceId, deviceName ?? "");
-        console.log("设备连接状态:", this.device.status.value);
-    }
+				// 已绑定的设备（或当前正在通信的设备）出现 0x50 广播 → 解析实时数据
+				if (deviceId == this.device.currentDeviceId) {
+					this._tryParseBroadcast(d);
+				}
+			}
+		});
+		//@ts-ignore
+		this._pairingScanTimer = setTimeout(() => {
+			this.stopBluetoothSearch();
+		}, DeviceConnection.PAIRING_SCAN_TIMEOUT_MS);
+		//#endif
+	}
 
-    /**
-     * 连接成功后的 BOOM GATT 流程：
-     * 1. 获取 services + characteristics，校验是否含 BOOM GATT Service
-     * 2. 启用 notify
-     * 3. 读固件版本（0x30）→ 写时戳（0x33）→ 读回时戳（0x34）
-     */
-    private async afterConnected(deviceId: string): Promise<void> {
-        try {
-            await this.device.protocol.getDeviceServicesAndCharacteristics(deviceId);
-            console.log("获取设备服务和特征值成功");
+	/**
+	 * 从扫描结果中提取 Manufacturer Specific Data → 解析 0x50 实时广播
+	 * 未来扩展：睡眠/血氧历史数据可能也走此通道（见 parseCustomAdvExtended）
+	 */
+	private _tryParseBroadcast(d: UTSJSONObject): void {
+		const mfgData = (d["advertisData"] as string) ?? (d["manufacturerData"] as string) ?? "";
+		if (mfgData == "") return;
+		const parsed = parseCustomAdvData(mfgData);
+		if (parsed != null) {
+			const r: RealtimeBroadcast = toRealtimeBroadcast(parsed);
+			this.device.realtime = r;
+		}
+	}
 
-            // 校验 BOOM GATT Service
-            let hasBoom = false;
-            for (let i = 0; i < this.device.protocol.services.length; i++) {
-                const s = this.device.protocol.services[i];
-                if (s == null) continue;
-                if (s.uuid.toLowerCase() == BOOM_GATT_SERVICE_UUID.toLowerCase()) {
-                    hasBoom = true;
-                    break;
-                }
-            }
-            if (!hasBoom) {
-                this.device.status.value = "UNPAIRED";
-                this.device.errorMessage.value = t("非 BOOM 设备，请检查");
-                return;
-            }
+	/** 停止扫描 + 清理定时器 */
+	stopBluetoothSearch(): void {
+		//#ifndef H5
+		if (this._pairingScanTimer != 0) {
+			clearTimeout(this._pairingScanTimer);
+			this._pairingScanTimer = 0;
+		}
+		if (this._isSearching) {
+			stopDiscovery();
+			offDeviceFound();
+			this._isSearching = false;
+		}
+		//#endif
+	}
 
-            await this.device.protocol.enableNotify();
+	/* ===== 连接 / 断开 ===== */
 
-            // 读固件 → 写时戳 → 读回时戳
-            await sleepTimeout(200);
-            await this.device.protocol.readFirmwareVersion();
-            await sleepTimeout(300);
-            await this.device.protocol.setTimestamp(Math.floor(Date.now() / 1000));
-            await sleepTimeout(300);
-            await this.device.protocol.readTimestamp();
+	/**
+	 * 连接设备
+	 * @param deviceId 蓝牙 deviceId
+	 * @param deviceName 可选 UI 展示名
+	 */
+	async connectToDevice(deviceId: string, deviceName?: string): Promise<void> {
+		this.device.status.value = "SEARCHING";
+		//#ifndef H5
+		const ok = await connect(deviceId, 100000);
+		if (!ok) {
+			this.device.status.value = "PAIRING";
+			return;
+		}
+		console.log("连接设备成功:", deviceId);
+		//#endif
+		await this._markConnected(deviceId, deviceName ?? "");
+		console.log("设备连接状态:", this.device.status.value);
+	}
 
-            this.device.status.value = "CONNECTED";
-        } catch (e) {
-            console.error("[BOOM] afterConnected 流程异常:", e);
-            throw e;
-        }
-    }
+	/**
+	 * 连接成功后的 BOOM GATT 流程：
+	 * 1. 获取 services + characteristics，校验是否含 BOOM GATT Service
+	 * 2. 启用 notify
+	 * 3. 读固件版本（0x30）→ 写时戳（0x33）→ 读回时戳（0x34）
+	 */
+	private async afterConnected(deviceId: string): Promise<void> {
+		try {
+			await this.device.protocol.getDeviceServicesAndCharacteristics(deviceId);
+			console.log("获取设备服务和特征值成功");
 
-    onBLEConnectionStateChange(): void {
-        //#ifndef H5
-        onConnectionStateChange((res) => {
-            console.log("蓝牙连接状态变化:", res);
-            if (res.connected) {
-                if (this.device.isDeviceInitialized) {
-                    console.log("设备已初始化，跳过");
-                    return;
-                }
-                this.device.isDeviceInitialized = true;
-                console.log("设备已连接:", res.deviceId);
-                this.afterConnected(res.deviceId);
-                this.device.resetReconnectState();
-            } else {
-                if (res.deviceId == this.device.currentDeviceId) {
-                    console.log("设备已断开:", res.deviceId);
-                    this.device.status.value = "UNPAIRED";
-                    this.device.currentDeviceId = "";
-                    this.device.isDeviceInitialized = false;
-                    this.reconnect();
-                }
-            }
-        });
-        //#endif
-    }
+			// 校验 BOOM GATT Service
+			let hasBoom = false;
+			for (let i = 0; i < this.device.protocol.services.length; i++) {
+				const s = this.device.protocol.services[i];
+				if (s == null) continue;
+				if (s.uuid.toLowerCase() == BOOM_GATT_SERVICE_UUID.toLowerCase()) {
+					hasBoom = true;
+					break;
+				}
+			}
+			if (!hasBoom) {
+				this.device.status.value = "UNPAIRED";
+				this.device.errorMessage.value = t("非 BOOM 设备，请检查");
+				return;
+			}
 
-    /**
-     * 用户从设备列表(actionSheet)点选某个设备后,启动连接
-     */
-    public connectToFoundDevice(deviceId: string): void {
-        const found = this.device.devices.find((d) => d.deviceId == deviceId);
-        if (found == null) {
-            console.warn("[SCAN] 设备列表中找不到 deviceId:", deviceId);
-            return;
-        }
-        const displayName = found.name ?? found.localName ?? "";
-        this.connectToDevice(deviceId, displayName);
-    }
+			await this.device.protocol.enableNotify();
 
-    async disconnectDevice(): Promise<void> {
-        this.stopBluetoothSearch();
-        //#ifndef H5
-        if (this.device.currentDeviceId != "") {
-            await disconnect(this.device.currentDeviceId);
-        }
-        //#endif
-        this._resetConnectionState();
-    }
+			// 读固件 → 写时戳 → 读回时戳
+			await sleepTimeout(200);
+			await this.device.protocol.readFirmwareVersion();
+			await sleepTimeout(300);
+			await this.device.protocol.setTimestamp(Math.floor(Date.now() / 1000));
+			await sleepTimeout(300);
+			await this.device.protocol.readTimestamp();
 
-    _resetConnectionState(): void {
-        this.device.status.value = "UNPAIRED";
-        this.device.currentDeviceId = "";
-        this.device.currentDeviceName = "";
-        this.device.protocol.services = [];
-        this.device.protocol.characteristics.clear();
-        this.device.realtime = null;
-        this.device.resetReconnectState();
-    }
+			this.device.status.value = "CONNECTED";
+		} catch (e) {
+			console.error("[BOOM] afterConnected 流程异常:", e);
+			throw e;
+		}
+	}
 
-    reconnect(): void {
-        console.log("开始重连设备");
-        if (this.device.isReconnecting) {
-            console.log("正在重连中，跳过");
-            return;
-        }
-        if (this.device.reconnectAttempts >= this.device.maxReconnectAttempts) {
-            console.log("重连次数达到上限，停止重连");
-            return;
-        }
-        if (this.device.boundDeviceId == "") {
-            console.log("没有绑定设备ID，无法重连");
-            return;
-        }
+	/** 订阅 GATT 连接状态变化 */
+	onBLEConnectionStateChange(): void {
+		//#ifndef H5
+		onConnectionStateChange((res) => {
+			console.log("蓝牙连接状态变化:", res);
+			if (res.connected) {
+				if (this.device.isDeviceInitialized) {
+					console.log("设备已初始化，跳过");
+					return;
+				}
+				this.device.isDeviceInitialized = true;
+				console.log("设备已连接:", res.deviceId);
+				this.afterConnected(res.deviceId);
+				this.device.resetReconnectState();
+			} else {
+				if (res.deviceId == this.device.currentDeviceId) {
+					console.log("设备已断开:", res.deviceId);
+					this.device.status.value = "UNPAIRED";
+					this.device.currentDeviceId = "";
+					this.device.isDeviceInitialized = false;
+					this.reconnect();
+				}
+			}
+		});
+		//#endif
+	}
 
-        this.device.isReconnecting = true;
-        this.device.reconnectAttempts++;
+	/**
+	 * 用户从设备列表（actionSheet）点选某个设备后，启动连接
+	 */
+	public connectToFoundDevice(deviceId: string): void {
+		const found = this.device.devices.find((d) => d.deviceId == deviceId);
+		if (found == null) {
+			console.warn("[SCAN] 设备列表中找不到 deviceId:", deviceId);
+			return;
+		}
+		const displayName = found.name ?? found.localName ?? "";
+		this.connectToDevice(deviceId, displayName);
+	}
 
-        const currentInterval = this.device.reconnectInterval * this.device.reconnectAttempts;
+	/** 主动断开当前设备 */
+	async disconnectDevice(): Promise<void> {
+		this.stopBluetoothSearch();
+		//#ifndef H5
+		if (this.device.currentDeviceId != "") {
+			await disconnect(this.device.currentDeviceId);
+		}
+		//#endif
+		this._resetConnectionState();
+	}
 
-        console.log(`开始第 ${this.device.reconnectAttempts} 次重连，间隔 ${currentInterval}ms`);
+	/** 内部：清空连接相关字段 */
+	_resetConnectionState(): void {
+		this.device.status.value = "UNPAIRED";
+		this.device.currentDeviceId = "";
+		this.device.currentDeviceName = "";
+		this.device.protocol.services = [];
+		this.device.protocol.characteristics.clear();
+		this.device.realtime = null;
+		this.device.resetReconnectState();
+	}
 
-        setTimeout(() => {
-            console.log("执行重连操作");
-            this.connectToDevice(this.device.boundDeviceId, "");
-            this.device.isReconnecting = false;
-            console.log("重连操作完成");
-        }, currentInterval);
-    }
+	/** 内部：重连策略（指数退避，由 device.maxReconnectAttempts 控制次数） */
+	reconnect(): void {
+		console.log("开始重连设备");
+		if (this.device.isReconnecting) {
+			console.log("正在重连中，跳过");
+			return;
+		}
+		if (this.device.reconnectAttempts >= this.device.maxReconnectAttempts) {
+			console.log("重连次数达到上限，停止重连");
+			return;
+		}
+		if (this.device.boundDeviceId == "") {
+			console.log("没有绑定设备ID，无法重连");
+			return;
+		}
 
-    /** 切换设备：断开当前设备 → 清空数据 → 连接新设备 */
-    async switchDevice(newDeviceId: string, newDeviceName?: string): Promise<void> {
-        await this.disconnectDevice();
-        this.device.clearBoundDevice();
-        this.device.realtime = null;
-        await this.connectToDevice(newDeviceId, newDeviceName);
-    }
+		this.device.isReconnecting = true;
+		this.device.reconnectAttempts++;
 
-    /** 弹设备选择 actionSheet（直接复用 Device 实例方法） */
-    showDevicePicker(options: ShowDevicePickerOptions): void {
-        this.device.showDevicePicker(options);
-    }
+		const currentInterval = this.device.reconnectInterval * this.device.reconnectAttempts;
+		console.log(`开始第 ${this.device.reconnectAttempts} 次重连，间隔 ${currentInterval}ms`);
+
+		setTimeout(() => {
+			console.log("执行重连操作");
+			this.connectToDevice(this.device.boundDeviceId, "");
+			this.device.isReconnecting = false;
+			console.log("重连操作完成");
+		}, currentInterval);
+	}
+
+	/** 切换设备：断开当前设备 → 清空数据 → 连接新设备 */
+	async switchDevice(newDeviceId: string, newDeviceName?: string): Promise<void> {
+		await this.disconnectDevice();
+		this.device.clearBoundDevice();
+		this.device.realtime = null;
+		await this.connectToDevice(newDeviceId, newDeviceName);
+	}
+
+	/** 弹设备选择 actionSheet（直接复用 Device 实例方法） */
+	showDevicePicker(options: ShowDevicePickerOptions): void {
+		this.device.showDevicePicker(options);
+	}
 }
