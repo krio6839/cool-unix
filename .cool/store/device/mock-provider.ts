@@ -51,8 +51,8 @@ export class MockProvider {
 	/* ===== GATT 命令响应的内部状态（SET 保存，READ 返回）===== */
 	/** 设备编号（默认 "12345678"，与文档 1.4.4.2 示例 V 一致） */
 	private _deviceNumber: string = "12345678";
-	/** BOOM UTC 时戳（默认 0） */
-	private _timestamp: number = 0;
+	/** BOOM UTC 时戳（默认 0x386D4391 = 949118353，与文档 0x34 响应 V 一致） */
+	private _timestamp: number = 0x386d4391;
 	/** 生物识别（默认 30 岁男性 175cm/68.37kg，与原 mock 行为一致） */
 	private _biometric: VitalBiometric = {
 		gender: 0,
@@ -203,17 +203,15 @@ export class MockProvider {
 	}
 
 	/**
-	 * 用状态说明.txt 文档示例作为"事实标准"验证自生成响应
-	 * - 一致: console.log "通过文档示例验证 ✓"
-	 * - 不一致: console.warn 显示差异
-	 *
-	 * 注: 文档仅提供 0x30/0x31/0x32/0x33/0x34 共 6 组示例
-	 *     0x35/0x36/0x40 无文档示例，跳过验证
+	 * 用状态说明.txt 文档示例作为"事实标准"验证响应
+	 * - 自生成 (0x30/0x32/0x34/0x36 读): 完整比对 TLVC 帧（验证 T/L/CRC/V 全正确）
+	 * - 回显   (0x31/0x33/0x35 写):    V 是用户输入不可预测，只验证 TLVC 框架 T/L/CRC
+	 *   注: 文档仅提供 0x30/0x31/0x32/0x33/0x34 共 6 组示例，0x35/0x36/0x40 无文档示例，跳过验证
 	 */
 	private _verifyAgainstDoc(t: number, responseV: string, generatedFrame: string): void {
 		const examples: Array<DocExample> | null = DOC_EXAMPLES_BY_T.get(t) ?? null;
 		if (examples == null) {
-			// 文档无示例（如 0x40），跳过
+			// 文档无示例（如 0x35/0x36/0x40），跳过
 			return;
 		}
 
@@ -231,7 +229,29 @@ export class MockProvider {
 			}
 		}
 
-		// 降级：只比 V 字段（不验证 T 码、CRC 全部，但验证业务内容）
+		// 回显类（0x31/0x33 SET）：V 是用户输入，不可预测 → TLVC 框架可能因 L 不同而不匹配
+		// 自生成类：V 由 mock 内部状态决定，必须完全匹配 → 匹配失败时降级只比 V 字段
+		const isEcho =
+			t == BOOM_CMD.SET_DEVICE_NUMBER ||
+			t == BOOM_CMD.SET_BOOM_TIMESTAMP ||
+			t == BOOM_CMD.SET_BIOMETRIC;
+		if (isEcho) {
+			const ex = examples[0];
+			const exTlvc = ex.response.length >= 4 ? ex.response.substring(4).toLowerCase() : "";
+			if (exTlvc.length > 4 && generatedLower.startsWith(exTlvc.substring(0, 4))) {
+				// T/L 头 4hex 匹配（不同长度的 V 不影响 T/L 比对）
+				console.log(
+					`[BOOM-MOCK] ${ex.name} TLVC 框架 (T+L) 通过文档示例验证 (V 是用户输入，未比对) ✓`
+				);
+			} else {
+				console.log(
+					`[BOOM-MOCK] ${ex.name} TLVC 框架未匹配 (V 是用户输入，未严格验证) - V="${vLower}"`
+				);
+			}
+			return;
+		}
+
+		// 自生成类：降级只比 V 字段（不验证 T 码、CRC 全部，但验证业务内容）
 		for (let i = 0; i < examples.length; i++) {
 			const ex = examples[i];
 			const exF = decodeTlvcPayload(ex.response);

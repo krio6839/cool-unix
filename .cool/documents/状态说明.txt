@@ -129,7 +129,7 @@ T	L	V	V说明
 0x36	0	无	
 d)BOOM响应
 T	L	V	V说明
-0x36	8	vital_biometric_info_t	见附录数据结构说明
+0x35	8	vital_biometric_info_t	见附录数据结构说明
 
 
 

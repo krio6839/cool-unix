@@ -252,13 +252,13 @@ const show = defineModel("show", {
 /* ===== 展示用 computed ===== */
 
 const fwText = computed<string>(() => {
-	const f = deviceStore.event.firmwareVersion;
+	const f = deviceStore.event.firmwareVersion.value;
 	if (f == null) return "-";
 	return `${f.major}.${f.minor}.${f.revision}`;
 });
 
 const bioText = computed<string>(() => {
-	const b = deviceStore.event.biometricInfo;
+	const b = deviceStore.event.biometricInfo.value;
 	if (b == null) return "-";
 	return `性别${b.gender} 体重${b.weight} 身高${b.height} 年龄${b.age} PPG${b.ppgPosition} BHR${b.bhr}`;
 });

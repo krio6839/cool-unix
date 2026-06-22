@@ -22,21 +22,22 @@ import type { FirmwareVersion, VitalBiometric, VibrationResult } from "../../blu
 import { onCharacteristicValueChange } from "../../bluetooth/kux";
 //#endif
 
+import { ref } from "vue";
 import type { Device } from "./index";
 
 export class EventHandler {
-	/* ===== 响应字段（按 T 码分派）===== */
+	/* ===== 响应字段（按 T 码分派，ref 响应式）===== */
 
 	/** 0x30 读固件版本响应 */
-	firmwareVersion: FirmwareVersion | null = null;
+	firmwareVersion = ref<FirmwareVersion | null>(null);
 	/** 0x31/0x32 设备编号（ASCII） */
-	deviceNumber: string = "";
+	deviceNumber = ref<string>("");
 	/** 0x33/0x34 BOOM UTC 时戳（秒） */
-	boomTimestamp: number = 0;
+	boomTimestamp = ref<number>(0);
 	/** 0x35/0x36 生物识别 */
-	biometricInfo: VitalBiometric | null = null;
+	biometricInfo = ref<VitalBiometric | null>(null);
 	/** 0x40 震动马达最后一次响应 */
-	lastVibration: VibrationResult | null = null;
+	lastVibration = ref<VibrationResult | null>(null);
 
 	private device: Device;
 
@@ -76,27 +77,27 @@ export class EventHandler {
 		// 按 T 码分派到对应字段
 		switch (f.t) {
 			case BOOM_CMD.READ_FIRMWARE_VERSION:
-				this.firmwareVersion = parseFirmwareVersion(f.v);
-				console.log("[BOOM] 固件版本:", this.firmwareVersion);
+				this.firmwareVersion.value = parseFirmwareVersion(f.v);
+				console.log("[BOOM] 固件版本:", this.firmwareVersion.value);
 				break;
 			case BOOM_CMD.SET_DEVICE_NUMBER:
 			case BOOM_CMD.READ_DEVICE_NUMBER:
-				this.deviceNumber = parseDeviceNumber(f.v);
-				console.log("[BOOM] 设备编号:", this.deviceNumber);
+				this.deviceNumber.value = parseDeviceNumber(f.v);
+				console.log("[BOOM] 设备编号:", this.deviceNumber.value);
 				break;
 			case BOOM_CMD.SET_BOOM_TIMESTAMP:
 			case BOOM_CMD.READ_BOOM_TIMESTAMP:
-				this.boomTimestamp = parseTimestamp(f.v);
-				console.log("[BOOM] 时戳:", this.boomTimestamp);
+				this.boomTimestamp.value = parseTimestamp(f.v);
+				console.log("[BOOM] 时戳:", this.boomTimestamp.value);
 				break;
 			case BOOM_CMD.SET_BIOMETRIC:
 			case BOOM_CMD.READ_BIOMETRIC:
-				this.biometricInfo = parseBiometric(f.v);
-				console.log("[BOOM] 生物识别:", this.biometricInfo);
+				this.biometricInfo.value = parseBiometric(f.v);
+				console.log("[BOOM] 生物识别:", this.biometricInfo.value);
 				break;
 			case BOOM_CMD.CONTROL_VIBRATION:
-				this.lastVibration = parseVibrationResult(f.v);
-				console.log("[BOOM] 震动结果:", this.lastVibration);
+				this.lastVibration.value = parseVibrationResult(f.v);
+				console.log("[BOOM] 震动结果:", this.lastVibration.value);
 				break;
 			default:
 				console.log("[BOOM] 未知 T:", f.t, "数据:", hexData);
