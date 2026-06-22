@@ -263,7 +263,7 @@ const bioText = computed<string>(() => {
 });
 
 const rtText = computed<RtText>(() => {
-	const r = deviceStore.realtime;
+	const r = deviceStore.realtime.value;
 	if (r == null) {
 		return {
 			hr: "-",

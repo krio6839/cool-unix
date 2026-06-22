@@ -238,7 +238,7 @@ export class DeviceConnection {
 		const parsed = parseCustomAdvData(mfgData);
 		if (parsed != null) {
 			const r: RealtimeBroadcast = toRealtimeBroadcast(parsed);
-			this.device.realtime = r;
+			this.device.realtime.value = r;
 		}
 	}
 
@@ -380,7 +380,7 @@ export class DeviceConnection {
 		this.device.currentDeviceName = "";
 		this.device.protocol.services = [];
 		this.device.protocol.characteristics.clear();
-		this.device.realtime = null;
+		this.device.realtime.value = null;
 		this.device.resetReconnectState();
 	}
 
@@ -418,7 +418,7 @@ export class DeviceConnection {
 	async switchDevice(newDeviceId: string, newDeviceName?: string): Promise<void> {
 		await this.disconnectDevice();
 		this.device.clearBoundDevice();
-		this.device.realtime = null;
+		this.device.realtime.value = null;
 		await this.connectToDevice(newDeviceId, newDeviceName);
 	}
 

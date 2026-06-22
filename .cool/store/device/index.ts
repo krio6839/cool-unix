@@ -69,7 +69,7 @@ export class Device {
 	currentWearLocation: WearLocation = "大臂部";
 
 	/** 0x50 广播解析后的最新实时数据（每秒刷新，可能为 null） */
-	realtime: RealtimeBroadcast | null = null;
+	realtime = ref<RealtimeBroadcast | null>(null);
 
 	/* ===== 重连 ===== */
 	reconnectAttempts = 0;
@@ -227,7 +227,7 @@ export class Device {
 		this.connection._resetConnectionState();
 		//#endif
 		this.boundDeviceId = "";
-		this.realtime = null;
+		this.realtime.value = null;
 		this.errorMessage.value = "";
 	}
 
@@ -252,7 +252,7 @@ export class Device {
 		this.mock.stop();
 		this.status.value = "UNPAIRED";
 		this.currentDeviceName = "";
-		this.realtime = null;
+		this.realtime.value = null;
 	}
 	//#endif
 }

@@ -95,7 +95,7 @@ export class MockProvider {
 		const parsed = parseCustomAdvData(vHex);
 		if (parsed != null) {
 			const r: RealtimeBroadcast = toRealtimeBroadcast(parsed);
-			this.device.realtime = r;
+			this.device.realtime.value = r;
 		}
 	}
 
