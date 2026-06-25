@@ -32,6 +32,9 @@ export const BOOM_CMD: BoomCmd = {
 	CONTROL_VIBRATION: 0x40
 };
 
+/** 设备编号最大字符数（仅数字/字母，最长 29 位） */
+export const DEVICE_NUMBER_MAX_LEN = 29;
+
 /** PPG 佩戴位置名（仅 UI 文案，顺序与状态说明.txt 2.1.1 一致） */
 export const PPG_POSITION_LIST: Array<string> = [
 	"手腕",

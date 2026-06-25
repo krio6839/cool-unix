@@ -225,7 +225,7 @@
 <script lang="ts" setup>
 //#ifndef H5
 import { computed } from "vue";
-import { t, useStore } from "@/.cool";
+import { DEVICE_NUMBER_MAX_LEN, t, useStore } from "@/.cool";
 import type { VibrationSpec, VitalBiometric } from "@/.cool";
 import { useUi } from "@/uni_modules/cool-ui";
 
@@ -318,9 +318,27 @@ async function testReadBiometric(): Promise<void> {
 }
 
 async function testSetDeviceNumber(): Promise<void> {
-	// 固定测试值
-	const ok = await deviceStore.protocol.setDeviceNumber("ABCD-00012345");
-	ui.showToast({ message: ok ? t("0x31 已发送") : t("失败"), type: ok ? "success" : "error" });
+	// 弹窗手动输入设备编号（最多 29 位数字/字母）
+	uni.showModal({
+		title: t("设置设备编号"),
+		placeholderText: t("请输入设备编号（最多29位）"),
+		editable: true,
+		success: (res) => {
+			if (res.confirm && res.content != null) {
+				const num = res.content?.trim() ?? "";
+				if (num.length == 0 || num.length > DEVICE_NUMBER_MAX_LEN) {
+					ui.showToast({ message: t("编号长度需 1~29 位"), type: "error" });
+					return;
+				}
+				deviceStore.protocol.setDeviceNumber(num).then((ok) => {
+					ui.showToast({
+						message: ok ? t("0x31 已发送") : t("失败"),
+						type: ok ? "success" : "error"
+					});
+				});
+			}
+		}
+	});
 }
 
 async function testSetTimestamp(): Promise<void> {

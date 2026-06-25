@@ -147,6 +147,13 @@ export class MockProvider {
 			case BOOM_CMD.SET_DEVICE_NUMBER:
 				// 0x31 设置设备编号 → 保存 + V 回显
 				this._deviceNumber = parseAscii(vHex);
+				// 注意：最大长度 29 由 DEVICE_NUMBER_MAX_LEN 常量定义（boom-constants.ts）
+				// UTS 编译器不支持跨模块 const 导入校验，故用硬编码值
+				if (this._deviceNumber.length > 29) {
+					console.warn(
+						`[BOOM-MOCK] 设备编号超长 (${this._deviceNumber.length}/29): "${this._deviceNumber}"`
+					);
+				}
 				responseV = vHex;
 				break;
 
