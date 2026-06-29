@@ -62,7 +62,7 @@ export class DeviceConnection {
 			this.device.discovering = res.discovering;
 			if (this.device.available == res.available) return;
 			this.device.available = res.available;
-			if (!res.available) {
+			if (res.available == false) {
 				console.log("蓝牙已关闭");
 				this.device.status.value = "UNPAIRED";
 				this.device.errorMessage.value = t("蓝牙未开启");
@@ -94,7 +94,7 @@ export class DeviceConnection {
 	 * - 用户打开 App 应该自动连接好设备
 	 */
 	private async _silentReconnect(): Promise<void> {
-		if (this._isSilentReconnecting) {
+		if (this._isSilentReconnecting == true) {
 			console.log("[RECONNECT] 静默重连已在进行,跳过");
 			return;
 		}
@@ -186,7 +186,7 @@ export class DeviceConnection {
 			await this.device.protocol.subscribeUART();
 			await sleepTimeout(200);
 			const ledOk = await this.device.protocol.setLEDStatus("01");
-			if (!ledOk) {
+			if (ledOk == false) {
 				console.warn("[DEVICE] 启动 PPG 写入失败（kux 库返回 false）");
 			} else {
 				// 直接乐观更新本地状态,避免被错误的初始 _deviceOn=false 误导。
@@ -201,7 +201,7 @@ export class DeviceConnection {
 			const now = Math.floor(Date.now() / 1000);
 			const beforeRtc = this.device.rtcTime.value; // 记录写入前的 RTC
 			const rtcWriteOk = await this.device.protocol.setDeviceTime(now);
-			if (!rtcWriteOk) {
+			if (rtcWriteOk == false) {
 				console.warn("[DEVICE] setDeviceTime 写入失败（kux 库返回 false）");
 			}
 
@@ -234,7 +234,7 @@ export class DeviceConnection {
 			console.log("蓝牙连接状态变化:", res);
 			if (res.connected) {
 				// 防止重复初始化
-				if (this.device.isDeviceInitialized) {
+				if (this.device.isDeviceInitialized == true) {
 					console.log("设备已初始化，跳过");
 					return;
 				}
@@ -267,7 +267,7 @@ export class DeviceConnection {
 	 */
 	async startBluetoothSearch(mode: "pairing" | "reconnect" = "pairing") {
 		//#ifndef H5
-		if (this._isSearching) {
+		if (this._isSearching == true) {
 			console.log("[SCAN] 搜索已在进行,跳过");
 			return;
 		}
@@ -281,12 +281,12 @@ export class DeviceConnection {
 
 			// 内部 1 次自动 retry,规避 kux 库的 `if (this.scanning)` 并发守护
 			let ok = await startDiscovery();
-			if (!ok) {
+			if (ok == false) {
 				console.warn("[SCAN] startDiscovery 返回 false,500ms 后重试一次");
 				await sleepTimeout(500);
 				ok = await startDiscovery();
 			}
-			if (!ok) {
+			if (ok == false) {
 				this.device.status.value = "UNPAIRED";
 				this.device.errorMessage.value = t("搜索设备失败,请检查蓝牙和位置权限");
 				return;
@@ -373,7 +373,7 @@ export class DeviceConnection {
 		// 直接弹 actionSheet 让用户选择
 		// 取消 → status=UNPAIRED + 清空 devices + errorMessage 提示重新配对
 		console.log(`[SCAN] 发现 ${count} 个设备,直接弹窗让用户选择`);
-		const options = {
+		const pickerOptions: ShowDevicePickerOptions = {
 			onSelect: (deviceId: string, _device: DeviceInfo) => {
 				// 选 1 个:连接(connectToFoundDevice 内部会清空 devices)
 				console.log(`[SCAN] 用户选择连接: ${deviceId}`);
@@ -386,8 +386,8 @@ export class DeviceConnection {
 				this.device.status.value = "UNPAIRED";
 				this.device.errorMessage.value = t("已取消,请重新配对");
 			}
-		} as ShowDevicePickerOptions;
-		this.device.showDevicePicker(options);
+		};
+		this.device.showDevicePicker(pickerOptions);
 	}
 
 	stopBluetoothSearch(): Promise<boolean> {
@@ -402,7 +402,7 @@ export class DeviceConnection {
 	async connectToDevice(deviceId: string, deviceName?: string) {
 		//#ifndef H5
 		const ok = await connect(deviceId, 100000);
-		if (!ok) {
+		if (ok == false) {
 			this.device.status.value = "UNPAIRED";
 			this.device.errorMessage.value = t("连接设备失败");
 			return;
@@ -456,7 +456,7 @@ export class DeviceConnection {
 	// 重连机制
 	reconnect(): void {
 		console.log("开始重连设备");
-		if (this.device.isReconnecting) {
+		if (this.device.isReconnecting == true) {
 			console.log("正在重连中，跳过");
 			return;
 		}
@@ -499,7 +499,9 @@ export class DeviceConnection {
 		this.device.battery.value = 0;
 		this.device.ppi.value = 0;
 		this.device.sleepData.value = null;
-		this.device.dataReadyStatus.value = { heartRateCount: 0, sleepCount: 0 } as DataReadyStatus;
+		// UTS:抽成具名 const 再赋值,避免内联对象字面量 + as 断言
+		const emptyDataStatus: DataReadyStatus = { heartRateCount: 0, sleepCount: 0 };
+		this.device.dataReadyStatus.value = emptyDataStatus;
 		this.device.rtcTime.value = 0;
 		// 5. 连接新设备（connectToDevice 内部会自动保存新的 boundDeviceId）
 		await this.connectToDevice(newDeviceId, newDeviceName);

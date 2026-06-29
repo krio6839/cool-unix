@@ -63,7 +63,7 @@ export class DataFetcher {
 	 * 等待响应后根据 heartRateCount 和 sleepCount 判断是否需要获取数据
 	 */
 	async queryDataStatusWithFetch(): Promise<void> {
-		if (this._isQueryingData) {
+		if (this._isQueryingData == true) {
 			return;
 		}
 		this._isQueryingData = true;
@@ -133,7 +133,11 @@ export class DataFetcher {
 			console.log("已全部保存，无需抓取");
 			return;
 		}
-		console.log(savedCount > 0 ? `[FETCH] 断点续传：已保存 ${savedCount} 条，从第 ${savedCount} 条继续` : "[FETCH] 首次抓取，从头开始");
+		console.log(
+			savedCount > 0
+				? `[FETCH] 断点续传：已保存 ${savedCount} 条，从第 ${savedCount} 条继续`
+				: "[FETCH] 首次抓取，从头开始"
+		);
 
 		const startIndex = savedCount;
 		this._heartRatePageWaiter.reset();
@@ -143,7 +147,9 @@ export class DataFetcher {
 		const pageCount = Math.ceil(remainingCount / 16);
 		// 单页响应的最长等待时间（兜底）
 		const PAGE_RESPONSE_TIMEOUT_MS = 3000;
-		console.log(`开始获取历史心率血氧数据，总共 ${status.heartRateCount} 条，已保存 ${startIndex} 条，剩余 ${remainingCount} 条，共 ${pageCount} 页`);
+		console.log(
+			`开始获取历史心率血氧数据，总共 ${status.heartRateCount} 条，已保存 ${startIndex} 条，剩余 ${remainingCount} 条，共 ${pageCount} 页`
+		);
 
 		for (let i = 0; i < pageCount; i++) {
 			// 从 startIndex 对应的 page 开始累加，保证 recordIndex 与已保存数据严格连续
@@ -196,7 +202,11 @@ export class DataFetcher {
 			console.log("睡眠数据已全部保存，无需抓取");
 			return;
 		}
-		console.log(savedCount > 0 ? `[FETCH] 断点续传：已保存 ${savedCount} 条，从第 ${savedCount} 条继续` : "[FETCH] 首次抓取，从头开始");
+		console.log(
+			savedCount > 0
+				? `[FETCH] 断点续传：已保存 ${savedCount} 条，从第 ${savedCount} 条继续`
+				: "[FETCH] 首次抓取，从头开始"
+		);
 
 		this._sleepPageWaiter.reset();
 		this._sleepAssembler.reset();

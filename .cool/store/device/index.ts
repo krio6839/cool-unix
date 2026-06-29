@@ -1,9 +1,9 @@
 import { ref } from "vue";
 import { storage } from "../../utils";
 import { t } from "../../locale";
-import { type ClActionSheetOptions, type ClActionSheetItem } from "@/uni_modules/cool-ui";
+import type { ClActionSheetOptions, ClActionSheetItem } from "@/uni_modules/cool-ui";
 
-import type { DataReadyStatus, SleepData } from "../../bluetooth";
+import { bluetoothDataManager, type DataReadyStatus, type SleepData } from "../../bluetooth";
 
 //#ifndef H5
 import type { DeviceInfo } from "../../bluetooth/kux";
@@ -114,9 +114,9 @@ export class Device {
 
 	// 数据持久化相关
 	loadSavedData(): void {
-		const savedLocation = storage.get(KEY_WEAR_LOCATION) as WearLocation | null;
+		const savedLocation = storage.get(KEY_WEAR_LOCATION) as string | null;
 		if (savedLocation != null) {
-			this.currentWearLocation = savedLocation;
+			this.currentWearLocation = savedLocation as WearLocation;
 		}
 
 		const savedDeviceId = storage.get(KEY_BOUND_DEVICE_ID) as string | null;
@@ -197,30 +197,29 @@ export class Device {
 		const { onSelect, onCancel, title, list } = options;
 		const finalTitle: string = title ?? t("选择要连接的设备");
 		const snapshot = (list ?? this.devices).slice(); // 拍快照,避免弹窗期间被修改
-		this.actionSheetRef.open({
+
+		// UTS:强类型对象字面量,先抽成具名 const
+		const deviceItem = (d: DeviceInfo): ClActionSheetItem => ({
+			label: `${d.name}-${d.deviceId} · ${d.RSSI ?? "?"} dBm`,
+			callback: () => {
+				// 先关闭弹窗,再触发回调,避免弹窗挡住后续 UI
+				this.actionSheetRef?.close();
+				onSelect(d.deviceId, d);
+			}
+		});
+		const cancelItem: ClActionSheetItem = {
+			label: t("取消"),
+			callback: () => {
+				this.actionSheetRef?.close();
+				onCancel?.();
+			}
+		};
+		const sheetOptions: ClActionSheetOptions = {
 			title: finalTitle,
 			showCancel: false, // 关闭默认取消,手动加
-			list: [
-				...snapshot.map(
-					(d) =>
-						({
-							label: `${d.name}-${d.deviceId} · ${d.RSSI ?? "?"} dBm`,
-							callback: () => {
-								// 先关闭弹窗,再触发回调,避免弹窗挡住后续 UI
-								this.actionSheetRef?.close();
-								onSelect(d.deviceId, d);
-							}
-						}) as ClActionSheetItem
-				),
-				{
-					label: t("取消"),
-					callback: () => {
-						this.actionSheetRef?.close();
-						onCancel?.();
-					}
-				} as ClActionSheetItem
-			]
-		} as ClActionSheetOptions);
+			list: [...snapshot.map(deviceItem), cancelItem]
+		};
+		this.actionSheetRef.open(sheetOptions);
 	}
 	//#endif
 
@@ -236,14 +235,58 @@ export class Device {
 		this.battery.value = 0;
 		this.ppi.value = 0;
 		this.sleepData.value = null;
-		this.dataReadyStatus.value = {
-			heartRateCount: 0,
-			sleepCount: 0
-		} as DataReadyStatus;
+		// UTS:抽成具名 const 再赋值,避免内联对象字面量 + as 断言
+		const emptyStatus: DataReadyStatus = { heartRateCount: 0, sleepCount: 0 };
+		this.dataReadyStatus.value = emptyStatus;
 		this.rtcTime.value = 0;
 		this._deviceOn = false;
 		this.errorMessage.value = "";
 	}
+
+	//#ifndef H5
+	/**
+	 * 用户主动删除设备(从设备页底部按钮触发)
+	 * - 1. 断开 BLE
+	 * - 2. 清空历史 DB(心率/睡眠/PPI)
+	 * - 3. 清空本地存储(boundDeviceId / PPI 计数 / SLEEP 计数)
+	 * - 4. 重置实时数据 + 状态回 UNPAIRED
+	 * - 注意:wearLocation 保留(用户偏好,与设备无关)
+	 */
+	async deleteDevice(): Promise<void> {
+		console.log("[DEVICE] 用户删除设备");
+
+		// 1. 断开 BLE(在清数据前先断开,避免回调中读到空状态)
+		try {
+			await this.connection.disconnectDevice();
+		} catch (e) {
+			console.warn("[DEVICE] deleteDevice: disconnectDevice 异常,继续清理:", e);
+		}
+
+		// 2. 清空历史 DB(心率/睡眠/PPI 记录)
+		try {
+			await bluetoothDataManager.clearAllData();
+		} catch (e) {
+			console.warn("[DEVICE] deleteDevice: clearAllData 异常,继续清理:", e);
+		}
+
+		// 3. 清空本地 storage(boundDeviceId / PPI 计数 / SLEEP 计数)
+		this.clearAllSavedData();
+
+		// 4. 重置实时数据 + 状态
+		const emptyStatus: DataReadyStatus = { heartRateCount: 0, sleepCount: 0 };
+		this.dataReadyStatus.value = emptyStatus;
+		this.heartRate.value = 0;
+		this.bloodOxygen.value = 0;
+		this.battery.value = 0;
+		this.ppi.value = 0;
+		this.sleepData.value = null;
+		this.rtcTime.value = 0;
+		this._deviceOn = false;
+		this.errorMessage.value = "";
+		this.status.value = "UNPAIRED";
+		console.log("[DEVICE] deleteDevice 完成,状态:UNPAIRED");
+	}
+	//#endif
 }
 
 export const device = new Device();

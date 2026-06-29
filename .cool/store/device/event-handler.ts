@@ -96,9 +96,10 @@ export class EventHandler {
 	onReadCharacteristicValue(): void {
 		//#ifndef H5
 		onReadCharacteristicValue((res) => {
+			// UTS:res.value 是 UTSJSONObject,需要先判断非 null 再 as ArrayBuffer
 			const buffer = res.value as ArrayBuffer | null;
 			if (buffer == null) return;
-			const hexString = arrayBufferToHexString(buffer);
+			const hexString = arrayBufferToHexString(buffer as ArrayBuffer);
 			console.log("十六进制数据 hexString:", hexString);
 			// kux 库返回的 characteristicId 大小写不固定,统一小写后再比较
 			const charId = (res.characteristicId ?? "").toLowerCase();
