@@ -1,7 +1,6 @@
 import { t } from "../../locale";
 import { TARGET_DEVICE_NAME } from "./types";
 import { bluetoothDataManager, type DeviceInfo } from "../../bluetooth";
-import type { DataReadyStatus } from "../../bluetooth";
 
 //#ifndef H5
 import {
@@ -483,27 +482,5 @@ export class DeviceConnection {
 			this.device.isReconnecting = false;
 			console.log("重连操作完成");
 		}, currentInterval);
-	}
-
-	// 切换设备：断开当前设备 → 清空数据 → 连接新设备
-	async switchDevice(newDeviceId: string, newDeviceName?: string): Promise<void> {
-		// 1. 断开当前设备
-		await this.disconnectDevice();
-		// 2. 清空数据库
-		await bluetoothDataManager.clearAllData();
-		// 3. 清空所有持久化数据（断点续传计数 + 绑定设备ID）
-		this.device.clearAllSavedData();
-		// 4. 重置健康数据
-		this.device.heartRate.value = 0;
-		this.device.bloodOxygen.value = 0;
-		this.device.battery.value = 0;
-		this.device.ppi.value = 0;
-		this.device.sleepData.value = null;
-		// UTS:抽成具名 const 再赋值,避免内联对象字面量 + as 断言
-		const emptyDataStatus: DataReadyStatus = { heartRateCount: 0, sleepCount: 0 };
-		this.device.dataReadyStatus.value = emptyDataStatus;
-		this.device.rtcTime.value = 0;
-		// 5. 连接新设备（connectToDevice 内部会自动保存新的 boundDeviceId）
-		await this.connectToDevice(newDeviceId, newDeviceName);
 	}
 }
