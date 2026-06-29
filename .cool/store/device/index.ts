@@ -197,29 +197,27 @@ export class Device {
 		const { onSelect, onCancel, title, list } = options;
 		const finalTitle: string = title ?? t("选择要连接的设备");
 		const snapshot = (list ?? this.devices).slice();
-		this.actionSheetRef.open({
+		// UTS:强类型对象字面量,先抽成具名 const
+		const deviceItem = (d: DeviceInfo): ClActionSheetItem => ({
+			label: `${d.name}-${d.deviceId} · ${d.RSSI ?? "?"} dBm`,
+			callback: () => {
+				this.actionSheetRef?.close();
+				onSelect(d.deviceId, d);
+			}
+		});
+		const cancelItem: ClActionSheetItem = {
+			label: t("取消"),
+			callback: () => {
+				this.actionSheetRef?.close();
+				onCancel?.();
+			}
+		};
+		const sheetOptions: ClActionSheetOptions = {
 			title: finalTitle,
 			showCancel: false,
-			list: [
-				...snapshot.map(
-					(d) =>
-						({
-							label: `${d.name}-${d.deviceId} · ${d.RSSI ?? "?"} dBm`,
-							callback: () => {
-								this.actionSheetRef?.close();
-								onSelect(d.deviceId, d);
-							}
-						}) as ClActionSheetItem
-				),
-				{
-					label: t("取消"),
-					callback: () => {
-						this.actionSheetRef?.close();
-						onCancel?.();
-					}
-				} as ClActionSheetItem
-			]
-		} as ClActionSheetOptions);
+			list: [...snapshot.map(deviceItem), cancelItem]
+		};
+		this.actionSheetRef.open(sheetOptions);
 	}
 	//#endif
 
@@ -261,10 +259,9 @@ export class Device {
 	//#ifndef H5
 	/**
 	 * 用户主动删除设备(从设备页底部按钮触发)
-	 * - 1. 断开 BLE
+	 * - 1. 断开 BLE(disconnectDevice 内部会重置状态:status=UNPAIRED, realtime=null, currentDeviceId="")
 	 * - 2. 清空历史 DB(心率/睡眠/PPI)
-	 * - 3. 清空本地存储(boundDeviceId / PPI 计数 / SLEEP 计数)
-	 * - 4. 重置实时数据 + 状态回 UNPAIRED
+	 * - 3. 清空本地存储(boundDeviceId)
 	 * - 注意:wearLocation 保留(用户偏好,与设备无关)
 	 */
 	async deleteDevice(): Promise<void> {
@@ -284,8 +281,11 @@ export class Device {
 			console.warn("[DEVICE] deleteDevice: clearAllData 异常,继续清理:", e);
 		}
 
-		// 3. 清空本地 storage(boundDeviceId / PPI 计数 / SLEEP 计数)
+		// 3. 清空本地 storage(boundDeviceId)
 		this.clearAllSavedData();
+
+		// 4. 补充:清错误信息(disconnectDevice 不清,这里兜底)
+		this.errorMessage.value = "";
 	}
 	//#endif
 }

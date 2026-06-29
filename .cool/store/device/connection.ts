@@ -78,7 +78,7 @@ export class DeviceConnection {
 			this.device.discovering = res.discovering;
 			if (this.device.available == res.available) return;
 			this.device.available = res.available;
-			if (!res.available) {
+			if (res.available == false) {
 				// 蓝牙关闭：清理状态
 				console.log("蓝牙已关闭");
 				this.device.status.value = "UNPAIRED";
@@ -130,7 +130,7 @@ export class DeviceConnection {
 					this.device.boundDeviceId,
 					DeviceConnection.DIRECT_CONNECT_TIMEOUT_MS
 				);
-				if (ok) {
+				if (ok == true) {
 					console.log("[RECONNECT] 静默直连成功");
 					await this._markConnected(this.device.boundDeviceId, "");
 					this._reconnectAttempts = 0;
@@ -268,7 +268,7 @@ export class DeviceConnection {
 		this.device.status.value = "SEARCHING";
 		//#ifndef H5
 		const ok = await connect(deviceId, 100000);
-		if (!ok) {
+		if (ok == false) {
 			this.device.status.value = "PAIRING";
 			return;
 		}
@@ -299,7 +299,7 @@ export class DeviceConnection {
 					break;
 				}
 			}
-			if (!hasBoom) {
+			if (hasBoom == false) {
 				this.device.status.value = "UNPAIRED";
 				this.device.errorMessage.value = t("非 BOOM 设备，请检查");
 				return;
@@ -412,14 +412,6 @@ export class DeviceConnection {
 			this.device.isReconnecting = false;
 			console.log("重连操作完成");
 		}, currentInterval);
-	}
-
-	/** 切换设备：断开当前设备 → 清空数据 → 连接新设备 */
-	async switchDevice(newDeviceId: string, newDeviceName?: string): Promise<void> {
-		await this.disconnectDevice();
-		this.device.clearBoundDevice();
-		this.device.realtime.value = null;
-		await this.connectToDevice(newDeviceId, newDeviceName);
 	}
 
 	/** 弹设备选择 actionSheet（直接复用 Device 实例方法） */
