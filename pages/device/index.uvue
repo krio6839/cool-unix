@@ -8,8 +8,8 @@
 			@tap="goBack"
 		>
 			<template #append>
-				<cl-button text @tap="openTestPopup">
-					{{ t("测试") }}
+				<cl-button text @tap="goDetail">
+					{{ t("详情") }}
 				</cl-button>
 			</template>
 		</cl-topbar>
@@ -81,28 +81,10 @@
 			<UnpairedState @click="enterPairingMode"></UnpairedState>
 		</view>
 
-		<!-- 测试弹窗组件 -->
-		<TestPopup v-model="showPopup"></TestPopup>
+		<!-- 测试弹窗组件 已迁移到详情页,设备页不再使用 -->
 
 		<!-- 共享 actionSheet(由 store 注入 ref 供 PairingState/TestPopup 等使用) -->
 		<cl-action-sheet ref="actionSheetRef"></cl-action-sheet>
-
-		<!-- 底部"删除设备"按钮:只要绑定就显示,不管连接状态 -->
-		<!-- UTS:必须用 != '' 显式判断字符串非空 -->
-		<view
-			v-if="deviceStore.boundDeviceId != ''"
-			class="absolute bottom-0 left-0 right-0 px-8 pb-8 pt-4"
-			style="background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.6) 30%)"
-		>
-			<cl-button
-				type="primary"
-				color="transparent"
-				rounded
-				@tap="onDeleteDevice"
-			>
-				<cl-text color="#FF5C5C" :size="14">{{ t("删除设备") }}</cl-text>
-			</cl-button>
-		</view>
 
 		<!-- #endif -->
 	</cl-page>
@@ -116,11 +98,8 @@ import type { WearLocation } from "@/.cool/store/device";
 import UnpairedState from "./components/UnpairedState.uvue";
 import PairingState from "./components/PairingState.uvue";
 import ConnectedState from "./components/ConnectedState.uvue";
-import TestPopup from "./components/TestPopup.uvue";
 
 const { device: deviceStore } = useStore();
-
-const showPopup = ref(false);
 
 // 共享 cl-action-sheet 实例:通过 watch 同步到 store 供 PairingState/TestPopup 等使用
 const actionSheetRef = ref<ClActionSheetComponentPublicInstance | null>(null);
@@ -145,10 +124,6 @@ const titleText = computed(() => {
 		return t("未配对");
 	}
 });
-
-function openTestPopup() {
-	showPopup.value = true;
-}
 
 // A8 修复:location 类型从 string 改为 WearLocation,不再需要内联 as 断言
 function onSelect(location: WearLocation) {
@@ -176,27 +151,15 @@ function goBack() {
 	router.back();
 }
 
-function retry() {
-	deviceStore.connection.initBluetooth();
+/**
+ * 跳转到设备详情页(顶栏"详情"按钮)
+ */
+function goDetail() {
+	router.to("/pages/device/detail");
 }
 
-/**
- * 删除设备:弹 confirm → 确认后清空本地数据 + 断开 BLE + 状态回 UNPAIRED
- * - 调用 deviceStore.deleteDevice() 内部统一处理
- * - 留在当前页(状态变 UNPAIRED,UnpairedState 接管)
- */
-function onDeleteDevice() {
-	uni.showModal({
-		title: t("删除设备"),
-		content: t("此操作将清空本地存储的所有数据(心率/睡眠/PPI等),且不可恢复。确定继续吗?"),
-		confirmText: t("确定"),
-		confirmColor: "#FF5C5C",
-		cancelText: t("取消"),
-		success: (res) => {
-			if (res.confirm != true) return;
-			deviceStore.deleteDevice();
-		}
-	});
+function retry() {
+	deviceStore.connection.initBluetooth();
 }
 </script>
 

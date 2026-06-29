@@ -1,0 +1,161 @@
+<template>
+	<cl-page class="device-detail">
+		<cl-topbar safe-area-top background-color="transparent" :title="t('设备详情')"></cl-topbar>
+
+		<view class="p-3">
+			<!-- A. 基本信息(H5 下也显示,只是 RSSI 等可能为 "—") -->
+			<cl-list :pt="{ className: 'mb-3' }">
+				<cl-list-item :label="t('设备名称')">
+					<cl-text>{{
+						deviceStore.currentDeviceName != "" ? deviceStore.currentDeviceName : "—"
+					}}</cl-text>
+				</cl-list-item>
+				<cl-list-item :label="t('设备ID')">
+					<cl-text :pt="{ className: 'text-xs' }">{{
+						deviceStore.currentDeviceId != ""
+							? deviceStore.currentDeviceId
+							: deviceStore.boundDeviceId != ""
+								? deviceStore.boundDeviceId
+								: "—"
+					}}</cl-text>
+				</cl-list-item>
+				<cl-list-item :label="t('连接状态')">
+					<cl-text>{{ statusText }}</cl-text>
+				</cl-list-item>
+				<cl-list-item :label="t('蓝牙状态')">
+					<cl-text>{{ btStatusText }}</cl-text>
+				</cl-list-item>
+				<cl-list-item :label="t('信号强度')">
+					<cl-text>{{ rssiText }}</cl-text>
+				</cl-list-item>
+			</cl-list>
+
+			<!-- C. 操作区: 测试弹窗 + 删除设备 -->
+			<!-- #ifndef H5 -->
+			<view class="flex flex-row flex-wrap mb-3">
+				<cl-button type="primary" color="#000" rounded class="mr-2 mb-2" @tap="openTest">
+					{{ t("打开测试弹窗") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="transparent"
+					rounded
+					class="mr-2 mb-2"
+					@tap="onDelete"
+				>
+					<cl-text color="#FF5C5C" :size="14">{{ t("删除设备") }}</cl-text>
+				</cl-button>
+			</view>
+
+			<!-- D. 佩戴位置选择 -->
+			<cl-list :pt="{ className: 'mb-3' }">
+				<cl-list-item :label="t('佩戴位置')">
+					<cl-text>{{ deviceStore.currentWearLocation }}</cl-text>
+				</cl-list-item>
+				<cl-list-item
+					v-for="loc in wearLocations"
+					:key="loc"
+					:label="loc"
+					hoverable
+					@tap="onSelectLocation(loc)"
+				>
+					<cl-text v-if="deviceStore.currentWearLocation == loc" color="primary">
+						{{ t("已选择") }}
+					</cl-text>
+				</cl-list-item>
+			</cl-list>
+			<!-- #endif -->
+
+			<!-- H5 平台提示 -->
+			<!-- #ifdef H5 -->
+			<view class="flex-1 flex flex-col items-center justify-center px-8 py-12">
+				<cl-text color="gray-500" :size="16" :pt="{ className: 'text-center' }">
+					{{ t("H5平台不支持蓝牙相关功能") }}
+				</cl-text>
+			</view>
+			<!-- #endif -->
+		</view>
+
+		<!-- 测试弹窗 -->
+		<!-- #ifndef H5 -->
+		<TestPopup v-model="showTest"></TestPopup>
+		<!-- #endif -->
+	</cl-page>
+</template>
+
+<script lang="ts" setup>
+import { ref, computed } from "vue";
+import { t, useStore } from "@/.cool";
+import { useUi } from "@/uni_modules/cool-ui";
+import type { WearLocation } from "@/.cool/store/device";
+// #ifndef H5
+import TestPopup from "./components/TestPopup.uvue";
+// #endif
+
+const { device: deviceStore } = useStore();
+const ui = useUi();
+
+const showTest = ref(false);
+
+const wearLocations: WearLocation[] = ["大臂部", "下胸部", "腰部"];
+
+// 基本信息 - 连接状态文案
+const statusText = computed((): string => {
+	const s = deviceStore.status.value;
+	if (s == "CONNECTED") return t("已连接");
+	if (s == "PAIRING" || s == "SEARCHING") return t("搜索中");
+	return t("未配对");
+});
+
+// 基本信息 - 蓝牙适配器状态
+const btStatusText = computed((): string => {
+	return deviceStore.available ? t("已开启") : t("未开启");
+});
+
+// 基本信息 - 信号强度(查 devices 数组中绑定设备 RSSI;可能为空)
+const rssiText = computed((): string => {
+	// #ifndef H5
+	const boundId = deviceStore.boundDeviceId;
+	if (boundId == "") return "—";
+	const found = deviceStore.devices.find((d) => d.deviceId == boundId);
+	if (found == null) return "—";
+	const rssi = found.RSSI;
+	if (rssi == null) return "—";
+	return rssi + " dBm";
+	// #endif
+	// #ifdef H5
+	return "—";
+	// #endif
+});
+
+function openTest() {
+	showTest.value = true;
+}
+
+function onSelectLocation(loc: WearLocation) {
+	deviceStore.saveWearLocation(loc);
+	ui.showToast({ message: t("已切换至") + loc, type: "success" });
+}
+
+/**
+ * 删除设备:confirm 二次确认 → 调 deviceStore.deleteDevice()
+ * - 不跳转,清完数据后由详情页 onShow 保持可见
+ */
+function onDelete() {
+	ui.showConfirm({
+		title: t("删除设备"),
+		message: t("此操作将清空本地存储的所有数据(心率/睡眠/PPI等),且不可恢复。确定继续吗?"),
+		callback(action) {
+			if (action == "confirm") {
+				deviceStore.deleteDevice();
+			}
+		}
+	});
+}
+</script>
+
+<style lang="scss" scoped>
+.device-detail {
+	background-color: #000;
+}
+</style>
