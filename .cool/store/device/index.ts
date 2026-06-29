@@ -19,6 +19,8 @@ import { storage } from "../../utils";
 import { t } from "../../locale";
 import type { ClActionSheetOptions, ClActionSheetItem } from "@/uni_modules/cool-ui";
 
+import { bluetoothDataManager, type DataReadyStatus, type SleepData } from "../../bluetooth";
+
 //#ifndef H5
 import type { DeviceInfo } from "../../bluetooth/kux";
 import { disconnect, closeAdapter } from "../../bluetooth/kux";
@@ -253,6 +255,37 @@ export class Device {
 		this.status.value = "UNPAIRED";
 		this.currentDeviceName = "";
 		this.realtime.value = null;
+	}
+	//#endif
+
+	//#ifndef H5
+	/**
+	 * 用户主动删除设备(从设备页底部按钮触发)
+	 * - 1. 断开 BLE
+	 * - 2. 清空历史 DB(心率/睡眠/PPI)
+	 * - 3. 清空本地存储(boundDeviceId / PPI 计数 / SLEEP 计数)
+	 * - 4. 重置实时数据 + 状态回 UNPAIRED
+	 * - 注意:wearLocation 保留(用户偏好,与设备无关)
+	 */
+	async deleteDevice(): Promise<void> {
+		console.log("[DEVICE] 用户删除设备");
+
+		// 1. 断开 BLE(在清数据前先断开,避免回调中读到空状态)
+		try {
+			await this.connection.disconnectDevice();
+		} catch (e) {
+			console.warn("[DEVICE] deleteDevice: disconnectDevice 异常,继续清理:", e);
+		}
+
+		// 2. 清空历史 DB(心率/睡眠/PPI 记录)
+		try {
+			await bluetoothDataManager.clearAllData();
+		} catch (e) {
+			console.warn("[DEVICE] deleteDevice: clearAllData 异常,继续清理:", e);
+		}
+
+		// 3. 清空本地 storage(boundDeviceId / PPI 计数 / SLEEP 计数)
+		this.clearAllSavedData();
 	}
 	//#endif
 }

@@ -81,23 +81,28 @@
 import { ref } from "vue";
 import { t } from "@/.cool";
 import { useUi } from "@/uni_modules/cool-ui";
+import type { WearLocation } from "@/.cool/store/device";
 
 const props = defineProps<{
 	searching: boolean;
 }>();
 
-const emit = defineEmits(["select"]);
+// UTS:emit 类型改为 WearLocation,避免下游 onSelect 内联 as 断言
+const emit = defineEmits<{
+	(e: "select", location: WearLocation): void;
+}>();
 const ui = useUi();
 
 const showPopup = ref(false);
-const locations = ["大臂部", "下胸部", "腰部"];
-const selectedLocation = ref("大臂部");
+// UTS:常量数组必须显式标注类型,否则 emit 收到的 location 会是 string
+const locations: WearLocation[] = ["大臂部", "下胸部", "腰部"];
+const selectedLocation = ref<WearLocation>("大臂部");
 
 function showLocationPopup() {
 	showPopup.value = true;
 }
 
-function selectLocationItem(location: string) {
+function selectLocationItem(location: WearLocation) {
 	selectedLocation.value = location;
 	console.log(location);
 }

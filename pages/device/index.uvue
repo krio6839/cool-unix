@@ -87,6 +87,23 @@
 		<!-- 共享 actionSheet(由 store 注入 ref 供 PairingState/TestPopup 等使用) -->
 		<cl-action-sheet ref="actionSheetRef"></cl-action-sheet>
 
+		<!-- 底部"删除设备"按钮:只要绑定就显示,不管连接状态 -->
+		<!-- UTS:必须用 != '' 显式判断字符串非空 -->
+		<view
+			v-if="deviceStore.boundDeviceId != ''"
+			class="absolute bottom-0 left-0 right-0 px-8 pb-8 pt-4"
+			style="background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.6) 30%)"
+		>
+			<cl-button
+				type="primary"
+				color="transparent"
+				rounded
+				@tap="onDeleteDevice"
+			>
+				<cl-text color="#FF5C5C" :size="14">{{ t("删除设备") }}</cl-text>
+			</cl-button>
+		</view>
+
 		<!-- #endif -->
 	</cl-page>
 </template>
@@ -94,6 +111,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
 import { router, t, useStore } from "@/.cool";
+import type { WearLocation } from "@/.cool/store/device";
 
 import UnpairedState from "./components/UnpairedState.uvue";
 import PairingState from "./components/PairingState.uvue";
@@ -104,7 +122,7 @@ const { device: deviceStore } = useStore();
 
 const showPopup = ref(false);
 
-// 共享 cl-action-sheet 实例:通过 watch 同步到 store 供 PairingState / TestPopup 等使用
+// 共享 cl-action-sheet 实例:通过 watch 同步到 store 供 PairingState/TestPopup 等使用
 const actionSheetRef = ref<ClActionSheetComponentPublicInstance | null>(null);
 watch(
 	actionSheetRef,
@@ -119,7 +137,7 @@ const connectedDeviceName = ref<string>("Cool Unix 设备");
 const titleText = computed(() => {
 	if (deviceStore.status.value == "CONNECTED") {
 		return t("设备详情");
-	} else if (deviceStore.isReconnecting) {
+	} else if (deviceStore.isReconnecting == true) {
 		return t("重连中");
 	} else if (deviceStore.status.value == "PAIRING" || deviceStore.status.value == "SEARCHING") {
 		return t("产品配对");
@@ -132,12 +150,14 @@ function openTestPopup() {
 	showPopup.value = true;
 }
 
-function onSelect(location: string) {
-	deviceStore.saveWearLocation(location as "大臂部" | "下胸部" | "腰部");
+// A8 修复:location 类型从 string 改为 WearLocation,不再需要内联 as 断言
+function onSelect(location: WearLocation) {
+	deviceStore.saveWearLocation(location);
 }
 
 async function enterPairingMode() {
-	if (!deviceStore.available) {
+	// UTS:显式比较 boolean,避免隐式布尔
+	if (deviceStore.available == false) {
 		await deviceStore.connection.initBluetooth();
 	}
 	deviceStore.status.value = "SEARCHING";
@@ -158,6 +178,25 @@ function goBack() {
 
 function retry() {
 	deviceStore.connection.initBluetooth();
+}
+
+/**
+ * 删除设备:弹 confirm → 确认后清空本地数据 + 断开 BLE + 状态回 UNPAIRED
+ * - 调用 deviceStore.deleteDevice() 内部统一处理
+ * - 留在当前页(状态变 UNPAIRED,UnpairedState 接管)
+ */
+function onDeleteDevice() {
+	uni.showModal({
+		title: t("删除设备"),
+		content: t("此操作将清空本地存储的所有数据(心率/睡眠/PPI等),且不可恢复。确定继续吗?"),
+		confirmText: t("确定"),
+		confirmColor: "#FF5C5C",
+		cancelText: t("取消"),
+		success: (res) => {
+			if (res.confirm != true) return;
+			deviceStore.deleteDevice();
+		}
+	});
 }
 </script>
 
