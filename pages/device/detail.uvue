@@ -3,7 +3,7 @@
 		<cl-topbar safe-area-top background-color="transparent" :title="t('设备详情')"></cl-topbar>
 
 		<view class="p-3">
-			<!-- A. 基本信息(H5 下也显示,只是 RSSI 等可能为 "—") -->
+			<!-- A. 基本信息 -->
 			<cl-list :pt="{ className: 'mb-3' }">
 				<cl-list-item :label="t('设备名称')">
 					<cl-text>{{
@@ -30,38 +30,32 @@
 				</cl-list-item>
 			</cl-list>
 
-			<!-- C. 操作区: 测试弹窗 + 删除设备 -->
+			<!-- C. 佩戴位置:cl-select 弹窗触发 -->
 			<!-- #ifndef H5 -->
-			<view class="flex flex-row flex-wrap mb-3">
-				<cl-button type="primary" color="#000" rounded class="mr-2 mb-2" @tap="openTest">
-					{{ t("打开测试弹窗") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="transparent"
-					rounded
-					class="mr-2 mb-2"
-					@tap="onDelete"
-				>
-					<cl-text color="#FF5C5C" :size="14">{{ t("删除设备") }}</cl-text>
-				</cl-button>
-			</view>
-
-			<!-- D. 佩戴位置选择 -->
 			<cl-list :pt="{ className: 'mb-3' }">
-				<cl-list-item :label="t('佩戴位置')">
+				<cl-list-item :label="t('佩戴位置')" arrow hoverable @tap="openWearLocationPicker">
 					<cl-text>{{ deviceStore.currentWearLocation }}</cl-text>
 				</cl-list-item>
+			</cl-list>
+			<!-- #endif -->
+
+			<!-- D. 操作列表 -->
+			<!-- #ifndef H5 -->
+			<!-- D1. 常规操作:打开测试弹窗 -->
+			<cl-list :pt="{ className: 'mb-3' }">
 				<cl-list-item
-					v-for="loc in wearLocations"
-					:key="loc"
-					:label="loc"
+					:label="t('打开测试弹窗')"
+					icon="settings-line"
+					arrow
 					hoverable
-					@tap="onSelectLocation(loc)"
-				>
-					<cl-text v-if="deviceStore.currentWearLocation == loc" color="primary">
-						{{ t("已选择") }}
-					</cl-text>
+					@tap="openTest"
+				></cl-list-item>
+			</cl-list>
+
+			<!-- D2. 危险操作:删除设备 -->
+			<cl-list :pt="{ className: 'mb-3' }">
+				<cl-list-item hoverable justify="center" @tap="onDelete">
+					<cl-text color="error">{{ t("删除设备") }}</cl-text>
 				</cl-list-item>
 			</cl-list>
 			<!-- #endif -->
@@ -76,6 +70,17 @@
 			<!-- #endif -->
 		</view>
 
+		<!-- 佩戴位置 picker 弹窗 -->
+		<!-- #ifndef H5 -->
+		<cl-select
+			ref="wearLocationSelectRef"
+			v-model="wearLocation"
+			:title="t('佩戴位置')"
+			:options="wearLocationOptions"
+			:show-trigger="false"
+		></cl-select>
+		<!-- #endif -->
+
 		<!-- 测试弹窗 -->
 		<!-- #ifndef H5 -->
 		<TestPopup v-model="showTest"></TestPopup>
@@ -86,9 +91,10 @@
 <script lang="ts" setup>
 import { ref, computed } from "vue";
 import { t, useStore } from "@/.cool";
-import { useUi } from "@/uni_modules/cool-ui";
+import { useUi, type ClSelectOption } from "@/uni_modules/cool-ui";
 import type { WearLocation } from "@/.cool/store/device";
 // #ifndef H5
+import type { BLEDeviceCharacteristic } from "@/.cool/bluetooth";
 import TestPopup from "./components/TestPopup.uvue";
 // #endif
 
@@ -96,8 +102,15 @@ const { device: deviceStore } = useStore();
 const ui = useUi();
 
 const showTest = ref(false);
+const wearLocation = ref<WearLocation>(deviceStore.currentWearLocation);
+const wearLocationSelectRef = ref<ClSelectComponentPublicInstance | null>(null);
 
-const wearLocations: WearLocation[] = ["大臂部", "下胸部", "腰部"];
+// 佩戴位置选项
+const wearLocationOptions: ClSelectOption[] = [
+	{ label: "大臂部", value: "大臂部" },
+	{ label: "下胸部", value: "下胸部" },
+	{ label: "腰部", value: "腰部" }
+];
 
 // 基本信息 - 连接状态文案
 const statusText = computed((): string => {
@@ -132,9 +145,16 @@ function openTest() {
 	showTest.value = true;
 }
 
-function onSelectLocation(loc: WearLocation) {
-	deviceStore.saveWearLocation(loc);
-	ui.showToast({ message: t("已切换至") + loc, type: "success" });
+function openWearLocationPicker() {
+	// 同步 store 中的最新值(避免 store 改了但本地 ref 还是旧的)
+	wearLocation.value = deviceStore.currentWearLocation;
+	// #ifndef H5
+	wearLocationSelectRef.value?.open((value) => {
+		const loc = value as WearLocation;
+		deviceStore.saveWearLocation(loc);
+		ui.showToast({ message: t("已切换至") + loc, type: "success" });
+	});
+	// #endif
 }
 
 /**
