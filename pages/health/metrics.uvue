@@ -20,10 +20,10 @@
 				<cl-row :gutter="12">
 					<cl-col :span="12" v-for="(item, index) in metricItems" :key="index">
 						<view
-							class="h-12 mb-3 rounded-lg flex flex-row items-center justify-between px-4"
+							class="metric-card h-12 mb-3 rounded-lg flex flex-row items-center justify-between px-4"
 							:class="{
-								'bg-[rgba(210,255,92,0.2)]': activeMetric == item.value,
-								'bg-[rgba(255,255,255,0.1)]': activeMetric != item.value
+								'metric-card--active': activeMetric == item.value,
+								'metric-card--inactive': activeMetric != item.value
 							}"
 							@tap="selectMetric(item.value)"
 						>
@@ -297,4 +297,12 @@ watch(
 );
 </script>
 
-<style lang="scss" scoped></style>
+<style lang="scss" scoped>
+.metric-card--active {
+	background-color: rgba(210, 255, 92, 0.2);
+}
+
+.metric-card--inactive {
+	background-color: rgba(255, 255, 255, 0.1);
+}
+</style>

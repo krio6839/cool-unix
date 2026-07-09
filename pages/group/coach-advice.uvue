@@ -29,13 +29,13 @@
 
 		<!-- 今日推荐课表 -->
 		<view class="px-4 mb-4">
-			<text class="text-white text-lg font-bold mb-3 block">今日推荐课表</text>
+			<text class="text-white text-lg font-bold mb-3">今日推荐课表</text>
 			<view class="bg-[#1A1A16] rounded-2xl p-4">
 				<view class="flex flex-row justify-between items-center mb-4">
 					<text class="text-white font-bold">{{ workoutType }}</text>
 					<text class="text-gray-400 text-sm">{{ workoutDuration }}</text>
 				</view>
-				<text class="text-gray-400 text-sm mb-2 block">组间休息3分钟</text>
+				<text class="text-gray-400 text-sm mb-2">组间休息3分钟</text>
 				<cl-progress
 					:value="70"
 					:stroke-width="16"
@@ -51,7 +51,7 @@
 				<text class="text-white font-bold">总时长</text>
 
 				<view class="flex flex-row justify-between items-center mb-4">
-					<text class="text-gray-400 text-sm mb-2 block">
+					<text class="text-gray-400 text-sm mb-2">
 						预估负荷+{{ estimatedLoad }}
 					</text>
 					<text class="text-gray-400 text-sm">{{ totalDuration }}</text>

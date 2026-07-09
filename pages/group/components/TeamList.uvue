@@ -13,11 +13,11 @@
 		</view>
 
 		<!-- 小组列表 -->
-		<view class="space-y-3">
+		<view class="group-list">
 			<view
 				v-for="group in team.groups"
 				:key="group.id"
-				class="bg-[#1A1A16] rounded-lg p-4"
+				class="group-item bg-[#1A1A16] rounded-lg p-4"
 				@click="onGroupClick(group)"
 			>
 				<view class="flex flex-row justify-between items-center mb-2">
@@ -166,5 +166,18 @@ const toChartPage = () => {
 	border-width: 1px;
 	border-color: rgba(62, 114, 104, 0.5);
 	/* #endif */
+}
+
+.group-list {
+	display: flex;
+	flex-direction: column;
+}
+
+.group-item {
+	margin-bottom: 12px;
+}
+
+.group-item:last-child {
+	margin-bottom: 0;
 }
 </style>

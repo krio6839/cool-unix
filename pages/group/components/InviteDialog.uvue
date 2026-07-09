@@ -10,7 +10,7 @@
 				placeholder="请输入编号..."
 				class="w-full mb-6"
 			></cl-input>
-			<view class="flex space-x-4">
+			<view class="dialog-actions flex flex-row">
 				<cl-button size="large" class="flex-1" @click="onCancel">取消</cl-button>
 				<cl-button type="primary" size="large" class="flex-1" @click="onConfirm"
 					>确定</cl-button
@@ -68,5 +68,12 @@ defineExpose({
 </script>
 
 <style lang="scss" scoped>
-/* 组件样式 */
+.dialog-actions {
+	display: flex;
+	flex-direction: row;
+}
+
+.dialog-actions :deep(.cl-button:first-child) {
+	margin-right: 16px;
+}
 </style>

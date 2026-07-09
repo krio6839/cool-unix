@@ -18,7 +18,7 @@
 			<cl-list-item
 				label="选择位置"
 				arrow
-				:pt="{ className: 'list-item' }"
+				:pt="{ className: 'device-list-card' }"
 				@tap="showLocationPopup"
 			>
 			</cl-list-item>
@@ -115,7 +115,7 @@ function confirmLocation() {
 </script>
 
 <style lang="scss" scoped>
-.list-item {
+.device-list-card {
 	background: linear-gradient(270deg, #1a1a16, #060702);
 	border: 1px solid #25261f;
 	border-radius: 16px;

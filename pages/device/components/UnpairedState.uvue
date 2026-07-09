@@ -7,7 +7,7 @@
 			{{ t("未有设备连接，点击进入设备连接") }}
 		</cl-text>
 		<cl-button
-			:pt="{ className: '!h-[45px] !w-[280px]', label: { className: 'font-[17px]' } }"
+			:pt="{ className: '!h-[45px] !w-[280px]', label: { className: 'device-button-label' } }"
 			color="#000"
 			type="primary"
 			rounded
@@ -28,4 +28,9 @@ function enterPairingMode() {
 }
 </script>
 
-<style lang="scss" scoped></style>
+<style lang="scss" scoped>
+.device-button-label {
+	font-size: 17px;
+	font-weight: 700;
+}
+</style>

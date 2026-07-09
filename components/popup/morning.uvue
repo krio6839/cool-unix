@@ -18,12 +18,12 @@
 					<cl-text :size="16" class="text-center font-bold text-white">早起问卷</cl-text>
 				</view>
 				<view class="mb-[40rpx]">
-					<cl-text :size="12" class="block text-white leading-1.5 mb-[40rpx]"
+					<cl-text :size="12" class="text-white leading-1.5 mb-[40rpx]"
 						>Hey! xx帅哥，早安！全新的一天又开始啦~</cl-text
 					>
 
 					<view class="mb-[30rpx]">
-						<cl-text :size="13" class="block text-white mb-[20rpx]"
+						<cl-text :size="13" class="text-white mb-[20rpx]"
 							>昨晚睡得怎么样？</cl-text
 						>
 						<cl-rate
@@ -36,7 +36,7 @@
 					</view>
 
 					<view class="mb-[30rpx]">
-						<cl-text :size="13" class="block text-white mb-[20rpx]"
+						<cl-text :size="13" class="text-white mb-[20rpx]"
 							>醒来后的能量状态如何？</cl-text
 						>
 						<cl-rate
@@ -55,7 +55,7 @@
 								BOOM小语
 							</cl-text>
 						</view>
-						<cl-text :size="10" class="block text-white/90 leading-1.4 mt-[10rpx]"
+						<cl-text :size="10" class="text-white/90 leading-1.4 mt-[10rpx]"
 							>感受一下身体的节奏，今天也要和自己好好相处哦~</cl-text
 						>
 					</view>

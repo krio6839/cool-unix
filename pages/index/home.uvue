@@ -252,6 +252,6 @@ function goToDevice() {
 }
 
 .suggestion-item {
-	@apply transition-all duration-300 hover:bg-surface-100;
+	@apply duration-300;
 }
 </style>
