@@ -72,3 +72,133 @@ export type AdvStatus = {
 	behavior: number;
 	activity: number;
 };
+
+/* ==================== 0x3A/0x3B 生命体征数据类型（1.4.4.8/1.4.4.9 + 2.1.3） ==================== */
+
+/**
+ * 每秒生命体征数据（6B packed LE）— 状态说明.txt 2.1.3
+ * - hr=0xFF 表示无效，0xFE 表示空白
+ */
+export type VitalDataPerSecond = {
+	hr: number; // 0     UINT8  bpm（0xFF=无效 0xFE=空白）
+	status: number; // 1     UINT8  bit5-3 行为类型, bit2-0 活动状态
+	pitch: number; // 2     UINT8  步频（0-255）
+	acc: number; // 3     UINT8  加速度幅值
+	ppi: number; // 4-5   UINT16 LE  脉波间期 ms（0=无效）
+	/** 是否有效（hr != 0xFF && hr != 0xFE） */
+	valid: boolean;
+};
+
+/** 0x3A 请求 V（6B）：4B 时戳 + 1B 方向 + 1B 分钟数 */
+export type VitalDataQueryRequest = {
+	startSec: number;
+	direction: number; // 0=向前 1=向后
+	minutes: number; // 只能是 2 或 5
+};
+
+/** RMSSD/SDNN 单分钟统计（8B：4B RMSSD float LE + 4B SDNN float LE）
+ * 全 FF 标记为无效（rmssd/sdnn 都置 NaN）
+ */
+export type RmssdSdnnPair = {
+	rmssd: number;
+	sdnn: number;
+	valid: boolean;
+};
+
+/** 0x3A/0x3B 响应 V（变长）
+ * 格式: 4B startSec + 1B direction + 1B n + n*8B RMSSD/SDNN + n*60*6B vital data
+ */
+export type VitalDataQueryResponse = {
+	startSec: number;
+	direction: number;
+	n: number; // 返回分钟数（可能 < 请求分钟数）
+	rmssdSdnn: RmssdSdnnPair[]; // n 项
+	vitalData: VitalDataPerSecond[]; // n*60 项
+};
+
+/* ==================== 0x3C/0x3D 事件数据类型（1.4.4.10/1.4.4.11 + 2.1.4） ==================== */
+
+/** 0x3C 请求 V（10B）：1B type + 4B start + 4B end */
+export type EventDataQuery = {
+	type: number; // 0=ALL 1=BY_TIME
+	startSec: number;
+	endSec: number;
+};
+
+/** 0x3C 响应 V（17B）：事件头（最早/最晚 sn+ts） */
+export type EventDataHeaderResponse = {
+	type: number; // Byte 0
+	earliestSn: number; // Byte 1-4
+	earliestSec: number; // Byte 5-8
+	latestSn: number; // Byte 9-12
+	latestSec: number; // Byte 13-16
+};
+
+/** DS_Data_Header_t（8B packed）— 状态说明.txt 2.1.4 */
+export type LogDataHeader = {
+	flag: number; // 0     UINT8  0xA5=有效
+	flag2: number; // 1     UINT8  保留
+	crc8: number; // 2     UINT8
+	payloadLen: number; // 3     UINT8
+	sn: number; // 4-5   UINT16 LE  reset 后自增序号
+	globalSn: number; // 6-7   UINT16 LE  全局自增序号
+};
+
+/**
+ * Log_Data_t（变长）— 状态说明.txt 2.1.4
+ * - header(8B) + ts(4B) + tick(4B) + eventType(1B) + dataLen(1B) + eventData(dataLen B)
+ * - eventData 按 eventType 解析后填入 parsedEvent（UTSJSONObject 表达）
+ */
+export type LogDataItem = {
+	header: LogDataHeader;
+	ts: number; // 时间戳
+	tick: number; // (GetTick() / 1000)
+	eventType: number; // 类型（LogEventType 枚举值）
+	dataLen: number; // 数据长度
+	eventDataHex: string; // 原始 hex（兜底展示）
+	parsedEvent: UTSJSONObject; // 按 eventType 解析后的结构化对象
+};
+
+/* ===== eventData 子类型（2.1.4.2.x）===== */
+
+/** 2.1.4.2.1 Text/RemoteCmd/SetDeviceSn：eventData = ASCII 字符串 */
+export type EventDataText = {
+	text: string;
+};
+
+/** 2.1.4.2.2 Reset：eventData = 4B LE 数值（重启原因） */
+export type EventDataReset = {
+	value: number;
+};
+
+/** 2.1.4.2.3 SetTime：eventData = 2 个 4B LE（设置前时戳 + 设置后时戳） */
+export type EventDataSetTime = {
+	oldSec: number;
+	newSec: number;
+};
+
+/** 2.1.4.2.4 FormatDS：eventData = 4B LE（擦除扇区地址） */
+export type EventDataFormatDS = {
+	address: number;
+};
+
+/** 2.1.4.2.5 Wear：eventData = 2 个 1B（改变前状态 + 改变后状态） */
+export type EventDataWear = {
+	before: number; // 0=未佩戴 1=佩戴
+	after: number;
+};
+
+/** 2.1.4.2.6 SleepResult：eventData = 22B packed LE vital_sleep_result_t */
+export type EventDataSleepResult = {
+	sleepOnsetSec: number; // 距当前秒数
+	awakeSec: number; // 距当前秒数
+	lightSleepSec: number; // 浅度睡眠时长
+	deepSleepSec: number; // 深度睡眠时长
+	otherSleepSec: number; // 其他睡眠时长
+	restHr: number; // 静息心率 bpm
+};
+
+/** 2.1.4.2.7 Sedentary：eventData = 2B LE（久坐阈值秒数） */
+export type EventDataSedentary = {
+	thresholdSec: number;
+};

@@ -18,9 +18,18 @@ import {
 	serializeDeviceNumber,
 	serializeTimestamp,
 	serializeBiometric,
-	serializeVibration
+	serializeVibration,
+	serializeVitalDataQuery,
+	serializeVitalContinueQuery,
+	serializeEventDataQuery,
+	serializeEventContinueQuery
 } from "../../bluetooth";
-import type { VibrationSpec, VitalBiometric } from "../../bluetooth";
+import type {
+	VibrationSpec,
+	VitalBiometric,
+	VitalDataQueryRequest,
+	EventDataQuery
+} from "../../bluetooth";
 
 //#ifndef H5
 import {
@@ -174,5 +183,58 @@ export class DeviceProtocol {
 	controlVibration(spec: VibrationSpec): Promise<boolean> {
 		if (spec.count > 10) spec.count = 10;
 		return this.sendTlvc(BOOM_CMD.CONTROL_VIBRATION, serializeVibration(spec));
+	}
+
+	/* ===== 0x3A/0x3B 历史生命体征（1.4.4.8/1.4.4.9） ===== */
+
+	/**
+	 * 0x3A 开始读生命体征数据
+	 * @param req.startSec UTC 秒
+	 * @param req.direction 0=向前 1=向后
+	 * @param req.minutes 2 或 5
+	 */
+	readVitalData(req: VitalDataQueryRequest): Promise<boolean> {
+		if (req.minutes != 2 && req.minutes != 5) {
+			console.warn(`[BOOM-PROTO] 0x3A minutes=${req.minutes} 非法（应=2或5）`);
+			return Promise.resolve(false);
+		}
+		return this.sendTlvc(
+			BOOM_CMD.READ_VITAL_DATA_START,
+			serializeVitalDataQuery(req)
+		);
+	}
+
+	/** 0x3B 继续读生命体征数据（minutes 只能是 2 或 5） */
+	continueReadVitalData(minutes: number): Promise<boolean> {
+		if (minutes != 2 && minutes != 5) {
+			console.warn(`[BOOM-PROTO] 0x3B minutes=${minutes} 非法（应=2或5）`);
+			return Promise.resolve(false);
+		}
+		return this.sendTlvc(
+			BOOM_CMD.READ_VITAL_DATA_CONTINUE,
+			serializeVitalContinueQuery(minutes)
+		);
+	}
+
+	/* ===== 0x3C/0x3D 事件日志（1.4.4.10/1.4.4.11） ===== */
+
+	/** 0x3C 开始读事件数据 */
+	readEventData(req: EventDataQuery): Promise<boolean> {
+		return this.sendTlvc(
+			BOOM_CMD.READ_EVENT_DATA_START,
+			serializeEventDataQuery(req)
+		);
+	}
+
+	/** 0x3D 继续读事件数据（maxCount 最大条数） */
+	continueReadEventData(maxCount: number): Promise<boolean> {
+		if (maxCount < 0) {
+			console.warn(`[BOOM-PROTO] 0x3D maxCount=${maxCount} 不能为负`);
+			return Promise.resolve(false);
+		}
+		return this.sendTlvc(
+			BOOM_CMD.READ_EVENT_DATA_CONTINUE,
+			serializeEventContinueQuery(maxCount)
+		);
 	}
 }

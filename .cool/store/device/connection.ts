@@ -179,6 +179,7 @@ export class DeviceConnection {
 		//#ifndef H5
 		startDiscovery();
 		onDeviceFound((res) => {
+			console.log("发现设备:", res);
 			const list = (res as UTSJSONObject)["devices"] as Array<UTSJSONObject> | null;
 			if (list == null) return;
 			for (let i = 0; i < list.length; i++) {

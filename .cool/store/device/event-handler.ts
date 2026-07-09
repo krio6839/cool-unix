@@ -10,13 +10,25 @@ import {
 	decodeTlvc,
 	BOOM_GATT_SERVICE_UUID,
 	BOOM_CMD,
+	parseU16LE,
 	parseFirmwareVersion,
 	parseDeviceNumber,
 	parseTimestamp,
 	parseBiometric,
-	parseVibrationResult
+	parseVibrationResult,
+	parseVitalDataResponse,
+	parseEventDataHeader,
+	parseLogDataList,
+	DataIdentifierReassembler
 } from "../../bluetooth";
-import type { FirmwareVersion, VitalBiometric, VibrationResult } from "../../bluetooth";
+import type {
+	FirmwareVersion,
+	VitalBiometric,
+	VibrationResult,
+	VitalDataQueryResponse,
+	EventDataHeaderResponse,
+	LogDataItem
+} from "../../bluetooth";
 
 //#ifndef H5
 import { onCharacteristicValueChange } from "../../bluetooth/kux";
@@ -38,8 +50,17 @@ export class EventHandler {
 	biometricInfo = ref<VitalBiometric | null>(null);
 	/** 0x40 震动马达最后一次响应 */
 	lastVibration = ref<VibrationResult | null>(null);
+	/** 0x3A/0x3B 最近一次生命体征查询结果（多帧重组后） */
+	vitalDataResponse = ref<VitalDataQueryResponse | null>(null);
+	/** 0x3C 事件头（最早/最晚 sn + ts） */
+	eventDataHeader = ref<EventDataHeaderResponse | null>(null);
+	/** 0x3C/0x3D 累积事件列表（按到达顺序追加） */
+	eventDataList = ref<LogDataItem[]>([]);
 
 	private device: Device;
+
+	/** 0x3A/0x3B 多帧重组器（跨多帧 DI 拼成完整 V） */
+	private _vitalReassembler: DataIdentifierReassembler = new DataIdentifierReassembler();
 
 	constructor(device: Device) {
 		this.device = device;
@@ -61,16 +82,37 @@ export class EventHandler {
 	}
 
 	/**
-	 * 处理 GATT notify 收到的 ArrayBuffer
-	 * 路径: arrayBufferToHexString → decodeTlvc (CRC 校验) → 按 T 码分派到 event 字段
+	 * 处理 GATT notify 数据
+	 * 路径: arrayBufferToHexString → DI 检测（多帧时重组） → decodeTlvc (CRC 校验) → 按 T 码分派到 event 字段
 	 *
-	 * 真实 GATT 与 Mock 共用此方法（mock 模拟 notify 时也调它）
+	 * DI 检测：前 2B 16-bit LE，若 bit15 或 bit14 非 0，视为 DataIdentifier 头
+	 *   - 单帧（Start+End）：重组器只收到一帧，直接返回 payload
+	 *   - 多帧：累计到 End 帧后返回完整 payload
+	 *
+	 * 真实 GATT 与 Mock 共用此方法
 	 */
 	handleNotifyData(value: ArrayBuffer): void {
 		const hexData = arrayBufferToHexString(value);
-		const f = decodeTlvc(hexData);
+		let tlvcHex = hexData;
+
+		// DI 检测：bit 15 (0x8000) 或 bit 14 (0x4000) 非 0 → DI 帧
+		if (hexData.length >= 4) {
+			const firstTwoBytes = parseU16LE(hexData, 0);
+			if ((firstTwoBytes & 0xC000) != 0) {
+				// 多帧或带 DI 的单帧
+				const reassembled = this._vitalReassembler.push(hexData);
+				if (reassembled == null) {
+					// 还在接收中，等待后续帧
+					return;
+				}
+				// 重组完成 → 走正常 TLVC 解析
+				tlvcHex = reassembled;
+			}
+		}
+
+		const f = decodeTlvc(tlvcHex);
 		if (f == null) {
-			console.warn("[BOOM] CRC 校验失败:", hexData);
+			console.warn("[BOOM] CRC 校验失败:", tlvcHex);
 			return;
 		}
 
@@ -99,8 +141,59 @@ export class EventHandler {
 				this.lastVibration.value = parseVibrationResult(f.v);
 				console.log("[BOOM] 震动结果:", this.lastVibration.value);
 				break;
+			/* ===== 0x3A/0x3B 生命体征（多帧重组） ===== */
+			case BOOM_CMD.READ_VITAL_DATA_START:
+			case BOOM_CMD.READ_VITAL_DATA_CONTINUE:
+				this._handleVitalData(f.v, f.t);
+				break;
+			/* ===== 0x3C/0x3D 事件数据 ===== */
+			case BOOM_CMD.READ_EVENT_DATA_START:
+			case BOOM_CMD.READ_EVENT_DATA_CONTINUE:
+				this._handleEventData(f.v, f.t);
+				break;
 			default:
 				console.log("[BOOM] 未知 T:", f.t, "数据:", hexData);
+		}
+	}
+
+	/**
+	 * 处理 0x3A/0x3B 响应（多帧重组由 handleNotifyData 完成，到此处 f.v 已是完整 payload）
+	 */
+	private _handleVitalData(vHex: string, t: number): void {
+		const resp = parseVitalDataResponse(vHex);
+		this.vitalDataResponse.value = resp;
+		const validCount = resp.vitalData.filter((d) => d.valid == true).length;
+		console.log(
+			`[BOOM] 生命体征响应: t=0x${t.toString(16)}, n=${resp.n}, vitalCount=${resp.vitalData.length}, validCount=${validCount}`
+		);
+	}
+
+	/**
+	 * 处理 0x3C/0x3D 响应
+	 * - 0x3C: 17B 头（最早/最晚 sn + ts）
+	 * - 0x3D: 多条 Log_Data_t 串联
+	 */
+	private _handleEventData(vHex: string, t: number): void {
+		if (t == BOOM_CMD.READ_EVENT_DATA_START) {
+			// 0x3C：先解析头（17B）
+			if (vHex.length >= 34) {
+				this.eventDataHeader.value = parseEventDataHeader(vHex);
+				console.log(
+					`[BOOM] 事件头: type=${this.eventDataHeader.value?.type}, earliestSn=${this.eventDataHeader.value?.earliestSn}, latestSn=${this.eventDataHeader.value?.latestSn}`
+				);
+			} else {
+				console.warn(`[BOOM] 0x3C 响应 V 长度 ${vHex.length} < 34 (17B)`);
+			}
+		} else {
+			// 0x3D：多条 Log_Data_t
+			const r = parseLogDataList(vHex, 0);
+			if (r.items.length > 0) {
+				// 追加到累积列表
+				this.eventDataList.value = this.eventDataList.value.concat(r.items);
+				console.log(
+					`[BOOM] 事件追加: count=${r.items.length}, total=${this.eventDataList.value.length}`
+				);
+			}
 		}
 	}
 }

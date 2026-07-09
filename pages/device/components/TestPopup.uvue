@@ -182,6 +182,92 @@
 				</cl-button>
 			</view>
 
+			<!-- 历史数据（0x3A/0x3B/0x3C/0x3D，4 个按钮） -->
+			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+				{{ t("历史数据（v5 新增）") }}
+			</cl-text>
+			<view class="flex flex-row flex-wrap mb-4">
+				<cl-button
+					type="primary"
+					color="#0a0"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testReadVitalData"
+				>
+					{{ t("0x3A 读生命体征") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#0a0"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testContinueReadVital"
+				>
+					{{ t("0x3B 续读生命体征") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#a00"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testReadEventData"
+				>
+					{{ t("0x3C 读事件") }}
+				</cl-button>
+				<cl-button
+					type="primary"
+					color="#a00"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="testContinueReadEvent"
+				>
+					{{ t("0x3D 续读事件") }}
+				</cl-button>
+			</view>
+
+			<!-- 0x3A 生命体征响应展示区 -->
+			<view v-if="hasVitalData" class="mb-4 p-3 bg-gray-800 rounded">
+				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+					{{ t("0x3A 生命体征响应") }}
+				</cl-text>
+				<view class="mb-2">
+					<cl-text color="gray-400" :size="12">
+						{{ t("起始时戳 / 方向 / 分钟数") }}: {{ vitalText.start }}
+					</cl-text>
+				</view>
+				<view class="mb-2">
+					<cl-text color="gray-400" :size="12">
+						{{ t("RMSSD/SDNN") }}: {{ vitalText.rmssdSdnn }}
+					</cl-text>
+				</view>
+				<view>
+					<cl-text color="gray-400" :size="12">
+						{{ t("逐秒数据 (前 30 条)") }}: {{ vitalText.vital }}
+					</cl-text>
+				</view>
+			</view>
+
+			<!-- 0x3C/0x3D 事件响应展示区 -->
+			<view v-if="hasEventData" class="mb-4 p-3 bg-gray-800 rounded">
+				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+					{{ t("0x3C 事件响应") }}
+				</cl-text>
+				<view class="mb-2">
+					<cl-text color="gray-400" :size="12">
+						{{ t("事件头") }}: {{ eventText.header }}
+					</cl-text>
+				</view>
+				<view>
+					<cl-text color="gray-400" :size="12">
+						{{ t("事件列表 (前 10 条)") }}: {{ eventText.items }}
+					</cl-text>
+				</view>
+			</view>
+
 			<!-- 设备控制 -->
 			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
 				{{ t("设备控制") }}
@@ -225,7 +311,7 @@
 <script lang="ts" setup>
 //#ifndef H5
 import { computed } from "vue";
-import { DEVICE_NUMBER_MAX_LEN, t, useStore } from "@/.cool";
+import { DEVICE_NUMBER_MAX_LEN, LOG_EVENT_NAMES, t, useStore } from "@/.cool";
 import type { VibrationSpec, VitalBiometric } from "@/.cool";
 import { useUi } from "@/uni_modules/cool-ui";
 
@@ -370,6 +456,160 @@ async function testVibration(): Promise<void> {
 	const ok = await deviceStore.protocol.controlVibration(spec);
 	ui.showToast({ message: ok ? t("0x40 已发送") : t("失败"), type: ok ? "success" : "error" });
 }
+
+/* ===== 历史数据测试按钮（v5 新增） ===== */
+
+async function testReadVitalData(): Promise<void> {
+	uni.showModal({
+		title: t("0x3A 读生命体征"),
+		editable: true,
+		placeholderText: t("startSec(秒) | dir(0/1) | minutes(2/5)，如 1783000000|0|2"),
+		success: (res) => {
+			if (res.confirm && res.content != null) {
+				const parts = (res.content ?? "").split("|");
+				if (parts.length < 3) {
+					ui.showToast({ message: t("格式错误"), type: "error" });
+					return;
+				}
+				const startSec = parseInt(parts[0] ?? "0", 10);
+				const direction = parseInt(parts[1] ?? "0", 10);
+				const minutes = parseInt(parts[2] ?? "2", 10);
+				deviceStore.protocol
+					.readVitalData({ startSec, direction, minutes })
+					.then((ok) => {
+						ui.showToast({
+							message: ok ? t("0x3A 已发送") : t("失败"),
+							type: ok ? "success" : "error"
+						});
+					});
+			}
+		}
+	});
+}
+
+async function testContinueReadVital(): Promise<void> {
+	uni.showModal({
+		title: t("0x3B 续读生命体征"),
+		editable: true,
+		placeholderText: t("minutes 只能是 2 或 5"),
+		success: (res) => {
+			if (res.confirm && res.content != null) {
+				const minutes = parseInt(res.content ?? "2", 10);
+				deviceStore.protocol.continueReadVitalData(minutes).then((ok) => {
+					ui.showToast({
+						message: ok ? t("0x3B 已发送") : t("失败"),
+						type: ok ? "success" : "error"
+					});
+				});
+			}
+		}
+	});
+}
+
+async function testReadEventData(): Promise<void> {
+	uni.showModal({
+		title: t("0x3C 读事件"),
+		editable: true,
+		placeholderText: t("type(0/1) | startSec | endSec，如 0|1783000000|1784000000"),
+		success: (res) => {
+			if (res.confirm && res.content != null) {
+				const parts = (res.content ?? "").split("|");
+				if (parts.length < 3) {
+					ui.showToast({ message: t("格式错误"), type: "error" });
+					return;
+				}
+				const type = parseInt(parts[0] ?? "0", 10);
+				const startSec = parseInt(parts[1] ?? "0", 10);
+				const endSec = parseInt(parts[2] ?? "0", 10);
+				deviceStore.protocol
+					.readEventData({ type, startSec, endSec })
+					.then((ok) => {
+						ui.showToast({
+							message: ok ? t("0x3C 已发送") : t("失败"),
+							type: ok ? "success" : "error"
+						});
+					});
+			}
+		}
+	});
+}
+
+async function testContinueReadEvent(): Promise<void> {
+	uni.showModal({
+		title: t("0x3D 续读事件"),
+		editable: true,
+		placeholderText: t("maxCount 最多条数，如 10"),
+		success: (res) => {
+			if (res.confirm && res.content != null) {
+				const maxCount = parseInt(res.content ?? "10", 10);
+				deviceStore.protocol.continueReadEventData(maxCount).then((ok) => {
+					ui.showToast({
+						message: ok ? t("0x3D 已发送") : t("失败"),
+						type: ok ? "success" : "error"
+					});
+				});
+			}
+		}
+	});
+}
+
+/* ===== v5 历史数据展示用 computed ===== */
+
+type VitalText = {
+	start: string;
+	rmssdSdnn: string;
+	vital: string;
+};
+type EventText = {
+	header: string;
+	items: string;
+};
+
+const vitalText = computed<VitalText>(() => {
+	const r = deviceStore.event.vitalDataResponse.value;
+	if (r == null) {
+		return { start: "-", rmssdSdnn: "-", vital: "-" };
+	}
+	const start = `${r.startSec} / ${r.direction} / ${r.n}min`;
+	const rmssdSdnn = r.rmssdSdnn
+		.slice(0, 10)
+		.map((p) => (p.valid == true ? `${p.rmssd}|${p.sdnn}` : "FF"))
+		.join(",");
+	const vital = r.vitalData
+		.slice(0, 30)
+		.map((d) => (d.valid == true ? `t+${d.hr}bpm` : "—"))
+		.join(" ");
+	return { start, rmssdSdnn, vital };
+});
+
+const hasVitalData = computed<boolean>(() => {
+	return deviceStore.event.vitalDataResponse.value != null;
+});
+
+const eventText = computed<EventText>(() => {
+	const h = deviceStore.event.eventDataHeader.value;
+	const list = deviceStore.event.eventDataList.value;
+	if (h == null && list.length == 0) {
+		return { header: "-", items: "-" };
+	}
+	const header = h == null
+		? "-"
+		: `type=${h.type} sn[${h.earliestSn}~${h.latestSn}] ts[${h.earliestSec}~${h.latestSec}]`;
+	const items = list
+		.slice(0, 10)
+		.map((it) => {
+			const typeName = LOG_EVENT_NAMES[it.eventType] ?? "?";
+			return `sn=${it.header.sn} ${typeName} ts=${it.ts}`;
+		})
+		.join("\n");
+	return { header, items };
+});
+
+const hasEventData = computed<boolean>(() => {
+	const h = deviceStore.event.eventDataHeader.value;
+	const list = deviceStore.event.eventDataList.value;
+	return h != null || list.length > 0;
+});
 
 /* ===== 设备控制 ===== */
 
