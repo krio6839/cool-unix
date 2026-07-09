@@ -174,50 +174,156 @@ export class DeviceConnection {
 	 * @param mode pairing=配对 / reconnect=重连（仅连 boundDeviceId）
 	 */
 	startBluetoothSearch(mode: "pairing" | "reconnect"): void {
-		this._scanMode = mode;
-		this._isSearching = true;
+		this._startBluetoothSearchInternal(mode);
+	}
+
+	private async _startBluetoothSearchInternal(mode: "pairing" | "reconnect"): Promise<void> {
+		console.log("[SCAN] 开始搜索 BOOM-* 设备,mode:", mode);
 		//#ifndef H5
-		startDiscovery();
-		onDeviceFound((res) => {
-			console.log("发现设备:", res);
-			const list = (res as UTSJSONObject)["devices"] as Array<UTSJSONObject> | null;
-			if (list == null) return;
-			for (let i = 0; i < list.length; i++) {
-				const d = list[i];
-				if (d == null) continue;
-				const name = (d["name"] as string) ?? "";
-				const deviceId = (d["deviceId"] as string) ?? "";
-				if (deviceId == "") continue;
+		if (this._isSearching == true) {
+			console.log("[SCAN] 搜索已在进行,跳过");
+			return;
+		}
+		this._isSearching = true;
+		this._scanMode = mode;
 
-				// 命中 BOOM-XXXX 才入列
-				if (name.startsWith(TARGET_DEVICE_NAME_PREFIX)) {
-					const devices = this.device.devices;
-					if (!devices.some((x) => x.deviceId == deviceId)) {
-						// DeviceInfo 必填 8 字段全填齐
-						devices.push({
-							name,
-							localName: name, // BOOM 设备 localName 通常 == name
-							deviceId,
-							RSSI: (d["RSSI"] as number) ?? 0,
-							advertisData: [],
-							advertisServiceUUIDs: [],
-							serviceData: null,
-							connectable: true
-						} as DeviceInfo);
-					}
-				}
+		try {
+			// 搜索前清空旧设备列表,避免残留
+			this.device.devices = [];
 
-				// 已绑定的设备（或当前正在通信的设备）出现 0x50 广播 → 解析实时数据
-				if (deviceId == this.device.currentDeviceId) {
-					this._tryParseBroadcast(d);
-				}
+			// 内部 1 次自动 retry,规避 kux 库的 `if (this.scanning)` 并发守护
+			let ok = await startDiscovery();
+			if (ok == false) {
+				console.warn("[SCAN] startDiscovery 返回 false,500ms 后重试一次");
+				await sleepTimeout(500);
+				ok = await startDiscovery();
 			}
-		});
-		//@ts-ignore
-		this._pairingScanTimer = setTimeout(() => {
-			this.stopBluetoothSearch();
-		}, DeviceConnection.PAIRING_SCAN_TIMEOUT_MS);
+			if (ok == false) {
+				this.device.status.value = "UNPAIRED";
+				this.device.errorMessage.value = t("搜索设备失败,请检查蓝牙和位置权限");
+				return;
+			}
+			console.log("[SCAN] 开始搜索 BOOM-* 设备,mode:", mode);
+			this._schedulePairingScanTimeout();
+
+			onDeviceFound((list) => {
+				console.log("发现设备:", list);
+				if (list == null) return;
+				for (let i = 0; i < list.length; i++) {
+					const d = list[i];
+					if (d == null) continue;
+					// 优先用 name,fallback 到 localName(BLE 设备 GAP name 常为空)
+					const name = d.name ?? d.localName ?? "";
+					const deviceId = d.deviceId ?? "";
+					if (deviceId == "") continue;
+
+					// 命中 BOOM-XXXX 才入列
+					if (name.startsWith(TARGET_DEVICE_NAME_PREFIX)) {
+						this._handleFoundDevice(d, name);
+					}
+
+					// 已绑定的设备（或当前正在通信的设备）出现 0x50 广播 → 解析实时数据
+					// if (deviceId == this.device.currentDeviceId) {
+					// 	this._tryParseBroadcast(d);
+					// }
+				}
+			});
+		} finally {
+			this._isSearching = false;
+		}
 		//#endif
+	}
+
+	/**
+	 * 处理已发现的目标 BOOM 设备:入列表 + 按 RSSI 排序(信号最强在最前)
+	 * 找到 N 个都入列表,等扫描周期结束后统一处理
+	 * 连接由 _handlePairingScanTimeout 根据 _scanMode + devices.length 决定
+	 */
+	private _handleFoundDevice(found: DeviceInfo, name: string): void {
+		console.log("[SCAN] 发现目标设备:", found.deviceId);
+		if (!this.device.devices.some((d) => d.deviceId == found.deviceId)) {
+			// DeviceInfo 必填 8 字段全填齐
+			this.device.devices.push({
+				name,
+				localName: found.localName ?? name, // BOOM 设备 localName 通常 == name
+				deviceId: found.deviceId,
+				RSSI: found.RSSI ?? 0,
+				advertisData: [],
+				advertisServiceUUIDs: [],
+				serviceData: null,
+				connectable: true
+			} as DeviceInfo);
+		}
+		// 按 RSSI 降序排序(信号最强在最前)
+		this.device.devices.sort((a, b) => (b.RSSI ?? -100) - (a.RSSI ?? -100));
+		console.log("[SCAN] 当前 BOOM 设备列表长度:", this.device.devices.length);
+	}
+
+	/** 调度扫描超时定时器 */
+	private _schedulePairingScanTimeout(): void {
+		this._clearPairingScanTimeout();
+		// @ts-ignore setTimeout 在 UTS 不同平台返回类型不一,这里用 number 容器
+		this._pairingScanTimer = setTimeout(() => {
+			this._handlePairingScanTimeout();
+		}, DeviceConnection.PAIRING_SCAN_TIMEOUT_MS);
+	}
+
+	/** 清理扫描超时定时器 */
+	private _clearPairingScanTimeout(): void {
+		if (this._pairingScanTimer != 0) {
+			clearTimeout(this._pairingScanTimer);
+			this._pairingScanTimer = 0;
+		}
+	}
+
+	/**
+	 * 扫描超时处理
+	 * - reconnect mode:只连 boundDeviceId,绝不连其他设备;找不到 → 提示"未找到设备"
+	 * - pairing mode:0 个 → 提示"未找到设备";≥1 个 → 弹设备选择 actionSheet
+	 */
+	private async _handlePairingScanTimeout(): Promise<void> {
+		const mode = this._scanMode;
+		const count = this.device.devices.length;
+		console.log(`[SCAN] 配对扫描结束,mode=${mode},共发现 ${count} 个目标设备`);
+		await this.stopBluetoothSearch();
+
+		// === 重连 mode:只连 boundDeviceId,绝不连其他设备 ===
+		if (mode == "reconnect") {
+			const bound = this.device.devices.find((d) => d.deviceId == this.device.boundDeviceId);
+			if (bound == null) {
+				this.device.status.value = "UNPAIRED";
+				this.device.errorMessage.value = t("未找到设备,请确认设备已开机且在范围内");
+				return;
+			}
+			const displayName = bound.name ?? bound.localName ?? "";
+			console.log(`[SCAN] 重连模式,自动连接绑定设备: ${bound.deviceId}`);
+			this.device.devices = [];
+			this.connectToDevice(bound.deviceId, displayName);
+			return;
+		}
+
+		// === 配对 mode:0/1/2+ 标准流程 ===
+		if (count == 0) {
+			this.device.status.value = "UNPAIRED";
+			this.device.errorMessage.value = t("未找到设备,请确认设备已开机且在范围内");
+			return;
+		}
+
+		// 直接弹 actionSheet 让用户选择
+		console.log(`[SCAN] 发现 ${count} 个设备,直接弹窗让用户选择`);
+		const pickerOptions: ShowDevicePickerOptions = {
+			onSelect: (deviceId: string, _device: DeviceInfo) => {
+				console.log(`[SCAN] 用户选择连接: ${deviceId}`);
+				this.connectToFoundDevice(deviceId);
+			},
+			onCancel: () => {
+				console.log(`[SCAN] 用户取消,降级为未配对`);
+				this.device.devices = [];
+				this.device.status.value = "UNPAIRED";
+				this.device.errorMessage.value = t("已取消,请重新配对");
+			}
+		};
+		this.device.showDevicePicker(pickerOptions);
 	}
 
 	/**
@@ -225,31 +331,28 @@ export class DeviceConnection {
 	 * 优先 manufacturerData（uni-app x 标准字段），兜底用 number[] → hex
 	 * 未来扩展：睡眠/血氧历史数据可能也走此通道（见 parseCustomAdvExtended）
 	 */
-	private _tryParseBroadcast(d: UTSJSONObject): void {
-		// 优先 manufacturerData（标准字段）
-		let mfgData: string = (d["manufacturerData"] as string) ?? "";
-		// 兜底：advertisData 是 number[]，转 hex 字符串
-		if (mfgData == "") {
-			const ad = (d["advertisData"] as Array<number> | null) ?? null;
-			if (ad != null && ad.length > 0) {
-				mfgData = ad.map((b: number) => (b & 0xff).toString(16).padStart(2, "0")).join("");
-			}
-		}
-		if (mfgData == "") return;
-		const parsed = parseCustomAdvData(mfgData);
-		if (parsed != null) {
-			const r: RealtimeBroadcast = toRealtimeBroadcast(parsed);
-			this.device.realtime.value = r;
-		}
-	}
+	// private _tryParseBroadcast(d: DeviceInfo): void {
+	// 	// 优先 manufacturerData（标准字段）
+	// 	let mfgData: string = d.manufacturerData ?? "";
+	// 	// 兜底：advertisData 是 number[]，转 hex 字符串
+	// 	if (mfgData == "") {
+	// 		const ad = d.advertisData ?? null;
+	// 		if (ad != null && ad.length > 0) {
+	// 			mfgData = ad.map((b: number) => (b & 0xff).toString(16).padStart(2, "0")).join("");
+	// 		}
+	// 	}
+	// 	if (mfgData == "") return;
+	// 	const parsed = parseCustomAdvData(mfgData);
+	// 	if (parsed != null) {
+	// 		const r: RealtimeBroadcast = toRealtimeBroadcast(parsed);
+	// 		this.device.realtime.value = r;
+	// 	}
+	// }
 
 	/** 停止扫描 + 清理定时器 */
 	stopBluetoothSearch(): void {
 		//#ifndef H5
-		if (this._pairingScanTimer != 0) {
-			clearTimeout(this._pairingScanTimer);
-			this._pairingScanTimer = 0;
-		}
+		this._clearPairingScanTimeout();
 		if (this._isSearching) {
 			stopDiscovery();
 			offDeviceFound();
