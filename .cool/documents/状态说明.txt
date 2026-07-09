@@ -18,7 +18,7 @@ BOOM状态说明
 蓝牙自定义广播数据放在Manufacturer Specific Data（AD Type = 0xFF）中，内容包含如下数据结构，字节序：采用小端序（Little-Endian），刷新时间：每秒刷新。
 广播数据的格式如下：
 T	L	V	V说明
-0x50			见自定义广播数据
+0x50			见附录custom_adv_data_t
 
 1.3.2　蓝牙GATT协议和USB Custom HID协议
 蓝牙GATT协议和USB Custom HID的上下行通信协议格式如下，适合单帧/多帧传输，以组成最大512字节的payload：
@@ -29,6 +29,20 @@ Bit9 - 13Bit: SquenceNumber
 Bit0 - 8Bit:ValidDataNumber
 Payload	TLV格式Payload	
 注意：若无特殊说明，在蓝牙GATT协议和USB Custom HID的协议说明中只说明payload部分的格式，而在获得payload前必须先根据上表的格式进行解包。
+
+/* @note 协议头定义（2 字节，小端）
+ *       - Bit 15: Start Bit（帧起始标志）
+ *       - Bit 14: End Bit   （帧结束标志）
+ *       - Bit 10~13: SequenceNumber（4 位序列号，0~15）
+ *       - Bit 0~9 : ValidDataNumber（vdn, 本帧有效数据字节数，最大 1023）
+ * 
+ * @note 重组策略：
+ *       - 每帧的 vdn 表示本帧携带的有效字节数
+ *       - 起始帧重置 recv_index = vdn，非起始帧累加 recv_index += vdn
+ *       - 结束帧调用 解包函数
+ *       - 总字节数上限受 recv_buf 大小限制（本示例 1024 字节）
+ *       - 最多支持 16 帧（4 位序列号）
+ */
 
 1.4　蓝牙
 1.4.1　设备蓝牙名称
@@ -49,7 +63,8 @@ Value: Notifications and indications disabled
 
 
 1.4.3　蓝牙自定义广播
-见蓝牙自定义广播协议。
+见1.3.1蓝牙自定义广播协议。
+
 1.4.4　GATT协议
 协议中的Payload采用TLVC格式，按小端存储，格式如下：
 字段	长度(字节)	说明
@@ -75,16 +90,17 @@ Byte2: revision version
 1.4.4.2　手机设置设备编号
 a)手机发送
 T	L	V	V说明
-0x31	编号长度	编号内容	设备编号ASCII码，后4位组成蓝牙设备名称BOOM-XXXX
+0x31	编号长度	编号内容	设备编号ASCII码，后4位组成蓝牙设备名称BOOM-XXXX。
+设备编号长度最大是29位数字或字母。
 b)BOOM响应
 T	L	V	V说明
 0x31	编号长度	编号内容	设备编号ASCII码
 示例：
-0E C0 31 00 08 00 31 32 33 34 35 36 37 38 C5 57
-0E C0 31 00 08 00 31 32 33 34 35 36 37 38 C5 57
+手机发送：0E C0 31 00 08 00 31 32 33 34 35 36 37 38 C5 57
+BOOM响应：0E C0 31 00 08 00 31 32 33 34 35 36 37 38 C5 57
 
-13 C0 31 00 0D 00 41 42 43 44 2D 30 30 30 39 36 35 34 33 C7 37
-13 C0 31 00 0D 00 41 42 43 44 2D 30 30 30 39 36 35 34 33 C7 37
+手机发送：13 C0 31 00 0D 00 41 42 43 44 2D 30 30 30 39 36 35 34 33 C7 37
+BOOM响应：13 C0 31 00 0D 00 41 42 43 44 2D 30 30 30 39 36 35 34 33 C7 37
 1.4.4.3　手机读取设备编号
 a)手机发送
 T	L	V	V说明
@@ -101,8 +117,7 @@ T	L	V	V说明
 0x33	4	UINT32	UTC时戳
 b)BOOM响应
 T	L	V	V说明
-0x33	4	UINT32	Byte0：0-男;1-女;
-
+0x33	4	UINT32	UTC时戳
 示例：
 0A C0 33 00 04 00 62 1A 30 6A A8 DE
 0A C0 33 00 04 00 62 1A 30 6A A8 DE
@@ -123,6 +138,18 @@ T	L	V	V说明
 d)BOOM响应
 T	L	V	V说明
 0x35	8	vital_biometric_info_t	见附录数据结构说明
+示例：
+0E C0 35 00 08 00 00 58 1B 50 46 14 00 3C E6 DB
+0E C0 35 00 08 00 00 58 1B 50 46 14 00 3C E6 DB
+=== Vital Biometric Info ===
+Gender: 0 (Male)
+Weight: 70.00 kg (raw: 7000)
+Height: 180.00 cm (raw: 18000)
+Age: 20 years
+PPG Position: 0 (Wrist (手腕))
+BHR: 60 bpm
+==============================
+
 1.4.4.7　手机读取生物识别数据
 c)手机发送
 T	L	V	V说明
@@ -130,11 +157,97 @@ T	L	V	V说明
 d)BOOM响应
 T	L	V	V说明
 0x35	8	vital_biometric_info_t	见附录数据结构说明
+示例：
+06 C0 36 00 00 00 0F AC
+0E C0 35 00 08 00 00 58 1B 50 46 14 00 3C E6 DB
+=== Vital Biometric Info ===
+Gender: 0 (Male)
+Weight: 70.00 kg (raw: 7000)
+Height: 180.00 cm (raw: 18000)
+Age: 20 years
+PPG Position: 0 (Wrist (手腕))
+BHR: 60 bpm
+==============================
+1.4.4.8　手机开始读生命体征数据
+a)手机发送
+T	L	V	V说明
+0x3A	6	Byte 0-3:开始时戳
+Byte 4:方向(0向前，1向后)
+Byte 5:读几分钟数据，只能是2或者5。	每次读取的数据以分钟为单位，生命体征数据每秒1个，每个6字节，每分钟360字节。
+b)BOOM响应
+T	L	V	V说明
+0x3A	6+n*8
++n*60*6	Byte 0-3:开始时戳
+Byte 4:方向(0向前，1向后)
+生命体征数据
+Byte 5:返回分钟数n
+n个RMSSD, SDNN
+n*60个生命体征数据	RMSSD, SDNN为float型，数量由Byte 5指定，全FF表示数据无效。
+生命体征数据每秒1个，每个6字节，全FF表示数据无效，总数由Byte 5指定。
+响应数据说明：
+(1)数据长度可以不足，不足说明后面的时间无有效数据。
+(2)时间有效，数据长度为0，说明本段时间无数据，可以继续读下一段。示例：22 C0 3A 00 1C 00 C8 17 3D 6A 00 02 FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 9E CB
+(3)时间戳为0，明确说明后面已经没有数据了，不需要继续读了。
+示例：
+手机发送：0C C0 3A 00 06 00 3D 17 3D 6A 00 02 0C 6D
+reponse:  (258 bytes): C0 81 3A 00 BA 01 E8 15 3D 6A 00 02 FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 4E 04 00 00 10 03 4E 04 00 00 00 03 4D 04 00 00 08 03 4D 04 00 00 10 03 4D 04 00 00 08 03 4C 04 00 00 08 03 4C 04 00 00 18 03 4C 04 00 00 20 03 4C 04 00 00 18 03 4B 04 00 00 20 03 4B 04 00 00 18 03 4B 04 00 00 08 03 4B 04 00 00 10 03 4B 04 00 00 20 03 4C 04 00 00 18 03 4C 04 00 00 00 00 4D 04 00 00 00 00 4D 04 00 00 00 00 4E 04 00 00 00 00 4F 04 00 00 00 00 4F 04 00 00 F8 02 4F 04 00 00 10 03 4F 04 00 00 28 03 4E 04 00 00 10 03 4E 04 00 00 00 00 4D 04 00 00 00 00 4D 04 00 00 00 00 4D 04 00 00 00 00 4C 04 00 00 00 00 4C 04 00 01 20 03 4B 04 00 00 18 03 4B 04 00 01 10 03 4B 04 00 01 30 03 4B 04 00 01 28 03 4B 04 00 01 18 03 4B 04 00 01 20 03 4B 04 00 01 20 03 4B 04 00 01 10 03 4B 04 
+reponse:  (194 bytes): C0 45 00 00 18 03 4B 04 00 00 10 03 4C 04 00 00 08 03 4C 04 00 00 08 03 4C 04 00 00 08 03 4D 04 00 00 10 03 4D 04 00 00 18 03 4D 04 00 00 20 03 4C 04 00 00 28 03 4C 04 00 01 08 03 4C 04 00 01 18 03 4C 04 00 01 08 03 4C 04 00 00 F8 02 4C 04 00 00 08 03 4D 04 00 00 10 03 4D 04 00 00 10 03 4D 04 00 00 20 03 4D 04 00 00 20 03 4D 04 00 00 10 03 4D 04 00 00 10 03 4D 04 00 00 10 03 4D 04 00 00 F8 02 4D 04 00 00 00 03 4D 04 00 00 10 03 4D 04 00 00 10 03 4D 04 00 00 18 03 4D 04 00 00 20 03 4D 04 00 00 10 03 4D 04 00 00 08 03 FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF A9 6A
+1.4.4.9　手机继续读生命体征数据
+a)手机发送
+T	L	V	V说明
+0x3B	1	Byte 0:读几分钟数据，只能是2或者5。	
+b)BOOM响应
+T	L	V	V说明
+0x3A	6+n*8
++n*60*6	Byte 0-3:开始时戳
+Byte 4:方向(0向前，1向后)
+生命体征数据
+Byte 5:返回分钟数n
+n个RMSSD, SDNN
+n*60个生命体征数据	RMSSD, SDNN为float型，数量由Byte 5指定，全FF表示数据无效。
+生命体征数据每秒1个，每个6字节，全FF表示数据无效，总数由Byte 5指定。
+响应数据说明：
+(1)数据长度可以不足，不足说明后面的时间无有效数据。
+(2)时间有效，数据长度为0，说明本段时间无数据，可以继续读下一段。示例：22 C0 3A 00 1C 00 C8 17 3D 6A 00 02 FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 9E CB
+(3)时间戳为0，明确说明后面已经没有数据了，不需要继续读了。
+示例：
+手机发送：07 C0 3B 00 01 00 02 11 C4
+22 C0 3A 00 1C 00 50 17 3D 6A 00 02 FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF D8 4A
 
+1.4.4.10　手机开始读事件数据
+a)手机发送
+T	L	V	V说明
+0x3C	10		Byte 0: 0
+Byte 1: 1
+Byte 2-5:开始时戳
+Byte 6-9:结束时戳
+b)BOOM响应
+T	L	V	V说明
+0x3C	17		Byte 0: 0
+Byte 1-4:最早一条记录的sn
+Byte 5-8: 最早一条记录的时戳
+Byte 9-12:最后一条记录的sn
+Byte 13-16: 最后一条记录的时戳
+示例：
+10 C0 3C 00 0A 00 00 01 80 C4 32 6A 00 7B 38 6A F0 F4
+0, 1, 1781712000, 1782086400
+17 C0 3C 00 11 00 00 23 00 00 00 DD 3A 2E 6A 23 00 00 00 DD 3A 2E 6A C0 59
+1.4.4.11　手机继续读事件数据
+a)手机发送
+T	L	V	V说明
+0x3D	0		Byte 0: 0
+Byte 1-4:最大条数
+b)BOOM响应
+T	L	V	V说明
+0x3C		Byte 0: 0
+Log_Data_t
+……	由n个Log_Data_t数据结构组成，见附录数据结构说明。
 
+示例：
+0B C0 3D 00 05 00 00 0A 00 00 00 50 B9
+E3 C0 3D 00 DD 00 00 A5 00 44 12 08 00 23 00 00 00 DD 3A 2E 6A 1F 02 00 00 06 02 01 00 A5 00 75 12 07 00 22 00 00 00 64 3A 2E 6A A6 01 00 00 06 02 00 01 A5 00 78 12 06 00 21 00 00 00 5D 3A 2E 6A 9F 01 00 00 06 02 01 00 A5 00 B7 12 05 00 20 00 00 00 5A 3A 2E 6A 9C 01 00 00 06 02 00 01 A5 00 57 12 04 00 1F 00 00 00 11 3A 2E 6A 53 01 00 00 06 02 01 00 A5 00 9B 12 03 00 1E 00 00 00 40 39 2E 6A 82 00 00 00 06 02 00 01 A5 00 EF 12 02 00 1D 00 00 00 3D 39 2E 6A 7F 00 00 00 06 02 01 00 A5 00 42 12 01 00 1C 00 00 00 29 39 2E 6A 6B 00 00 00 06 02 00 01 A5 00 F5 12 00 00 1B 00 00 00 01 39 2E 6A 43 00 00 00 06 02 01 00 A5 00 88 12 03 00 1A 00 00 00 8B 35 2E 6A 9E 00 00 00 06 02 01 00 63 5E
 
-
-1.4.4.8　手机控制震动马达
+1.4.4.12　手机控制震动马达
 e)手机发送
 T	L	V	V说明
 0x40	2+n*2-1	Byte 0: 循环次数
@@ -149,7 +262,9 @@ f)BOOM响应
 T	L	V	V说明
 0x40	1	震动结果	0：成功
 其它：失败原因
-
+示例：
+0E C0 40 00 08 00 01 02 01 F4 03 E8 03 20 37 87
+07 C0 40 00 01 00 00 74 0F
 
 2　附录
 2.1　数据结构说明
@@ -216,8 +331,8 @@ typedef struct
     uint32_t utc; // 偏移 0~3，4字节，小端：低位在前
 
     /**
-     * Battery voltage sampling value [V], with 2 decimal places.
-     * Example: 387 → 3.87V
+     * Battery voltage sampling value [mV].
+     * Example: 3870 → 3870 mV = 3.870 V
      * Range: 0 ... 65535 (实际电池范围通常 300~420)
      */
     int16_t v; // 偏移 4~5，2字节，小端：低位在前
@@ -277,6 +392,136 @@ typedef struct
 
 } __attribute__((packed)) custom_adv_data_t;
 
-2.1.3　
+2.1.3　VitalData_Per_Second
+每秒的生命体征数据
+/**
+ * @brief  每秒生命体征数据（存储到 Flash 的秒级记录）
+ * @note   紧凑打包结构体，按秒记录心率、活动状态、步频、加速度、脉波间期
+ */
+typedef struct
+{
+    /**
+     * 心率 (Heart Rate) [bpm]
+     * 0x00：无效数据
+     * 0xFE：空白数据
+     * 28-240：有效心率值
+     */
+    uint8_t heart_rate;     // 偏移 0，1 字节
 
+    /**
+     * 复合状态字节
+     * Bit[7:6]：保留位 (Reserved)，固定为 0
+     * Bit[5:3]：行为类型 (Behavior Type)
+     *     0x0：休息 (Rest)
+     *     0x1：日常生活 (Daily Life)
+     *     0x2：步行 (Walking)
+     *     0x3：跑步 (Running)
+     *     0x4：骑行 (Cycling)
+     *     0x5：有氧运动 (Aerobic Exercise)
+     *     0x6：其他运动 (Other Exercise)
+     * Bit[2:0]：活动状态 (Activity Status)
+     *     0x0：深度睡眠 (Deep Sleep)
+     *     0x1：浅度睡眠 (Light Sleep)
+     *     0x2：其他睡眠 (Other Sleep)
+     *     0x3：精神放松状态 (Mental Relaxation)
+     *     0x4：活动量低 (Low Activity, ACT-)
+     *     0x5：活动量高 (High Activity, ACT+)
+     *     0x6：精神兴奋状态 (Mental Excitement)
+     *     0x7：身体压力 (Physical Stress)
+     */
+    uint8_t status;         // 偏移 1，1 字节
 
+    /**
+     * 步频 (Pitch) [步/分钟]
+     * 范围：0x00 - 0xFF
+     * 超过 255 截断为 255
+     */
+    uint8_t pitch;          // 偏移 2，1 字节
+
+    /**
+     * 加速度幅值 (Acceleration Amplitude)
+     * 三轴最大值缩放后的单字节表示
+     * 范围：0x00 - 0xFF
+     */
+    uint8_t acc;            // 偏移 3，1 字节
+
+    /**
+     * 脉波间期 (Pulse-to-Pulse Interval, PPI) [ms]
+     * 范围：248 - 2504 ms
+     * 0 表示无效数据
+     * 小端存储：低位在前
+     */
+    uint16_t ppi;           // 偏移 4，2 字节
+
+} __attribute__((packed)) VitalData_Per_Second;
+
+2.1.4　Log_Data_t
+事件数据结构
+typedef struct
+{
+    uint8_t flag;  // 标志位，0xA5表示有效数据
+    uint8_t flag2; // 保留flag
+    uint8_t payload_crc8;
+    uint8_t payload_len;
+    uint16_t sn;        // reset后自增序号
+    uint32_t global_sn; // 全局自增序号
+} __attribute__((packed)) DS_Data_Header_t;
+
+typedef struct
+{
+    DS_Data_Header_t header;
+    uint32_t ts;                 // 时间戳
+    uint32_t tick;               // (GetTick() / 1000)
+    uint8_t eventType;           // 类型
+    uint8_t dataLen;             // 数据长度
+    uint8_t eventData[]; // 数据内容，长度由数据长度指定
+} __attribute__((packed)) Log_Data_t;
+
+2.1.4.1　eventType说明
+typedef enum
+{
+    LogEvent_Text = 0,         // 重要log记录事件
+    LogEvent_Reset,            // 设备重启时间
+    LogEvent_SetTime,          // 设置设备时间时间
+    LogEvent_FormatDS,         // 格式化存储区事件
+    LogEvent_SflashErase,      // 重要扇区擦除事件
+    LogEvent_RemoteCmd,        // 执行远程命令事件
+    LogEvent_Wear,             // PPG佩戴事件
+    LogEvent_SetDeviceSn,      // 改变设备编号
+    LogEvent_SleepResult,      // 睡眠结果事件
+    LogEvent_Sedentary,        // 久坐事件
+    LogEvent_SetBiometricInfo, // 改变生物信息
+    LogEvent_NUMS,
+} LogEventType;
+2.1.4.2　eventData数据结构说明
+2.1.4.2.1　LogEvent_Text和LogEvent_RemoteCmd和LogEvent_SetDeviceSn
+uint8_t eventData[]内容为ascii编码。
+2.1.4.2.2　LogEvent_Reset
+dataLen = 4
+uint8_t eventData[]内容为4字节小端数值，代表重启原因。
+2.1.4.2.3　LogEvent_SetTime
+dataLen = 8
+uint8_t eventData[]内容为两个4字节小端数值，第一个是设置前的时戳，第二个是设置后的时戳。
+2.1.4.2.4　LogEvent_FormatDS
+dataLen = 4
+uint8_t eventData[]内容为4字节小端数值，代表擦除的扇区地址。
+2.1.4.2.5　LogEvent_Wear
+dataLen = 2
+uint8_t eventData[]内容为2个字节，第一个字节表示改变前的状态，第二个字节表示改变后的状态。0表示未佩戴，1表示佩戴。
+2.1.4.2.6　LogEvent_SleepResult
+dataLen = 22
+数据结构如下：
+typedef struct {
+    uint32_t sleep_onset_time;      // 入睡时刻（距当前秒数）
+    uint32_t awake_time;            // 醒来时刻（距当前秒数）
+    uint32_t light_sleep_period;    // 浅度睡眠时长（秒）
+    uint32_t deep_sleep_period;     // 深度睡眠时长（秒）
+    uint32_t other_sleep_period;    // 其他睡眠时长（秒）
+    uint16_t heart_rate_rest;       // 静息心率（bpm）
+} __attribute__((packed)) vital_sleep_result_t;
+2.1.4.2.7　LogEvent_Sedentary
+dataLen = 2
+uint8_t eventData[]内容为2个字节，存放久坐检测阈值时间，单位秒。
+2.1.4.2.8　LogEvent_SetBiometricInfo
+dataLen = 8
+内容见vital_biometric_info_t
