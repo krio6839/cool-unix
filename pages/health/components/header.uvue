@@ -233,7 +233,7 @@ function onCanvasLoad(c: Canvas) {
 
 // 监听进度变化
 watch(
-	computed(() => props.progress),
+	(): number => props.progress,
 	() => {
 		drawProgress();
 	},
