@@ -40,8 +40,8 @@
 					<view
 						class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center"
 					>
-						<cl-text :size="18" class="block font-bold text-white">85%</cl-text>
-						<cl-text :size="10" class="block text-white mt-[5rpx]">恢复率</cl-text>
+						<cl-text :size="18" class="font-bold text-white">85%</cl-text>
+						<cl-text :size="10" class="text-white mt-[5rpx]">恢复率</cl-text>
 					</view>
 				</view>
 			</view>
@@ -49,11 +49,11 @@
 				<cl-text :size="16" class="font-bold text-white">恢复达标！</cl-text>
 			</view>
 			<view class="text-center mb-[40rpx]">
-				<cl-text :size="12" class="block text-white leading-1.5"
+				<cl-text :size="12" class="text-white leading-1.5"
 					>太棒了！你的身体状态已经恢复到最佳水平，准备好迎接新的挑战了。</cl-text
 				>
 			</view>
-			<view class="flex gap-[20rpx] justify-center">
+			<view class="recovery-actions flex justify-center">
 				<button
 					class="w-[160rpx] h-[70rpx] bg-transparent border-2 border-white rounded-[35rpx] text-[24rpx] font-bold text-white leading-[70rpx] text-center"
 					@click="handleShare"
@@ -121,6 +121,12 @@ const handleConfirm = (): void => {
 	background: linear-gradient(135deg, #19494d, #38504f);
 	border: 2px solid #35b1b9;
 	border-radius: 33px;
+}
+
+.recovery-actions {
+	display: flex;
+	flex-direction: row;
+	gap: 20rpx;
 }
 /* #endif */
 </style>

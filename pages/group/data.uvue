@@ -19,7 +19,7 @@
 				:label="member.name"
 				:swipeable="true"
 				:pt="{
-					className: 'list-item mb-3',
+					className: 'group-list-card mb-3',
 					content: {
 						className: 'justify-center'
 					}
@@ -34,12 +34,12 @@
 						<cl-icon name="delete-bin-line" color="#999"></cl-icon>
 					</view>
 				</template>
-				<view class="flex flex-row items-center space-x-4">
-					<view class="flex flex-row items-center">
+				<view class="member-stats flex flex-row items-center">
+					<view class="member-stat flex flex-row items-center">
 						<cl-text :size="13" class="opacity-60">储能值 </cl-text>
 						<text class="text-white ml-2">{{ member.energy }}</text>
 					</view>
-					<view class="flex flex-row items-center">
+					<view class="member-stat flex flex-row items-center">
 						<cl-text :size="13" class="opacity-60">风险指数 </cl-text>
 						<text class="text-white ml-2">{{ member.riskIndex }}</text>
 					</view>
@@ -139,7 +139,7 @@ const toCoachAdvice = (memberId: string) => {
 
 <style lang="scss" scoped>
 /* 组件样式 */
-.list-item {
+.group-list-card {
 	background: linear-gradient(270deg, #1a1a16, #060702);
 	border: 1px solid #25261f;
 	border-radius: 16px;
@@ -147,5 +147,18 @@ const toCoachAdvice = (memberId: string) => {
 	:deep(.cl-list-item__wrapper) {
 		background: transparent !important;
 	}
+}
+
+.member-stats {
+	display: flex;
+	flex-direction: row;
+}
+
+.member-stat {
+	margin-right: 16px;
+}
+
+.member-stat:last-child {
+	margin-right: 0;
 }
 </style>

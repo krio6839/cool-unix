@@ -1,6 +1,6 @@
 <template>
 	<cl-popup v-model="show" position="bottom" :overlay="true" :round="true" :overlay-close="false">
-		<view class="p-5 w-[90%]">
+		<view class="popup-body p-5">
 			<view class="flex justify-between items-center mb-5">
 				<cl-text :size="18" color="#ffffff">设置默认条目</cl-text>
 				<cl-icon name="close" color="#ffffff" :size="20" @tap="close"></cl-icon>
@@ -163,3 +163,9 @@ const saveDefaultItems = () => {
 	emit("save", localDefaultItems.value);
 };
 </script>
+
+<style lang="scss" scoped>
+.popup-body {
+	width: 90%;
+}
+</style>

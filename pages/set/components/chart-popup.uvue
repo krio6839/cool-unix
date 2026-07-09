@@ -30,7 +30,7 @@
 				<text class="text-white text-sm">
 					你的身体电量充足，训练准备度适中（优先使用睡眠期间）
 				</text>
-				<text class="text-white text-sm mt-2 block"> HRV... </text>
+				<text class="text-white text-sm mt-2"> HRV... </text>
 			</view>
 		</view>
 	</cl-popup>

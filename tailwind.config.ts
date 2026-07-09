@@ -491,6 +491,13 @@ export default {
 		"!**/node_modules/**",
 		"!**/dist/**"
 	],
+	blocklist: [
+		"block",
+		"grid",
+		"transition",
+		"resize",
+		"backdrop-filter"
+	],
 	darkMode: "class",
 	theme: {
 		extend: {

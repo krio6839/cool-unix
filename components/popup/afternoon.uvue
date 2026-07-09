@@ -18,12 +18,12 @@
 				<cl-text :size="20" class="text-center font-bold text-white">运动后问卷</cl-text>
 			</view>
 			<view class="mb-4">
-				<cl-text :size="12" class="block text-white leading-1.5 mb-[40rpx]"
+				<cl-text :size="12" class="text-white leading-1.5 mb-[40rpx]"
 					>Hey! xx帅哥，早！又完成一次训练，真是了不起~</cl-text
 				>
 
 				<view class="mb-3">
-					<cl-text :size="13" class="block text-white mb-[20rpx]"
+					<cl-text :size="13" class="text-white mb-[20rpx]"
 						>本次运动的疲劳感如何？</cl-text
 					>
 					<cl-rate
@@ -36,7 +36,7 @@
 				</view>
 
 				<view class="mb-3">
-					<cl-text :size="13" class="block text-white mb-[20rpx]"
+					<cl-text :size="13" class="text-white mb-[20rpx]"
 						>运动后状态怎么样？</cl-text
 					>
 					<cl-rate
@@ -55,7 +55,7 @@
 							BOOM小语
 						</cl-text>
 					</view>
-					<cl-text :size="10" class="block text-white/90 leading-1.4 mt-[10rpx]"
+					<cl-text :size="10" class="text-white/90 leading-1.4 mt-[10rpx]"
 						>恢复是成长的一部分，让身体的努力都有机会被吸收。</cl-text
 					>
 				</view>
