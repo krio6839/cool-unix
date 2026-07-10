@@ -53,7 +53,7 @@
 			</cl-list>
 
 			<!-- D2. 危险操作:删除设备 -->
-			<cl-list :pt="{ className: 'mb-3' }">
+			<cl-list :pt="{ className: 'mb-3' }" v-if="deviceStore.boundDeviceId != ''">
 				<cl-list-item hoverable justify="center" @tap="onDelete">
 					<cl-text color="error">{{ t("删除设备") }}</cl-text>
 				</cl-list-item>
