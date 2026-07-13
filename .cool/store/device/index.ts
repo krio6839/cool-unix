@@ -8,7 +8,6 @@
  * - 0x50 实时数据: realtime
  * - 重连: reconnectAttempts / maxReconnectAttempts / reconnectInterval / isReconnecting
  * - 子管理器: connection / protocol / event
- * - Mock 模拟器: mock / useMock
  * - 共享 actionSheet: actionSheetRef
  *
  * 不再有旧协议的 heartRate / bloodOxygen / battery / ppi / dataReadyStatus / rtcTime / sleepData 等字段。
@@ -35,7 +34,6 @@ import type { RealtimeBroadcast } from "../../bluetooth";
 import { DeviceConnection } from "./connection";
 import { DeviceProtocol } from "./protocol";
 import { EventHandler } from "./event-handler";
-import { MockProvider } from "./mock-provider";
 
 /* 设备选择 actionSheet 调用参数（对象参数，UTS 不支持内联对象字面量类型） */
 export type ShowDevicePickerOptions = {
@@ -86,20 +84,13 @@ export class Device {
 	readonly event: EventHandler;
 	//#endif
 
-	/* ===== Mock 模拟器（始终可用，跨平台）===== */
-	readonly mock: MockProvider;
-	useMock: boolean = false;
-
-	/* ===== 共享 actionSheet 引用（由 pages/device/index.uvue 在 onMounted 注入） ===== */
+	/* ===== 共享 actionSheet 引用（由 pages/device/index.uvue 在 onMounted 注入）===== */
 	//#ifndef H5
 	actionSheetRef: ClActionSheetComponentPublicInstance | null = null;
 	//#endif
 
 	constructor() {
 		this.loadSavedData();
-
-		// Mock 模拟器（始终初始化，跨平台可用）
-		this.mock = new MockProvider(this);
 
 		//#ifndef H5
 		this.connection = new DeviceConnection(this);
@@ -230,31 +221,6 @@ export class Device {
 		this.realtime.value = null;
 		this.errorMessage.value = "";
 	}
-
-	//#ifndef H5
-	/**
-	 * 启动 Mock 模拟（无真实设备时使用）
-	 * - 状态置为 CONNECTED，设备名显示为 BOOM-MOCK
-	 * - 启用 mock.start() → 每秒推送 0x50 实时广播
-	 * - 协议层（protocol.sendTlvc）走 mock 分支，readXxx / setXxx 命令可立即看到 event 字段更新
-	 */
-	startMock(): void {
-		this.useMock = true;
-		this.mock.start();
-		this.status.value = "CONNECTED";
-		this.currentDeviceName = "BOOM-MOCK";
-		this.errorMessage.value = "";
-	}
-
-	/** 停止 Mock 模拟 */
-	stopMock(): void {
-		this.useMock = false;
-		this.mock.stop();
-		this.status.value = "UNPAIRED";
-		this.currentDeviceName = "";
-		this.realtime.value = null;
-	}
-	//#endif
 
 	//#ifndef H5
 	/**

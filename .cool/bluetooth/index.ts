@@ -22,4 +22,6 @@ export * from "./boom-constants";
 export * from "./boom-types";
 export * from "./boom-codec";
 export * from "./boom-parser";
+
+// 文档示例（状态说明.txt 1.4.4.x）
 export * from "./boom-doc-examples";

@@ -5,8 +5,6 @@
  * 1. 发现 BOOM GATT Service（75c276c3-8f97-20bc-a143-b354244886d4）下的 write / notify 特征
  * 2. 启用 notify
  * 3. 8 个高层命令的发送封装（0x30 / 0x31 / 0x32 / 0x33 / 0x34 / 0x35 / 0x36 / 0x40）
- * 4. Mock 模式：命令直接走 MockProvider.handleCommand（mock 内部自生成响应
- *    → encodeTlvc → 与状态说明.txt 文档示例比对 → 模拟 GATT notify）
  */
 
 import {
@@ -47,7 +45,7 @@ import type {
 import type { Device } from "./index";
 
 export class DeviceProtocol {
-	/** 设备引用（用于回写状态 + Mock 分支） */
+	/** 设备引用（用于回写状态） */
 	private device: Device;
 
 	/** 当前设备的 services 列表（动态发现） */
@@ -69,7 +67,46 @@ export class DeviceProtocol {
 	 */
 	async getDeviceServicesAndCharacteristics(deviceId: string): Promise<void> {
 		//#ifndef H5
-		const services = await getServices(deviceId);
+		// 等待设备连接稳定
+		await new Promise<void>((resolve, reject) => {
+			setTimeout(() => {
+				resolve();
+			}, 500);
+		});
+
+		let services: GetBLEDeviceServicesSuccessService[] = [];
+		let retryCount = 0;
+		const maxRetries = 3;
+
+		// 重试机制获取 services
+		while (retryCount < maxRetries) {
+			try {
+				services = await getServices(deviceId);
+				if (services && services.length > 0) {
+					break;
+				}
+				console.warn(`[BOOM-PROTO] 获取 services 为空，第 ${retryCount + 1} 次重试`);
+			} catch (error) {
+				console.warn(
+					`[BOOM-PROTO] 获取 services 失败，第 ${retryCount + 1} 次重试:`,
+					error
+				);
+			}
+
+			retryCount++;
+			if (retryCount < maxRetries) {
+				await new Promise<void>((resolve, reject) => {
+					setTimeout(() => {
+						resolve();
+					}, 1000);
+				});
+			}
+		}
+
+		if (!services || services.length === 0) {
+			throw new Error(`无法获取设备 ${deviceId} 的 services，已重试 ${maxRetries} 次`);
+		}
+
 		this.services = services;
 		const results = await Promise.all(
 			services.map((s: GetBLEDeviceServicesSuccessService) =>
@@ -118,16 +155,9 @@ export class DeviceProtocol {
 
 	/**
 	 * 内部：发一个 TLVC 命令（自动包成单帧 DataIdentifier）
-	 *
-	 * Mock 模式：把 t/vHex 传给 MockProvider.handleCommand
-	 * 真实模式：通过 GATT write 写给设备
+	 * 通过 GATT write 写给设备
 	 */
 	private async sendTlvc(t: number, vHex: string): Promise<boolean> {
-		// Mock 模式：走 mock 模拟器（不写真实 GATT）
-		if (this.device.useMock) {
-			this.device.mock.handleCommand(t, vHex);
-			return true;
-		}
 		//#ifndef H5
 		if (this.writeCharUuid == "") return false;
 		const frame = wrapDataIdentifier(encodeTlvc(t, vHex));
@@ -136,6 +166,25 @@ export class DeviceProtocol {
 			BOOM_GATT_SERVICE_UUID,
 			this.writeCharUuid,
 			hexStringToArrayBuffer(frame),
+			"write"
+		);
+		//#endif
+		return false;
+	}
+
+	/**
+	 * 直接发送一条完整 GATT 帧 hex（DataIdentifier + TLVC + CRC）
+	 * 仅用于"快速发送示例"按钮，绕过高层命令封装
+	 * @param hex 完整帧 hex（奇数长度 / 长度异常由调用方保证）
+	 */
+	async sendRawFrame(hex: string): Promise<boolean> {
+		//#ifndef H5
+		if (this.writeCharUuid == "") return false;
+		return writeCharacteristic(
+			this.device.currentDeviceId,
+			BOOM_GATT_SERVICE_UUID,
+			this.writeCharUuid,
+			hexStringToArrayBuffer(hex),
 			"write"
 		);
 		//#endif
@@ -198,10 +247,7 @@ export class DeviceProtocol {
 			console.warn(`[BOOM-PROTO] 0x3A minutes=${req.minutes} 非法（应=2或5）`);
 			return Promise.resolve(false);
 		}
-		return this.sendTlvc(
-			BOOM_CMD.READ_VITAL_DATA_START,
-			serializeVitalDataQuery(req)
-		);
+		return this.sendTlvc(BOOM_CMD.READ_VITAL_DATA_START, serializeVitalDataQuery(req));
 	}
 
 	/** 0x3B 继续读生命体征数据（minutes 只能是 2 或 5） */
@@ -220,10 +266,7 @@ export class DeviceProtocol {
 
 	/** 0x3C 开始读事件数据 */
 	readEventData(req: EventDataQuery): Promise<boolean> {
-		return this.sendTlvc(
-			BOOM_CMD.READ_EVENT_DATA_START,
-			serializeEventDataQuery(req)
-		);
+		return this.sendTlvc(BOOM_CMD.READ_EVENT_DATA_START, serializeEventDataQuery(req));
 	}
 
 	/** 0x3D 继续读事件数据（maxCount 最大条数） */

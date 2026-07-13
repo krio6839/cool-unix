@@ -8,8 +8,11 @@
 			@tap="goBack"
 		>
 			<template #append>
-				<cl-button text @tap="goDetail">
+				<cl-button text @tap="goDetail" v-if="deviceStore.boundDeviceId">
 					{{ t("详情") }}
+				</cl-button>
+				<cl-button v-else text @tap="goDetail">
+					{{ t("测试") }}
 				</cl-button>
 			</template>
 		</cl-topbar>

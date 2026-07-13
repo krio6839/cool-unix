@@ -79,7 +79,7 @@ export function startDiscovery(): Promise<boolean> {
 	return new Promise((resolve) => {
 		console.log("[SCAN] startDiscovery 请求");
 		kx.startBluetoothDevicesDiscovery({
-			powerLevel: "high",
+			// powerLevel: "high",
 			success: (res: ApiCommonSuccessCallback) => {
 				console.log("[SCAN] startDiscovery 成功");
 				resolve(true);

@@ -206,27 +206,17 @@ export class DeviceConnection {
 			console.log("[SCAN] 开始搜索 BOOM-* 设备,mode:", mode);
 			this._schedulePairingScanTimeout();
 
-			onDeviceFound((list) => {
-				console.log("发现设备:", list);
-				if (list == null) return;
-				for (let i = 0; i < list.length; i++) {
-					const d = list[i];
-					if (d == null) continue;
-					// 优先用 name,fallback 到 localName(BLE 设备 GAP name 常为空)
+			onDeviceFound((devices) => {
+				// 累计所有匹配设备,不去重(去重在 _handleFoundDevice 内部用 deviceId 判断)
+				devices.forEach((d) => {
+					// Nordic 设备的广播包经常只设 localName,不设 GAP name
+					// 优先用 name,fallback 到 localName
 					const name = d.name ?? d.localName ?? "";
-					const deviceId = d.deviceId ?? "";
-					if (deviceId == "") continue;
-
-					// 命中 BOOM-XXXX 才入列
+					console.log("[SCAN] 发现设备:", name);
 					if (name.startsWith(TARGET_DEVICE_NAME_PREFIX)) {
 						this._handleFoundDevice(d, name);
 					}
-
-					// 已绑定的设备（或当前正在通信的设备）出现 0x50 广播 → 解析实时数据
-					// if (deviceId == this.device.currentDeviceId) {
-					// 	this._tryParseBroadcast(d);
-					// }
-				}
+				});
 			});
 		} finally {
 			this._isSearching = false;
@@ -353,11 +343,9 @@ export class DeviceConnection {
 	stopBluetoothSearch(): void {
 		//#ifndef H5
 		this._clearPairingScanTimeout();
-		if (this._isSearching) {
-			stopDiscovery();
-			offDeviceFound();
-			this._isSearching = false;
-		}
+		stopDiscovery();
+		offDeviceFound();
+		this._isSearching = false;
 		//#endif
 	}
 

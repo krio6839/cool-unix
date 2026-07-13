@@ -9,7 +9,7 @@
 
 import type { TlvcFrame } from "./boom-types";
 import { encodeU16LE, parseU16LE } from "./boom-bytes";
-import { MAX_MULTI_FRAME_COUNT, MAX_RECV_BUF_BYTES, DEFAULT_MAX_FRAME_PAYLOAD_BYTES } from "./boom-constants";
+import { MAX_MULTI_FRAME_COUNT, MAX_RECV_BUF_BYTES } from "./boom-constants";
 
 /* DataIdentifier 字段位掩码（来自状态说明.txt 1.4.3） */
 const DI_START_BIT = 0x8000; // bit15: Start
@@ -75,81 +75,7 @@ export function wrapDataIdentifier(payloadHex: string): string {
     return encodeU16LE(di) + payloadHex;
 }
 
-/* ==================== DataIdentifier 多帧（1.3.2） ==================== */
-
-/**
- * 单帧 DI 切分结果（具名类型，UTS 不支持内联 Array<{...}>）
- */
-export type SplitDataFrame = {
-    seq: number;
-    isStart: boolean;
-    isEnd: boolean;
-    diHex: string;
-};
-
-/**
- * 把 payload 切分成多帧 DI（仅在 mock 中使用，真实 GATT 由设备按 MTU 切分）
- * - 每帧 DI: Start/End/Seq/ValidDataNumber
- * - 第 1 帧 isStart=true, 中间 isStart=false, isEnd=false; 最后帧 isEnd=true
- * - maxFrameBytes 默认 240B（按文档 1.3.2 payload 512B 上限留余量）
- *
- * @param payloadHex 已编码的 TLVC 帧 hex
- * @param maxFrameBytes 单帧 payload 字节数（默认 240）
- * @returns 帧数组（含 DI 头），按发送顺序
- */
-export function splitDataIdentifier(
-    payloadHex: string,
-    maxFrameBytes: number = DEFAULT_MAX_FRAME_PAYLOAD_BYTES
-): SplitDataFrame[] {
-    if (payloadHex.length == 0) {
-        return [];
-    }
-    if (maxFrameBytes <= 0) {
-        maxFrameBytes = DEFAULT_MAX_FRAME_PAYLOAD_BYTES;
-    }
-    const chunkHexLen = maxFrameBytes * 2;
-    const totalChunks = Math.ceil(payloadHex.length / chunkHexLen);
-    if (totalChunks > MAX_MULTI_FRAME_COUNT) {
-        console.warn(
-            `[BOOM-CODEC] splitDataIdentifier 帧数 ${totalChunks} 超过上限 ${MAX_MULTI_FRAME_COUNT}`
-        );
-    }
-    const result: SplitDataFrame[] = [];
-    for (let i = 0; i < totalChunks; i++) {
-        const startHex = i * chunkHexLen;
-        const endHex = Math.min(startHex + chunkHexLen, payloadHex.length);
-        const chunkHex = payloadHex.substring(startHex, endHex);
-        const isStart = i == 0;
-        const isEnd = i == totalChunks - 1;
-        const seq = i & 0x0F; // 4 位序列号
-        const di = wrapDataIdentifierMulti(chunkHex, seq, isStart, isEnd);
-        const frame: SplitDataFrame = { seq, isStart, isEnd, diHex: di };
-        result.push(frame);
-    }
-    return result;
-}
-
-/**
- * 把 payload 包成单帧多帧 DataIdentifier（支持 isStart/isEnd/seq）
- * @param payloadHex 单帧 payload hex
- * @param sequenceNumber 4 位序列号（0..15）
- * @param isStart 是否起始帧
- * @param isEnd 是否结束帧
- */
-export function wrapDataIdentifierMulti(
-    payloadHex: string,
-    sequenceNumber: number,
-    isStart: boolean,
-    isEnd: boolean
-): string {
-    const validBytes = payloadHex.length / 2;
-    let di = 0;
-    if (isStart == true) di |= DI_START_BIT;
-    if (isEnd == true) di |= DI_END_BIT;
-    di |= (sequenceNumber & 0x0F) << 9;
-    di |= validBytes & DI_LEN_MASK;
-    return encodeU16LE(di) + payloadHex;
-}
+/* ==================== DataIdentifier 多帧接收（1.3.2） ==================== */
 
 /** 解析单帧 DI 头（2B → 字段分解） */
 export type ParsedDataIdentifier = {

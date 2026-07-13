@@ -66,14 +66,12 @@ export const LOG_DATA_FLAG = 0xA5;
 export const EVENT_QUERY_TYPE_ALL: number = 0;
 export const EVENT_QUERY_TYPE_BY_TIME: number = 1;
 
-/* ===== DataIdentifier 多帧协议（1.3.2） ===== */
+/* ===== DataIdentifier 多帧协议（1.3.2）===== */
 
 /** DataIdentifier bit9-13：4 位序列号上限（0~15，即最多 16 帧） */
 export const MAX_MULTI_FRAME_COUNT = 16;
 /** 多帧重组 buffer 上限（1KB，文档注释推荐值） */
 export const MAX_RECV_BUF_BYTES = 1024;
-/** mock 自动切帧时单帧 payload 字节数（按文档 DI 头 2B + payload 512B 上限，留 240B 余量） */
-export const DEFAULT_MAX_FRAME_PAYLOAD_BYTES = 240;
 
 /* ===== LogEventType 枚举（2.1.4.1）===== */
 

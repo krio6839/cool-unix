@@ -1,28 +1,6 @@
 <template>
-	<cl-popup v-model="show" :title="t('BOOM 设备测试')" direction="bottom" :size="700">
+	<cl-popup v-model="show" :title="t('BOOM 设备测试')" direction="bottom" :size="750">
 		<scroll-view class="p-4 flex flex-col" scroll-y="true" style="height: 100%">
-			<!-- Mock 模拟（无设备时使用） -->
-			<view class="mb-4 p-3 bg-blue-900 rounded">
-				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-					{{ t("Mock 模拟（无设备时使用）") }}
-				</cl-text>
-				<view class="flex flex-row flex-wrap">
-					<cl-button
-						type="primary"
-						:color="deviceStore.useMock ? '#900' : '#06f'"
-						rounded
-						size="small"
-						class="mr-2 mb-2"
-						@tap="toggleMock"
-					>
-						{{ deviceStore.useMock ? t("停止 Mock") : t("启动 Mock") }}
-					</cl-button>
-				</view>
-				<cl-text color="gray-300" :size="12">
-					{{ t("启动后：每 1s 推送 0x50 实时广播 + 8 个 GATT 命令直接看到 event 更新") }}
-				</cl-text>
-			</view>
-
 			<!-- 设备状态 -->
 			<view class="mb-4 p-3 bg-gray-800 rounded">
 				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
@@ -95,138 +73,198 @@
 				</view>
 			</view>
 
-			<!-- BOOM GATT 协议测试（8 个按钮） -->
+			<!-- BOOM GATT 协议测试（8 个按钮 + 上次响应行） -->
 			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
 				{{ t("BOOM GATT 协议测试") }}
 			</cl-text>
-			<view class="flex flex-row flex-wrap mb-4">
-				<cl-button
-					type="primary"
-					color="#444"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testReadFirmware"
-				>
-					{{ t("0x30 读固件") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#444"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testReadDeviceNumber"
-				>
-					{{ t("0x32 读设备编号") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#444"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testReadTimestamp"
-				>
-					{{ t("0x34 读时戳") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#444"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testReadBiometric"
-				>
-					{{ t("0x36 读生物识别") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#666"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testSetDeviceNumber"
-				>
-					{{ t("0x31 写设备编号") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#666"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testSetTimestamp"
-				>
-					{{ t("0x33 写时戳") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#666"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testSetBiometric"
-				>
-					{{ t("0x35 写生物识别") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#888"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testVibration"
-				>
-					{{ t("0x40 震动马达") }}
-				</cl-button>
+			<view class="mb-4">
+				<view class="flex flex-row flex-wrap items-center mb-1">
+					<cl-button
+						type="primary"
+						color="#444"
+						rounded
+						size="small"
+						class="mr-2 mb-1"
+						@tap="testReadFirmware"
+					>
+						{{ t("0x30 读固件") }}
+					</cl-button>
+					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+						[0x30] {{ fwResp }}
+					</cl-text>
+				</view>
+				<view class="flex flex-row flex-wrap items-center mb-1">
+					<cl-button
+						type="primary"
+						color="#444"
+						rounded
+						size="small"
+						class="mr-2 mb-1"
+						@tap="testReadDeviceNumber"
+					>
+						{{ t("0x32 读设备编号") }}
+					</cl-button>
+					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+						[0x32] {{ devNumResp }}
+					</cl-text>
+				</view>
+				<view class="flex flex-row flex-wrap items-center mb-1">
+					<cl-button
+						type="primary"
+						color="#444"
+						rounded
+						size="small"
+						class="mr-2 mb-1"
+						@tap="testReadTimestamp"
+					>
+						{{ t("0x34 读时戳") }}
+					</cl-button>
+					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+						[0x34] {{ tsResp }}
+					</cl-text>
+				</view>
+				<view class="flex flex-row flex-wrap items-center mb-1">
+					<cl-button
+						type="primary"
+						color="#444"
+						rounded
+						size="small"
+						class="mr-2 mb-1"
+						@tap="testReadBiometric"
+					>
+						{{ t("0x36 读生物识别") }}
+					</cl-button>
+					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+						[0x36] {{ bioResp }}
+					</cl-text>
+				</view>
+				<view class="flex flex-row flex-wrap items-center mb-1">
+					<cl-button
+						type="primary"
+						color="#666"
+						rounded
+						size="small"
+						class="mr-2 mb-1"
+						@tap="openForm('0x31')"
+					>
+						{{ t("0x31 写设备编号") }}
+					</cl-button>
+					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+						[0x31] {{ setDevNumResp }}
+					</cl-text>
+				</view>
+				<view class="flex flex-row flex-wrap items-center mb-1">
+					<cl-button
+						type="primary"
+						color="#666"
+						rounded
+						size="small"
+						class="mr-2 mb-1"
+						@tap="testSetTimestamp"
+					>
+						{{ t("0x33 写时戳") }}
+					</cl-button>
+					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+						[0x33] {{ setTsResp }}
+					</cl-text>
+				</view>
+				<view class="flex flex-row flex-wrap items-center mb-1">
+					<cl-button
+						type="primary"
+						color="#666"
+						rounded
+						size="small"
+						class="mr-2 mb-1"
+						@tap="openForm('0x35')"
+					>
+						{{ t("0x35 写生物识别") }}
+					</cl-button>
+					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+						[0x35] {{ setBioResp }}
+					</cl-text>
+				</view>
+				<view class="flex flex-row flex-wrap items-center mb-1">
+					<cl-button
+						type="primary"
+						color="#888"
+						rounded
+						size="small"
+						class="mr-2 mb-1"
+						@tap="testVibration"
+					>
+						{{ t("0x40 震动马达") }}
+					</cl-button>
+					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+						[0x40] {{ vibResp }}
+					</cl-text>
+				</view>
 			</view>
 
-			<!-- 历史数据（0x3A/0x3B/0x3C/0x3D，4 个按钮） -->
+			<!-- 历史数据（0x3A/0x3B/0x3C/0x3D，4 个按钮 + 上次响应行） -->
 			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
 				{{ t("历史数据（v5 新增）") }}
 			</cl-text>
-			<view class="flex flex-row flex-wrap mb-4">
-				<cl-button
-					type="primary"
-					color="#0a0"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testReadVitalData"
-				>
-					{{ t("0x3A 读生命体征") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#0a0"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testContinueReadVital"
-				>
-					{{ t("0x3B 续读生命体征") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#a00"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testReadEventData"
-				>
-					{{ t("0x3C 读事件") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#a00"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="testContinueReadEvent"
-				>
-					{{ t("0x3D 续读事件") }}
-				</cl-button>
+			<view class="mb-4">
+				<view class="flex flex-row flex-wrap items-center mb-1">
+					<cl-button
+						type="primary"
+						color="#0a0"
+						rounded
+						size="small"
+						class="mr-2 mb-1"
+						@tap="openForm('0x3A')"
+					>
+						{{ t("0x3A 读生命体征") }}
+					</cl-button>
+					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+						[0x3A] {{ vitalResp }}
+					</cl-text>
+				</view>
+				<view class="flex flex-row flex-wrap items-center mb-1">
+					<cl-button
+						type="primary"
+						color="#0a0"
+						rounded
+						size="small"
+						class="mr-2 mb-1"
+						@tap="openForm('0x3B')"
+					>
+						{{ t("0x3B 续读生命体征") }}
+					</cl-button>
+					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+						[0x3B] {{ vitalContResp }}
+					</cl-text>
+				</view>
+				<view class="flex flex-row flex-wrap items-center mb-1">
+					<cl-button
+						type="primary"
+						color="#a00"
+						rounded
+						size="small"
+						class="mr-2 mb-1"
+						@tap="openForm('0x3C')"
+					>
+						{{ t("0x3C 读事件") }}
+					</cl-button>
+					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+						[0x3C] {{ eventResp }}
+					</cl-text>
+				</view>
+				<view class="flex flex-row flex-wrap items-center mb-1">
+					<cl-button
+						type="primary"
+						color="#a00"
+						rounded
+						size="small"
+						class="mr-2 mb-1"
+						@tap="openForm('0x3D')"
+					>
+						{{ t("0x3D 续读事件") }}
+					</cl-button>
+					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+						[0x3D] {{ eventContResp }}
+					</cl-text>
+				</view>
 			</view>
 
 			<!-- 0x3A 生命体征响应展示区 -->
@@ -305,15 +343,224 @@
 				</cl-button>
 			</view>
 		</scroll-view>
+
+		<!-- 参数输入子弹窗（0x31/0x35/0x3A/0x3B/0x3C/0x3D 共用） -->
+		<cl-popup v-model="formVisible" direction="bottom" :size="700" :title="formTitle">
+			<view class="p-4">
+				<!-- 0x31 设备编号 -->
+				<template v-if="activeForm == '0x31'">
+					<view class="mb-3">
+						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
+							{{ t("设备编号（1~29 位，数字/字母）") }}
+							<cl-text color="error">*</cl-text>
+						</cl-text>
+						<cl-input
+							v-model="formDeviceNumber"
+							:placeholder="t('请输入设备编号')"
+							:maxlength="29"
+							clearable
+						></cl-input>
+					</view>
+				</template>
+
+				<!-- 0x35 写生物识别 -->
+				<template v-else-if="activeForm == '0x35'">
+					<view class="mb-3">
+						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
+							{{ t("性别") }}
+							<cl-text color="error">*</cl-text>
+						</cl-text>
+						<cl-select
+							v-model="formGender"
+							:options="genderOptions"
+							:show-trigger="false"
+						></cl-select>
+					</view>
+					<view class="mb-3">
+						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
+							{{ t("体重 (×100, e.g. 6837 = 68.37kg)") }}
+							<cl-text color="error">*</cl-text>
+						</cl-text>
+						<cl-input v-model="formWeight" type="number" placeholder="6837"></cl-input>
+					</view>
+					<view class="mb-3">
+						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
+							{{ t("身高 (×100, e.g. 17500 = 175cm)") }}
+							<cl-text color="error">*</cl-text>
+						</cl-text>
+						<cl-input v-model="formHeight" type="number" placeholder="17500"></cl-input>
+					</view>
+					<view class="mb-3">
+						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
+							{{ t("年龄 (岁)") }}
+							<cl-text color="error">*</cl-text>
+						</cl-text>
+						<cl-input v-model="formAge" type="number" placeholder="30"></cl-input>
+					</view>
+					<view class="mb-3">
+						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
+							{{ t("PPG 位置") }}
+							<cl-text color="error">*</cl-text>
+						</cl-text>
+						<cl-select
+							v-model="formPpgPosition"
+							:options="ppgPositionOptions"
+							:show-trigger="false"
+						></cl-select>
+					</view>
+					<view class="mb-3">
+						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
+							{{ t("基础心率 BHR (28~240)") }}
+							<cl-text color="error">*</cl-text>
+						</cl-text>
+						<cl-input v-model="formBhr" type="number" placeholder="70"></cl-input>
+					</view>
+				</template>
+
+				<!-- 0x3A 读生命体征 -->
+				<template v-else-if="activeForm == '0x3A'">
+					<view class="mb-3">
+						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
+							{{ t("起始时戳 (秒)") }}
+							<cl-text color="error">*</cl-text>
+						</cl-text>
+						<cl-input
+							v-model="formStartSec"
+							type="number"
+							:placeholder="t('默认 2 分钟前')"
+						></cl-input>
+					</view>
+					<view class="mb-3">
+						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
+							{{ t("方向") }}
+							<cl-text color="error">*</cl-text>
+						</cl-text>
+						<cl-select
+							v-model="formDirection"
+							:options="directionOptions"
+							:show-trigger="false"
+						></cl-select>
+					</view>
+					<view class="mb-3">
+						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
+							{{ t("分钟数") }}
+							<cl-text color="error">*</cl-text>
+						</cl-text>
+						<cl-select
+							v-model="formMinutes"
+							:options="minutesOptions"
+							:show-trigger="false"
+						></cl-select>
+					</view>
+				</template>
+
+				<!-- 0x3B 续读生命体征 -->
+				<template v-else-if="activeForm == '0x3B'">
+					<view class="mb-3">
+						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
+							{{ t("分钟数") }}
+							<cl-text color="error">*</cl-text>
+						</cl-text>
+						<cl-select
+							v-model="formMinutes"
+							:options="minutesOptions"
+							:show-trigger="false"
+						></cl-select>
+					</view>
+				</template>
+
+				<!-- 0x3C 读事件 -->
+				<template v-else-if="activeForm == '0x3C'">
+					<view class="mb-3">
+						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
+							{{ t("类型") }}
+							<cl-text color="error">*</cl-text>
+						</cl-text>
+						<cl-select
+							v-model="formType"
+							:options="eventTypeOptions"
+							:show-trigger="false"
+						></cl-select>
+					</view>
+					<view class="mb-3">
+						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
+							{{ t("起始时戳 (秒)") }}
+							<cl-text color="error">*</cl-text>
+						</cl-text>
+						<cl-input
+							v-model="formStartSec"
+							type="number"
+							:placeholder="t('默认 1 小时前')"
+						></cl-input>
+					</view>
+					<view class="mb-3">
+						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
+							{{ t("结束时戳 (秒)") }}
+							<cl-text color="error">*</cl-text>
+						</cl-text>
+						<cl-input
+							v-model="formEndSec"
+							type="number"
+							:placeholder="t('默认当前时间')"
+						></cl-input>
+					</view>
+				</template>
+
+				<!-- 0x3D 续读事件 -->
+				<template v-else-if="activeForm == '0x3D'">
+					<view class="mb-3">
+						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
+							{{ t("最大条数") }}
+							<cl-text color="error">*</cl-text>
+						</cl-text>
+						<cl-input
+							v-model="formMaxCount"
+							type="number"
+							:placeholder="t('默认 10')"
+						></cl-input>
+					</view>
+				</template>
+
+				<!-- 快速发送示例（0x31/0x3A/0x3B/0x3C/0x3D 有文档示例时显示） -->
+				<view v-if="exampleList.length > 0" class="mt-4 p-3 bg-gray-700 rounded">
+					<cl-text color="gray-300" :size="12" :pt="{ className: 'mb-2 font-bold' }">
+						{{ t("快速发送示例（免填表单）") }}
+					</cl-text>
+					<view class="flex flex-row flex-wrap">
+						<cl-button
+							v-for="(ex, i) in exampleList"
+							:key="i"
+							type="primary"
+							color="#a0a"
+							rounded
+							size="small"
+							class="mr-1 mb-1"
+							@tap="sendExample(ex)"
+						>
+							{{ ex.name }}
+						</cl-button>
+					</view>
+				</view>
+
+				<view class="flex flex-row mt-4">
+					<cl-button type="light" size="large" class="flex-1 mr-2" @tap="closeForm">
+						{{ t("取消") }}
+					</cl-button>
+					<cl-button type="primary" size="large" class="flex-1 ml-2" @tap="submitForm">
+						{{ t("发送") }}
+					</cl-button>
+				</view>
+			</view>
+		</cl-popup>
 	</cl-popup>
 </template>
 
 <script lang="ts" setup>
 //#ifndef H5
-import { computed } from "vue";
-import { DEVICE_NUMBER_MAX_LEN, LOG_EVENT_NAMES, t, useStore } from "@/.cool";
-import type { VibrationSpec, VitalBiometric } from "@/.cool";
-import { useUi } from "@/uni_modules/cool-ui";
+import { computed, reactive, ref } from "vue";
+import { DEVICE_NUMBER_MAX_LEN, DOC_EXAMPLES_BY_T, LOG_EVENT_NAMES, t, useStore } from "@/.cool";
+import type { DocExample, EventDataQuery, VibrationSpec, VitalDataQueryRequest } from "@/.cool";
+import { useUi, type ClSelectOption } from "@/uni_modules/cool-ui";
 
 /* 0x50 实时数据展示用 computed 类型（9 字段全部 string） */
 type RtText = {
@@ -377,73 +624,323 @@ const rtText = computed<RtText>(() => {
 	};
 });
 
-/* ===== 8 个协议测试按钮 ===== */
+/* ===== 响应展示 ref + 11 个 computed ===== */
+
+/** 每个 T 码的响应摘要（key 为十六进制字符串，如 "0x30"） */
+type LastResponse = Record<string, string>;
+const lastResponse = reactive<LastResponse>({});
+
+function getResp(cmd: string): string {
+	const v = lastResponse[cmd];
+	return v == null || v == "" ? "-" : v;
+}
+
+const fwResp = computed<string>(() => getResp("0x30"));
+const devNumResp = computed<string>(() => getResp("0x32"));
+const tsResp = computed<string>(() => getResp("0x34"));
+const bioResp = computed<string>(() => getResp("0x36"));
+const setDevNumResp = computed<string>(() => getResp("0x31"));
+const setTsResp = computed<string>(() => getResp("0x33"));
+const setBioResp = computed<string>(() => getResp("0x35"));
+const vibResp = computed<string>(() => getResp("0x40"));
+const vitalResp = computed<string>(() => getResp("0x3A"));
+const vitalContResp = computed<string>(() => getResp("0x3B"));
+const eventResp = computed<string>(() => getResp("0x3C"));
+const eventContResp = computed<string>(() => getResp("0x3D"));
+
+/* ===== 参数输入子弹窗状态 ===== */
+
+/** 当前打开的表单类型（空=未打开） */
+const activeForm = ref<"" | "0x31" | "0x35" | "0x3A" | "0x3B" | "0x3C" | "0x3D">("");
+/** 子弹窗显示控制（v-model 双向绑定） */
+const formVisible = ref(false);
+
+const formTitle = computed<string>(() => {
+	switch (activeForm.value) {
+		case "0x31":
+			return t("设置设备编号");
+		case "0x35":
+			return t("0x35 写生物识别");
+		case "0x3A":
+			return t("0x3A 读生命体征");
+		case "0x3B":
+			return t("0x3B 续读生命体征");
+		case "0x3C":
+			return t("0x3C 读事件");
+		case "0x3D":
+			return t("0x3D 续读事件");
+		default:
+			return "";
+	}
+});
+
+/** 表单数据（按字段分独立 ref，避免 Ref<T, S> 联合类型推断问题） */
+const formDeviceNumber = ref<string>("");
+const formStartSec = ref<string>("0");
+const formEndSec = ref<string>("0");
+const formMaxCount = ref<string>("10");
+const formDirection = ref<number>(0);
+const formMinutes = ref<number>(2);
+const formType = ref<number>(0);
+// 0x35 生物识别表单字段
+const formGender = ref<number>(0);
+const formWeight = ref<string>("6837");
+const formHeight = ref<string>("17500");
+const formAge = ref<string>("30");
+const formPpgPosition = ref<number>(0);
+const formBhr = ref<string>("70");
+
+/** 方向选项（0=向前 1=向后） */
+const directionOptions: ClSelectOption[] = [
+	{ label: t("向前 (0)"), value: 0 },
+	{ label: t("向后 (1)"), value: 1 }
+];
+
+/** 分钟数选项（2 / 5） */
+const minutesOptions: ClSelectOption[] = [
+	{ label: t("2 分钟"), value: 2 },
+	{ label: t("5 分钟"), value: 5 }
+];
+
+/** 事件类型选项（0=ALL 1=BY_TIME） */
+const eventTypeOptions: ClSelectOption[] = [
+	{ label: t("全部 (0)"), value: 0 },
+	{ label: t("按时间 (1)"), value: 1 }
+];
+
+/** 性别选项（0=男 1=女） */
+const genderOptions: ClSelectOption[] = [
+	{ label: t("男 (0)"), value: 0 },
+	{ label: t("女 (1)"), value: 1 }
+];
+
+/** PPG 位置选项（0=手腕） */
+const ppgPositionOptions: ClSelectOption[] = [{ label: t("手腕 (0)"), value: 0 }];
+
+/** 当前表单可用的文档示例（按 T 码查 DOC_EXAMPLES_BY_T） */
+const exampleList = computed<DocExample[]>(() => {
+	if (activeForm.value == "") return [];
+	const tCode = parseInt(activeForm.value, 16);
+	return DOC_EXAMPLES_BY_T.get(tCode) ?? [];
+});
+
+/** 打开子弹窗并重置默认值 */
+function openForm(cmd: "0x31" | "0x35" | "0x3A" | "0x3B" | "0x3C" | "0x3D"): void {
+	const now = Math.floor(Date.now() / 1000);
+	switch (cmd) {
+		case "0x31":
+			formDeviceNumber.value = "";
+			break;
+		case "0x35":
+			formGender.value = 0;
+			formWeight.value = "6837";
+			formHeight.value = "17500";
+			formAge.value = "30";
+			formPpgPosition.value = 0;
+			formBhr.value = "70";
+			break;
+		case "0x3A":
+			formStartSec.value = (now - 120).toString();
+			formDirection.value = 0;
+			formMinutes.value = 2;
+			break;
+		case "0x3B":
+			formMinutes.value = 2;
+			break;
+		case "0x3C":
+			formType.value = 0;
+			formStartSec.value = (now - 3600).toString();
+			formEndSec.value = now.toString();
+			break;
+		case "0x3D":
+			formMaxCount.value = "10";
+			break;
+	}
+	activeForm.value = cmd;
+	formVisible.value = true;
+}
+
+/** 关闭子弹窗 */
+function closeForm(): void {
+	formVisible.value = false;
+	activeForm.value = "";
+}
+
+/** 提交表单（按 activeForm 分派） */
+async function submitForm(): Promise<void> {
+	const cmd = activeForm.value;
+	switch (cmd) {
+		case "0x31": {
+			const num = formDeviceNumber.value.trim();
+			if (num.length == 0 || num.length > DEVICE_NUMBER_MAX_LEN) {
+				ui.showToast({ message: t("编号长度需 1~29 位"), type: "error" });
+				return;
+			}
+			ui.showToast({ message: t("0x31 发送..."), type: "warn" });
+			const ok = await deviceStore.protocol.setDeviceNumber(num);
+			lastResponse["0x31"] = ok ? t("已发送") : t("失败");
+			ui.showToast({
+				message: ok ? t("0x31 已发送") : t("失败"),
+				type: ok ? "success" : "error"
+			});
+			break;
+		}
+		case "0x35": {
+			const w = parseInt(formWeight.value, 10);
+			const h = parseInt(formHeight.value, 10);
+			const a = parseInt(formAge.value, 10);
+			const b = parseInt(formBhr.value, 10);
+			if (Number.isNaN(w) || w <= 0 || Number.isNaN(h) || h <= 0) {
+				ui.showToast({ message: t("身高/体重必须是正数"), type: "error" });
+				return;
+			}
+			if (Number.isNaN(a) || a <= 0 || a > 120) {
+				ui.showToast({ message: t("年龄需 1~120"), type: "error" });
+				return;
+			}
+			if (Number.isNaN(b) || b < 28 || b > 240) {
+				ui.showToast({ message: t("BHR 需 28~240"), type: "error" });
+				return;
+			}
+			ui.showToast({ message: t("0x35 发送..."), type: "warn" });
+			const ok = await deviceStore.protocol.setBiometric({
+				gender: formGender.value,
+				weight: w,
+				height: h,
+				age: a,
+				ppgPosition: formPpgPosition.value,
+				bhr: b
+			});
+			lastResponse["0x35"] = ok ? t("已发送") : t("失败");
+			ui.showToast({
+				message: ok ? t("0x35 已发送") : t("失败"),
+				type: ok ? "success" : "error"
+			});
+			break;
+		}
+		case "0x3A": {
+			ui.showToast({ message: t("0x3A 发送..."), type: "warn" });
+			const req: VitalDataQueryRequest = {
+				startSec: parseInt(formStartSec.value, 10),
+				direction: formDirection.value,
+				minutes: formMinutes.value
+			};
+			const ok = await deviceStore.protocol.readVitalData(req);
+			lastResponse["0x3A"] = ok ? t("已请求，等待响应") : t("失败");
+			ui.showToast({
+				message: ok ? t("0x3A 已发送") : t("失败"),
+				type: ok ? "success" : "error"
+			});
+			break;
+		}
+		case "0x3B": {
+			ui.showToast({ message: t("0x3B 发送..."), type: "warn" });
+			const ok = await deviceStore.protocol.continueReadVitalData(formMinutes.value);
+			lastResponse["0x3B"] = ok ? t("已请求，等待响应") : t("失败");
+			ui.showToast({
+				message: ok ? t("0x3B 已发送") : t("失败"),
+				type: ok ? "success" : "error"
+			});
+			break;
+		}
+		case "0x3C": {
+			ui.showToast({ message: t("0x3C 发送..."), type: "warn" });
+			const req: EventDataQuery = {
+				type: formType.value,
+				startSec: parseInt(formStartSec.value, 10),
+				endSec: parseInt(formEndSec.value, 10)
+			};
+			const ok = await deviceStore.protocol.readEventData(req);
+			lastResponse["0x3C"] = ok ? t("已请求，等待响应") : t("失败");
+			ui.showToast({
+				message: ok ? t("0x3C 已发送") : t("失败"),
+				type: ok ? "success" : "error"
+			});
+			break;
+		}
+		case "0x3D": {
+			ui.showToast({ message: t("0x3D 发送..."), type: "warn" });
+			const ok = await deviceStore.protocol.continueReadEventData(
+				parseInt(formMaxCount.value, 10)
+			);
+			lastResponse["0x3D"] = ok ? t("已请求，等待响应") : t("失败");
+			ui.showToast({
+				message: ok ? t("0x3D 已发送") : t("失败"),
+				type: ok ? "success" : "error"
+			});
+			break;
+		}
+	}
+	closeForm();
+}
+
+/* ===== 7 个无参/硬编码协议命令 ===== */
 
 async function testReadFirmware(): Promise<void> {
 	ui.showToast({ message: t("0x30 发送..."), type: "warn" });
 	const ok = await deviceStore.protocol.readFirmwareVersion();
+	const f = deviceStore.event.firmwareVersion.value;
+	if (ok && f != null) {
+		lastResponse["0x30"] = `${f.major}.${f.minor}.${f.revision}`;
+	} else {
+		lastResponse["0x30"] = t("失败");
+	}
 	ui.showToast({ message: ok ? t("已发送") : t("失败"), type: ok ? "success" : "error" });
 }
 
 async function testReadDeviceNumber(): Promise<void> {
 	ui.showToast({ message: t("0x32 发送..."), type: "warn" });
 	const ok = await deviceStore.protocol.readDeviceNumber();
+	const num = deviceStore.event.deviceNumber.value;
+	if (ok && num != "") {
+		lastResponse["0x32"] = num;
+	} else {
+		lastResponse["0x32"] = t("失败");
+	}
 	ui.showToast({ message: ok ? t("已发送") : t("失败"), type: ok ? "success" : "error" });
 }
 
 async function testReadTimestamp(): Promise<void> {
 	ui.showToast({ message: t("0x34 发送..."), type: "warn" });
 	const ok = await deviceStore.protocol.readTimestamp();
+	const sec = deviceStore.event.boomTimestamp.value;
+	if (ok && sec > 0) {
+		lastResponse["0x34"] = new Date(sec * 1000).toLocaleString();
+	} else {
+		lastResponse["0x34"] = t("失败");
+	}
 	ui.showToast({ message: ok ? t("已发送") : t("失败"), type: ok ? "success" : "error" });
 }
 
 async function testReadBiometric(): Promise<void> {
 	ui.showToast({ message: t("0x36 发送..."), type: "warn" });
 	const ok = await deviceStore.protocol.readBiometric();
+	const b = deviceStore.event.biometricInfo.value;
+	if (ok && b != null) {
+		lastResponse["0x36"] = bioText.value;
+	} else {
+		lastResponse["0x36"] = t("失败");
+	}
 	ui.showToast({ message: ok ? t("已发送") : t("失败"), type: ok ? "success" : "error" });
-}
-
-async function testSetDeviceNumber(): Promise<void> {
-	// 弹窗手动输入设备编号（最多 29 位数字/字母）
-	uni.showModal({
-		title: t("设置设备编号"),
-		placeholderText: t("请输入设备编号（最多29位）"),
-		editable: true,
-		success: (res) => {
-			if (res.confirm && res.content != null) {
-				const num = res.content?.trim() ?? "";
-				if (num.length == 0 || num.length > DEVICE_NUMBER_MAX_LEN) {
-					ui.showToast({ message: t("编号长度需 1~29 位"), type: "error" });
-					return;
-				}
-				deviceStore.protocol.setDeviceNumber(num).then((ok) => {
-					ui.showToast({
-						message: ok ? t("0x31 已发送") : t("失败"),
-						type: ok ? "success" : "error"
-					});
-				});
-			}
-		}
-	});
 }
 
 async function testSetTimestamp(): Promise<void> {
 	const ok = await deviceStore.protocol.setTimestamp(Math.floor(Date.now() / 1000));
+	lastResponse["0x33"] = ok ? t("已发送") : t("失败");
 	ui.showToast({ message: ok ? t("0x33 已发送") : t("失败"), type: ok ? "success" : "error" });
 }
 
-async function testSetBiometric(): Promise<void> {
-	// 固定测试值：男 6837(68.37kg) 17500(175cm) 30 岁 PPG=0(手腕) BHR=70
-	const b: VitalBiometric = {
-		gender: 0,
-		weight: 6837,
-		height: 17500,
-		age: 30,
-		ppgPosition: 0,
-		bhr: 70
-	};
-	const ok = await deviceStore.protocol.setBiometric(b);
-	ui.showToast({ message: ok ? t("0x35 已发送") : t("失败"), type: ok ? "success" : "error" });
+/** 快速发送文档示例（不填表单，直接发 raw 帧） */
+async function sendExample(ex: DocExample): Promise<void> {
+	ui.showToast({ message: `${t("发送示例")} ${ex.name}`, type: "warn" });
+	const ok = await deviceStore.protocol.sendRawFrame(ex.request);
+	const cmd = activeForm.value;
+	lastResponse[cmd] = ok ? t("示例已发送") : t("失败");
+	ui.showToast({
+		message: ok ? t("已发送") : t("失败"),
+		type: ok ? "success" : "error"
+	});
+	closeForm();
 }
 
 async function testVibration(): Promise<void> {
@@ -454,103 +951,18 @@ async function testVibration(): Promise<void> {
 		onOffMs: [200, 100, 200, 100, 200]
 	};
 	const ok = await deviceStore.protocol.controlVibration(spec);
+	if (ok) {
+		// 等待设备响应 lastVibration 由 _handleVibrationResult 写入
+		const v = deviceStore.event.lastVibration.value;
+		if (v != null) {
+			lastResponse["0x40"] = v.code == 0 ? t("code=0 (成功)") : `code=${v.code}`;
+		} else {
+			lastResponse["0x40"] = t("已发送");
+		}
+	} else {
+		lastResponse["0x40"] = t("失败");
+	}
 	ui.showToast({ message: ok ? t("0x40 已发送") : t("失败"), type: ok ? "success" : "error" });
-}
-
-/* ===== 历史数据测试按钮（v5 新增） ===== */
-
-async function testReadVitalData(): Promise<void> {
-	uni.showModal({
-		title: t("0x3A 读生命体征"),
-		editable: true,
-		placeholderText: t("startSec(秒) | dir(0/1) | minutes(2/5)，如 1783000000|0|2"),
-		success: (res) => {
-			if (res.confirm && res.content != null) {
-				const parts = (res.content ?? "").split("|");
-				if (parts.length < 3) {
-					ui.showToast({ message: t("格式错误"), type: "error" });
-					return;
-				}
-				const startSec = parseInt(parts[0] ?? "0", 10);
-				const direction = parseInt(parts[1] ?? "0", 10);
-				const minutes = parseInt(parts[2] ?? "2", 10);
-				deviceStore.protocol
-					.readVitalData({ startSec, direction, minutes })
-					.then((ok) => {
-						ui.showToast({
-							message: ok ? t("0x3A 已发送") : t("失败"),
-							type: ok ? "success" : "error"
-						});
-					});
-			}
-		}
-	});
-}
-
-async function testContinueReadVital(): Promise<void> {
-	uni.showModal({
-		title: t("0x3B 续读生命体征"),
-		editable: true,
-		placeholderText: t("minutes 只能是 2 或 5"),
-		success: (res) => {
-			if (res.confirm && res.content != null) {
-				const minutes = parseInt(res.content ?? "2", 10);
-				deviceStore.protocol.continueReadVitalData(minutes).then((ok) => {
-					ui.showToast({
-						message: ok ? t("0x3B 已发送") : t("失败"),
-						type: ok ? "success" : "error"
-					});
-				});
-			}
-		}
-	});
-}
-
-async function testReadEventData(): Promise<void> {
-	uni.showModal({
-		title: t("0x3C 读事件"),
-		editable: true,
-		placeholderText: t("type(0/1) | startSec | endSec，如 0|1783000000|1784000000"),
-		success: (res) => {
-			if (res.confirm && res.content != null) {
-				const parts = (res.content ?? "").split("|");
-				if (parts.length < 3) {
-					ui.showToast({ message: t("格式错误"), type: "error" });
-					return;
-				}
-				const type = parseInt(parts[0] ?? "0", 10);
-				const startSec = parseInt(parts[1] ?? "0", 10);
-				const endSec = parseInt(parts[2] ?? "0", 10);
-				deviceStore.protocol
-					.readEventData({ type, startSec, endSec })
-					.then((ok) => {
-						ui.showToast({
-							message: ok ? t("0x3C 已发送") : t("失败"),
-							type: ok ? "success" : "error"
-						});
-					});
-			}
-		}
-	});
-}
-
-async function testContinueReadEvent(): Promise<void> {
-	uni.showModal({
-		title: t("0x3D 续读事件"),
-		editable: true,
-		placeholderText: t("maxCount 最多条数，如 10"),
-		success: (res) => {
-			if (res.confirm && res.content != null) {
-				const maxCount = parseInt(res.content ?? "10", 10);
-				deviceStore.protocol.continueReadEventData(maxCount).then((ok) => {
-					ui.showToast({
-						message: ok ? t("0x3D 已发送") : t("失败"),
-						type: ok ? "success" : "error"
-					});
-				});
-			}
-		}
-	});
 }
 
 /* ===== v5 历史数据展示用 computed ===== */
@@ -579,6 +991,10 @@ const vitalText = computed<VitalText>(() => {
 		.slice(0, 30)
 		.map((d) => (d.valid == true ? `t+${d.hr}bpm` : "—"))
 		.join(" ");
+	// 同步按钮下响应摘要：收到响应即更新 lastResponse
+	const total = r.vitalData.length;
+	const validCount = r.vitalData.filter((d) => d.valid == true).length;
+	lastResponse["0x3A"] = `${validCount}/${total} 有效`;
 	return { start, rmssdSdnn, vital };
 });
 
@@ -592,9 +1008,10 @@ const eventText = computed<EventText>(() => {
 	if (h == null && list.length == 0) {
 		return { header: "-", items: "-" };
 	}
-	const header = h == null
-		? "-"
-		: `type=${h.type} sn[${h.earliestSn}~${h.latestSn}] ts[${h.earliestSec}~${h.latestSec}]`;
+	const header =
+		h == null
+			? "-"
+			: `type=${h.type} sn[${h.earliestSn}~${h.latestSn}] ts[${h.earliestSec}~${h.latestSec}]`;
 	const items = list
 		.slice(0, 10)
 		.map((it) => {
@@ -602,6 +1019,10 @@ const eventText = computed<EventText>(() => {
 			return `sn=${it.header.sn} ${typeName} ts=${it.ts}`;
 		})
 		.join("\n");
+	// 同步按钮下响应摘要
+	if (h != null) {
+		lastResponse["0x3C"] = `type=${h.type} 共 ${list.length} 条`;
+	}
 	return { header, items };
 });
 
@@ -625,18 +1046,6 @@ function testReconnect(): void {
 function testClearError(): void {
 	deviceStore.clearError();
 	ui.showToast({ message: t("错误已清除"), type: "success" });
-}
-
-/* ===== Mock 模拟（无设备时使用） ===== */
-
-function toggleMock(): void {
-	if (deviceStore.useMock) {
-		deviceStore.stopMock();
-		ui.showToast({ message: t("Mock 已停止"), type: "success" });
-	} else {
-		deviceStore.startMock();
-		ui.showToast({ message: t("Mock 已启动，1s 后开始推送广播"), type: "success" });
-	}
 }
 //#endif
 </script>

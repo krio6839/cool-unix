@@ -87,9 +87,7 @@ export class EventHandler {
 	 *
 	 * DI 检测：前 2B 16-bit LE，若 bit15 或 bit14 非 0，视为 DataIdentifier 头
 	 *   - 单帧（Start+End）：重组器只收到一帧，直接返回 payload
-	 *   - 多帧：累计到 End 帧后返回完整 payload
-	 *
-	 * 真实 GATT 与 Mock 共用此方法
+	 * - 多帧：累计到 End 帧后返回完整 payload
 	 */
 	handleNotifyData(value: ArrayBuffer): void {
 		const hexData = arrayBufferToHexString(value);
@@ -98,7 +96,7 @@ export class EventHandler {
 		// DI 检测：bit 15 (0x8000) 或 bit 14 (0x4000) 非 0 → DI 帧
 		if (hexData.length >= 4) {
 			const firstTwoBytes = parseU16LE(hexData, 0);
-			if ((firstTwoBytes & 0xC000) != 0) {
+			if ((firstTwoBytes & 0xc000) != 0) {
 				// 多帧或带 DI 的单帧
 				const reassembled = this._vitalReassembler.push(hexData);
 				if (reassembled == null) {

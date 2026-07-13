@@ -90,7 +90,7 @@
 
 <script lang="ts" setup>
 import { ref, computed } from "vue";
-import { t, useStore } from "@/.cool";
+import { router, t, useStore } from "@/.cool";
 import { useUi, type ClSelectOption } from "@/uni_modules/cool-ui";
 import type { WearLocation } from "@/.cool/store/device";
 // #ifndef H5
@@ -168,6 +168,7 @@ function onDelete() {
 		callback(action) {
 			if (action == "confirm") {
 				deviceStore.deleteDevice();
+				router.back();
 			}
 		}
 	});
