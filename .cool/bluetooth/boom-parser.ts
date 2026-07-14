@@ -43,6 +43,7 @@ import {
 import {
     VITAL_DATA_INVALID,
     VITAL_DATA_BLANK,
+    VITAL_DATA_ALL_FF,
     VITAL_MINUTES_OPTIONS,
     LOG_EVENT_TYPE
 } from "./boom-constants";
@@ -111,7 +112,7 @@ export function serializeBiometric(b: VitalBiometric): string {
 
 /**
  * 0x40 请求 V：循环(1B) + 次数(1B) + n×2B on/off
- * n = count * 2（每对 = 震动ms + 静默ms）
+ * n = count * 2 - 1，最后一次震动后没有静默时间
  */
 export function serializeVibration(spec: VibrationSpec): string {
     let h = encodeU8(spec.loops) + encodeU8(spec.count);
@@ -226,42 +227,67 @@ export function parseVitalDataPerSecond(hex: string, off: number): VitalDataPerS
     const pitch = parseU8(hex, off + 4);
     const acc = parseU8(hex, off + 6);
     const ppi = parseU16LE(hex, off + 8);
-    const valid = hr != VITAL_DATA_INVALID && hr != VITAL_DATA_BLANK;
+    const valid =
+        hr != VITAL_DATA_INVALID &&
+        hr != VITAL_DATA_BLANK &&
+        hr != VITAL_DATA_ALL_FF;
     return { hr, status, pitch, acc, ppi, valid };
+}
+
+/** UTS 跨端可用的 IEEE754 float32 小端解析，不依赖 DataView/Buffer。 */
+function parseFloat32LE(hex: string, off: number): number {
+    const b0 = parseU8(hex, off);
+    const b1 = parseU8(hex, off + 2);
+    const b2 = parseU8(hex, off + 4);
+    const b3 = parseU8(hex, off + 6);
+    const sign = (b3 & 0x80) == 0 ? 1 : -1;
+    const exponent = ((b3 & 0x7F) << 1) | (b2 >> 7);
+    const fraction = ((b2 & 0x7F) * 65536) + (b1 * 256) + b0;
+    if (exponent == 0) {
+        return sign * fraction * Math.pow(2, -149);
+    }
+    if (exponent == 255) {
+        return 0;
+    }
+    return sign * (1 + fraction / 8388608) * Math.pow(2, exponent - 127);
 }
 
 /** 解析 RMSSD/SDNN 8B（4B float LE + 4B float LE），全 FF 标记为无效 */
 function parseRmssdSdnn(hex: string, off: number): RmssdSdnnPair {
-    // 文档用 float，但 UTS 不一定能直接读 float
-    // 简化处理：直接把 4B 当 hex 字符串展示；valid=全 FF 才无效
     const rmssdHex = hex.substring(off, off + 8);
     const sdnnHex = hex.substring(off + 8, off + 16);
     const allFF =
         rmssdHex.toLowerCase() == "ffffffff" && sdnnHex.toLowerCase() == "ffffffff";
     if (allFF) {
-        return { rmssd: NaN, sdnn: NaN, valid: false };
+        return { rmssd: 0, sdnn: 0, valid: false };
     }
-    // UTS 安全兜底：把 4B LE 解析为 0（避免 NaN 污染 JSON 序列化）
-    const rmssdBits = parseU32LE(hex, off);
-    const sdnnBits = parseU32LE(hex, off + 8);
-    return { rmssd: rmssdBits, sdnn: sdnnBits, valid: true };
+    return {
+        rmssd: parseFloat32LE(hex, off),
+        sdnn: parseFloat32LE(hex, off + 8),
+        valid: true
+    };
 }
 
 /** 解析 0x3A/0x3B 响应 V（变长）
  * 格式: 4B startSec(LE) + 1B direction + 1B n + n*8B RMSSD/SDNN + n*60*6B vital
  */
 export function parseVitalDataResponse(vHex: string): VitalDataQueryResponse {
+    if (vHex.length < 12) {
+        return { startSec: 0, direction: 0, n: 0, rmssdSdnn: [], vitalData: [] };
+    }
     const startSec = parseU32LE(vHex, 0);
     const direction = parseU8(vHex, 8);
     const n = parseU8(vHex, 10);
     const rmssdSdnn: RmssdSdnnPair[] = [];
     let off = 12; // 跳过 4B+1B+1B
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < n && off + 16 <= vHex.length; i++) {
         rmssdSdnn.push(parseRmssdSdnn(vHex, off));
         off += 16; // 8B/项
     }
     const vitalData: VitalDataPerSecond[] = [];
-    for (let i = 0; i < n * 60; i++) {
+    const vitalStart = 12 + n * 16;
+    off = vitalStart;
+    for (let i = 0; i < n * 60 && off + 12 <= vHex.length; i++) {
         vitalData.push(parseVitalDataPerSecond(vHex, off));
         off += 12; // 6B/项
     }
@@ -272,9 +298,10 @@ export function parseVitalDataResponse(vHex: string): VitalDataQueryResponse {
 
 /* ----- 请求侧序列化 ----- */
 
-/** 0x3C 请求 V（10B）：1B type + 4B startSec(LE) + 4B endSec(LE) */
+/** 0x3C 请求 V（10B）：1B 固定 0 + 1B type + 4B startSec + 4B endSec */
 export function serializeEventDataQuery(req: EventDataQuery): string {
     return (
+        encodeU8(0) +
         encodeU8(req.type) +
         encodeU32LE(req.startSec) +
         encodeU32LE(req.endSec)
@@ -299,7 +326,7 @@ export function parseEventDataHeader(vHex: string): EventDataHeaderResponse {
     };
 }
 
-/** 解析 8B DS_Data_Header_t */
+/** 解析 10B DS_Data_Header_t */
 export function parseLogDataHeader(hex: string, off: number): LogDataHeader {
     return {
         flag: parseU8(hex, off),
@@ -307,7 +334,7 @@ export function parseLogDataHeader(hex: string, off: number): LogDataHeader {
         crc8: parseU8(hex, off + 4),
         payloadLen: parseU8(hex, off + 6),
         sn: parseU16LE(hex, off + 8),
-        globalSn: parseU16LE(hex, off + 12)
+        globalSn: parseU32LE(hex, off + 12)
     };
 }
 
@@ -421,18 +448,18 @@ export function parseEventData(eventType: number, eventDataHex: string): UTSJSON
 
 /**
  * 解析单条 Log_Data_t（变长）
- * - 8B header + 4B ts + 4B tick + 1B eventType + 1B dataLen + dataLen B eventData
+ * - 10B header + 4B ts + 4B tick + 1B eventType + 1B dataLen + dataLen B eventData
  * @param hex 完整 hex
  * @param off 字节偏移（hex 字符单位）
  * @returns { item, nextOff }：item 解析结果，nextOff 下一条 Log_Data 起始偏移
  */
 export function parseLogDataItem(hex: string, off: number): ParseLogDataItemResult {
     const header = parseLogDataHeader(hex, off);
-    const ts = parseU32LE(hex, off + 16); // 8B header + 4B ts
-    const tick = parseU32LE(hex, off + 32); // +4B tick
-    const eventType = parseU8(hex, off + 40); // +1B eventType
-    const dataLen = parseU8(hex, off + 42); // +1B dataLen
-    const eventDataHex = hex.substring(off + 88, off + 88 + dataLen * 2);
+    const ts = parseU32LE(hex, off + 20);
+    const tick = parseU32LE(hex, off + 28);
+    const eventType = parseU8(hex, off + 36);
+    const dataLen = parseU8(hex, off + 38);
+    const eventDataHex = hex.substring(off + 40, off + 40 + dataLen * 2);
     const parsedEvent = parseEventData(eventType, eventDataHex);
     const item: LogDataItem = {
         header,
@@ -443,8 +470,7 @@ export function parseLogDataItem(hex: string, off: number): ParseLogDataItemResu
         eventDataHex,
         parsedEvent
     };
-    // 18B(header+ts+tick) + 2B(type+len) + dataLen
-    const nextOff = off + 88 + dataLen * 2;
+    const nextOff = off + 40 + dataLen * 2;
     return { item, nextOff };
 }
 
@@ -463,14 +489,17 @@ export function parseLogDataList(
     const items: LogDataItem[] = [];
     let cur = off;
     let count = 0;
-    while (cur + 88 <= hex.length) {
+    while (cur + 40 <= hex.length) {
         if (maxCount > 0 && count >= maxCount) break;
+        const dataLen = parseU8(hex, cur + 38);
+        if (cur + 40 + dataLen * 2 > hex.length) break;
+        const previous = cur;
         const r = parseLogDataItem(hex, cur);
         items.push(r.item);
         cur = r.nextOff;
         count++;
         // 防御：nextOff 没推进则退出
-        if (r.nextOff <= cur) break;
+        if (cur <= previous) break;
     }
     return { items, nextOff: cur };
 }

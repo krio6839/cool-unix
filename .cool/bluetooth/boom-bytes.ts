@@ -67,7 +67,8 @@ export function parseI16LE(h: string, off: number = 0): number {
  * U32 LE 解析：默认从 offset=0 读 4B
  */
 export function parseU32LE(h: string, off: number = 0): number {
-	return parseU16LE(h, off) | (parseU16LE(h, off + 4) << 16);
+	// 使用算术而不是 32 位位运算，避免最高位为 1 时变成负数。
+	return parseU16LE(h, off) + parseU16LE(h, off + 4) * 65536;
 }
 
 /* ==================== ASCII 字符串编解码 ==================== */

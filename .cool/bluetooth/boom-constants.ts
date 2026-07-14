@@ -45,10 +45,12 @@ export const BOOM_CMD: BoomCmd = {
 
 /* ===== 0x3A/0x3B 生命体征数据常量 ===== */
 
-/** 每秒生命体征数据"无效"标记（hr=0xFF 表示该秒无数据） */
-export const VITAL_DATA_INVALID = 0xFF;
+/** 每秒生命体征数据"无效"标记（结构定义中 hr=0x00） */
+export const VITAL_DATA_INVALID = 0x00;
 /** 每秒生命体征数据"空白"标记（hr=0xFE 表示尚未采集） */
 export const VITAL_DATA_BLANK = 0xFE;
+/** 响应中的全 FF 空记录，其 heart_rate 为 0xFF */
+export const VITAL_DATA_ALL_FF = 0xFF;
 /** 0x3A/0x3B 请求 V Byte 5：每次只能读 2 或 5 分钟 */
 export const VITAL_MINUTES_OPTIONS: number[] = [2, 5];
 /** 0x3A 请求 V Byte 4：方向（0=向前，1=向后） */
@@ -59,7 +61,7 @@ export const VITAL_DIRECTION_BACKWARD: number = 1;
 
 /** Log_Data_t 有效数据 flag（2.1.4 文档） */
 export const LOG_DATA_FLAG = 0xA5;
-/** 0x3C 请求 V Byte 0：查询类型
+/** 0x3C 请求 V Byte 1：查询类型（Byte 0 固定为 0）
  * 0=ALL（按 sn 范围）
  * 1=BY_TIME（按时间范围）
  */
@@ -68,10 +70,10 @@ export const EVENT_QUERY_TYPE_BY_TIME: number = 1;
 
 /* ===== DataIdentifier 多帧协议（1.3.2）===== */
 
-/** DataIdentifier bit9-13：4 位序列号上限（0~15，即最多 16 帧） */
+/** DataIdentifier bit10-13：4 位序列号上限（0~15，即最多 16 帧） */
 export const MAX_MULTI_FRAME_COUNT = 16;
-/** 多帧重组 buffer 上限（1KB，文档注释推荐值） */
-export const MAX_RECV_BUF_BYTES = 1024;
+/** 16 帧、每帧最多 1023B；可容纳完整的 5 分钟生命体征响应 */
+export const MAX_RECV_BUF_BYTES = MAX_MULTI_FRAME_COUNT * 1023;
 
 /* ===== LogEventType 枚举（2.1.4.1）===== */
 

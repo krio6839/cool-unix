@@ -14,7 +14,7 @@ import { MAX_MULTI_FRAME_COUNT, MAX_RECV_BUF_BYTES } from "./boom-constants";
 /* DataIdentifier 字段位掩码（来自状态说明.txt 1.4.3） */
 const DI_START_BIT = 0x8000; // bit15: Start
 const DI_END_BIT = 0x4000;   // bit14: End
-const DI_LEN_MASK = 0x01FF;  // bit0-8: ValidDataNumber（单帧无 SequenceNumber）
+const DI_LEN_MASK = 0x03FF;  // bit0-9: ValidDataNumber
 
 /**
  * MODBUS CRC-16（poly 0xA001, init 0xFFFF）
@@ -93,7 +93,7 @@ export function parseDataIdentifier(hex: string): ParsedDataIdentifier | null {
     return {
         isStart: (rawDi & DI_START_BIT) != 0,
         isEnd: (rawDi & DI_END_BIT) != 0,
-        sequenceNumber: (rawDi >> 9) & 0x0F,
+        sequenceNumber: (rawDi >> 10) & 0x0F,
         validBytes: rawDi & DI_LEN_MASK,
         rawDi
     };
@@ -108,19 +108,15 @@ export function parseDataIdentifier(hex: string): ParsedDataIdentifier | null {
  * - 中间帧：append vdn（按 sequenceNumber 顺序，乱序则丢弃旧帧）
  * - 结束帧：append vdn → 返回完整 hex（不含 DI 头）
  *
- * 上限：MAX_RECV_BUF_BYTES（1KB）/ MAX_MULTI_FRAME_COUNT（16 帧）
+ * 上限：MAX_RECV_BUF_BYTES / MAX_MULTI_FRAME_COUNT（16 帧）
  */
 export class DataIdentifierReassembler {
     private recvBuf: number[] = [];
-    private recvIndex: number = 0;
-    private startSeq: number = -1;
     private frameCount: number = 0;
     private isReceiving: boolean = false;
 
     reset(): void {
         this.recvBuf = [];
-        this.recvIndex = 0;
-        this.startSeq = -1;
         this.frameCount = 0;
         this.isReceiving = false;
     }
@@ -136,13 +132,14 @@ export class DataIdentifierReassembler {
         }
         const di = parseDataIdentifier(diFrameHex);
         if (di == null) return null;
+        // 实机 notify 可能只携带完整 TLVC 的一段；VDN 表示逻辑数据长度，
+        // 不能用它校验单次 notify 的物理长度。
         const payloadHex = diFrameHex.substring(4, 4 + di.validBytes * 2);
 
         // 起始帧：重置 buffer
         if (di.isStart == true) {
             this.reset();
             this.isReceiving = true;
-            this.startSeq = di.sequenceNumber;
         }
 
         // 不在接收状态 → 忽略
@@ -160,11 +157,19 @@ export class DataIdentifierReassembler {
             return null;
         }
 
+        const expectedSeq = this.frameCount & 0x0F;
+        if (di.sequenceNumber != expectedSeq) {
+            console.warn(
+                `[BOOM-CODEC] DI 序号不连续: expected=${expectedSeq}, actual=${di.sequenceNumber}`
+            );
+            this.reset();
+            return null;
+        }
+
         // 追加 payload bytes
         for (let i = 0; i < payloadHex.length; i += 2) {
             const byte = parseInt(payloadHex.substring(i, i + 2), 16);
             this.recvBuf.push(byte);
-            this.recvIndex++;
         }
         this.frameCount++;
 

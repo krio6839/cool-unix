@@ -24,7 +24,7 @@ export type VitalBiometric = {
 export type VibrationSpec = {
 	loops: number; // 循环次数（Byte 0）
 	count: number; // 震动次数（Byte 1，最大 10）
-	onOffMs: number[]; // [震动ms, 静默ms, 震动ms, 静默ms, ...]，长度 = count*2
+	onOffMs: number[]; // [震动ms, 静默ms, ... 震动ms]，长度 = count*2-1
 };
 
 /** 震动马达响应（0x40 响应 V，1B） */
@@ -77,15 +77,15 @@ export type AdvStatus = {
 
 /**
  * 每秒生命体征数据（6B packed LE）— 状态说明.txt 2.1.3
- * - hr=0xFF 表示无效，0xFE 表示空白
+ * - hr=0x00/0xFF 表示无效，0xFE 表示空白
  */
 export type VitalDataPerSecond = {
-	hr: number; // 0     UINT8  bpm（0xFF=无效 0xFE=空白）
+	hr: number; // 0     UINT8  bpm（0x00/0xFF=无效 0xFE=空白）
 	status: number; // 1     UINT8  bit5-3 行为类型, bit2-0 活动状态
 	pitch: number; // 2     UINT8  步频（0-255）
 	acc: number; // 3     UINT8  加速度幅值
 	ppi: number; // 4-5   UINT16 LE  脉波间期 ms（0=无效）
-	/** 是否有效（hr != 0xFF && hr != 0xFE） */
+	/** 是否有效（hr 不为 0x00、0xFE、0xFF） */
 	valid: boolean;
 };
 
@@ -118,9 +118,9 @@ export type VitalDataQueryResponse = {
 
 /* ==================== 0x3C/0x3D 事件数据类型（1.4.4.10/1.4.4.11 + 2.1.4） ==================== */
 
-/** 0x3C 请求 V（10B）：1B type + 4B start + 4B end */
+/** 0x3C 请求 V（10B）：1B 固定 0 + 1B type + 4B start + 4B end */
 export type EventDataQuery = {
-	type: number; // 0=ALL 1=BY_TIME
+	type: number; // Byte 1：0=ALL 1=BY_TIME
 	startSec: number;
 	endSec: number;
 };
@@ -134,19 +134,19 @@ export type EventDataHeaderResponse = {
 	latestSec: number; // Byte 13-16
 };
 
-/** DS_Data_Header_t（8B packed）— 状态说明.txt 2.1.4 */
+/** DS_Data_Header_t（10B packed）— 状态说明.txt 2.1.4 */
 export type LogDataHeader = {
 	flag: number; // 0     UINT8  0xA5=有效
 	flag2: number; // 1     UINT8  保留
 	crc8: number; // 2     UINT8
 	payloadLen: number; // 3     UINT8
 	sn: number; // 4-5   UINT16 LE  reset 后自增序号
-	globalSn: number; // 6-7   UINT16 LE  全局自增序号
+	globalSn: number; // 6-9   UINT32 LE  全局自增序号
 };
 
 /**
  * Log_Data_t（变长）— 状态说明.txt 2.1.4
- * - header(8B) + ts(4B) + tick(4B) + eventType(1B) + dataLen(1B) + eventData(dataLen B)
+ * - header(10B) + ts(4B) + tick(4B) + eventType(1B) + dataLen(1B) + eventData(dataLen B)
  * - eventData 按 eventType 解析后填入 parsedEvent（UTSJSONObject 表达）
  */
 export type LogDataItem = {

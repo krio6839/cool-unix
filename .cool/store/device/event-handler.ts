@@ -113,6 +113,10 @@ export class EventHandler {
 			console.warn("[BOOM] CRC 校验失败:", tlvcHex);
 			return;
 		}
+		if (f.l == 0) {
+			console.warn(`[BOOM] 设备返回参数或格式错误: t=0x${f.t.toString(16)}`);
+			return;
+		}
 
 		// 按 T 码分派到对应字段
 		switch (f.t) {
@@ -172,19 +176,17 @@ export class EventHandler {
 	 * - 0x3D: 多条 Log_Data_t 串联
 	 */
 	private _handleEventData(vHex: string, t: number): void {
-		if (t == BOOM_CMD.READ_EVENT_DATA_START) {
+		// 文档表格把续读响应写成 0x3C，示例则是 0x3D；17B 头长度可用于兼容判断。
+		if (t == BOOM_CMD.READ_EVENT_DATA_START && vHex.length == 34) {
 			// 0x3C：先解析头（17B）
-			if (vHex.length >= 34) {
-				this.eventDataHeader.value = parseEventDataHeader(vHex);
-				console.log(
-					`[BOOM] 事件头: type=${this.eventDataHeader.value?.type}, earliestSn=${this.eventDataHeader.value?.earliestSn}, latestSn=${this.eventDataHeader.value?.latestSn}`
-				);
-			} else {
-				console.warn(`[BOOM] 0x3C 响应 V 长度 ${vHex.length} < 34 (17B)`);
-			}
+			this.eventDataHeader.value = parseEventDataHeader(vHex);
+			console.log(
+				`[BOOM] 事件头: type=${this.eventDataHeader.value?.type}, earliestSn=${this.eventDataHeader.value?.earliestSn}, latestSn=${this.eventDataHeader.value?.latestSn}`
+			);
 		} else {
-			// 0x3D：多条 Log_Data_t
-			const r = parseLogDataList(vHex, 0);
+			// 0x3D（或固件返回的 0x3C）：多条 Log_Data_t
+			// Byte 0 为协议固定字段，Log_Data_t 从 Byte 1 开始。
+			const r = parseLogDataList(vHex, 2);
 			if (r.items.length > 0) {
 				// 追加到累积列表
 				this.eventDataList.value = this.eventDataList.value.concat(r.items);

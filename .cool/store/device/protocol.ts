@@ -228,9 +228,16 @@ export class DeviceProtocol {
 		return this.sendTlvc(BOOM_CMD.READ_BIOMETRIC, "");
 	}
 
-	/** 0x40 震动马达控制（请求 V=loops+count+n×2B on/off；count 上限 10） */
+	/** 0x40 震动马达控制（onOffMs 长度=count*2-1；count 上限 10） */
 	controlVibration(spec: VibrationSpec): Promise<boolean> {
-		if (spec.count > 10) spec.count = 10;
+		if (spec.count < 1 || spec.count > 10) {
+			console.warn(`[BOOM-PROTO] 0x40 count=${spec.count} 非法（应为1~10）`);
+			return Promise.resolve(false);
+		}
+		if (spec.onOffMs.length != spec.count * 2 - 1) {
+			console.warn("[BOOM-PROTO] 0x40 onOffMs 长度应为 count*2-1");
+			return Promise.resolve(false);
+		}
 		return this.sendTlvc(BOOM_CMD.CONTROL_VIBRATION, serializeVibration(spec));
 	}
 
