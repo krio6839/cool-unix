@@ -9,11 +9,12 @@ export type QuestionOption = {
 };
 
 export type Question = {
+	field?: string;
 	text: string;
 	options: QuestionOption[];
 };
 
-export type QuestionnaireResponse = {
+export type Questionnaire = {
 	userTypes: UserType[];
 	questions: Question[];
 };
