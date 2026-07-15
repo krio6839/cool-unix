@@ -11,6 +11,7 @@ import {
 	BOOM_GATT_SERVICE_UUID,
 	BOOM_CMD,
 	parseU16LE,
+	parseDataIdentifier,
 	parseFirmwareVersion,
 	parseDeviceNumber,
 	parseTimestamp,
@@ -48,6 +49,10 @@ export class EventHandler {
 	boomTimestamp = ref<number>(0);
 	/** 0x35/0x36 生物识别 */
 	biometricInfo = ref<VitalBiometric | null>(null);
+	/** 0x35/0x36 生物识别响应序号（即使内容相同也递增） */
+	biometricInfoSeq = ref<number>(0);
+	/** 0x35/0x36 最近一次生物识别响应到达时间 */
+	biometricInfoReceivedAt = ref<number>(0);
 	/** 0x40 震动马达最后一次响应 */
 	lastVibration = ref<VibrationResult | null>(null);
 	/** 0x3A/0x3B 最近一次生命体征查询结果（多帧重组后） */
@@ -92,19 +97,36 @@ export class EventHandler {
 	handleNotifyData(value: ArrayBuffer): void {
 		const hexData = arrayBufferToHexString(value);
 		let tlvcHex = hexData;
+		console.log(`[BOOM] notify hex=${hexData}`);
 
 		// DI 检测：bit 15 (0x8000) 或 bit 14 (0x4000) 非 0 → DI 帧
-		if (hexData.length >= 4) {
+		if (this._vitalReassembler.expectsContinuationFragment()) {
+			const reassembled = this._vitalReassembler.push(hexData);
+			if (reassembled == null) {
+				return;
+			}
+			tlvcHex = reassembled;
+		} else if (hexData.length >= 4) {
 			const firstTwoBytes = parseU16LE(hexData, 0);
 			if ((firstTwoBytes & 0xc000) != 0) {
-				// 多帧或带 DI 的单帧
-				const reassembled = this._vitalReassembler.push(hexData);
-				if (reassembled == null) {
-					// 还在接收中，等待后续帧
-					return;
+				const di = parseDataIdentifier(hexData);
+				if (
+					di != null &&
+					di.isStart == true &&
+					di.isEnd == true &&
+					hexData.length >= 4 + di.validBytes * 2
+				) {
+					tlvcHex = hexData.substring(4, 4 + di.validBytes * 2);
+				} else {
+					// 多帧或单个 DI payload 被底层 notify 拆片
+					const reassembled = this._vitalReassembler.push(hexData);
+					if (reassembled == null) {
+						// 还在接收中，等待后续帧
+						return;
+					}
+					// 重组完成 → 走正常 TLVC 解析
+					tlvcHex = reassembled;
 				}
-				// 重组完成 → 走正常 TLVC 解析
-				tlvcHex = reassembled;
 			}
 		}
 
@@ -137,6 +159,8 @@ export class EventHandler {
 			case BOOM_CMD.SET_BIOMETRIC:
 			case BOOM_CMD.READ_BIOMETRIC:
 				this.biometricInfo.value = parseBiometric(f.v);
+				this.biometricInfoSeq.value = this.biometricInfoSeq.value + 1;
+				this.biometricInfoReceivedAt.value = Date.now();
 				console.log("[BOOM] 生物识别:", this.biometricInfo.value);
 				break;
 			case BOOM_CMD.CONTROL_VIBRATION:

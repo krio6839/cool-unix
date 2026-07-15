@@ -10,6 +10,10 @@
 import {
 	hexStringToArrayBuffer,
 	BOOM_GATT_SERVICE_UUID,
+	EVENT_QUERY_TYPE_ALL,
+	EVENT_QUERY_TYPE_BY_TIME,
+	VITAL_DIRECTION_BACKWARD,
+	VITAL_DIRECTION_FORWARD,
 	encodeTlvc,
 	wrapDataIdentifier,
 	BOOM_CMD,
@@ -20,7 +24,8 @@ import {
 	serializeVitalDataQuery,
 	serializeVitalContinueQuery,
 	serializeEventDataQuery,
-	serializeEventContinueQuery
+	serializeEventContinueQuery,
+	PPG_POSITION_OPTIONS
 } from "../../bluetooth";
 import type {
 	VibrationSpec,
@@ -161,6 +166,7 @@ export class DeviceProtocol {
 		//#ifndef H5
 		if (this.writeCharUuid == "") return false;
 		const frame = wrapDataIdentifier(encodeTlvc(t, vHex));
+		console.log(`[BOOM-PROTO] sendTlvc t=0x${t.toString(16)}, frame=${frame}`);
 		return writeCharacteristic(
 			this.device.currentDeviceId,
 			BOOM_GATT_SERVICE_UUID,
@@ -180,6 +186,7 @@ export class DeviceProtocol {
 	async sendRawFrame(hex: string): Promise<boolean> {
 		//#ifndef H5
 		if (this.writeCharUuid == "") return false;
+		console.log(`[BOOM-PROTO] sendRawFrame frame=${hex}`);
 		return writeCharacteristic(
 			this.device.currentDeviceId,
 			BOOM_GATT_SERVICE_UUID,
@@ -220,6 +227,18 @@ export class DeviceProtocol {
 
 	/** 0x35 写生物识别（请求 V=8B） */
 	setBiometric(b: VitalBiometric): Promise<boolean> {
+		let validPpgPosition = false;
+		for (let i = 0; i < PPG_POSITION_OPTIONS.length; i++) {
+			const item = PPG_POSITION_OPTIONS[i];
+			if (item != null && item.value == b.ppgPosition) {
+				validPpgPosition = true;
+				break;
+			}
+		}
+		if (validPpgPosition == false) {
+			console.warn(`[BOOM-PROTO] 0x35 ppgPosition=${b.ppgPosition} 非法（应为0~6）`);
+			return Promise.resolve(false);
+		}
 		return this.sendTlvc(BOOM_CMD.SET_BIOMETRIC, serializeBiometric(b));
 	}
 
@@ -250,6 +269,13 @@ export class DeviceProtocol {
 	 * @param req.minutes 2 或 5
 	 */
 	readVitalData(req: VitalDataQueryRequest): Promise<boolean> {
+		if (
+			req.direction != VITAL_DIRECTION_FORWARD &&
+			req.direction != VITAL_DIRECTION_BACKWARD
+		) {
+			console.warn(`[BOOM-PROTO] 0x3A direction=${req.direction} 非法（应=0或1）`);
+			return Promise.resolve(false);
+		}
 		if (req.minutes != 2 && req.minutes != 5) {
 			console.warn(`[BOOM-PROTO] 0x3A minutes=${req.minutes} 非法（应=2或5）`);
 			return Promise.resolve(false);
@@ -273,6 +299,10 @@ export class DeviceProtocol {
 
 	/** 0x3C 开始读事件数据 */
 	readEventData(req: EventDataQuery): Promise<boolean> {
+		if (req.type != EVENT_QUERY_TYPE_ALL && req.type != EVENT_QUERY_TYPE_BY_TIME) {
+			console.warn(`[BOOM-PROTO] 0x3C type=${req.type} 非法（应=0或1）`);
+			return Promise.resolve(false);
+		}
 		return this.sendTlvc(BOOM_CMD.READ_EVENT_DATA_START, serializeEventDataQuery(req));
 	}
 

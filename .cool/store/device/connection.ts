@@ -52,6 +52,7 @@ export class DeviceConnection {
 	private static readonly PAIRING_SCAN_TIMEOUT_MS = 30000; // 扫描总时长
 	private _scanMode: "pairing" | "reconnect" = "pairing";
 	private _isSearching: boolean = false;
+	private _isConnectingFoundBoundDevice: boolean = false;
 	private _pairingScanTimer: number = 0;
 
 	constructor(device: Device) {
@@ -185,6 +186,7 @@ export class DeviceConnection {
 			return;
 		}
 		this._isSearching = true;
+		this._isConnectingFoundBoundDevice = false;
 		this._scanMode = mode;
 
 		try {
@@ -231,9 +233,10 @@ export class DeviceConnection {
 	 */
 	private _handleFoundDevice(found: DeviceInfo, name: string): void {
 		console.log("[SCAN] 发现目标设备:", found.deviceId);
-		if (!this.device.devices.some((d) => d.deviceId == found.deviceId)) {
-			// DeviceInfo 必填 8 字段全填齐
-			this.device.devices.push({
+		const nextDevices = this.device.devices.slice();
+		const exists = nextDevices.some((d) => d.deviceId == found.deviceId);
+		if (exists == false) {
+			nextDevices.push({
 				name,
 				localName: found.localName ?? name, // BOOM 设备 localName 通常 == name
 				deviceId: found.deviceId,
@@ -244,9 +247,29 @@ export class DeviceConnection {
 				connectable: true
 			} as DeviceInfo);
 		}
-		// 按 RSSI 降序排序(信号最强在最前)
-		this.device.devices.sort((a, b) => (b.RSSI ?? -100) - (a.RSSI ?? -100));
+		// UTS Android 对响应式数组原地 sort 偶发 ConcurrentModificationException,用快照替换。
+		this.device.devices = nextDevices.sort((a, b) => (b.RSSI ?? -100) - (a.RSSI ?? -100));
 		console.log("[SCAN] 当前 BOOM 设备列表长度:", this.device.devices.length);
+
+		if (this._scanMode == "reconnect" && found.deviceId == this.device.boundDeviceId) {
+			this._connectFoundBoundDevice(found.deviceId, name);
+		}
+	}
+
+	/** 重连扫描中一旦发现绑定设备,立即停止扫描并直连 */
+	private async _connectFoundBoundDevice(deviceId: string, deviceName: string): Promise<void> {
+		if (this._isConnectingFoundBoundDevice == true) return;
+		if (this.device.currentDeviceId != "") return;
+
+		this._isConnectingFoundBoundDevice = true;
+		console.log(`[SCAN] 重连模式发现绑定设备,立即连接: ${deviceId}`);
+		await this.stopBluetoothSearch();
+		this.device.devices = [];
+		try {
+			await this.connectToDevice(deviceId, deviceName);
+		} finally {
+			this._isConnectingFoundBoundDevice = false;
+		}
 	}
 
 	/** 调度扫描超时定时器 */
@@ -472,6 +495,8 @@ export class DeviceConnection {
 		this.device.currentDeviceName = "";
 		this.device.protocol.services = [];
 		this.device.protocol.characteristics.clear();
+		this.device.protocol.writeCharUuid = "";
+		this.device.protocol.notifyCharUuid = "";
 		this.device.realtime.value = null;
 		this.device.resetReconnectState();
 	}

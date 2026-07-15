@@ -28,6 +28,11 @@
 						<cl-text color="white" :size="12">{{ bioText }}</cl-text>
 					</view>
 				</view>
+				<view class="mt-2 p-2 bg-gray-700 rounded">
+					<cl-text :color="protocolReady ? 'success' : 'warning'" :size="12">
+						{{ protocolReadyText }}
+					</cl-text>
+				</view>
 			</view>
 
 			<!-- 0x50 实时广播 -->
@@ -85,6 +90,7 @@
 						rounded
 						size="small"
 						class="mr-2 mb-1"
+						:disabled="isCommandDisabled('0x30')"
 						@tap="testReadFirmware"
 					>
 						{{ t("0x30 读固件") }}
@@ -100,6 +106,7 @@
 						rounded
 						size="small"
 						class="mr-2 mb-1"
+						:disabled="isCommandDisabled('0x32')"
 						@tap="testReadDeviceNumber"
 					>
 						{{ t("0x32 读设备编号") }}
@@ -115,6 +122,7 @@
 						rounded
 						size="small"
 						class="mr-2 mb-1"
+						:disabled="isCommandDisabled('0x34')"
 						@tap="testReadTimestamp"
 					>
 						{{ t("0x34 读时戳") }}
@@ -130,6 +138,7 @@
 						rounded
 						size="small"
 						class="mr-2 mb-1"
+						:disabled="isCommandDisabled('0x36')"
 						@tap="testReadBiometric"
 					>
 						{{ t("0x36 读生物识别") }}
@@ -145,6 +154,7 @@
 						rounded
 						size="small"
 						class="mr-2 mb-1"
+						:disabled="isCommandDisabled('0x31')"
 						@tap="openForm('0x31')"
 					>
 						{{ t("0x31 写设备编号") }}
@@ -160,6 +170,7 @@
 						rounded
 						size="small"
 						class="mr-2 mb-1"
+						:disabled="isCommandDisabled('0x33')"
 						@tap="testSetTimestamp"
 					>
 						{{ t("0x33 写时戳") }}
@@ -175,6 +186,7 @@
 						rounded
 						size="small"
 						class="mr-2 mb-1"
+						:disabled="isCommandDisabled('0x35')"
 						@tap="openForm('0x35')"
 					>
 						{{ t("0x35 写生物识别") }}
@@ -190,6 +202,7 @@
 						rounded
 						size="small"
 						class="mr-2 mb-1"
+						:disabled="isCommandDisabled('0x40')"
 						@tap="testVibration"
 					>
 						{{ t("0x40 震动马达") }}
@@ -212,6 +225,7 @@
 						rounded
 						size="small"
 						class="mr-2 mb-1"
+						:disabled="isCommandDisabled('0x3A')"
 						@tap="openForm('0x3A')"
 					>
 						{{ t("0x3A 读生命体征") }}
@@ -227,6 +241,7 @@
 						rounded
 						size="small"
 						class="mr-2 mb-1"
+						:disabled="isCommandDisabled('0x3B')"
 						@tap="openForm('0x3B')"
 					>
 						{{ t("0x3B 续读生命体征") }}
@@ -242,6 +257,7 @@
 						rounded
 						size="small"
 						class="mr-2 mb-1"
+						:disabled="isCommandDisabled('0x3C')"
 						@tap="openForm('0x3C')"
 					>
 						{{ t("0x3C 读事件") }}
@@ -257,6 +273,7 @@
 						rounded
 						size="small"
 						class="mr-2 mb-1"
+						:disabled="isCommandDisabled('0x3D')"
 						@tap="openForm('0x3D')"
 					>
 						{{ t("0x3D 续读事件") }}
@@ -274,7 +291,12 @@
 				</cl-text>
 				<view class="mb-2">
 					<cl-text color="gray-400" :size="12">
-						{{ t("起始时戳 / 方向 / 分钟数") }}: {{ vitalText.start }}
+						{{ t("起始时间 / 方向 / 返回分钟数") }}: {{ vitalText.start }}
+					</cl-text>
+				</view>
+				<view class="mb-2">
+					<cl-text color="gray-400" :size="12">
+						{{ t("读取状态") }}: {{ vitalText.status }}
 					</cl-text>
 				</view>
 				<view class="mb-2">
@@ -317,6 +339,7 @@
 					rounded
 					size="small"
 					class="mr-2 mb-2"
+					:disabled="activeCommand != ''"
 					@tap="testDisconnect"
 				>
 					{{ t("断开连接") }}
@@ -327,6 +350,7 @@
 					rounded
 					size="small"
 					class="mr-2 mb-2"
+					:disabled="activeCommand != ''"
 					@tap="testReconnect"
 				>
 					{{ t("测试重连") }}
@@ -337,6 +361,7 @@
 					rounded
 					size="small"
 					class="mr-2 mb-2"
+					:disabled="activeCommand != ''"
 					@tap="testClearError"
 				>
 					{{ t("清除错误") }}
@@ -346,7 +371,7 @@
 
 		<!-- 参数输入子弹窗（0x31/0x35/0x3A/0x3B/0x3C/0x3D 共用） -->
 		<cl-popup v-model="formVisible" direction="bottom" :size="700" :title="formTitle">
-			<view class="p-4">
+			<scroll-view class="p-4" scroll-y="true" style="height: 100%">
 				<!-- 0x31 设备编号 -->
 				<template v-if="activeForm == '0x31'">
 					<view class="mb-3">
@@ -370,32 +395,28 @@
 							{{ t("性别") }}
 							<cl-text color="error">*</cl-text>
 						</cl-text>
-						<cl-select
-							v-model="formGender"
-							:options="genderOptions"
-							:show-trigger="false"
-						></cl-select>
+						<cl-select v-model="formGender" :options="genderOptions"></cl-select>
 					</view>
 					<view class="mb-3">
 						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("体重 (×100, e.g. 6837 = 68.37kg)") }}
+							{{ t("体重 (×100, e.g. 7000 = 70.00kg)") }}
 							<cl-text color="error">*</cl-text>
 						</cl-text>
-						<cl-input v-model="formWeight" type="number" placeholder="6837"></cl-input>
+						<cl-input v-model="formWeight" type="number" placeholder="7000"></cl-input>
 					</view>
 					<view class="mb-3">
 						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("身高 (×100, e.g. 17500 = 175cm)") }}
+							{{ t("身高 (×100, e.g. 18000 = 180cm)") }}
 							<cl-text color="error">*</cl-text>
 						</cl-text>
-						<cl-input v-model="formHeight" type="number" placeholder="17500"></cl-input>
+						<cl-input v-model="formHeight" type="number" placeholder="18000"></cl-input>
 					</view>
 					<view class="mb-3">
 						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
 							{{ t("年龄 (岁)") }}
 							<cl-text color="error">*</cl-text>
 						</cl-text>
-						<cl-input v-model="formAge" type="number" placeholder="30"></cl-input>
+						<cl-input v-model="formAge" type="number" placeholder="20"></cl-input>
 					</view>
 					<view class="mb-3">
 						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
@@ -405,7 +426,6 @@
 						<cl-select
 							v-model="formPpgPosition"
 							:options="ppgPositionOptions"
-							:show-trigger="false"
 						></cl-select>
 					</view>
 					<view class="mb-3">
@@ -413,7 +433,7 @@
 							{{ t("基础心率 BHR (28~240)") }}
 							<cl-text color="error">*</cl-text>
 						</cl-text>
-						<cl-input v-model="formBhr" type="number" placeholder="70"></cl-input>
+						<cl-input v-model="formBhr" type="number" placeholder="60"></cl-input>
 					</view>
 				</template>
 
@@ -435,22 +455,14 @@
 							{{ t("方向") }}
 							<cl-text color="error">*</cl-text>
 						</cl-text>
-						<cl-select
-							v-model="formDirection"
-							:options="directionOptions"
-							:show-trigger="false"
-						></cl-select>
+						<cl-select v-model="formDirection" :options="directionOptions"></cl-select>
 					</view>
 					<view class="mb-3">
 						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
 							{{ t("分钟数") }}
 							<cl-text color="error">*</cl-text>
 						</cl-text>
-						<cl-select
-							v-model="formMinutes"
-							:options="minutesOptions"
-							:show-trigger="false"
-						></cl-select>
+						<cl-select v-model="formMinutes" :options="minutesOptions"></cl-select>
 					</view>
 				</template>
 
@@ -461,11 +473,7 @@
 							{{ t("分钟数") }}
 							<cl-text color="error">*</cl-text>
 						</cl-text>
-						<cl-select
-							v-model="formMinutes"
-							:options="minutesOptions"
-							:show-trigger="false"
-						></cl-select>
+						<cl-select v-model="formMinutes" :options="minutesOptions"></cl-select>
 					</view>
 				</template>
 
@@ -476,11 +484,7 @@
 							{{ t("类型") }}
 							<cl-text color="error">*</cl-text>
 						</cl-text>
-						<cl-select
-							v-model="formType"
-							:options="eventTypeOptions"
-							:show-trigger="false"
-						></cl-select>
+						<cl-select v-model="formType" :options="eventTypeOptions"></cl-select>
 					</view>
 					<view class="mb-3">
 						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
@@ -521,7 +525,7 @@
 					</view>
 				</template>
 
-				<!-- 快速发送示例（0x31/0x3A/0x3B/0x3C/0x3D 有文档示例时显示） -->
+				<!-- 快速发送示例（有文档示例时显示） -->
 				<view v-if="exampleList.length > 0" class="mt-4 p-3 bg-gray-700 rounded">
 					<cl-text color="gray-300" :size="12" :pt="{ className: 'mb-2 font-bold' }">
 						{{ t("快速发送示例（免填表单）") }}
@@ -535,6 +539,7 @@
 							rounded
 							size="small"
 							class="mr-1 mb-1"
+							:disabled="activeCommand != '' || protocolReady == false"
 							@tap="sendExample(ex)"
 						>
 							{{ ex.name }}
@@ -546,20 +551,43 @@
 					<cl-button type="light" size="large" class="flex-1 mr-2" @tap="closeForm">
 						{{ t("取消") }}
 					</cl-button>
-					<cl-button type="primary" size="large" class="flex-1 ml-2" @tap="submitForm">
-						{{ t("发送") }}
+					<cl-button
+						type="primary"
+						size="large"
+						class="flex-1 ml-2"
+						:disabled="activeCommand != ''"
+						@tap="submitForm"
+					>
+						{{ activeCommand != "" ? t("发送中") : t("发送") }}
 					</cl-button>
 				</view>
-			</view>
+			</scroll-view>
 		</cl-popup>
 	</cl-popup>
 </template>
 
 <script lang="ts" setup>
 //#ifndef H5
-import { computed, reactive, ref } from "vue";
-import { DEVICE_NUMBER_MAX_LEN, DOC_EXAMPLES_BY_T, LOG_EVENT_NAMES, t, useStore } from "@/.cool";
-import type { DocExample, EventDataQuery, VibrationSpec, VitalDataQueryRequest } from "@/.cool";
+import { computed, reactive, ref, watch } from "vue";
+import {
+	DEVICE_NUMBER_MAX_LEN,
+	DOC_EXAMPLES_BY_T,
+	LOG_EVENT_NAMES,
+	PPG_POSITION_OPTIONS,
+	t,
+	useStore
+} from "@/.cool";
+import type {
+	DocExample,
+	EventDataQuery,
+	EventDataHeaderResponse,
+	VibrationResult,
+	VibrationSpec,
+	VitalBiometric,
+	VitalDataQueryResponse,
+	VitalDataQueryRequest
+} from "@/.cool";
+import type { PpgPositionOption } from "@/.cool";
 import { useUi, type ClSelectOption } from "@/uni_modules/cool-ui";
 
 /* 0x50 实时数据展示用 computed 类型（9 字段全部 string） */
@@ -584,6 +612,10 @@ const show = defineModel("show", {
 
 /* ===== 展示用 computed ===== */
 
+function formatBiometric(b: VitalBiometric): string {
+	return `性别${b.gender} 体重${(b.weight / 100).toFixed(2)}kg 身高${(b.height / 100).toFixed(2)}cm 年龄${b.age} PPG${b.ppgPosition} BHR${b.bhr}`;
+}
+
 const fwText = computed<string>(() => {
 	const f = deviceStore.event.firmwareVersion.value;
 	if (f == null) return "-";
@@ -593,8 +625,31 @@ const fwText = computed<string>(() => {
 const bioText = computed<string>(() => {
 	const b = deviceStore.event.biometricInfo.value;
 	if (b == null) return "-";
-	return `性别${b.gender} 体重${b.weight} 身高${b.height} 年龄${b.age} PPG${b.ppgPosition} BHR${b.bhr}`;
+	return formatBiometric(b);
 });
+
+function sameBiometric(a: VitalBiometric | null, b: VitalBiometric): boolean {
+	if (a == null) return false;
+	return (
+		a.gender == b.gender &&
+		a.weight == b.weight &&
+		a.height == b.height &&
+		a.age == b.age &&
+		a.ppgPosition == b.ppgPosition &&
+		a.bhr == b.bhr
+	);
+}
+
+function isAlphaNumeric(value: string): boolean {
+	for (let i = 0; i < value.length; i++) {
+		const code = value.charCodeAt(i) ?? 0;
+		const isNumber = code >= 48 && code <= 57;
+		const isUpper = code >= 65 && code <= 90;
+		const isLower = code >= 97 && code <= 122;
+		if (isNumber == false && isUpper == false && isLower == false) return false;
+	}
+	return true;
+}
 
 const rtText = computed<RtText>(() => {
 	const r = deviceStore.realtime.value;
@@ -629,10 +684,100 @@ const rtText = computed<RtText>(() => {
 /** 每个 T 码的响应摘要（key 为十六进制字符串，如 "0x30"） */
 type LastResponse = Record<string, string>;
 const lastResponse = reactive<LastResponse>({});
+const activeCommand = ref<string>("");
 
 function getResp(cmd: string): string {
 	const v = lastResponse[cmd];
 	return v == null || v == "" ? "-" : v;
+}
+
+const protocolReady = computed<boolean>(() => {
+	return (
+		deviceStore.status.value == "CONNECTED" &&
+		deviceStore.protocol.writeCharUuid != "" &&
+		deviceStore.protocol.notifyCharUuid != ""
+	);
+});
+
+const protocolReadyText = computed<string>(() => {
+	if (deviceStore.status.value != "CONNECTED") return t("设备未连接，测试命令暂不可用");
+	if (deviceStore.protocol.writeCharUuid == "") return t("未发现写入特征，请重新连接设备");
+	if (deviceStore.protocol.notifyCharUuid == "") return t("未发现通知特征，请重新连接设备");
+	return t("协议已就绪，可以发送测试命令");
+});
+
+function isCommandDisabled(cmd: string): boolean {
+	return protocolReady.value == false || activeCommand.value != "";
+}
+
+function setCommandResponse(cmd: string, message: string): void {
+	const time = new Date().toLocaleTimeString();
+	lastResponse[cmd] = `${time} ${message}`;
+}
+
+function beginCommand(cmd: string): boolean {
+	if (protocolReady.value == false) {
+		ui.showToast({ message: protocolReadyText.value, type: "warn" });
+		return false;
+	}
+	if (activeCommand.value != "") {
+		ui.showToast({ message: t("已有命令发送中，请稍候"), type: "warn" });
+		return false;
+	}
+	activeCommand.value = cmd;
+	setCommandResponse(cmd, t("发送中..."));
+	return true;
+}
+
+function endCommand(cmd: string): void {
+	if (activeCommand.value == cmd) {
+		activeCommand.value = "";
+	}
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise<void>((resolve) => {
+		setTimeout(() => {
+			resolve();
+		}, ms);
+	});
+}
+
+async function waitForBiometric(
+	beforeSeq: number,
+	sentAt: number,
+	expected: VitalBiometric | null,
+	timeoutMs: number
+): Promise<VitalBiometric | null> {
+	const start = Date.now();
+	while (Date.now() - start < timeoutMs) {
+		const current = deviceStore.event.biometricInfo.value;
+		if (current != null) {
+			if (expected != null && sameBiometric(current, expected)) return current;
+			if (
+				expected == null &&
+				(deviceStore.event.biometricInfoSeq.value > beforeSeq ||
+					deviceStore.event.biometricInfoReceivedAt.value >= sentAt)
+			) {
+				return current;
+			}
+		}
+		await sleep(150);
+	}
+	return null;
+}
+
+async function waitForVibration(
+	before: VibrationResult | null,
+	timeoutMs: number
+): Promise<VibrationResult | null> {
+	const start = Date.now();
+	while (Date.now() - start < timeoutMs) {
+		const current = deviceStore.event.lastVibration.value;
+		if (current != null && current !== before) return current;
+		await sleep(150);
+	}
+	return null;
 }
 
 const fwResp = computed<string>(() => getResp("0x30"));
@@ -647,6 +792,7 @@ const vitalResp = computed<string>(() => getResp("0x3A"));
 const vitalContResp = computed<string>(() => getResp("0x3B"));
 const eventResp = computed<string>(() => getResp("0x3C"));
 const eventContResp = computed<string>(() => getResp("0x3D"));
+const pendingVitalCommand = ref<"" | "0x3A" | "0x3B">("");
 
 /* ===== 参数输入子弹窗状态 ===== */
 
@@ -684,11 +830,11 @@ const formMinutes = ref<number>(2);
 const formType = ref<number>(0);
 // 0x35 生物识别表单字段
 const formGender = ref<number>(0);
-const formWeight = ref<string>("6837");
-const formHeight = ref<string>("17500");
-const formAge = ref<string>("30");
+const formWeight = ref<string>("7000");
+const formHeight = ref<string>("18000");
+const formAge = ref<string>("20");
 const formPpgPosition = ref<number>(0);
-const formBhr = ref<string>("70");
+const formBhr = ref<string>("60");
 
 /** 方向选项（0=向前 1=向后） */
 const directionOptions: ClSelectOption[] = [
@@ -714,8 +860,13 @@ const genderOptions: ClSelectOption[] = [
 	{ label: t("女 (1)"), value: 1 }
 ];
 
-/** PPG 位置选项（0=手腕） */
-const ppgPositionOptions: ClSelectOption[] = [{ label: t("手腕 (0)"), value: 0 }];
+/** PPG 位置选项（0~6，与协议 UINT8 保持一致） */
+const ppgPositionOptions: ClSelectOption[] = PPG_POSITION_OPTIONS.map(
+	(item: PpgPositionOption): ClSelectOption => ({
+		label: `${t(item.label)} (${item.value})`,
+		value: item.value
+	})
+);
 
 /** 当前表单可用的文档示例（按 T 码查 DOC_EXAMPLES_BY_T） */
 const exampleList = computed<DocExample[]>(() => {
@@ -733,11 +884,11 @@ function openForm(cmd: "0x31" | "0x35" | "0x3A" | "0x3B" | "0x3C" | "0x3D"): voi
 			break;
 		case "0x35":
 			formGender.value = 0;
-			formWeight.value = "6837";
-			formHeight.value = "17500";
-			formAge.value = "30";
+			formWeight.value = "7000";
+			formHeight.value = "18000";
+			formAge.value = "20";
 			formPpgPosition.value = 0;
-			formBhr.value = "70";
+			formBhr.value = "60";
 			break;
 		case "0x3A":
 			formStartSec.value = (now - 120).toString();
@@ -769,206 +920,333 @@ function closeForm(): void {
 /** 提交表单（按 activeForm 分派） */
 async function submitForm(): Promise<void> {
 	const cmd = activeForm.value;
-	switch (cmd) {
-		case "0x31": {
-			const num = formDeviceNumber.value.trim();
-			if (num.length == 0 || num.length > DEVICE_NUMBER_MAX_LEN) {
-				ui.showToast({ message: t("编号长度需 1~29 位"), type: "error" });
-				return;
+	if (cmd == "") return;
+	if (!beginCommand(cmd)) return;
+	let shouldClose = false;
+	try {
+		switch (cmd) {
+			case "0x31": {
+				const num = formDeviceNumber.value.trim();
+				if (num.length == 0 || num.length > DEVICE_NUMBER_MAX_LEN) {
+					ui.showToast({ message: t("编号长度需 1~29 位"), type: "error" });
+					return;
+				}
+				if (isAlphaNumeric(num) == false) {
+					ui.showToast({ message: t("设备编号只能包含数字和字母"), type: "error" });
+					return;
+				}
+				ui.showToast({ message: t("0x31 发送..."), type: "warn" });
+				const ok = await deviceStore.protocol.setDeviceNumber(num);
+				setCommandResponse(cmd, ok ? t("已发送，等待设备确认") : t("发送失败，请重试"));
+				ui.showToast({
+					message: ok ? t("0x31 已发送") : t("发送失败"),
+					type: ok ? "success" : "error"
+				});
+				shouldClose = ok;
+				break;
 			}
-			ui.showToast({ message: t("0x31 发送..."), type: "warn" });
-			const ok = await deviceStore.protocol.setDeviceNumber(num);
-			lastResponse["0x31"] = ok ? t("已发送") : t("失败");
-			ui.showToast({
-				message: ok ? t("0x31 已发送") : t("失败"),
-				type: ok ? "success" : "error"
-			});
-			break;
-		}
-		case "0x35": {
-			const w = parseInt(formWeight.value, 10);
-			const h = parseInt(formHeight.value, 10);
-			const a = parseInt(formAge.value, 10);
-			const b = parseInt(formBhr.value, 10);
-			if (Number.isNaN(w) || w <= 0 || Number.isNaN(h) || h <= 0) {
-				ui.showToast({ message: t("身高/体重必须是正数"), type: "error" });
-				return;
+			case "0x35": {
+				const w = parseInt(formWeight.value, 10);
+				const h = parseInt(formHeight.value, 10);
+				const a = parseInt(formAge.value, 10);
+				const b = parseInt(formBhr.value, 10);
+				if (Number.isNaN(w) || w < 1000 || w > 65000) {
+					ui.showToast({ message: t("体重需 1000~65000"), type: "error" });
+					return;
+				}
+				if (Number.isNaN(h) || h < 10000 || h > 28000) {
+					ui.showToast({ message: t("身高需 10000~28000"), type: "error" });
+					return;
+				}
+				if (Number.isNaN(a) || a < 10 || a > 99) {
+					ui.showToast({ message: t("年龄需 10~99"), type: "error" });
+					return;
+				}
+				if (Number.isNaN(b) || b < 28 || b > 240) {
+					ui.showToast({ message: t("BHR 需 28~240"), type: "error" });
+					return;
+				}
+				const req: VitalBiometric = {
+					gender: formGender.value,
+					weight: w,
+					height: h,
+					age: a,
+					ppgPosition: formPpgPosition.value,
+					bhr: b
+				};
+				const beforeSeq = deviceStore.event.biometricInfoSeq.value;
+				const sentAt = Date.now();
+				ui.showToast({ message: t("0x35 发送..."), type: "warn" });
+				const ok = await deviceStore.protocol.setBiometric(req);
+				if (!ok) {
+					setCommandResponse(cmd, t("发送失败，请重试"));
+					ui.showToast({ message: t("发送失败"), type: "error" });
+					return;
+				}
+				setCommandResponse(cmd, t("已发送，等待设备确认"));
+				const confirmed = await waitForBiometric(beforeSeq, sentAt, req, 2500);
+				if (confirmed != null) {
+					setCommandResponse(cmd, `${t("设备已确认")} ${formatBiometric(confirmed)}`);
+					ui.showToast({ message: t("设备已确认写入"), type: "success" });
+				} else {
+					setCommandResponse(cmd, t("已发送，但未收到 0x35 确认"));
+					ui.showToast({ message: t("未收到写入确认，可手动读回验证"), type: "warn" });
+				}
+				setCommandResponse("0x36", t("如需验证，请手动点击 0x36 读生物识别"));
+				shouldClose = true;
+				break;
 			}
-			if (Number.isNaN(a) || a <= 0 || a > 120) {
-				ui.showToast({ message: t("年龄需 1~120"), type: "error" });
-				return;
+			case "0x3A": {
+				const startSec = parseInt(formStartSec.value, 10);
+				if (Number.isNaN(startSec) || startSec <= 0) {
+					ui.showToast({ message: t("起始时戳必须是正数"), type: "error" });
+					return;
+				}
+				ui.showToast({ message: t("0x3A 发送..."), type: "warn" });
+				const req: VitalDataQueryRequest = {
+					startSec,
+					direction: formDirection.value,
+					minutes: formMinutes.value
+				};
+				pendingVitalCommand.value = "0x3A";
+				const ok = await deviceStore.protocol.readVitalData(req);
+				if (!ok && pendingVitalCommand.value == "0x3A") pendingVitalCommand.value = "";
+				setCommandResponse(cmd, ok ? t("已请求，等待响应") : t("发送失败，请重试"));
+				ui.showToast({
+					message: ok ? t("0x3A 已发送") : t("发送失败"),
+					type: ok ? "success" : "error"
+				});
+				shouldClose = ok;
+				break;
 			}
-			if (Number.isNaN(b) || b < 28 || b > 240) {
-				ui.showToast({ message: t("BHR 需 28~240"), type: "error" });
-				return;
+			case "0x3B": {
+				ui.showToast({ message: t("0x3B 发送..."), type: "warn" });
+				pendingVitalCommand.value = "0x3B";
+				const ok = await deviceStore.protocol.continueReadVitalData(formMinutes.value);
+				if (!ok && pendingVitalCommand.value == "0x3B") pendingVitalCommand.value = "";
+				setCommandResponse(cmd, ok ? t("已请求，等待响应") : t("发送失败，请重试"));
+				ui.showToast({
+					message: ok ? t("0x3B 已发送") : t("发送失败"),
+					type: ok ? "success" : "error"
+				});
+				shouldClose = ok;
+				break;
 			}
-			ui.showToast({ message: t("0x35 发送..."), type: "warn" });
-			const ok = await deviceStore.protocol.setBiometric({
-				gender: formGender.value,
-				weight: w,
-				height: h,
-				age: a,
-				ppgPosition: formPpgPosition.value,
-				bhr: b
-			});
-			lastResponse["0x35"] = ok ? t("已发送") : t("失败");
-			ui.showToast({
-				message: ok ? t("0x35 已发送") : t("失败"),
-				type: ok ? "success" : "error"
-			});
-			break;
+			case "0x3C": {
+				const startSec = parseInt(formStartSec.value, 10);
+				const endSec = parseInt(formEndSec.value, 10);
+				if (
+					Number.isNaN(startSec) ||
+					startSec <= 0 ||
+					Number.isNaN(endSec) ||
+					endSec <= 0
+				) {
+					ui.showToast({ message: t("起止时戳必须是正数"), type: "error" });
+					return;
+				}
+				if (endSec <= startSec) {
+					ui.showToast({ message: t("结束时戳必须大于起始时戳"), type: "error" });
+					return;
+				}
+				ui.showToast({ message: t("0x3C 发送..."), type: "warn" });
+				const req: EventDataQuery = {
+					type: formType.value,
+					startSec,
+					endSec
+				};
+				const ok = await deviceStore.protocol.readEventData(req);
+				setCommandResponse(cmd, ok ? t("已请求，等待响应") : t("发送失败，请重试"));
+				ui.showToast({
+					message: ok ? t("0x3C 已发送") : t("发送失败"),
+					type: ok ? "success" : "error"
+				});
+				shouldClose = ok;
+				break;
+			}
+			case "0x3D": {
+				const maxCount = parseInt(formMaxCount.value, 10);
+				if (Number.isNaN(maxCount) || maxCount <= 0) {
+					ui.showToast({ message: t("最大条数必须是正数"), type: "error" });
+					return;
+				}
+				ui.showToast({ message: t("0x3D 发送..."), type: "warn" });
+				const ok = await deviceStore.protocol.continueReadEventData(maxCount);
+				setCommandResponse(cmd, ok ? t("已请求，等待响应") : t("发送失败，请重试"));
+				ui.showToast({
+					message: ok ? t("0x3D 已发送") : t("发送失败"),
+					type: ok ? "success" : "error"
+				});
+				shouldClose = ok;
+				break;
+			}
 		}
-		case "0x3A": {
-			ui.showToast({ message: t("0x3A 发送..."), type: "warn" });
-			const req: VitalDataQueryRequest = {
-				startSec: parseInt(formStartSec.value, 10),
-				direction: formDirection.value,
-				minutes: formMinutes.value
-			};
-			const ok = await deviceStore.protocol.readVitalData(req);
-			lastResponse["0x3A"] = ok ? t("已请求，等待响应") : t("失败");
-			ui.showToast({
-				message: ok ? t("0x3A 已发送") : t("失败"),
-				type: ok ? "success" : "error"
-			});
-			break;
-		}
-		case "0x3B": {
-			ui.showToast({ message: t("0x3B 发送..."), type: "warn" });
-			const ok = await deviceStore.protocol.continueReadVitalData(formMinutes.value);
-			lastResponse["0x3B"] = ok ? t("已请求，等待响应") : t("失败");
-			ui.showToast({
-				message: ok ? t("0x3B 已发送") : t("失败"),
-				type: ok ? "success" : "error"
-			});
-			break;
-		}
-		case "0x3C": {
-			ui.showToast({ message: t("0x3C 发送..."), type: "warn" });
-			const req: EventDataQuery = {
-				type: formType.value,
-				startSec: parseInt(formStartSec.value, 10),
-				endSec: parseInt(formEndSec.value, 10)
-			};
-			const ok = await deviceStore.protocol.readEventData(req);
-			lastResponse["0x3C"] = ok ? t("已请求，等待响应") : t("失败");
-			ui.showToast({
-				message: ok ? t("0x3C 已发送") : t("失败"),
-				type: ok ? "success" : "error"
-			});
-			break;
-		}
-		case "0x3D": {
-			ui.showToast({ message: t("0x3D 发送..."), type: "warn" });
-			const ok = await deviceStore.protocol.continueReadEventData(
-				parseInt(formMaxCount.value, 10)
-			);
-			lastResponse["0x3D"] = ok ? t("已请求，等待响应") : t("失败");
-			ui.showToast({
-				message: ok ? t("0x3D 已发送") : t("失败"),
-				type: ok ? "success" : "error"
-			});
-			break;
-		}
+	} finally {
+		endCommand(cmd);
 	}
-	closeForm();
+	if (shouldClose) closeForm();
 }
 
 /* ===== 7 个无参/硬编码协议命令 ===== */
 
 async function testReadFirmware(): Promise<void> {
-	ui.showToast({ message: t("0x30 发送..."), type: "warn" });
-	const ok = await deviceStore.protocol.readFirmwareVersion();
-	const f = deviceStore.event.firmwareVersion.value;
-	if (ok && f != null) {
-		lastResponse["0x30"] = `${f.major}.${f.minor}.${f.revision}`;
-	} else {
-		lastResponse["0x30"] = t("失败");
+	const cmd = "0x30";
+	if (!beginCommand(cmd)) return;
+	try {
+		ui.showToast({ message: t("0x30 发送..."), type: "warn" });
+		const ok = await deviceStore.protocol.readFirmwareVersion();
+		const f = deviceStore.event.firmwareVersion.value;
+		if (ok && f != null) {
+			setCommandResponse(cmd, `${f.major}.${f.minor}.${f.revision}`);
+		} else {
+			setCommandResponse(cmd, ok ? t("已发送，等待设备响应") : t("发送失败，请重试"));
+		}
+		ui.showToast({ message: ok ? t("已发送") : t("发送失败"), type: ok ? "success" : "error" });
+	} finally {
+		endCommand(cmd);
 	}
-	ui.showToast({ message: ok ? t("已发送") : t("失败"), type: ok ? "success" : "error" });
 }
 
 async function testReadDeviceNumber(): Promise<void> {
-	ui.showToast({ message: t("0x32 发送..."), type: "warn" });
-	const ok = await deviceStore.protocol.readDeviceNumber();
-	const num = deviceStore.event.deviceNumber.value;
-	if (ok && num != "") {
-		lastResponse["0x32"] = num;
-	} else {
-		lastResponse["0x32"] = t("失败");
+	const cmd = "0x32";
+	if (!beginCommand(cmd)) return;
+	try {
+		ui.showToast({ message: t("0x32 发送..."), type: "warn" });
+		const ok = await deviceStore.protocol.readDeviceNumber();
+		const num = deviceStore.event.deviceNumber.value;
+		if (ok && num != "") {
+			setCommandResponse(cmd, num);
+		} else {
+			setCommandResponse(cmd, ok ? t("已发送，等待设备响应") : t("发送失败，请重试"));
+		}
+		ui.showToast({ message: ok ? t("已发送") : t("发送失败"), type: ok ? "success" : "error" });
+	} finally {
+		endCommand(cmd);
 	}
-	ui.showToast({ message: ok ? t("已发送") : t("失败"), type: ok ? "success" : "error" });
 }
 
 async function testReadTimestamp(): Promise<void> {
-	ui.showToast({ message: t("0x34 发送..."), type: "warn" });
-	const ok = await deviceStore.protocol.readTimestamp();
-	const sec = deviceStore.event.boomTimestamp.value;
-	if (ok && sec > 0) {
-		lastResponse["0x34"] = new Date(sec * 1000).toLocaleString();
-	} else {
-		lastResponse["0x34"] = t("失败");
+	const cmd = "0x34";
+	if (!beginCommand(cmd)) return;
+	try {
+		ui.showToast({ message: t("0x34 发送..."), type: "warn" });
+		const ok = await deviceStore.protocol.readTimestamp();
+		const sec = deviceStore.event.boomTimestamp.value;
+		if (ok && sec > 0) {
+			setCommandResponse(cmd, new Date(sec * 1000).toLocaleString());
+		} else {
+			setCommandResponse(cmd, ok ? t("已发送，等待设备响应") : t("发送失败，请重试"));
+		}
+		ui.showToast({ message: ok ? t("已发送") : t("发送失败"), type: ok ? "success" : "error" });
+	} finally {
+		endCommand(cmd);
 	}
-	ui.showToast({ message: ok ? t("已发送") : t("失败"), type: ok ? "success" : "error" });
 }
 
 async function testReadBiometric(): Promise<void> {
-	ui.showToast({ message: t("0x36 发送..."), type: "warn" });
-	const ok = await deviceStore.protocol.readBiometric();
-	const b = deviceStore.event.biometricInfo.value;
-	if (ok && b != null) {
-		lastResponse["0x36"] = bioText.value;
-	} else {
-		lastResponse["0x36"] = t("失败");
+	const cmd = "0x36";
+	if (!beginCommand(cmd)) return;
+	try {
+		const beforeSeq = deviceStore.event.biometricInfoSeq.value;
+		const sentAt = Date.now();
+		ui.showToast({ message: t("0x36 发送..."), type: "warn" });
+		const ok = await deviceStore.protocol.readBiometric();
+		if (!ok) {
+			setCommandResponse(cmd, t("发送失败，请重试"));
+			ui.showToast({ message: t("发送失败"), type: "error" });
+			return;
+		}
+		setCommandResponse(cmd, t("已发送，等待设备响应"));
+		const b = await waitForBiometric(beforeSeq, sentAt, null, 2500);
+		if (b != null) {
+			setCommandResponse(cmd, formatBiometric(b));
+			ui.showToast({ message: t("设备已响应"), type: "success" });
+		} else {
+			setCommandResponse(cmd, t("已发送，但未收到设备响应"));
+			ui.showToast({ message: t("未收到设备响应"), type: "warn" });
+		}
+	} finally {
+		endCommand(cmd);
 	}
-	ui.showToast({ message: ok ? t("已发送") : t("失败"), type: ok ? "success" : "error" });
 }
 
 async function testSetTimestamp(): Promise<void> {
-	const ok = await deviceStore.protocol.setTimestamp(Math.floor(Date.now() / 1000));
-	lastResponse["0x33"] = ok ? t("已发送") : t("失败");
-	ui.showToast({ message: ok ? t("0x33 已发送") : t("失败"), type: ok ? "success" : "error" });
+	const cmd = "0x33";
+	if (!beginCommand(cmd)) return;
+	try {
+		const ok = await deviceStore.protocol.setTimestamp(Math.floor(Date.now() / 1000));
+		setCommandResponse(cmd, ok ? t("已发送，等待设备确认") : t("发送失败，请重试"));
+		ui.showToast({
+			message: ok ? t("0x33 已发送") : t("发送失败"),
+			type: ok ? "success" : "error"
+		});
+	} finally {
+		endCommand(cmd);
+	}
 }
 
 /** 快速发送文档示例（不填表单，直接发 raw 帧） */
 async function sendExample(ex: DocExample): Promise<void> {
-	ui.showToast({ message: `${t("发送示例")} ${ex.name}`, type: "warn" });
-	const ok = await deviceStore.protocol.sendRawFrame(ex.request);
 	const cmd = activeForm.value;
-	lastResponse[cmd] = ok ? t("示例已发送") : t("失败");
-	ui.showToast({
-		message: ok ? t("已发送") : t("失败"),
-		type: ok ? "success" : "error"
-	});
-	closeForm();
+	if (cmd == "") return;
+	if (!beginCommand(cmd)) return;
+	try {
+		ui.showToast({ message: `${t("发送示例")} ${ex.name}`, type: "warn" });
+		if (cmd == "0x3A" || cmd == "0x3B") pendingVitalCommand.value = cmd;
+		const ok = await deviceStore.protocol.sendRawFrame(ex.request);
+		if (!ok && (cmd == "0x3A" || cmd == "0x3B") && pendingVitalCommand.value == cmd) {
+			pendingVitalCommand.value = "";
+		}
+		setCommandResponse(cmd, ok ? t("示例已发送，等待设备响应") : t("发送失败，请重试"));
+		ui.showToast({
+			message: ok ? t("已发送") : t("发送失败"),
+			type: ok ? "success" : "error"
+		});
+		if (ok) closeForm();
+	} finally {
+		endCommand(cmd);
+	}
 }
 
 async function testVibration(): Promise<void> {
-	// loops=1, count=3, 5 段 on/off: [200ms震, 100ms静, 200ms震, 100ms静, 200ms震]
-	const spec: VibrationSpec = {
-		loops: 1,
-		count: 3,
-		onOffMs: [200, 100, 200, 100, 200]
-	};
-	const ok = await deviceStore.protocol.controlVibration(spec);
-	if (ok) {
-		// 等待设备响应 lastVibration 由 _handleVibrationResult 写入
-		const v = deviceStore.event.lastVibration.value;
-		if (v != null) {
-			lastResponse["0x40"] = v.code == 0 ? t("code=0 (成功)") : `code=${v.code}`;
-		} else {
-			lastResponse["0x40"] = t("已发送");
+	const cmd = "0x40";
+	if (!beginCommand(cmd)) return;
+	try {
+		const before = deviceStore.event.lastVibration.value;
+		// 对齐状态说明 1.4.4.12 示例: loops=1, count=2, 500ms震,1000ms静,800ms震
+		const spec: VibrationSpec = {
+			loops: 1,
+			count: 2,
+			onOffMs: [500, 1000, 800]
+		};
+		setCommandResponse(cmd, t("发送中: 500ms/1000ms/800ms"));
+		const ok = await deviceStore.protocol.controlVibration(spec);
+		if (!ok) {
+			setCommandResponse(cmd, t("发送失败，请重试"));
+			ui.showToast({ message: t("发送失败"), type: "error" });
+			return;
 		}
-	} else {
-		lastResponse["0x40"] = t("失败");
+		setCommandResponse(cmd, t("已发送，等待 0x40 响应"));
+		const v = await waitForVibration(before, 2500);
+		if (v != null) {
+			setCommandResponse(cmd, v.code == 0 ? t("code=0 (成功)") : `code=${v.code}`);
+			ui.showToast({
+				message: v.code == 0 ? t("震动命令成功") : t("震动命令失败"),
+				type: v.code == 0 ? "success" : "error"
+			});
+		} else {
+			setCommandResponse(cmd, t("已发送，但未收到 0x40 响应"));
+			ui.showToast({ message: t("未收到震动响应"), type: "warn" });
+		}
+	} finally {
+		endCommand(cmd);
 	}
-	ui.showToast({ message: ok ? t("0x40 已发送") : t("失败"), type: ok ? "success" : "error" });
 }
 
 /* ===== v5 历史数据展示用 computed ===== */
 
 type VitalText = {
 	start: string;
+	status: string;
 	rmssdSdnn: string;
 	vital: string;
 };
@@ -980,22 +1258,53 @@ type EventText = {
 const vitalText = computed<VitalText>(() => {
 	const r = deviceStore.event.vitalDataResponse.value;
 	if (r == null) {
-		return { start: "-", rmssdSdnn: "-", vital: "-" };
+		return { start: "-", status: "-", rmssdSdnn: "-", vital: "-" };
 	}
-	const start = `${r.startSec} / ${r.direction} / ${r.n}min`;
+	const startTime =
+		r.startSec > 0 ? new Date(r.startSec * 1000).toLocaleString() : t("无后续数据");
+	const directionText =
+		r.direction == 0
+			? t("向前")
+			: r.direction == 1
+				? t("向后")
+				: `${t("未知")}(${r.direction})`;
+	const start = `${r.startSec} (${startTime}) / ${directionText} / ${r.n}min`;
+	let validCount = 0;
+	let ppiCount = 0;
+	for (let i = 0; i < r.vitalData.length; i++) {
+		if (r.vitalData[i].valid == true) validCount++;
+		if (r.vitalData[i].ppi > 0) ppiCount++;
+	}
+	const expectedCount = r.n * 60;
+	let status = `${validCount}/${r.vitalData.length} ${t("心率有效")}，${ppiCount}/${r.vitalData.length} PPI`;
+	if (r.startSec == 0) {
+		status = t("设备返回时间戳 0，后面没有数据，不需要续读");
+	} else if (r.vitalData.length == 0) {
+		status = t("本段无逐秒数据，可点击 0x3B 继续读下一段");
+	} else if (r.vitalData.length < expectedCount) {
+		status = `${status}；${t("本段数据长度不足，后半段无有效数据，可按需续读")}`;
+	} else if (validCount == 0) {
+		status = `${status}；${t("本段全为无效或空白数据")}`;
+	}
 	const rmssdSdnn = r.rmssdSdnn
 		.slice(0, 10)
-		.map((p) => (p.valid == true ? `${p.rmssd}|${p.sdnn}` : "FF"))
+		.map((p, i) =>
+			p.valid == true
+				? `m${i + 1}:${p.rmssd.toFixed(1)}/${p.sdnn.toFixed(1)}`
+				: `m${i + 1}:FF`
+		)
 		.join(",");
 	const vital = r.vitalData
 		.slice(0, 30)
-		.map((d) => (d.valid == true ? `t+${d.hr}bpm` : "—"))
+		.map((d, i) => {
+			if (d.valid == false) return `${i}s:FF`;
+			const behavior = (d.status >> 3) & 0x07;
+			const activity = d.status & 0x07;
+			const ppi = d.ppi > 0 ? `${d.ppi}ms` : "PPI-";
+			return `${i}s:${d.hr}bpm/${ppi}/b${behavior}a${activity}`;
+		})
 		.join(" ");
-	// 同步按钮下响应摘要：收到响应即更新 lastResponse
-	const total = r.vitalData.length;
-	const validCount = r.vitalData.filter((d) => d.valid == true).length;
-	lastResponse["0x3A"] = `${validCount}/${total} 有效`;
-	return { start, rmssdSdnn, vital };
+	return { start, status, rmssdSdnn, vital };
 });
 
 const hasVitalData = computed<boolean>(() => {
@@ -1019,10 +1328,6 @@ const eventText = computed<EventText>(() => {
 			return `sn=${it.header.sn} ${typeName} ts=${it.ts}`;
 		})
 		.join("\n");
-	// 同步按钮下响应摘要
-	if (h != null) {
-		lastResponse["0x3C"] = `type=${h.type} 共 ${list.length} 条`;
-	}
 	return { header, items };
 });
 
@@ -1030,6 +1335,31 @@ const hasEventData = computed<boolean>(() => {
 	const h = deviceStore.event.eventDataHeader.value;
 	const list = deviceStore.event.eventDataList.value;
 	return h != null || list.length > 0;
+});
+
+watch(deviceStore.event.vitalDataResponse, (r: VitalDataQueryResponse | null) => {
+	if (r == null) return;
+	let validCount = 0;
+	for (let i = 0; i < r.vitalData.length; i++) {
+		if (r.vitalData[i].valid == true) validCount++;
+	}
+	let summary = `${validCount}/${r.vitalData.length} ${t("有效")}`;
+	if (r.startSec == 0) {
+		summary = t("已到底，无后续数据");
+	} else if (r.vitalData.length == 0) {
+		summary = t("本段无数据，可续读");
+	}
+	const cmd = pendingVitalCommand.value == "" ? "0x3A" : pendingVitalCommand.value;
+	setCommandResponse(cmd, summary);
+	pendingVitalCommand.value = "";
+});
+
+watch(deviceStore.event.eventDataHeader, (h: EventDataHeaderResponse | null) => {
+	if (h == null) return;
+	setCommandResponse(
+		"0x3C",
+		`type=${h.type} ${t("共")} ${deviceStore.event.eventDataList.value.length} ${t("条")}`
+	);
 });
 
 /* ===== 设备控制 ===== */

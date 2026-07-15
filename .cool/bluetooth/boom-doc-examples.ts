@@ -80,6 +80,23 @@ export const DOC_EXAMPLES: DocExample[] = [
         multiFrames: null
     },
     {
+        // 1.4.4.6 设置生物识别数据
+        t: BOOM_CMD.SET_BIOMETRIC,
+        name: "0x35 写生物识别(文档示例)",
+        request: "0EC03500080000581B504614003CE6DB",
+        response: "0EC03500080000581B504614003CE6DB",
+        multiFrames: null
+    },
+    {
+        // 1.4.4.7 读取生物识别数据
+        // 注意：响应 T=0x35（回显当前生物识别数据）
+        t: BOOM_CMD.READ_BIOMETRIC,
+        name: "0x36 读生物识别(响应 T=0x35)",
+        request: "06C0360000000FAC",
+        response: "0EC03500080000581B504614003CE6DB",
+        multiFrames: null
+    },
+    {
         // 1.4.4.8 开始读生命体征 — 行 191-194（多帧响应）
         // 文档示例响应是 258B + 194B 两个 DI 帧
         t: BOOM_CMD.READ_VITAL_DATA_START,
@@ -120,6 +137,14 @@ export const DOC_EXAMPLES: DocExample[] = [
             "E3C03D00DD0000A5004412080023000000DD3A2E6A1F02000006020100A5007512070022000000643A2E6AA601000006020001" +
             "A50078120600210000005D3A2E6A9F01000006020100A500B7120520200000000000000000000000000000000000000000000000000000" +
             "00000000",
+        multiFrames: null
+    },
+    {
+        // 1.4.4.12 控制震动马达
+        t: BOOM_CMD.CONTROL_VIBRATION,
+        name: "0x40 震动马达(示例 500/1000/800ms)",
+        request: "0EC040000800010201F403E803203787",
+        response: "07C04000010000740F",
         multiFrames: null
     }
 ];

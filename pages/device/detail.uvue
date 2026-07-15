@@ -34,7 +34,7 @@
 			<!-- #ifndef H5 -->
 			<cl-list :pt="{ className: 'mb-3' }">
 				<cl-list-item :label="t('佩戴位置')" arrow hoverable @tap="openWearLocationPicker">
-					<cl-text>{{ deviceStore.currentWearLocation }}</cl-text>
+					<cl-text>{{ currentWearLocationLabel }}</cl-text>
 				</cl-list-item>
 			</cl-list>
 			<!-- #endif -->
@@ -92,7 +92,8 @@
 import { ref, computed } from "vue";
 import { router, t, useStore } from "@/.cool";
 import { useUi, type ClSelectOption } from "@/uni_modules/cool-ui";
-import type { WearLocation } from "@/.cool/store/device";
+import { getWearLocationLabel, getWearLocationOptions } from "@/.cool/store/device";
+import type { WearLocation, WearLocationOption } from "@/.cool/store/device";
 // #ifndef H5
 import type { BLEDeviceCharacteristic } from "@/.cool/bluetooth";
 import TestPopup from "./components/TestPopup.uvue";
@@ -106,11 +107,16 @@ const wearLocation = ref<WearLocation>(deviceStore.currentWearLocation);
 const wearLocationSelectRef = ref<ClSelectComponentPublicInstance | null>(null);
 
 // 佩戴位置选项
-const wearLocationOptions: ClSelectOption[] = [
-	{ label: "大臂部", value: "大臂部" },
-	{ label: "下胸部", value: "下胸部" },
-	{ label: "腰部", value: "腰部" }
-];
+const wearLocationOptions: ClSelectOption[] = getWearLocationOptions().map(
+	(item: WearLocationOption): ClSelectOption => ({
+		label: t(item.label),
+		value: item.value
+	})
+);
+
+const currentWearLocationLabel = computed((): string => {
+	return t(getWearLocationLabel(deviceStore.currentWearLocation));
+});
 
 // 基本信息 - 连接状态文案
 const statusText = computed((): string => {
@@ -152,7 +158,7 @@ function openWearLocationPicker() {
 	wearLocationSelectRef.value?.open((value) => {
 		const loc = value as WearLocation;
 		deviceStore.saveWearLocation(loc);
-		ui.showToast({ message: t("已切换至") + loc, type: "success" });
+		ui.showToast({ message: t("已切换至") + t(getWearLocationLabel(loc)), type: "success" });
 	});
 	// #endif
 }

@@ -23,6 +23,13 @@ export function encodeU16LE(n: number): string {
 }
 
 /**
+ * U16 BE 编码：2 字节 hex，MSB 在前，如 0x1234 → "1234"
+ */
+export function encodeU16BE(n: number): string {
+	return encodeU8((n >> 8) & 0xff) + encodeU8(n);
+}
+
+/**
  * I16 LE 编码：负数自动转补码，如 -1 → "ffff"
  */
 export function encodeI16LE(n: number): string {

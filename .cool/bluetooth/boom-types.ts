@@ -3,6 +3,19 @@
  * 字节布局严格遵循状态说明.txt 1.4.4 与 2.1 节
  */
 
+/** 协议数值类型：运行时仍为 number，便于 UTS 编译与跨端序列化 */
+export type PpgPositionValue = number;
+export type VitalDirectionValue = number;
+export type VitalMinutesValue = number;
+export type EventQueryTypeValue = number;
+export type LogEventTypeValue = number;
+
+/** PPG 佩戴位置选项（value 对应协议 UINT8） */
+export type PpgPositionOption = {
+	label: string;
+	value: PpgPositionValue;
+};
+
 /** 固件版本（0x30 响应 V，3B） */
 export type FirmwareVersion = {
 	major: number;
@@ -16,7 +29,7 @@ export type VitalBiometric = {
 	weight: number; // 1-2 UINT16 LE  ×100 (kg)
 	height: number; // 3-4 UINT16 LE  ×100 (cm)
 	age: number; // 5  UINT8
-	ppgPosition: number; // 6  UINT8  0..6（见 PPG_POSITION_LIST）
+	ppgPosition: PpgPositionValue; // 6  UINT8  0..6（见 PPG_POSITION_OPTIONS）
 	bhr: number; // 7  UINT8  28..240
 };
 
@@ -92,8 +105,8 @@ export type VitalDataPerSecond = {
 /** 0x3A 请求 V（6B）：4B 时戳 + 1B 方向 + 1B 分钟数 */
 export type VitalDataQueryRequest = {
 	startSec: number;
-	direction: number; // 0=向前 1=向后
-	minutes: number; // 只能是 2 或 5
+	direction: VitalDirectionValue; // 0=向前 1=向后
+	minutes: VitalMinutesValue; // 只能是 2 或 5
 };
 
 /** RMSSD/SDNN 单分钟统计（8B：4B RMSSD float LE + 4B SDNN float LE）
@@ -120,7 +133,7 @@ export type VitalDataQueryResponse = {
 
 /** 0x3C 请求 V（10B）：1B 固定 0 + 1B type + 4B start + 4B end */
 export type EventDataQuery = {
-	type: number; // Byte 1：0=ALL 1=BY_TIME
+	type: EventQueryTypeValue; // Byte 1：0=ALL 1=BY_TIME
 	startSec: number;
 	endSec: number;
 };
@@ -153,11 +166,13 @@ export type LogDataItem = {
 	header: LogDataHeader;
 	ts: number; // 时间戳
 	tick: number; // (GetTick() / 1000)
-	eventType: number; // 类型（LogEventType 枚举值）
+	eventType: LogEventTypeValue; // 类型（LogEventType 数值）
 	dataLen: number; // 数据长度
 	eventDataHex: string; // 原始 hex（兜底展示）
-	parsedEvent: UTSJSONObject; // 按 eventType 解析后的结构化对象
+	parsedEvent: EventDataParsed; // 按 eventType 解析后的结构化对象
 };
+
+export type EventDataParsed = UTSJSONObject;
 
 /* ===== eventData 子类型（2.1.4.2.x）===== */
 

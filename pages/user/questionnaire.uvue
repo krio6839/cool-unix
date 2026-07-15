@@ -62,7 +62,7 @@
 </template>
 
 <script lang="ts" setup>
-import { getQuestionnaireApi, submitQuestionnaireApi } from "@/.cool";
+import { getQuestionnaireApi, parse, submitQuestionnaireApi } from "@/.cool";
 import { useUi } from "@/uni_modules/cool-ui";
 import { ref, reactive } from "vue";
 
@@ -90,18 +90,40 @@ const questions = reactive<QuestionSelect[]>([]);
 const loading = ref(false);
 const submitting = ref(false);
 
+function parseQuestionnaire(data: any): Questionnaire | null {
+	if (data == null) {
+		return null;
+	}
+
+	return parse<Questionnaire>(data);
+}
+
+function setUserTypes(list: UserType[]): void {
+	const nextList: UserType[] = [];
+	for (let i = 0; i < list.length; i++) {
+		const item: UserType = {
+			label: list[i].label,
+			value: list[i].value
+		};
+		nextList.push(item);
+	}
+	userTypes.value = nextList;
+}
+
 /** 把题列表展开为 QuestionSelect（绑定 selected 默认值） */
 function expandQuestions(list: Question[]): QuestionSelect[] {
 	const out: QuestionSelect[] = [];
-	list.forEach((q) => {
+	for (let i = 0; i < list.length; i++) {
+		const q = list[i];
 		const firstOption = q.options.length > 0 ? q.options[0].value : "";
-		out.push({
+		const item: QuestionSelect = {
 			field: q.field ?? "",
 			text: q.text,
 			options: q.options,
 			selected: firstOption
-		});
-	});
+		};
+		out.push(item);
+	}
 	return out;
 }
 
@@ -111,13 +133,24 @@ const loadQuestionnaire = function () {
 	getQuestionnaireApi()
 		.then((data) => {
 			if (data != null) {
-				const typedData = data as Questionnaire;
-				userTypes.value = typedData.userTypes;
+				const typedData = parseQuestionnaire(data);
+				if (typedData != null) {
+					setUserTypes(typedData.userTypes);
+					questions.splice(0, questions.length);
+					const list = expandQuestions(typedData.questions);
+					for (let i = 0; i < list.length; i++) {
+						questions.push(list[i]);
+					}
+				}
+			} else {
+				userTypes.value = [];
 				questions.splice(0, questions.length);
-				expandQuestions(typedData.questions).forEach((q) => questions.push(q));
 			}
 		})
-		.catch((err) => {})
+		.catch((err) => {
+			console.error("加载问卷失败:", err);
+			ui.showToast({ message: "问卷加载失败" });
+		})
 		.finally(() => {
 			loading.value = false;
 		});
@@ -136,7 +169,15 @@ const nextStep = function (): void {
 const submitQuestionnaire = function (): void {
 	submitting.value = true;
 
-	const answers: Answer[] = questions.map((q) => ({ question: q.text, selected: q.selected }));
+	const answers: Answer[] = [];
+	for (let i = 0; i < questions.length; i++) {
+		const q = questions[i];
+		const answer: Answer = {
+			question: q.text,
+			selected: q.selected
+		};
+		answers.push(answer);
+	}
 
 	const data: SubmitRequest = {
 		userType: selectedUserType.value,
@@ -151,17 +192,7 @@ const submitQuestionnaire = function (): void {
 		})
 		.catch((err) => {
 			console.error("提交问卷失败:", err);
-			ui.showConfirm({
-				title: "提示",
-				message: "问卷提交失败，是否跳过直接进入？",
-				confirmText: "确定",
-				cancelText: "取消",
-				callback(action) {
-					if (action == "confirm") {
-						uni.redirectTo({ url: "/pages/device/index" });
-					}
-				}
-			});
+			ui.showToast({ message: "问卷提交失败" });
 		})
 		.finally(() => {
 			submitting.value = false;

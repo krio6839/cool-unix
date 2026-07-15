@@ -114,11 +114,20 @@ export class DataIdentifierReassembler {
     private recvBuf: number[] = [];
     private frameCount: number = 0;
     private isReceiving: boolean = false;
+    private pendingFrameRemainingBytes: number = 0;
+    private pendingFrameIsEnd: boolean = false;
 
     reset(): void {
         this.recvBuf = [];
         this.frameCount = 0;
         this.isReceiving = false;
+        this.pendingFrameRemainingBytes = 0;
+        this.pendingFrameIsEnd = false;
+    }
+
+    /** 是否正在等待上一帧 DI payload 的后续物理 notify 分片 */
+    expectsContinuationFragment(): boolean {
+        return this.pendingFrameRemainingBytes > 0;
     }
 
     /**
@@ -126,15 +135,19 @@ export class DataIdentifierReassembler {
      * @returns 完整 payload hex（结束帧到达时返回）；未完成返回 null
      */
     push(diFrameHex: string): string | null {
+        if (this.pendingFrameRemainingBytes > 0) {
+            return this.pushContinuationPayload(diFrameHex);
+        }
+
         if (diFrameHex.length < 4) {
             console.warn("[BOOM-CODEC] DI 帧长度不足 4 hex:", diFrameHex);
             return null;
         }
+
         const di = parseDataIdentifier(diFrameHex);
         if (di == null) return null;
-        // 实机 notify 可能只携带完整 TLVC 的一段；VDN 表示逻辑数据长度，
-        // 不能用它校验单次 notify 的物理长度。
-        const payloadHex = diFrameHex.substring(4, 4 + di.validBytes * 2);
+        const availablePayloadHex = diFrameHex.substring(4);
+        const payloadHex = availablePayloadHex.substring(0, di.validBytes * 2);
 
         // 起始帧：重置 buffer
         if (di.isStart == true) {
@@ -166,12 +179,7 @@ export class DataIdentifierReassembler {
             return null;
         }
 
-        // 追加 payload bytes
-        for (let i = 0; i < payloadHex.length; i += 2) {
-            const byte = parseInt(payloadHex.substring(i, i + 2), 16);
-            this.recvBuf.push(byte);
-        }
-        this.frameCount++;
+        this.appendPayloadHex(payloadHex);
 
         // 越界保护
         if (this.recvBuf.length > MAX_RECV_BUF_BYTES) {
@@ -182,19 +190,67 @@ export class DataIdentifierReassembler {
             return null;
         }
 
-        // 结束帧：拼成完整 hex 并返回
-        if (di.isEnd == true) {
-            let fullHex = "";
-            for (let i = 0; i < this.recvBuf.length; i++) {
-                const b = this.recvBuf[i];
-                fullHex += ("00" + b.toString(16)).slice(-2);
-            }
+        const receivedBytes = payloadHex.length / 2;
+        if (receivedBytes < di.validBytes) {
+            this.pendingFrameRemainingBytes = di.validBytes - receivedBytes;
+            this.pendingFrameIsEnd = di.isEnd;
             console.log(
-                `[BOOM-CODEC] 多帧重组完成: 帧数=${this.frameCount}, 总字节=${this.recvBuf.length}`
+                `[BOOM-CODEC] DI payload 分片: seq=${di.sequenceNumber}, 已收=${receivedBytes}, 剩余=${this.pendingFrameRemainingBytes}`
+            );
+            return null;
+        }
+
+        return this.finishLogicalFrame(di.isEnd);
+    }
+
+    /** 追加上一帧 DI 未收完的 payload 物理分片 */
+    private pushContinuationPayload(hexData: string): string | null {
+        const takeBytes = Math.min(this.pendingFrameRemainingBytes, hexData.length / 2);
+        const payloadHex = hexData.substring(0, takeBytes * 2);
+        this.appendPayloadHex(payloadHex);
+        this.pendingFrameRemainingBytes -= takeBytes;
+
+        if (this.recvBuf.length > MAX_RECV_BUF_BYTES) {
+            console.warn(
+                `[BOOM-CODEC] buffer 超过 ${MAX_RECV_BUF_BYTES} 字节,重置`
             );
             this.reset();
-            return fullHex;
+            return null;
         }
-        return null;
+
+        if (this.pendingFrameRemainingBytes > 0) {
+            console.log(
+                `[BOOM-CODEC] DI payload 续片: 已追加=${takeBytes}, 剩余=${this.pendingFrameRemainingBytes}`
+            );
+            return null;
+        }
+
+        return this.finishLogicalFrame(this.pendingFrameIsEnd);
+    }
+
+    private appendPayloadHex(payloadHex: string): void {
+        for (let i = 0; i < payloadHex.length; i += 2) {
+            const byte = parseInt(payloadHex.substring(i, i + 2), 16);
+            this.recvBuf.push(byte);
+        }
+    }
+
+    /** 一个逻辑 DI 帧完整后调用；End 帧返回完整 TLVC payload */
+    private finishLogicalFrame(isEnd: boolean): string | null {
+        this.frameCount++;
+        this.pendingFrameIsEnd = false;
+
+        if (isEnd == false) return null;
+
+        let fullHex = "";
+        for (let i = 0; i < this.recvBuf.length; i++) {
+            const b = this.recvBuf[i];
+            fullHex += ("00" + b.toString(16)).slice(-2);
+        }
+        console.log(
+            `[BOOM-CODEC] DI 重组完成: 帧数=${this.frameCount}, 总字节=${this.recvBuf.length}`
+        );
+        this.reset();
+        return fullHex;
     }
 }

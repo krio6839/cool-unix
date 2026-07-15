@@ -1,12 +1,12 @@
 import { request } from "../service";
 import type { Questionnaire, SubmitRequest } from "../types";
 
-export const getQuestionnaireApi = (): Promise<Questionnaire | null> => {
+export const getQuestionnaireApi = (): Promise<any | null> => {
 	return request({
 		url: `/app/questionnaire`,
 		method: "GET",
 		showError: "none"
-	}) as Promise<Questionnaire | null>;
+	}) as Promise<any | null>;
 };
 
 /** POST /app/questionnaire — 设置问卷问题（含生物识别题） */

@@ -96,7 +96,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
 import { router, t, useStore } from "@/.cool";
-import type { WearLocation } from "@/.cool/store/device";
+import { normalizeWearLocation } from "@/.cool/store/device";
 
 import UnpairedState from "./components/UnpairedState.uvue";
 import PairingState from "./components/PairingState.uvue";
@@ -128,9 +128,8 @@ const titleText = computed(() => {
 	}
 });
 
-// A8 修复:location 类型从 string 改为 WearLocation,不再需要内联 as 断言
-function onSelect(location: WearLocation) {
-	deviceStore.saveWearLocation(location);
+function onSelect(location: string) {
+	deviceStore.saveWearLocation(normalizeWearLocation(location));
 }
 
 async function enterPairingMode() {

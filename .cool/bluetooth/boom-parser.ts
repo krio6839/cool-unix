@@ -26,10 +26,12 @@ import type {
     EventDataFormatDS,
     EventDataWear,
     EventDataSleepResult,
-    EventDataSedentary
+    EventDataSedentary,
+    EventDataParsed
 } from "./boom-types";
 import {
     encodeU8,
+    encodeU16BE,
     encodeU16LE,
     encodeU32LE,
     encodeAscii,
@@ -113,11 +115,13 @@ export function serializeBiometric(b: VitalBiometric): string {
 /**
  * 0x40 请求 V：循环(1B) + 次数(1B) + n×2B on/off
  * n = count * 2 - 1，最后一次震动后没有静默时间
+ * 文档文字写“小端”，但状态说明示例使用 01F4/03E8/0320 表示 500/1000/800，
+ * 实机命令按示例的大端时长编码。
  */
 export function serializeVibration(spec: VibrationSpec): string {
     let h = encodeU8(spec.loops) + encodeU8(spec.count);
     for (let i = 0; i < spec.onOffMs.length; i++) {
-        h += encodeU16LE(spec.onOffMs[i] ?? 0);
+        h += encodeU16BE(spec.onOffMs[i] ?? 0);
     }
     return h;
 }
@@ -418,7 +422,7 @@ export type ParseLogDataListResult = {
  * 按 eventType 分派到具体子解析器
  * @returns UTSJSONObject 形式的结果；SetBiometricInfo 直接复用 parseBiometric
  */
-export function parseEventData(eventType: number, eventDataHex: string): UTSJSONObject {
+export function parseEventData(eventType: number, eventDataHex: string): EventDataParsed {
     switch (eventType) {
         case LOG_EVENT_TYPE.Text:
         case LOG_EVENT_TYPE.RemoteCmd:

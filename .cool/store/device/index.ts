@@ -25,10 +25,23 @@ import type { DeviceInfo } from "../../bluetooth/kux";
 import { disconnect, closeAdapter } from "../../bluetooth/kux";
 //#endif
 
-import { DeviceStatusEnum, KEY_WEAR_LOCATION, KEY_BOUND_DEVICE_ID } from "./types";
+import {
+	DeviceStatusEnum,
+	KEY_WEAR_LOCATION,
+	KEY_BOUND_DEVICE_ID,
+	DEFAULT_WEAR_LOCATION,
+	normalizeWearLocation
+} from "./types";
 import type { WearLocation } from "./types";
-export type { WearLocation, DeviceStatus } from "./types";
-export { DeviceStatusEnum } from "./types";
+export type { WearLocation, WearLocationOption, DeviceStatus } from "./types";
+export {
+	DeviceStatusEnum,
+	DEFAULT_WEAR_LOCATION,
+	getWearLocationLabel,
+	getWearLocationOptions,
+	isValidWearLocation,
+	normalizeWearLocation
+} from "./types";
 
 import type { RealtimeBroadcast } from "../../bluetooth";
 import { DeviceConnection } from "./connection";
@@ -66,7 +79,7 @@ export class Device {
 
 	/* ===== 设备初始化状态 ===== */
 	isDeviceInitialized = false;
-	currentWearLocation: WearLocation = "大臂部";
+	currentWearLocation: WearLocation = DEFAULT_WEAR_LOCATION;
 
 	/** 0x50 广播解析后的最新实时数据（每秒刷新，可能为 null） */
 	realtime = ref<RealtimeBroadcast | null>(null);
@@ -108,8 +121,11 @@ export class Device {
 
 	/** 启动时从 storage 恢复佩戴位置 + 绑定设备 ID */
 	loadSavedData(): void {
-		const saved = storage.get(KEY_WEAR_LOCATION) as WearLocation | null;
-		if (saved != null) this.currentWearLocation = saved;
+		const saved = storage.get(KEY_WEAR_LOCATION);
+		if (saved != null) {
+			this.currentWearLocation = normalizeWearLocation(saved);
+			storage.set(KEY_WEAR_LOCATION, this.currentWearLocation, 0);
+		}
 
 		const id = storage.get(KEY_BOUND_DEVICE_ID) as string | null;
 		if (this.boundDeviceId == "" && id != null && id != "") {
@@ -119,8 +135,9 @@ export class Device {
 
 	/** 保存佩戴位置 */
 	saveWearLocation(location: WearLocation): void {
-		this.currentWearLocation = location;
-		storage.set(KEY_WEAR_LOCATION, location, 0);
+		const normalized = normalizeWearLocation(location);
+		this.currentWearLocation = normalized;
+		storage.set(KEY_WEAR_LOCATION, normalized, 0);
 	}
 
 	/** 持久化绑定设备 ID */
