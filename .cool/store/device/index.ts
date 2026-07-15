@@ -47,6 +47,7 @@ import type { RealtimeBroadcast } from "../../bluetooth";
 import { DeviceConnection } from "./connection";
 import { DeviceProtocol } from "./protocol";
 import { EventHandler } from "./event-handler";
+import { DeviceHistoryReader } from "./history-reader";
 
 /* 设备选择 actionSheet 调用参数（对象参数，UTS 不支持内联对象字面量类型） */
 export type ShowDevicePickerOptions = {
@@ -110,6 +111,7 @@ export class Device {
 	readonly connection: DeviceConnection;
 	readonly protocol: DeviceProtocol;
 	readonly event: EventHandler;
+	readonly history: DeviceHistoryReader;
 	//#endif
 
 	/* ===== 共享 actionSheet 引用（由 pages/device/index.uvue 在 onMounted 注入）===== */
@@ -124,6 +126,7 @@ export class Device {
 		this.connection = new DeviceConnection(this);
 		this.protocol = new DeviceProtocol(this);
 		this.event = new EventHandler(this);
+		this.history = new DeviceHistoryReader(this);
 
 		this.connection.onBluetoothAdapterStateChange();
 		this.connection.onBLEConnectionStateChange();
@@ -184,8 +187,13 @@ export class Device {
 		this.errorMessage.value = "";
 	}
 
-	/** 追加协议调试日志，最多保留最近 200 条 */
-	addProtocolLog(direction: ProtocolLogDirection, title: string, hex: string = "", detail: string = ""): void {
+	/** 追加协议调试日志，最多保留最近 80 条 */
+	addProtocolLog(
+		direction: ProtocolLogDirection,
+		title: string,
+		hex: string = "",
+		detail: string = ""
+	): void {
 		this._protocolLogId++;
 		const now = new Date();
 		const item: ProtocolLogItem = {
@@ -197,7 +205,7 @@ export class Device {
 			detail
 		};
 		const next = [item].concat(this.protocolLogs.value);
-		this.protocolLogs.value = next.slice(0, 200);
+		this.protocolLogs.value = next.slice(0, 80);
 	}
 
 	/** 清空协议调试日志 */
@@ -314,3 +322,10 @@ export const device = new Device();
 
 /* 重新导出蓝牙模块的类型，方便上层（page/uvue）import type 使用 */
 export type { VitalBiometric, VibrationSpec, RealtimeBroadcast } from "../../bluetooth";
+export type {
+	EventAutoReadOptions,
+	EventAutoReadResult,
+	HistoryReadProgress,
+	VitalAutoReadOptions,
+	VitalAutoReadResult
+} from "./history-reader";

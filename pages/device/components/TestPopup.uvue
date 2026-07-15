@@ -213,7 +213,7 @@
 				</view>
 			</view>
 
-			<!-- 历史数据（0x3A/0x3B/0x3C/0x3D，4 个按钮 + 上次响应行） -->
+			<!-- 历史数据（0x3A/0x3B/0x3C/0x3D） -->
 			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
 				{{ t("历史数据（v5 新增）") }}
 			</cl-text>
@@ -228,26 +228,21 @@
 						:disabled="isCommandDisabled('0x3A')"
 						@tap="openForm('0x3A')"
 					>
-						{{ t("0x3A 读生命体征") }}
+						{{ t("0x3A 开始生命体征") }}
 					</cl-button>
-					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-						[0x3A] {{ vitalResp }}
-					</cl-text>
-				</view>
-				<view class="flex flex-row flex-wrap items-center mb-1">
 					<cl-button
 						type="primary"
-						color="#0a0"
+						color="#087"
 						rounded
 						size="small"
 						class="mr-2 mb-1"
-						:disabled="isCommandDisabled('0x3B')"
-						@tap="openForm('0x3B')"
+						:disabled="vitalAutoReading == false"
+						@tap="stopVitalAutoRead"
 					>
-						{{ t("0x3B 续读生命体征") }}
+						{{ t("停止生命体征") }}
 					</cl-button>
 					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-						[0x3B] {{ vitalContResp }}
+						[0x3A/0x3B] {{ vitalFlowResp }}
 					</cl-text>
 				</view>
 				<view class="flex flex-row flex-wrap items-center mb-1">
@@ -260,26 +255,21 @@
 						:disabled="isCommandDisabled('0x3C')"
 						@tap="openForm('0x3C')"
 					>
-						{{ t("0x3C 读事件") }}
+						{{ t("0x3C 开始事件") }}
 					</cl-button>
-					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-						[0x3C] {{ eventResp }}
-					</cl-text>
-				</view>
-				<view class="flex flex-row flex-wrap items-center mb-1">
 					<cl-button
 						type="primary"
-						color="#a00"
+						color="#870"
 						rounded
 						size="small"
 						class="mr-2 mb-1"
-						:disabled="isCommandDisabled('0x3D')"
-						@tap="openForm('0x3D')"
+						:disabled="eventAutoReading == false"
+						@tap="stopEventAutoRead"
 					>
-						{{ t("0x3D 续读事件") }}
+						{{ t("停止事件") }}
 					</cl-button>
 					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-						[0x3D] {{ eventContResp }}
+						[0x3C/0x3D] {{ eventFlowResp }}
 					</cl-text>
 				</view>
 			</view>
@@ -309,6 +299,10 @@
 						{{ t("逐秒数据 (前 30 条)") }}: {{ vitalText.vital }}
 					</cl-text>
 				</view>
+				<view class="mt-2">
+					<cl-text color="gray-400" :size="12"> {{ t("自动读取明细") }}: </cl-text>
+					<text class="protocol-log-line protocol-log-detail">{{ vitalAutoDetail }}</text>
+				</view>
 			</view>
 
 			<!-- 0x3C/0x3D 事件响应展示区 -->
@@ -325,6 +319,10 @@
 					<cl-text color="gray-400" :size="12">
 						{{ t("事件列表 (前 10 条)") }}: {{ eventText.items }}
 					</cl-text>
+				</view>
+				<view class="mt-2">
+					<cl-text color="gray-400" :size="12"> {{ t("自动读取明细") }}: </cl-text>
+					<text class="protocol-log-line protocol-log-detail">{{ eventAutoDetail }}</text>
 				</view>
 			</view>
 
@@ -379,7 +377,7 @@
 			</view>
 		</scroll-view>
 
-		<!-- 参数输入子弹窗（0x31/0x35/0x3A/0x3B/0x3C/0x3D 共用） -->
+		<!-- 参数输入子弹窗（0x31/0x35/0x3A/0x3C 共用） -->
 		<cl-popup v-model="formVisible" direction="bottom" :size="700" :title="formTitle">
 			<scroll-view class="p-4" scroll-y="true" style="height: 100%">
 				<!-- 0x31 设备编号 -->
@@ -476,17 +474,6 @@
 					</view>
 				</template>
 
-				<!-- 0x3B 续读生命体征 -->
-				<template v-else-if="activeForm == '0x3B'">
-					<view class="mb-3">
-						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("分钟数") }}
-							<cl-text color="error">*</cl-text>
-						</cl-text>
-						<cl-select v-model="formMinutes" :options="minutesOptions"></cl-select>
-					</view>
-				</template>
-
 				<!-- 0x3C 读事件 -->
 				<template v-else-if="activeForm == '0x3C'">
 					<view class="mb-3">
@@ -518,13 +505,9 @@
 							:placeholder="t('默认当前时间')"
 						></cl-input>
 					</view>
-				</template>
-
-				<!-- 0x3D 续读事件 -->
-				<template v-else-if="activeForm == '0x3D'">
 					<view class="mb-3">
 						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("最大条数") }}
+							{{ t("续读最大条数") }}
 							<cl-text color="error">*</cl-text>
 						</cl-text>
 						<cl-input
@@ -581,7 +564,14 @@
 			:size="620"
 			:title="t('协议日志')"
 		>
-			<view style="height: 100%; position: relative; overflow: hidden; background-color: #2b2c28">
+			<view
+				style="
+					height: 100%;
+					position: relative;
+					overflow: hidden;
+					background-color: #2b2c28;
+				"
+			>
 				<view
 					style="
 						position: absolute;
@@ -651,7 +641,9 @@
 							</cl-text>
 						</view>
 						<view v-if="item.detail != ''" style="width: 100%; overflow: hidden">
-							<text class="protocol-log-line protocol-log-detail">{{ item.detail }}</text>
+							<text class="protocol-log-line protocol-log-detail">{{
+								item.detail
+							}}</text>
 						</view>
 						<view v-if="item.hex != ''" style="width: 100%; overflow: hidden">
 							<text class="protocol-log-line protocol-log-hex">{{ item.hex }}</text>
@@ -668,7 +660,7 @@
 
 <script lang="ts" setup>
 //#ifndef H5
-import { computed, reactive, ref, watch } from "vue";
+import { computed, reactive, ref } from "vue";
 import {
 	DEVICE_NUMBER_MAX_LEN,
 	DOC_EXAMPLES_BY_T,
@@ -679,13 +671,9 @@ import {
 } from "@/.cool";
 import type {
 	DocExample,
-	EventDataQuery,
-	EventDataHeaderResponse,
 	VibrationResult,
 	VibrationSpec,
 	VitalBiometric,
-	VitalDataQueryResponse,
-	VitalDataQueryRequest,
 	ProtocolLogDirection,
 	ProtocolLogItem
 } from "@/.cool";
@@ -715,7 +703,8 @@ const show = defineModel("show", {
 const protocolLogVisible = ref(false);
 const manualRawHex = ref("");
 const protocolLogs = computed<ProtocolLogItem[]>((): ProtocolLogItem[] => {
-	return deviceStore.protocolLogs.value;
+	if (protocolLogVisible.value == false) return [];
+	return deviceStore.protocolLogs.value.slice();
 });
 
 /* ===== 展示用 computed ===== */
@@ -945,16 +934,18 @@ const setDevNumResp = computed<string>(() => getResp("0x31"));
 const setTsResp = computed<string>(() => getResp("0x33"));
 const setBioResp = computed<string>(() => getResp("0x35"));
 const vibResp = computed<string>(() => getResp("0x40"));
-const vitalResp = computed<string>(() => getResp("0x3A"));
-const vitalContResp = computed<string>(() => getResp("0x3B"));
-const eventResp = computed<string>(() => getResp("0x3C"));
-const eventContResp = computed<string>(() => getResp("0x3D"));
-const pendingVitalCommand = ref<"" | "0x3A" | "0x3B">("");
+const vitalFlowResp = computed<string>(() => getResp("VITAL"));
+const eventFlowResp = computed<string>(() => getResp("EVENT"));
+const vitalAutoReading = ref<boolean>(false);
+const eventAutoReading = ref<boolean>(false);
+const vitalAutoDetail = ref<string>("-");
+const eventAutoDetail = ref<string>("-");
+const MAX_AUTO_PAGES = 100;
 
 /* ===== 参数输入子弹窗状态 ===== */
 
 /** 当前打开的表单类型（空=未打开） */
-const activeForm = ref<"" | "0x31" | "0x35" | "0x3A" | "0x3B" | "0x3C" | "0x3D">("");
+const activeForm = ref<"" | "0x31" | "0x35" | "0x3A" | "0x3C">("");
 /** 子弹窗显示控制（v-model 双向绑定） */
 const formVisible = ref(false);
 
@@ -965,13 +956,9 @@ const formTitle = computed<string>(() => {
 		case "0x35":
 			return t("0x35 写生物识别");
 		case "0x3A":
-			return t("0x3A 读生命体征");
-		case "0x3B":
-			return t("0x3B 续读生命体征");
+			return t("生命体征读取流程");
 		case "0x3C":
-			return t("0x3C 读事件");
-		case "0x3D":
-			return t("0x3D 续读事件");
+			return t("事件读取流程");
 		default:
 			return "";
 	}
@@ -1033,7 +1020,7 @@ const exampleList = computed<DocExample[]>(() => {
 });
 
 /** 打开子弹窗并重置默认值 */
-function openForm(cmd: "0x31" | "0x35" | "0x3A" | "0x3B" | "0x3C" | "0x3D"): void {
+function openForm(cmd: "0x31" | "0x35" | "0x3A" | "0x3C"): void {
 	const now = Math.floor(Date.now() / 1000);
 	switch (cmd) {
 		case "0x31":
@@ -1052,15 +1039,10 @@ function openForm(cmd: "0x31" | "0x35" | "0x3A" | "0x3B" | "0x3C" | "0x3D"): voi
 			formDirection.value = 0;
 			formMinutes.value = 2;
 			break;
-		case "0x3B":
-			formMinutes.value = 2;
-			break;
 		case "0x3C":
 			formType.value = 0;
 			formStartSec.value = (now - 3600).toString();
 			formEndSec.value = now.toString();
-			break;
-		case "0x3D":
 			formMaxCount.value = "10";
 			break;
 	}
@@ -1078,7 +1060,8 @@ function closeForm(): void {
 async function submitForm(): Promise<void> {
 	const cmd = activeForm.value;
 	if (cmd == "") return;
-	if (!beginCommand(cmd)) return;
+	const commandKey = cmd == "0x3A" ? "VITAL" : cmd == "0x3C" ? "EVENT" : cmd;
+	if (!beginCommand(commandKey)) return;
 	let shouldClose = false;
 	try {
 		switch (cmd) {
@@ -1099,7 +1082,7 @@ async function submitForm(): Promise<void> {
 					message: ok ? t("0x31 已发送") : t("发送失败"),
 					type: ok ? "success" : "error"
 				});
-				shouldClose = ok;
+				shouldClose = true;
 				break;
 			}
 			case "0x35": {
@@ -1159,34 +1142,45 @@ async function submitForm(): Promise<void> {
 					ui.showToast({ message: t("起始时戳必须是正数"), type: "error" });
 					return;
 				}
-				ui.showToast({ message: t("0x3A 发送..."), type: "warn" });
-				const req: VitalDataQueryRequest = {
+				vitalAutoReading.value = true;
+				vitalAutoDetail.value = "-";
+				setCommandResponse("VITAL", t("0x3A 已开始，自动续读中"));
+				closeForm();
+				const result = await deviceStore.history.readVitalDataAuto({
 					startSec,
 					direction: formDirection.value,
-					minutes: formMinutes.value
-				};
-				pendingVitalCommand.value = "0x3A";
-				const ok = await deviceStore.protocol.readVitalData(req);
-				if (!ok && pendingVitalCommand.value == "0x3A") pendingVitalCommand.value = "";
-				setCommandResponse(cmd, ok ? t("已请求，等待响应") : t("发送失败，请重试"));
-				ui.showToast({
-					message: ok ? t("0x3A 已发送") : t("发送失败"),
-					type: ok ? "success" : "error"
+					minutes: formMinutes.value,
+					maxPages: MAX_AUTO_PAGES,
+					pageDelayMs: 250,
+					shouldStop: () => vitalAutoReading.value == false,
+					onProgress: (p) => {
+						if (p.phase == "0x3B" && p.page % 5 == 0) {
+							setCommandResponse("VITAL", `${t("自动续读")} ${p.page}`);
+						}
+					},
+					onPage: (r, page) => {
+						if (page % 5 != 0 && r.startSec != 0) return;
+						let validCount = 0;
+						for (let i = 0; i < r.vitalData.length; i++) {
+							if (r.vitalData[i].valid == true) validCount++;
+						}
+						setCommandResponse(
+							"VITAL",
+							`${page} ${t("段")} ${validCount}/${r.vitalData.length} ${t("有效")}`
+						);
+					}
 				});
-				shouldClose = ok;
-				break;
-			}
-			case "0x3B": {
-				ui.showToast({ message: t("0x3B 发送..."), type: "warn" });
-				pendingVitalCommand.value = "0x3B";
-				const ok = await deviceStore.protocol.continueReadVitalData(formMinutes.value);
-				if (!ok && pendingVitalCommand.value == "0x3B") pendingVitalCommand.value = "";
-				setCommandResponse(cmd, ok ? t("已请求，等待响应") : t("发送失败，请重试"));
-				ui.showToast({
-					message: ok ? t("0x3B 已发送") : t("发送失败"),
-					type: ok ? "success" : "error"
-				});
-				shouldClose = ok;
+				vitalAutoReading.value = false;
+				vitalAutoDetail.value = deviceStore.history.formatVitalAutoDetail(result.responses);
+				setCommandResponse(
+					"VITAL",
+					result.done
+						? `${t("读取完成")} ${result.pages} ${t("段")} ${t("保存")} ${result.savedRecords}`
+						: result.stoppedByLimit
+							? `${t("达到上限")} ${result.pages} ${t("段")}`
+							: `${t("读取停止")} ${result.pages} ${t("段")}`
+				);
+				shouldClose = false;
 				break;
 			}
 			case "0x3C": {
@@ -1205,42 +1199,67 @@ async function submitForm(): Promise<void> {
 					ui.showToast({ message: t("结束时戳必须大于起始时戳"), type: "error" });
 					return;
 				}
-				ui.showToast({ message: t("0x3C 发送..."), type: "warn" });
-				const req: EventDataQuery = {
+				const maxCount = parseInt(formMaxCount.value, 10);
+				const finalMaxCount = Number.isNaN(maxCount) || maxCount <= 0 ? 10 : maxCount;
+				eventAutoReading.value = true;
+				eventAutoDetail.value = "-";
+				setCommandResponse("EVENT", t("0x3C 已开始，自动续读中"));
+				closeForm();
+				const result = await deviceStore.history.readEventDataAuto({
 					type: formType.value,
 					startSec,
-					endSec
-				};
-				const ok = await deviceStore.protocol.readEventData(req);
-				setCommandResponse(cmd, ok ? t("已请求，等待响应") : t("发送失败，请重试"));
-				ui.showToast({
-					message: ok ? t("0x3C 已发送") : t("发送失败"),
-					type: ok ? "success" : "error"
+					endSec,
+					maxCount: finalMaxCount,
+					maxPages: MAX_AUTO_PAGES,
+					pageDelayMs: 250,
+					shouldStop: () => eventAutoReading.value == false,
+					onHeader: (h) => {
+						setCommandResponse(
+							"EVENT",
+							`0x3C type=${h.type} sn[${h.earliestSn}~${h.latestSn}]`
+						);
+					},
+					onProgress: (p) => {
+						if (p.phase == "0x3D" && p.page % 5 == 0) {
+							setCommandResponse("EVENT", `${t("自动续读")} ${p.page}`);
+						}
+					},
+					onBatch: (items, page) => {
+						if (page % 5 != 0 && items.length > 0) return;
+						setCommandResponse(
+							"EVENT",
+							`${page} ${t("批")} ${t("新增")} ${items.length} ${t("条")}`
+						);
+					}
 				});
-				shouldClose = ok;
-				break;
-			}
-			case "0x3D": {
-				const maxCount = parseInt(formMaxCount.value, 10);
-				if (Number.isNaN(maxCount) || maxCount <= 0) {
-					ui.showToast({ message: t("最大条数必须是正数"), type: "error" });
-					return;
-				}
-				ui.showToast({ message: t("0x3D 发送..."), type: "warn" });
-				const ok = await deviceStore.protocol.continueReadEventData(maxCount);
-				setCommandResponse(cmd, ok ? t("已请求，等待响应") : t("发送失败，请重试"));
-				ui.showToast({
-					message: ok ? t("0x3D 已发送") : t("发送失败"),
-					type: ok ? "success" : "error"
-				});
-				shouldClose = ok;
+				eventAutoReading.value = false;
+				eventAutoDetail.value = deviceStore.history.formatEventAutoDetail(result.items);
+				setCommandResponse(
+					"EVENT",
+					result.done
+						? `${t("读取完成")} ${result.items.length} ${t("条")}`
+						: result.stoppedByLimit
+							? `${t("达到上限")} ${result.items.length} ${t("条")}`
+							: `${t("读取停止")} ${result.items.length} ${t("条")}`
+				);
+				shouldClose = false;
 				break;
 			}
 		}
 	} finally {
-		endCommand(cmd);
+		endCommand(commandKey);
 	}
 	if (shouldClose) closeForm();
+}
+
+function stopVitalAutoRead(): void {
+	vitalAutoReading.value = false;
+	setCommandResponse("VITAL", t("已停止自动续读"));
+}
+
+function stopEventAutoRead(): void {
+	eventAutoReading.value = false;
+	setCommandResponse("EVENT", t("已停止自动续读"));
 }
 
 /* ===== 7 个无参/硬编码协议命令 ===== */
@@ -1345,22 +1364,19 @@ async function testSetTimestamp(): Promise<void> {
 async function sendExample(ex: DocExample): Promise<void> {
 	const cmd = activeForm.value;
 	if (cmd == "") return;
-	if (!beginCommand(cmd)) return;
+	const commandKey = cmd == "0x3A" ? "VITAL" : cmd == "0x3C" ? "EVENT" : cmd;
+	if (!beginCommand(commandKey)) return;
 	try {
 		ui.showToast({ message: `${t("发送示例")} ${ex.name}`, type: "warn" });
-		if (cmd == "0x3A" || cmd == "0x3B") pendingVitalCommand.value = cmd;
 		const ok = await deviceStore.protocol.sendRawFrame(ex.request);
-		if (!ok && (cmd == "0x3A" || cmd == "0x3B") && pendingVitalCommand.value == cmd) {
-			pendingVitalCommand.value = "";
-		}
-		setCommandResponse(cmd, ok ? t("示例已发送，等待设备响应") : t("发送失败，请重试"));
+		setCommandResponse(commandKey, ok ? t("示例已发送，等待设备响应") : t("发送失败，请重试"));
 		ui.showToast({
 			message: ok ? t("已发送") : t("发送失败"),
 			type: ok ? "success" : "error"
 		});
 		if (ok) closeForm();
 	} finally {
-		endCommand(cmd);
+		endCommand(commandKey);
 	}
 }
 
@@ -1413,7 +1429,7 @@ type EventText = {
 };
 
 const vitalText = computed<VitalText>(() => {
-	const r = deviceStore.event.vitalDataResponse.value;
+	const r = deviceStore.history.vitalDataResponse.value;
 	if (r == null) {
 		return { start: "-", status: "-", rmssdSdnn: "-", vital: "-" };
 	}
@@ -1465,12 +1481,12 @@ const vitalText = computed<VitalText>(() => {
 });
 
 const hasVitalData = computed<boolean>(() => {
-	return deviceStore.event.vitalDataResponse.value != null;
+	return deviceStore.history.vitalDataResponse.value != null;
 });
 
 const eventText = computed<EventText>(() => {
-	const h = deviceStore.event.eventDataHeader.value;
-	const list = deviceStore.event.eventDataList.value;
+	const h = deviceStore.history.eventDataHeader.value;
+	const list = deviceStore.history.eventDataList.value;
 	if (h == null && list.length == 0) {
 		return { header: "-", items: "-" };
 	}
@@ -1489,34 +1505,9 @@ const eventText = computed<EventText>(() => {
 });
 
 const hasEventData = computed<boolean>(() => {
-	const h = deviceStore.event.eventDataHeader.value;
-	const list = deviceStore.event.eventDataList.value;
+	const h = deviceStore.history.eventDataHeader.value;
+	const list = deviceStore.history.eventDataList.value;
 	return h != null || list.length > 0;
-});
-
-watch(deviceStore.event.vitalDataResponse, (r: VitalDataQueryResponse | null) => {
-	if (r == null) return;
-	let validCount = 0;
-	for (let i = 0; i < r.vitalData.length; i++) {
-		if (r.vitalData[i].valid == true) validCount++;
-	}
-	let summary = `${validCount}/${r.vitalData.length} ${t("有效")}`;
-	if (r.startSec == 0) {
-		summary = t("已到底，无后续数据");
-	} else if (r.vitalData.length == 0) {
-		summary = t("本段无数据，可续读");
-	}
-	const cmd = pendingVitalCommand.value == "" ? "0x3A" : pendingVitalCommand.value;
-	setCommandResponse(cmd, summary);
-	pendingVitalCommand.value = "";
-});
-
-watch(deviceStore.event.eventDataHeader, (h: EventDataHeaderResponse | null) => {
-	if (h == null) return;
-	setCommandResponse(
-		"0x3C",
-		`type=${h.type} ${t("共")} ${deviceStore.event.eventDataList.value.length} ${t("条")}`
-	);
 });
 
 /* ===== 设备控制 ===== */

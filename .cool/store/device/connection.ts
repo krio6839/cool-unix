@@ -14,7 +14,12 @@
 
 import { t } from "../../locale";
 import { TARGET_DEVICE_NAME_PREFIX } from "./types";
-import { BOOM_GATT_SERVICE_UUID, parseCustomAdvData, toRealtimeBroadcast } from "../../bluetooth";
+import {
+	BOOM_GATT_SERVICE_UUID,
+	bluetoothDataManager,
+	parseCustomAdvData,
+	toRealtimeBroadcast
+} from "../../bluetooth";
 import type { RealtimeBroadcast } from "../../bluetooth";
 
 //#ifndef H5
@@ -164,6 +169,7 @@ export class DeviceConnection {
 		this.device.currentDeviceName = deviceName;
 		this.device.status.value = "CONNECTED";
 		this.device.saveBoundDevice(deviceId);
+		bluetoothDataManager.setDeviceInfo(deviceName == "" ? "BOOM" : deviceName, deviceId);
 	}
 
 	/* ===== 设备扫描 ===== */
@@ -498,6 +504,7 @@ export class DeviceConnection {
 		this.device.protocol.writeCharUuid = "";
 		this.device.protocol.notifyCharUuid = "";
 		this.device.realtime.value = null;
+		bluetoothDataManager.clearDeviceInfo();
 		this.device.resetReconnectState();
 	}
 

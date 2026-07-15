@@ -17,19 +17,9 @@ import {
 	parseTimestamp,
 	parseBiometric,
 	parseVibrationResult,
-	parseVitalDataResponse,
-	parseEventDataHeader,
-	parseLogDataList,
 	DataIdentifierReassembler
 } from "../../bluetooth";
-import type {
-	FirmwareVersion,
-	VitalBiometric,
-	VibrationResult,
-	VitalDataQueryResponse,
-	EventDataHeaderResponse,
-	LogDataItem
-} from "../../bluetooth";
+import type { FirmwareVersion, VitalBiometric, VibrationResult } from "../../bluetooth";
 
 //#ifndef H5
 import { onCharacteristicValueChange } from "../../bluetooth/kux";
@@ -55,12 +45,6 @@ export class EventHandler {
 	biometricInfoReceivedAt = ref<number>(0);
 	/** 0x40 震动马达最后一次响应 */
 	lastVibration = ref<VibrationResult | null>(null);
-	/** 0x3A/0x3B 最近一次生命体征查询结果（多帧重组后） */
-	vitalDataResponse = ref<VitalDataQueryResponse | null>(null);
-	/** 0x3C 事件头（最早/最晚 sn + ts） */
-	eventDataHeader = ref<EventDataHeaderResponse | null>(null);
-	/** 0x3C/0x3D 累积事件列表（按到达顺序追加） */
-	eventDataList = ref<LogDataItem[]>([]);
 
 	private device: Device;
 
@@ -179,54 +163,15 @@ export class EventHandler {
 			/* ===== 0x3A/0x3B 生命体征（多帧重组） ===== */
 			case BOOM_CMD.READ_VITAL_DATA_START:
 			case BOOM_CMD.READ_VITAL_DATA_CONTINUE:
-				this._handleVitalData(f.v, f.t);
+				this.device.history.handleVitalData(f.v, f.t);
 				break;
 			/* ===== 0x3C/0x3D 事件数据 ===== */
 			case BOOM_CMD.READ_EVENT_DATA_START:
 			case BOOM_CMD.READ_EVENT_DATA_CONTINUE:
-				this._handleEventData(f.v, f.t);
+				this.device.history.handleEventData(f.v, f.t);
 				break;
 			default:
 				console.log("[BOOM] 未知 T:", f.t, "数据:", hexData);
-		}
-	}
-
-	/**
-	 * 处理 0x3A/0x3B 响应（多帧重组由 handleNotifyData 完成，到此处 f.v 已是完整 payload）
-	 */
-	private _handleVitalData(vHex: string, t: number): void {
-		const resp = parseVitalDataResponse(vHex);
-		this.vitalDataResponse.value = resp;
-		const validCount = resp.vitalData.filter((d) => d.valid == true).length;
-		console.log(
-			`[BOOM] 生命体征响应: t=0x${t.toString(16)}, n=${resp.n}, vitalCount=${resp.vitalData.length}, validCount=${validCount}`
-		);
-	}
-
-	/**
-	 * 处理 0x3C/0x3D 响应
-	 * - 0x3C: 17B 头（最早/最晚 sn + ts）
-	 * - 0x3D: 多条 Log_Data_t 串联
-	 */
-	private _handleEventData(vHex: string, t: number): void {
-		// 文档表格把续读响应写成 0x3C，示例则是 0x3D；17B 头长度可用于兼容判断。
-		if (t == BOOM_CMD.READ_EVENT_DATA_START && vHex.length == 34) {
-			// 0x3C：先解析头（17B）
-			this.eventDataHeader.value = parseEventDataHeader(vHex);
-			console.log(
-				`[BOOM] 事件头: type=${this.eventDataHeader.value?.type}, earliestSn=${this.eventDataHeader.value?.earliestSn}, latestSn=${this.eventDataHeader.value?.latestSn}`
-			);
-		} else {
-			// 0x3D（或固件返回的 0x3C）：多条 Log_Data_t
-			// Byte 0 为协议固定字段，Log_Data_t 从 Byte 1 开始。
-			const r = parseLogDataList(vHex, 2);
-			if (r.items.length > 0) {
-				// 追加到累积列表
-				this.eventDataList.value = this.eventDataList.value.concat(r.items);
-				console.log(
-					`[BOOM] 事件追加: count=${r.items.length}, total=${this.eventDataList.value.length}`
-				);
-			}
 		}
 	}
 }
