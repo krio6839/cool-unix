@@ -1,5 +1,5 @@
 <template>
-	<cl-popup v-model="show" :title="t('BOOM 设备测试')" direction="bottom" :size="750">
+	<cl-popup v-model="show" :title="t('BOOM 设备测试')" direction="bottom" :size="620">
 		<scroll-view class="p-4 flex flex-col" scroll-y="true" style="height: 100%">
 			<!-- 设备状态 -->
 			<view class="mb-4 p-3 bg-gray-800 rounded">
@@ -366,6 +366,16 @@
 				>
 					{{ t("清除错误") }}
 				</cl-button>
+				<cl-button
+					type="primary"
+					color="#555"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="openProtocolLog"
+				>
+					{{ t("协议日志") }}
+				</cl-button>
 			</view>
 		</scroll-view>
 
@@ -563,6 +573,96 @@
 				</view>
 			</scroll-view>
 		</cl-popup>
+
+		<!-- 协议日志 + 手动 raw 发送 -->
+		<cl-popup
+			v-model="protocolLogVisible"
+			direction="bottom"
+			:size="620"
+			:title="t('协议日志')"
+		>
+			<view style="height: 100%; position: relative; overflow: hidden; background-color: #2b2c28">
+				<view
+					style="
+						position: absolute;
+						top: 12px;
+						left: 12px;
+						right: 12px;
+						height: 170px;
+						z-index: 2;
+						overflow: hidden;
+						background-color: #2b2c28;
+					"
+				>
+					<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
+						{{ t("手动发送完整 hex 帧") }}
+					</cl-text>
+					<cl-textarea
+						v-model="manualRawHex"
+						:placeholder="t('例如 06C0360000000FAC')"
+						:height="90"
+					></cl-textarea>
+					<view class="flex flex-row mt-2">
+						<cl-button
+							type="primary"
+							size="small"
+							class="mr-2"
+							:disabled="activeCommand != '' || protocolReady == false"
+							@tap="sendManualRawHex"
+						>
+							{{ t("发送") }}
+						</cl-button>
+						<cl-button type="light" size="small" class="mr-2" @tap="clearManualRawHex">
+							{{ t("清空输入") }}
+						</cl-button>
+						<cl-button type="light" size="small" @tap="clearProtocolLogs">
+							{{ t("清空日志") }}
+						</cl-button>
+					</view>
+				</view>
+
+				<scroll-view
+					scroll-y="true"
+					style="
+						position: absolute;
+						top: 194px;
+						left: 12px;
+						right: 12px;
+						height: 370px;
+						z-index: 1;
+						overflow: hidden;
+					"
+				>
+					<view
+						v-for="item in protocolLogs"
+						:key="item.id"
+						class="mb-2 p-2 bg-gray-800 rounded protocol-log-item"
+						style="overflow: hidden"
+					>
+						<view class="flex flex-row items-center mb-1">
+							<cl-text :color="protocolLogColor(item.direction)" :size="12">
+								[{{ item.direction }}]
+							</cl-text>
+							<cl-text color="gray-400" :size="12" class="ml-2">
+								{{ item.time }}
+							</cl-text>
+							<cl-text color="white" :size="12" class="ml-2">
+								{{ item.title }}
+							</cl-text>
+						</view>
+						<view v-if="item.detail != ''" style="width: 100%; overflow: hidden">
+							<text class="protocol-log-line protocol-log-detail">{{ item.detail }}</text>
+						</view>
+						<view v-if="item.hex != ''" style="width: 100%; overflow: hidden">
+							<text class="protocol-log-line protocol-log-hex">{{ item.hex }}</text>
+						</view>
+					</view>
+					<view v-if="protocolLogs.length == 0" class="py-8">
+						<cl-text color="gray-400" :size="14">{{ t("暂无协议日志") }}</cl-text>
+					</view>
+				</scroll-view>
+			</view>
+		</cl-popup>
 	</cl-popup>
 </template>
 
@@ -585,7 +685,9 @@ import type {
 	VibrationSpec,
 	VitalBiometric,
 	VitalDataQueryResponse,
-	VitalDataQueryRequest
+	VitalDataQueryRequest,
+	ProtocolLogDirection,
+	ProtocolLogItem
 } from "@/.cool";
 import type { PpgPositionOption } from "@/.cool";
 import { useUi, type ClSelectOption } from "@/uni_modules/cool-ui";
@@ -610,7 +712,36 @@ const show = defineModel("show", {
 	default: false
 });
 
+const protocolLogVisible = ref(false);
+const manualRawHex = ref("");
+const protocolLogs = computed<ProtocolLogItem[]>((): ProtocolLogItem[] => {
+	return deviceStore.protocolLogs.value;
+});
+
 /* ===== 展示用 computed ===== */
+
+function openProtocolLog(): void {
+	protocolLogVisible.value = true;
+}
+
+function clearManualRawHex(): void {
+	manualRawHex.value = "";
+}
+
+function clearProtocolLogs(): void {
+	deviceStore.clearProtocolLogs();
+}
+
+function normalizeHexInput(hex: string): string {
+	return hex.replace(/\s|0x/g, "").toLowerCase();
+}
+
+function protocolLogColor(direction: ProtocolLogDirection): string {
+	if (direction == "TX") return "success";
+	if (direction == "RX") return "primary";
+	if (direction == "ERR") return "error";
+	return "warning";
+}
 
 function formatBiometric(b: VitalBiometric): string {
 	return `性别${b.gender} 体重${(b.weight / 100).toFixed(2)}kg 身高${(b.height / 100).toFixed(2)}cm 年龄${b.age} PPG${b.ppgPosition} BHR${b.bhr}`;
@@ -732,6 +863,32 @@ function beginCommand(cmd: string): boolean {
 function endCommand(cmd: string): void {
 	if (activeCommand.value == cmd) {
 		activeCommand.value = "";
+	}
+}
+
+async function sendManualRawHex(): Promise<void> {
+	const hex = normalizeHexInput(manualRawHex.value);
+	if (hex.length == 0) {
+		ui.showToast({ message: t("请输入 hex 帧"), type: "error" });
+		return;
+	}
+	if (hex.length % 2 != 0) {
+		ui.showToast({ message: t("hex 长度必须是偶数"), type: "error" });
+		return;
+	}
+	if (/^[0-9a-f]+$/.test(hex) == false) {
+		ui.showToast({ message: t("hex 只能包含 0-9/a-f"), type: "error" });
+		return;
+	}
+	if (!beginCommand("RAW")) return;
+	try {
+		const ok = await deviceStore.protocol.sendRawFrame(hex);
+		ui.showToast({
+			message: ok ? t("已发送") : t("发送失败"),
+			type: ok ? "success" : "error"
+		});
+	} finally {
+		endCommand("RAW");
 	}
 }
 
@@ -1379,3 +1536,23 @@ function testClearError(): void {
 }
 //#endif
 </script>
+
+<style lang="scss" scoped>
+.protocol-log-line {
+	display: block;
+	width: 100%;
+	font-size: 11px;
+	line-height: 16px;
+	white-space: normal;
+	word-break: break-all;
+	overflow-wrap: break-word;
+}
+
+.protocol-log-detail {
+	color: #d1d5db;
+}
+
+.protocol-log-hex {
+	color: #9ca3af;
+}
+</style>

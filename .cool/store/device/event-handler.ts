@@ -98,6 +98,7 @@ export class EventHandler {
 		const hexData = arrayBufferToHexString(value);
 		let tlvcHex = hexData;
 		console.log(`[BOOM] notify hex=${hexData}`);
+		this.device.addProtocolLog("RX", "notify", hexData, "");
 
 		// DI 检测：bit 15 (0x8000) 或 bit 14 (0x4000) 非 0 → DI 帧
 		if (this._vitalReassembler.expectsContinuationFragment()) {
@@ -133,12 +134,20 @@ export class EventHandler {
 		const f = decodeTlvc(tlvcHex);
 		if (f == null) {
 			console.warn("[BOOM] CRC 校验失败:", tlvcHex);
+			this.device.addProtocolLog("ERR", "CRC 校验失败", tlvcHex, "");
 			return;
 		}
 		if (f.l == 0) {
 			console.warn(`[BOOM] 设备返回参数或格式错误: t=0x${f.t.toString(16)}`);
+			this.device.addProtocolLog("ERR", `0x${f.t.toString(16)} 空响应`, tlvcHex, "");
 			return;
 		}
+		this.device.addProtocolLog(
+			"INFO",
+			`解析 0x${f.t.toString(16)}`,
+			tlvcHex,
+			`L=${f.l}, V=${f.v}`
+		);
 
 		// 按 T 码分派到对应字段
 		switch (f.t) {

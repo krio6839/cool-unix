@@ -56,6 +56,17 @@ export type ShowDevicePickerOptions = {
 	list?: DeviceInfo[];
 };
 
+export type ProtocolLogDirection = "TX" | "RX" | "INFO" | "ERR";
+
+export type ProtocolLogItem = {
+	id: number;
+	time: string;
+	direction: ProtocolLogDirection;
+	title: string;
+	hex: string;
+	detail: string;
+};
+
 export class Device {
 	/* ===== 基本状态 ===== */
 	status = ref<keyof typeof DeviceStatusEnum>("UNPAIRED");
@@ -83,6 +94,10 @@ export class Device {
 
 	/** 0x50 广播解析后的最新实时数据（每秒刷新，可能为 null） */
 	realtime = ref<RealtimeBroadcast | null>(null);
+
+	/* ===== 协议调试日志 ===== */
+	protocolLogs = ref<ProtocolLogItem[]>([]);
+	private _protocolLogId = 0;
 
 	/* ===== 重连 ===== */
 	reconnectAttempts = 0;
@@ -167,6 +182,27 @@ export class Device {
 	/** 清除错误信息 */
 	clearError(): void {
 		this.errorMessage.value = "";
+	}
+
+	/** 追加协议调试日志，最多保留最近 200 条 */
+	addProtocolLog(direction: ProtocolLogDirection, title: string, hex: string = "", detail: string = ""): void {
+		this._protocolLogId++;
+		const now = new Date();
+		const item: ProtocolLogItem = {
+			id: this._protocolLogId,
+			time: now.toLocaleTimeString(),
+			direction,
+			title,
+			hex,
+			detail
+		};
+		const next = [item].concat(this.protocolLogs.value);
+		this.protocolLogs.value = next.slice(0, 200);
+	}
+
+	/** 清空协议调试日志 */
+	clearProtocolLogs(): void {
+		this.protocolLogs.value = [];
 	}
 
 	/** 重置重连状态（重连成功后 / 主动重置时调用） */
