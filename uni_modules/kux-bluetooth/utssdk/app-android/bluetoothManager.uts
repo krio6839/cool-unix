@@ -499,28 +499,43 @@ export class BluetoothManager implements IBluetooth {
 		RSSI: number,
 		scanRecord: ScanRecord
 	): DeviceInfo {
+		return this._buildDeviceInfoFromScanRecord(device, RSSI, scanRecord);
+	}
+
+	/**
+	 * BOOM 本项目维护补丁：
+	 * - Manufacturer Specific Data 只有在 getManufacturerSpecificData() 非空时才能读取。
+	 * - allowDuplicatesKey 重复上报时，广播 payload 会每秒变化，必须刷新 advertisData。
+	 */
+	private _buildManufacturerDataBytes(advertisData: SparseArray<ByteArray> | null): number[] {
+		let advertisDataBytes: number[] = [];
+		if (advertisData == null) return advertisDataBytes;
+
+		let totalLength = 0;
+		const size = advertisData.size();
+		for (let i = 0; i < size; i++) {
+			const data: ByteArray = advertisData.valueAt(i.toInt());
+			totalLength += Array.fromNative(data).length;
+		}
+
+		const byteBufferAdvertisData: ByteBuffer = ByteBuffer.allocate(totalLength.toInt());
+		for (let i = 0; i < size; i++) {
+			const data: ByteArray = advertisData.valueAt(i.toInt());
+			byteBufferAdvertisData.put(data);
+		}
+		advertisDataBytes = Array.fromNative(byteBufferAdvertisData.array());
+		return advertisDataBytes;
+	}
+
+	private _buildDeviceInfoFromScanRecord(
+		device: BluetoothDevice,
+		RSSI: number,
+		scanRecord: ScanRecord
+	): DeviceInfo {
 		const name = device.getName();
 		const deviceId = device.getAddress();
 		const advertisData: SparseArray<ByteArray> = scanRecord.getManufacturerSpecificData();
-		const advertisDataIsNull = advertisData == null;
-		let advertisDataBytes: number[] = [];
-
-		if (advertisDataIsNull) {
-			// 计算所有制造商数据的总长度
-			let totalLength = 0;
-			const size = advertisData.size();
-			for (let i = 0; i < size; i++) {
-				const data: ByteArray = advertisData.valueAt(i.toInt());
-				totalLength += Array.fromNative(data).length;
-			}
-
-			const byteBufferAdvertisData: ByteBuffer = ByteBuffer.allocate(totalLength.toInt());
-			for (let i = 0; i < size; i++) {
-				const data: ByteArray = advertisData.valueAt(i.toInt());
-				byteBufferAdvertisData.put(data);
-			}
-			advertisDataBytes = Array.fromNative(byteBufferAdvertisData.array());
-		}
+		const advertisDataBytes = this._buildManufacturerDataBytes(advertisData);
 
 		const advertisServiceUUIDsData: string[] = [];
 		if (scanRecord.getServiceUuids() != null) {
@@ -579,62 +594,15 @@ export class BluetoothManager implements IBluetooth {
 
 					if (!this.discoveredDevices.has(deviceDddress)) {
 						this.discoveredDevices.set(deviceDddress, device);
-						const name = device.getName();
-						const deviceId = device.getAddress();
-						const advertisData: SparseArray<ByteArray> =
-							scanRecord.getManufacturerSpecificData();
-						const advertisDataIsNull = advertisData == null;
-						let advertisDataBytes: number[] = [];
-
-						if (advertisDataIsNull) {
-							// 计算所有制造商数据的总长度
-							let totalLength = 0;
-							const size = advertisData.size();
-							for (let i = 0; i < size; i++) {
-								const data: ByteArray = advertisData.valueAt(i.toInt());
-								totalLength += Array.fromNative(data).length;
-							}
-
-							const byteBufferAdvertisData: ByteBuffer = ByteBuffer.allocate(
-								totalLength.toInt()
-							);
-							for (let i = 0; i < size; i++) {
-								const data: ByteArray = advertisData.valueAt(i.toInt());
-								byteBufferAdvertisData.put(data);
-							}
-							advertisDataBytes = Array.fromNative(byteBufferAdvertisData.array());
-						}
-
-						const advertisServiceUUIDsData: string[] = [];
-						if (scanRecord.getServiceUuids() != null) {
-							const advertisServiceUUIDs: List<ParcelUuid> = scanRecord
-								.getServiceUuids()
-								.toList() as List<ParcelUuid>;
-							for (let i in advertisServiceUUIDs.indices) {
-								advertisServiceUUIDsData.push(advertisServiceUUIDs[i].toString());
-							}
-						}
-
-						const localName = scanRecord.getDeviceName() ?? "";
-						const serviceData: any | null = scanRecord.getServiceData();
-						const connectable = (scanRecord.getAdvertiseFlags() & 0x01) == 0;
-
-						// 判断安卓版本是否大于8
-						const isJellyBean = this.currentApiLevel! >= Build.VERSION_CODES.JELLY_BEAN;
 
 						if (this.mOnBluetoothDeviceFoundCallback != null) {
 							try {
-								const deviceInfo: DeviceInfo = {
-									name: name ?? "",
-									deviceId: deviceId,
-									RSSI: RSSI,
-									advertisData: advertisDataBytes,
-									advertisServiceUUIDs: advertisServiceUUIDsData,
-									localName: localName ?? "",
-									serviceData: serviceData,
-									connectable: isJellyBean ? connectable : null
-								};
-								this.mDiscoveredDevices.set(deviceId, deviceInfo);
+								const deviceInfo = this._buildDeviceInfoFromScanRecord(
+									device,
+									RSSI,
+									scanRecord
+								);
+								this.mDiscoveredDevices.set(deviceInfo.deviceId, deviceInfo);
 								// 判断是否设置了时间间隔
 								const currentTime = System.currentTimeMillis();
 								if (options.interval != null) {
@@ -683,9 +651,20 @@ export class BluetoothManager implements IBluetooth {
 							if (this.mOnBluetoothDeviceFoundCallback != null) {
 								try {
 									const index = this.mOnFundDeviceList.indexOf(device);
-									// 获取已存在的设备
-									let existingDevice: DeviceInfo =
-										this.mOnfoundDevices.get(index);
+									const updatedDevice = this._buildDeviceInfoFromScanRecord(
+										device,
+										RSSI,
+										scanRecord
+									);
+									this.mDiscoveredDevices.set(updatedDevice.deviceId, updatedDevice);
+									if (index < 0) {
+										this.mOnfoundDevices.add(updatedDevice);
+										this.mOnFundDeviceList.add(device);
+										this.mOnBluetoothDeviceFoundCallback?.(
+											Array.fromNative(this.mOnfoundDevices)
+										);
+										return;
+									}
 									// 判断是否设置了时间间隔
 									if (options.interval != null) {
 										const currentTime = System.currentTimeMillis();
@@ -695,19 +674,15 @@ export class BluetoothManager implements IBluetooth {
 												options.interval!
 										) {
 											this.lastDeviceScanTime = currentTime;
-											// 更新设备RSSI
-											existingDevice.RSSI = RSSI;
-											// 重新更新设备列表
-											this.mOnfoundDevices.set(index, existingDevice);
+											// 重新更新设备列表（RSSI + Manufacturer Specific Data）
+											this.mOnfoundDevices.set(index, updatedDevice);
 											this.mOnBluetoothDeviceFoundCallback?.(
 												Array.fromNative(this.mOnfoundDevices)
 											);
 										}
 									} else {
-										// 更新设备RSSI
-										existingDevice.RSSI = RSSI;
-										// 重新更新设备列表
-										this.mOnfoundDevices.set(index, existingDevice);
+										// 重新更新设备列表（RSSI + Manufacturer Specific Data）
+										this.mOnfoundDevices.set(index, updatedDevice);
 										this.mOnBluetoothDeviceFoundCallback?.(
 											Array.fromNative(this.mOnfoundDevices)
 										);
@@ -759,6 +734,7 @@ export class BluetoothManager implements IBluetooth {
 						this.discoveredDevices.set(deviceDddress, device);
 						const name = device.getName();
 						const deviceId = device.getAddress();
+						// Legacy startLeScan 回调没有 ScanRecord，无法提取 Manufacturer Specific Data。
 						const advertisData: number[] = [];
 						const advertisServiceUUIDs: string[] = [];
 						const localName = device.getName();
