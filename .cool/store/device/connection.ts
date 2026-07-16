@@ -434,13 +434,37 @@ export class DeviceConnection {
 			await sleepTimeout(300);
 			await this.device.protocol.setTimestamp(Math.floor(Date.now() / 1000));
 			await sleepTimeout(300);
+			const beforeTimestampSeq = this.device.event.boomTimestampSeqValue;
 			await this.device.protocol.readTimestamp();
+			const timestampOk = await this._waitForBoomTimestampResponse(beforeTimestampSeq, 3000);
+			if (timestampOk == false) {
+				console.warn("[BOOM] 等待读时戳响应超时，延迟后继续启动历史自动补拉");
+				await sleepTimeout(2500);
+			}
 
 			this.device.status.value = "CONNECTED";
+			this.device.history.startVitalHistoryPolling();
 		} catch (e) {
 			console.error("[BOOM] afterConnected 流程异常:", e);
 			throw e;
 		}
+	}
+
+	private async _waitForBoomTimestampResponse(
+		beforeSeq: number,
+		timeoutMs: number
+	): Promise<boolean> {
+		const start = Date.now();
+		while (Date.now() - start < timeoutMs) {
+			if (this.device.event.boomTimestampSeqValue > beforeSeq) {
+				console.log(
+					`[BOOM] 已收到读时戳响应: t=0x${this.device.event.boomTimestampLastT.toString(16)}, boomTimestamp=${this.device.event.boomTimestamp.value}`
+				);
+				return true;
+			}
+			await sleepTimeout(120);
+		}
+		return false;
 	}
 
 	/** 订阅 GATT 连接状态变化 */
@@ -496,6 +520,7 @@ export class DeviceConnection {
 
 	/** 内部：清空连接相关字段 */
 	_resetConnectionState(): void {
+		this.device.history.stopVitalHistoryPolling();
 		this.device.status.value = "UNPAIRED";
 		this.device.currentDeviceId = "";
 		this.device.currentDeviceName = "";

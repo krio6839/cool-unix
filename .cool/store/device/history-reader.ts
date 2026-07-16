@@ -78,6 +78,11 @@ export type EventAutoReadResult = {
 const DEFAULT_TIMEOUT_MS = 8000;
 const DEFAULT_MAX_PAGES = 100;
 const DEFAULT_PAGE_DELAY_MS = 250;
+const VITAL_POLL_INTERVAL_MS = 120000;
+const VITAL_POLL_WINDOW_SECONDS = 120;
+const VITAL_POLL_DIRECTION = 0;
+const VITAL_POLL_MINUTES = 2;
+const VITAL_POLL_MAX_PAGES = 10;
 const MAX_FORMAT_DETAIL_LINES = 260;
 
 export class DeviceHistoryReader {
@@ -104,6 +109,9 @@ export class DeviceHistoryReader {
 	lastEventBatchCountValue: number = 0;
 	eventDataListSeqValue: number = 0;
 	private displaySuspended: boolean = false;
+	private historyReadBusy: boolean = false;
+	private vitalPollingTimer: number = 0;
+	private vitalPollingEnabled: boolean = false;
 
 	private device: Device;
 
@@ -191,6 +199,10 @@ export class DeviceHistoryReader {
 	}
 
 	async readVitalDataAuto(options: VitalAutoReadOptions): Promise<VitalAutoReadResult> {
+		if (this.historyReadBusy == true) {
+			return this.makeVitalResult("STOPPED", "history reader busy", 0, []);
+		}
+		this.historyReadBusy = true;
 		this.setDisplaySuspended(true);
 		try {
 			const result = await this.readVitalDataAutoInner(options);
@@ -208,6 +220,108 @@ export class DeviceHistoryReader {
 			return result;
 		} finally {
 			this.setDisplaySuspended(false);
+			this.historyReadBusy = false;
+		}
+	}
+
+	startVitalHistoryPolling(): void {
+		if (this.vitalPollingEnabled == true) return;
+		this.vitalPollingEnabled = true;
+		this.stopVitalHistoryPollingTimer();
+		this.runVitalHistoryPoll();
+		// @ts-ignore setInterval 在 UTS 不同平台返回类型不一，这里统一收敛为 number
+		this.vitalPollingTimer = setInterval(() => {
+			this.runVitalHistoryPoll();
+		}, VITAL_POLL_INTERVAL_MS);
+		console.log("[BOOM-HISTORY] 已启动生命体征历史自动补拉");
+	}
+
+	stopVitalHistoryPolling(): void {
+		if (this.vitalPollingEnabled == false && this.vitalPollingTimer == 0) return;
+		this.vitalPollingEnabled = false;
+		this.stopVitalHistoryPollingTimer();
+		console.log("[BOOM-HISTORY] 已停止生命体征历史自动补拉");
+	}
+
+	private stopVitalHistoryPollingTimer(): void {
+		if (this.vitalPollingTimer != 0) {
+			clearInterval(this.vitalPollingTimer);
+			this.vitalPollingTimer = 0;
+		}
+	}
+
+	private async runVitalHistoryPoll(): Promise<void> {
+		if (this.vitalPollingEnabled == false) return;
+		if (this.device.status.value != "CONNECTED") return;
+		if (this.historyReadBusy == true) {
+			console.log("[BOOM-HISTORY] 历史数据读取中，跳过本轮自动补拉");
+			return;
+		}
+		try {
+			await this.readRecentVitalWindow();
+		} catch (e) {
+			console.error("[BOOM-HISTORY] 自动补拉异常:", e);
+		}
+	}
+
+	async readRecentVitalWindow(): Promise<VitalAutoReadResult> {
+		if (this.historyReadBusy == true) {
+			return this.makeVitalResult("STOPPED", "history reader busy", 0, []);
+		}
+		this.historyReadBusy = true;
+		this.setDisplaySuspended(true);
+		try {
+			const beforeVitalSeq = this.vitalDataResponseSeqValue;
+			const beforeNotifySeq = this.device.event.notifySeqValue;
+			const nowSec = Math.floor(Date.now() / 1000);
+			const startSec = nowSec - VITAL_POLL_WINDOW_SECONDS;
+			console.log(
+				`[BOOM-HISTORY] 自动补拉窗口: nowSec=${nowSec} ${this.formatMaybeTime(nowSec)}, startSec=${startSec} ${this.formatMaybeTime(startSec)}, boomTimestamp=${this.device.event.boomTimestamp.value}, direction=${VITAL_POLL_DIRECTION}, minutes=${VITAL_POLL_MINUTES}, vitalSeq=${beforeVitalSeq}, notifySeq=${beforeNotifySeq}`
+			);
+			const targetEndSec = nowSec;
+			const result = await this.readVitalDataAutoInner({
+				startSec,
+				direction: VITAL_POLL_DIRECTION,
+				minutes: VITAL_POLL_MINUTES,
+				timeoutMs: DEFAULT_TIMEOUT_MS,
+				maxPages: VITAL_POLL_MAX_PAGES,
+				pageDelayMs: DEFAULT_PAGE_DELAY_MS,
+				onPage: (response, page) => {
+					let validCount = 0;
+					for (let i = 0; i < response.vitalData.length; i++) {
+						if (response.vitalData[i].valid == true) validCount++;
+					}
+					console.log(
+						`[BOOM-HISTORY] 自动补拉段: page=${page}, responseStart=${response.startSec} ${this.formatMaybeTime(response.startSec)}, responseEnd=${this.getVitalWindowEndSec(response)}, n=${response.n}, valid=${validCount}/${response.vitalData.length}`
+					);
+				}
+			});
+			if (result.status == "TIMEOUT") {
+				const afterVitalSeq = this.vitalDataResponseSeqValue;
+				const afterNotifySeq = this.device.event.notifySeqValue;
+				console.warn(
+					`[BOOM-HISTORY] 自动补拉超时诊断: hadNotify=${afterNotifySeq > beforeNotifySeq}, beforeNotifySeq=${beforeNotifySeq}, afterNotifySeq=${afterNotifySeq}, lastNotifyAt=${this.device.event.lastNotifyAtValue}, beforeVitalSeq=${beforeVitalSeq}, afterVitalSeq=${afterVitalSeq}`
+				);
+			}
+			const records = this.toHeartRateRecordsInWindow(
+				result.responses,
+				startSec,
+				targetEndSec
+			);
+			result.savedRecords = records.length;
+			result.saveOk =
+				await bluetoothDataManager.storeHistoricalHeartRateRecordsBatch(records);
+			if (result.savedRecords > 0) {
+				result.uploadAttempted = true;
+				result.uploadOk = await bluetoothDataManager.uploadData();
+			}
+			console.log(
+				`[BOOM-HISTORY] 自动补拉完成: status=${result.status}, pages=${result.pages}, saved=${result.savedRecords}, upload=${result.uploadOk}`
+			);
+			return result;
+		} finally {
+			this.setDisplaySuspended(false);
+			this.historyReadBusy = false;
 		}
 	}
 
@@ -255,7 +369,6 @@ export class DeviceHistoryReader {
 			if (options.onPage != null) {
 				options.onPage!(response, page);
 			}
-
 			if (options.shouldStop != null && options.shouldStop!() == true) {
 				return this.makeVitalResult("STOPPED", "stopped by caller", page, responses);
 			}
@@ -293,11 +406,22 @@ export class DeviceHistoryReader {
 	}
 
 	async readEventDataAuto(options: EventAutoReadOptions): Promise<EventAutoReadResult> {
+		if (this.historyReadBusy == true) {
+			return this.makeEventResult(
+				"STOPPED",
+				"history reader busy",
+				null,
+				0,
+				this.eventDataListRaw.length
+			);
+		}
+		this.historyReadBusy = true;
 		this.setDisplaySuspended(true);
 		try {
 			return await this.readEventDataAutoInner(options);
 		} finally {
 			this.setDisplaySuspended(false);
+			this.historyReadBusy = false;
 		}
 	}
 
@@ -482,6 +606,40 @@ export class DeviceHistoryReader {
 			}
 		}
 		return records;
+	}
+
+	private toHeartRateRecordsInWindow(
+		responses: VitalDataQueryResponse[],
+		startSec: number,
+		endSec: number
+	): HeartRateRecord[] {
+		const records: HeartRateRecord[] = [];
+		const seen = new Map<number, boolean>();
+		for (let p = 0; p < responses.length; p++) {
+			const response = responses[p];
+			if (response.startSec <= 0) continue;
+			for (let i = 0; i < response.vitalData.length; i++) {
+				const item = response.vitalData[i];
+				if (item.valid == false) continue;
+				const timestamp = response.startSec + i;
+				if (timestamp < startSec || timestamp >= endSec) continue;
+				if (seen.has(timestamp)) continue;
+				seen.set(timestamp, true);
+				records.push({
+					timestamp,
+					heartRate: item.hr,
+					bloodOxygen: 0,
+					ppi: item.ppi
+				} as HeartRateRecord);
+			}
+		}
+		return records;
+	}
+
+	private getVitalWindowEndSec(response: VitalDataQueryResponse): number {
+		if (response.startSec <= 0) return 0;
+		const minutes = response.n > 0 ? response.n : VITAL_POLL_MINUTES;
+		return response.startSec + minutes * 60;
 	}
 
 	private makeEventResult(

@@ -37,6 +37,8 @@ export class EventHandler {
 	deviceNumber = ref<string>("");
 	/** 0x33/0x34 BOOM UTC 时戳（秒） */
 	boomTimestamp = ref<number>(0);
+	/** 0x33/0x34 时戳响应序号（用于连接初始化等待 0x34 回包） */
+	boomTimestampSeq = ref<number>(0);
 	/** 0x35/0x36 生物识别 */
 	biometricInfo = ref<VitalBiometric | null>(null);
 	/** 0x35/0x36 生物识别响应序号（即使内容相同也递增） */
@@ -45,6 +47,15 @@ export class EventHandler {
 	biometricInfoReceivedAt = ref<number>(0);
 	/** 0x40 震动马达最后一次响应 */
 	lastVibration = ref<VibrationResult | null>(null);
+
+	/** 任意 BOOM notify 到达序号（用于自动补拉超时诊断） */
+	notifySeqValue: number = 0;
+	/** 最近一次 BOOM notify 到达时间（Date.now 毫秒） */
+	lastNotifyAtValue: number = 0;
+	/** 0x33/0x34 时戳响应序号原始值 */
+	boomTimestampSeqValue: number = 0;
+	/** 最近一次时戳响应 T 码（0x33 或 0x34） */
+	boomTimestampLastT: number = 0;
 
 	private device: Device;
 
@@ -81,6 +92,8 @@ export class EventHandler {
 	handleNotifyData(value: ArrayBuffer): void {
 		const hexData = arrayBufferToHexString(value);
 		let tlvcHex = hexData;
+		this.notifySeqValue = this.notifySeqValue + 1;
+		this.lastNotifyAtValue = Date.now();
 		console.log(`[BOOM] notify hex=${hexData}`);
 		this.device.addProtocolLog("RX", "notify", hexData, "");
 
@@ -147,6 +160,9 @@ export class EventHandler {
 			case BOOM_CMD.SET_BOOM_TIMESTAMP:
 			case BOOM_CMD.READ_BOOM_TIMESTAMP:
 				this.boomTimestamp.value = parseTimestamp(f.v);
+				this.boomTimestampSeqValue = this.boomTimestampSeqValue + 1;
+				this.boomTimestampSeq.value = this.boomTimestampSeqValue;
+				this.boomTimestampLastT = f.t;
 				console.log("[BOOM] 时戳:", this.boomTimestamp.value);
 				break;
 			case BOOM_CMD.SET_BIOMETRIC:
