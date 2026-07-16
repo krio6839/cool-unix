@@ -53,6 +53,7 @@ export class DeviceConnection {
 	private _isSearching: boolean = false;
 	private _isConnectingFoundBoundDevice: boolean = false;
 	private _pairingScanTimer: number = 0;
+	private _suppressNextReconnect: boolean = false;
 
 	constructor(device: Device) {
 		this.device = device;
@@ -463,6 +464,11 @@ export class DeviceConnection {
 					this.device.status.value = "UNPAIRED";
 					this.device.currentDeviceId = "";
 					this.device.isDeviceInitialized = false;
+					if (this._suppressNextReconnect == true) {
+						console.log("[BOOM] 本次断开由广播模式触发，跳过自动重连");
+						this._suppressNextReconnect = false;
+						return;
+					}
 					this.reconnect();
 				}
 			}
@@ -494,9 +500,28 @@ export class DeviceConnection {
 		this._resetConnectionState();
 	}
 
+	/** 切换到广播测试模式时断开 GATT，但保留 boundDeviceId 且不触发自动重连 */
+	async disconnectForBroadcastMode(): Promise<void> {
+		this.stopBluetoothSearch();
+		this.device.history.stopVitalHistoryPolling();
+		await this.device.broadcast.stopRealtimeScan();
+		await this.device.broadcast.stopBoundBroadcastScan();
+		//#ifndef H5
+		if (this.device.currentDeviceId != "") {
+			this._suppressNextReconnect = true;
+			await disconnect(this.device.currentDeviceId);
+			setTimeout(() => {
+				this._suppressNextReconnect = false;
+			}, 3000);
+		}
+		//#endif
+		this._resetConnectionState();
+	}
+
 	/** 内部：清空连接相关字段 */
 	_resetConnectionState(): void {
 		this.device.broadcast.stopRealtimeScan();
+		this.device.broadcast.stopBoundBroadcastScan();
 		this.device.history.stopVitalHistoryPolling();
 		this.device.status.value = "UNPAIRED";
 		this.device.currentDeviceId = "";

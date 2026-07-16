@@ -70,9 +70,13 @@ export type RealtimeBroadcast = {
 	receivedAt: number; // 本地接收时间 ms
 	utc: number;
 	voltageMv: number; // mV
+	status: number;
+	statusReserved: number;
 	ppgAttached: boolean;
 	behavior: number; // 0..6
+	behaviorLabel: string;
 	activity: number; // 0..7
+	activityLabel: string;
 	hr: number;
 	ppi: number;
 	spo2Pct: number; // 950 → 95.0
@@ -81,9 +85,12 @@ export type RealtimeBroadcast = {
 
 /** status 字节解码结果（来自 decodeAdvStatus） */
 export type AdvStatus = {
+	reserved: number;
 	ppgAttached: boolean;
 	behavior: number;
+	behaviorLabel: string;
 	activity: number;
+	activityLabel: string;
 };
 
 /* ==================== 0x3A/0x3B 生命体征数据类型（1.4.4.8/1.4.4.9 + 2.1.3） ==================== */

@@ -1,6 +1,49 @@
 <template>
 	<cl-popup v-model="show" :title="t('BOOM 设备测试')" direction="bottom" :size="620">
 		<scroll-view class="p-4 flex flex-col" scroll-y="true" style="height: 100%">
+			<!-- 测试模式 -->
+			<view class="mb-4 p-3 bg-gray-800 rounded test-mode-panel">
+				<view class="flex flex-row items-center justify-between mb-3">
+					<view>
+						<cl-text color="white" :size="15" :pt="{ className: 'font-bold' }">
+							{{ t("测试模式") }}
+						</cl-text>
+						<cl-text color="gray-400" :size="11">
+							{{ testModeText }}
+						</cl-text>
+					</view>
+					<view class="mode-pill">
+						<text class="mode-pill-text">{{
+							testMode == "broadcast" ? t("广播") : t("连接")
+						}}</text>
+					</view>
+				</view>
+				<view class="mode-switch">
+					<cl-button
+						type="primary"
+						:color="testMode == 'connect' ? '#0a7' : '#444'"
+						rounded
+						size="small"
+						class="mode-button"
+						:disabled="testModeChanging"
+						@tap="switchTestMode('connect')"
+					>
+						{{ t("连接模式") }}
+					</cl-button>
+					<cl-button
+						type="primary"
+						:color="testMode == 'broadcast' ? '#0a7' : '#444'"
+						rounded
+						size="small"
+						class="mode-button"
+						:disabled="testModeChanging"
+						@tap="switchTestMode('broadcast')"
+					>
+						{{ t("广播模式") }}
+					</cl-button>
+				</view>
+			</view>
+
 			<!-- 设备状态 -->
 			<view class="mb-4 p-3 bg-gray-800 rounded">
 				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
@@ -36,359 +79,377 @@
 			</view>
 
 			<!-- 0x50 实时广播 -->
-			<view class="mb-4 p-3 bg-gray-800 rounded">
+			<view class="mb-4 p-3 bg-gray-800 rounded broadcast-panel">
+				<view class="flex flex-row items-center justify-between mb-3">
+					<cl-text color="white" :size="15" :pt="{ className: 'font-bold' }">
+						{{ t("0x50 实时广播") }}
+					</cl-text>
+					<cl-text :color="advText.seq == '-' ? 'warning' : 'success'" :size="12">
+						{{ advText.seq == "-" ? t("等待广播") : `${t("已接收")} #${advText.seq}` }}
+					</cl-text>
+				</view>
+				<view class="broadcast-hero mb-3">
+					<view class="metric-large">
+						<text class="metric-label">{{ t("心率") }}</text>
+						<text class="metric-value">{{ rtText.hr }}</text>
+						<text class="metric-unit">bpm</text>
+					</view>
+					<view class="metric-large">
+						<text class="metric-label">PPI</text>
+						<text class="metric-value">{{ rtText.ppi }}</text>
+						<text class="metric-unit">ms</text>
+					</view>
+					<view class="metric-large">
+						<text class="metric-label">{{ t("血氧") }}</text>
+						<text class="metric-value">{{ rtText.spo2 }}</text>
+						<text class="metric-unit">%</text>
+					</view>
+				</view>
+				<view class="broadcast-grid">
+					<view class="broadcast-cell">
+						<text class="cell-label">{{ t("电池电压") }}</text>
+						<text class="cell-value">{{ rtText.voltage }} V</text>
+					</view>
+					<view class="broadcast-cell">
+						<text class="cell-label">{{ t("PPG 佩戴") }}</text>
+						<text class="cell-value">{{ rtText.ppgAttached }}</text>
+					</view>
+					<view class="broadcast-cell">
+						<text class="cell-label">Status</text>
+						<text class="cell-value">{{ rtText.status }}</text>
+					</view>
+					<view class="broadcast-cell">
+						<text class="cell-label">{{ t("行为 / 活动") }}</text>
+						<text class="cell-value"
+							>{{ rtText.behavior }} / {{ rtText.activity }}</text
+						>
+					</view>
+					<view class="broadcast-cell">
+						<text class="cell-label">{{ t("基础心率") }}</text>
+						<text class="cell-value">{{ rtText.bhr }} bpm</text>
+					</view>
+					<view class="broadcast-cell">
+						<text class="cell-label">{{ t("上次接收") }}</text>
+						<text class="cell-value">{{ rtText.receivedAt }}</text>
+					</view>
+					<view class="broadcast-cell">
+						<text class="cell-label">{{ t("时间偏差") }}</text>
+						<text class="cell-value">{{ advText.diff }}</text>
+					</view>
+				</view>
+				<view class="broadcast-debug mt-3">
+					<text class="debug-line"
+						>device={{ advText.deviceId }} RSSI={{ advText.rssi }}</text
+					>
+					<text class="debug-line">{{ advText.parsed }}</text>
+					<text class="debug-line">raw={{ advText.rawHex }}</text>
+					<text class="debug-line">v={{ advText.vHex }}</text>
+				</view>
+			</view>
+
+			<template v-if="testMode == 'connect'">
+				<!-- BOOM GATT 协议测试（8 个按钮 + 上次响应行） -->
 				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-					{{ t("0x50 实时广播") }}
+					{{ t("BOOM GATT 协议测试") }}
 				</cl-text>
-				<view class="flex flex-row flex-wrap">
-					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("心率") }}</cl-text>
-						<cl-text color="white" :size="14">{{ rtText.hr }} bpm</cl-text>
-					</view>
-					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("血氧") }}</cl-text>
-						<cl-text color="white" :size="14">{{ rtText.spo2 }} %</cl-text>
-					</view>
-					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("电池电压") }}</cl-text>
-						<cl-text color="white" :size="14">{{ rtText.voltage }} V</cl-text>
-					</view>
-					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("PPI") }}</cl-text>
-						<cl-text color="white" :size="14">{{ rtText.ppi }} ms</cl-text>
-					</view>
-					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("PPG 佩戴") }}</cl-text>
-						<cl-text color="white" :size="14">{{ rtText.ppgAttached }}</cl-text>
-					</view>
-					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("行为 / 活动") }}</cl-text>
-						<cl-text color="white" :size="14">
-							{{ rtText.behavior }} / {{ rtText.activity }}
+				<view class="mb-4">
+					<view class="flex flex-row flex-wrap items-center mb-1">
+						<cl-button
+							type="primary"
+							color="#444"
+							rounded
+							size="small"
+							class="mr-2 mb-1"
+							:disabled="isCommandDisabled('0x30')"
+							@tap="testReadFirmware"
+						>
+							{{ t("0x30 读固件") }}
+						</cl-button>
+						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+							[0x30] {{ fwResp }}
 						</cl-text>
 					</view>
-					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("基础心率") }}</cl-text>
-						<cl-text color="white" :size="14">{{ rtText.bhr }} bpm</cl-text>
+					<view class="flex flex-row flex-wrap items-center mb-1">
+						<cl-button
+							type="primary"
+							color="#444"
+							rounded
+							size="small"
+							class="mr-2 mb-1"
+							:disabled="isCommandDisabled('0x32')"
+							@tap="testReadDeviceNumber"
+						>
+							{{ t("0x32 读设备编号") }}
+						</cl-button>
+						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+							[0x32] {{ devNumResp }}
+						</cl-text>
 					</view>
-					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("上次接收") }}</cl-text>
-						<cl-text color="white" :size="12">{{ rtText.receivedAt }}</cl-text>
+					<view class="flex flex-row flex-wrap items-center mb-1">
+						<cl-button
+							type="primary"
+							color="#444"
+							rounded
+							size="small"
+							class="mr-2 mb-1"
+							:disabled="isCommandDisabled('0x34')"
+							@tap="testReadTimestamp"
+						>
+							{{ t("0x34 读时戳") }}
+						</cl-button>
+						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+							[0x34] {{ tsResp }}
+						</cl-text>
+					</view>
+					<view class="flex flex-row flex-wrap items-center mb-1">
+						<cl-button
+							type="primary"
+							color="#444"
+							rounded
+							size="small"
+							class="mr-2 mb-1"
+							:disabled="isCommandDisabled('0x36')"
+							@tap="testReadBiometric"
+						>
+							{{ t("0x36 读生物识别") }}
+						</cl-button>
+						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+							[0x36] {{ bioResp }}
+						</cl-text>
+					</view>
+					<view class="flex flex-row flex-wrap items-center mb-1">
+						<cl-button
+							type="primary"
+							color="#666"
+							rounded
+							size="small"
+							class="mr-2 mb-1"
+							:disabled="isCommandDisabled('0x31')"
+							@tap="openForm('0x31')"
+						>
+							{{ t("0x31 写设备编号") }}
+						</cl-button>
+						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+							[0x31] {{ setDevNumResp }}
+						</cl-text>
+					</view>
+					<view class="flex flex-row flex-wrap items-center mb-1">
+						<cl-button
+							type="primary"
+							color="#666"
+							rounded
+							size="small"
+							class="mr-2 mb-1"
+							:disabled="isCommandDisabled('0x33')"
+							@tap="testSetTimestamp"
+						>
+							{{ t("0x33 写时戳") }}
+						</cl-button>
+						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+							[0x33] {{ setTsResp }}
+						</cl-text>
+					</view>
+					<view class="flex flex-row flex-wrap items-center mb-1">
+						<cl-button
+							type="primary"
+							color="#666"
+							rounded
+							size="small"
+							class="mr-2 mb-1"
+							:disabled="isCommandDisabled('0x35')"
+							@tap="openForm('0x35')"
+						>
+							{{ t("0x35 写生物识别") }}
+						</cl-button>
+						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+							[0x35] {{ setBioResp }}
+						</cl-text>
+					</view>
+					<view class="flex flex-row flex-wrap items-center mb-1">
+						<cl-button
+							type="primary"
+							color="#888"
+							rounded
+							size="small"
+							class="mr-2 mb-1"
+							:disabled="isCommandDisabled('0x40')"
+							@tap="testVibration"
+						>
+							{{ t("0x40 震动马达") }}
+						</cl-button>
+						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+							[0x40] {{ vibResp }}
+						</cl-text>
 					</view>
 				</view>
-				<view class="mt-2 pt-2 border-t border-gray-700">
-					<cl-text color="gray-400" :size="12">
-						{{ t("广播调试") }} #{{ advText.seq }} {{ advText.diff }}
-					</cl-text>
-					<cl-text color="white" :size="11" class="break-all">
-						{{ advText.summary }}
-					</cl-text>
-					<cl-text color="gray-400" :size="10" class="break-all">
-						raw={{ advText.rawHex }}
-					</cl-text>
-					<cl-text color="gray-400" :size="10" class="break-all">
-						v={{ advText.vHex }}
-					</cl-text>
-				</view>
-			</view>
 
-			<!-- BOOM GATT 协议测试（8 个按钮 + 上次响应行） -->
-			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-				{{ t("BOOM GATT 协议测试") }}
-			</cl-text>
-			<view class="mb-4">
-				<view class="flex flex-row flex-wrap items-center mb-1">
-					<cl-button
-						type="primary"
-						color="#444"
-						rounded
-						size="small"
-						class="mr-2 mb-1"
-						:disabled="isCommandDisabled('0x30')"
-						@tap="testReadFirmware"
-					>
-						{{ t("0x30 读固件") }}
-					</cl-button>
-					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-						[0x30] {{ fwResp }}
-					</cl-text>
-				</view>
-				<view class="flex flex-row flex-wrap items-center mb-1">
-					<cl-button
-						type="primary"
-						color="#444"
-						rounded
-						size="small"
-						class="mr-2 mb-1"
-						:disabled="isCommandDisabled('0x32')"
-						@tap="testReadDeviceNumber"
-					>
-						{{ t("0x32 读设备编号") }}
-					</cl-button>
-					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-						[0x32] {{ devNumResp }}
-					</cl-text>
-				</view>
-				<view class="flex flex-row flex-wrap items-center mb-1">
-					<cl-button
-						type="primary"
-						color="#444"
-						rounded
-						size="small"
-						class="mr-2 mb-1"
-						:disabled="isCommandDisabled('0x34')"
-						@tap="testReadTimestamp"
-					>
-						{{ t("0x34 读时戳") }}
-					</cl-button>
-					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-						[0x34] {{ tsResp }}
-					</cl-text>
-				</view>
-				<view class="flex flex-row flex-wrap items-center mb-1">
-					<cl-button
-						type="primary"
-						color="#444"
-						rounded
-						size="small"
-						class="mr-2 mb-1"
-						:disabled="isCommandDisabled('0x36')"
-						@tap="testReadBiometric"
-					>
-						{{ t("0x36 读生物识别") }}
-					</cl-button>
-					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-						[0x36] {{ bioResp }}
-					</cl-text>
-				</view>
-				<view class="flex flex-row flex-wrap items-center mb-1">
-					<cl-button
-						type="primary"
-						color="#666"
-						rounded
-						size="small"
-						class="mr-2 mb-1"
-						:disabled="isCommandDisabled('0x31')"
-						@tap="openForm('0x31')"
-					>
-						{{ t("0x31 写设备编号") }}
-					</cl-button>
-					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-						[0x31] {{ setDevNumResp }}
-					</cl-text>
-				</view>
-				<view class="flex flex-row flex-wrap items-center mb-1">
-					<cl-button
-						type="primary"
-						color="#666"
-						rounded
-						size="small"
-						class="mr-2 mb-1"
-						:disabled="isCommandDisabled('0x33')"
-						@tap="testSetTimestamp"
-					>
-						{{ t("0x33 写时戳") }}
-					</cl-button>
-					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-						[0x33] {{ setTsResp }}
-					</cl-text>
-				</view>
-				<view class="flex flex-row flex-wrap items-center mb-1">
-					<cl-button
-						type="primary"
-						color="#666"
-						rounded
-						size="small"
-						class="mr-2 mb-1"
-						:disabled="isCommandDisabled('0x35')"
-						@tap="openForm('0x35')"
-					>
-						{{ t("0x35 写生物识别") }}
-					</cl-button>
-					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-						[0x35] {{ setBioResp }}
-					</cl-text>
-				</view>
-				<view class="flex flex-row flex-wrap items-center mb-1">
-					<cl-button
-						type="primary"
-						color="#888"
-						rounded
-						size="small"
-						class="mr-2 mb-1"
-						:disabled="isCommandDisabled('0x40')"
-						@tap="testVibration"
-					>
-						{{ t("0x40 震动马达") }}
-					</cl-button>
-					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-						[0x40] {{ vibResp }}
-					</cl-text>
-				</view>
-			</view>
-
-			<!-- 历史数据（0x3A/0x3B/0x3C/0x3D） -->
-			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-				{{ t("历史数据（v5 新增）") }}
-			</cl-text>
-			<view class="mb-4">
-				<view class="flex flex-row flex-wrap items-center mb-1">
-					<cl-button
-						type="primary"
-						color="#0a0"
-						rounded
-						size="small"
-						class="mr-2 mb-1"
-						:disabled="isCommandDisabled('0x3A')"
-						@tap="openForm('0x3A')"
-					>
-						{{ t("0x3A 开始生命体征") }}
-					</cl-button>
-					<cl-button
-						type="primary"
-						color="#087"
-						rounded
-						size="small"
-						class="mr-2 mb-1"
-						:disabled="vitalAutoReading == false"
-						@tap="stopVitalAutoRead"
-					>
-						{{ t("停止生命体征") }}
-					</cl-button>
-					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-						[0x3A/0x3B] {{ vitalFlowResp }}
-					</cl-text>
-				</view>
-				<view class="flex flex-row flex-wrap items-center mb-1">
-					<cl-button
-						type="primary"
-						color="#a00"
-						rounded
-						size="small"
-						class="mr-2 mb-1"
-						:disabled="isCommandDisabled('0x3C')"
-						@tap="openForm('0x3C')"
-					>
-						{{ t("0x3C 开始事件") }}
-					</cl-button>
-					<cl-button
-						type="primary"
-						color="#870"
-						rounded
-						size="small"
-						class="mr-2 mb-1"
-						:disabled="eventAutoReading == false"
-						@tap="stopEventAutoRead"
-					>
-						{{ t("停止事件") }}
-					</cl-button>
-					<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-						[0x3C/0x3D] {{ eventFlowResp }}
-					</cl-text>
-				</view>
-			</view>
-
-			<!-- 0x3A 生命体征响应展示区 -->
-			<view v-if="hasVitalData" class="mb-4 p-3 bg-gray-800 rounded">
+				<!-- 历史数据（0x3A/0x3B/0x3C/0x3D） -->
 				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-					{{ t("0x3A 生命体征响应") }}
+					{{ t("历史数据（v5 新增）") }}
 				</cl-text>
-				<view class="mb-2">
-					<cl-text color="gray-400" :size="12">
-						{{ t("起始时间 / 方向 / 返回分钟数") }}: {{ vitalText.start }}
-					</cl-text>
+				<view class="mb-4">
+					<view class="flex flex-row flex-wrap items-center mb-1">
+						<cl-button
+							type="primary"
+							color="#0a0"
+							rounded
+							size="small"
+							class="mr-2 mb-1"
+							:disabled="isCommandDisabled('0x3A')"
+							@tap="openForm('0x3A')"
+						>
+							{{ t("0x3A 开始生命体征") }}
+						</cl-button>
+						<cl-button
+							type="primary"
+							color="#087"
+							rounded
+							size="small"
+							class="mr-2 mb-1"
+							:disabled="vitalAutoReading == false"
+							@tap="stopVitalAutoRead"
+						>
+							{{ t("停止生命体征") }}
+						</cl-button>
+						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+							[0x3A/0x3B] {{ vitalFlowResp }}
+						</cl-text>
+					</view>
+					<view class="flex flex-row flex-wrap items-center mb-1">
+						<cl-button
+							type="primary"
+							color="#a00"
+							rounded
+							size="small"
+							class="mr-2 mb-1"
+							:disabled="isCommandDisabled('0x3C')"
+							@tap="openForm('0x3C')"
+						>
+							{{ t("0x3C 开始事件") }}
+						</cl-button>
+						<cl-button
+							type="primary"
+							color="#870"
+							rounded
+							size="small"
+							class="mr-2 mb-1"
+							:disabled="eventAutoReading == false"
+							@tap="stopEventAutoRead"
+						>
+							{{ t("停止事件") }}
+						</cl-button>
+						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
+							[0x3C/0x3D] {{ eventFlowResp }}
+						</cl-text>
+					</view>
 				</view>
-				<view class="mb-2">
-					<cl-text color="gray-400" :size="12">
-						{{ t("读取状态") }}: {{ vitalText.status }}
-					</cl-text>
-				</view>
-				<view class="mb-2">
-					<cl-text color="gray-400" :size="12">
-						{{ t("RMSSD/SDNN") }}: {{ vitalText.rmssdSdnn }}
-					</cl-text>
-				</view>
-				<view>
-					<cl-text color="gray-400" :size="12">
-						{{ t("逐秒数据 (前 30 条)") }}: {{ vitalText.vital }}
-					</cl-text>
-				</view>
-				<view class="mt-2">
-					<cl-text color="gray-400" :size="12"> {{ t("自动读取明细") }}: </cl-text>
-					<text class="protocol-log-line protocol-log-detail">{{ vitalAutoDetail }}</text>
-				</view>
-			</view>
 
-			<!-- 0x3C/0x3D 事件响应展示区 -->
-			<view v-if="hasEventData" class="mb-4 p-3 bg-gray-800 rounded">
+				<!-- 0x3A 生命体征响应展示区 -->
+				<view v-if="hasVitalData" class="mb-4 p-3 bg-gray-800 rounded">
+					<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+						{{ t("0x3A 生命体征响应") }}
+					</cl-text>
+					<view class="mb-2">
+						<cl-text color="gray-400" :size="12">
+							{{ t("起始时间 / 方向 / 返回分钟数") }}: {{ vitalText.start }}
+						</cl-text>
+					</view>
+					<view class="mb-2">
+						<cl-text color="gray-400" :size="12">
+							{{ t("读取状态") }}: {{ vitalText.status }}
+						</cl-text>
+					</view>
+					<view class="mb-2">
+						<cl-text color="gray-400" :size="12">
+							{{ t("RMSSD/SDNN") }}: {{ vitalText.rmssdSdnn }}
+						</cl-text>
+					</view>
+					<view>
+						<cl-text color="gray-400" :size="12">
+							{{ t("逐秒数据 (前 30 条)") }}: {{ vitalText.vital }}
+						</cl-text>
+					</view>
+					<view class="mt-2">
+						<cl-text color="gray-400" :size="12"> {{ t("自动读取明细") }}: </cl-text>
+						<text class="protocol-log-line protocol-log-detail">{{
+							vitalAutoDetail
+						}}</text>
+					</view>
+				</view>
+
+				<!-- 0x3C/0x3D 事件响应展示区 -->
+				<view v-if="hasEventData" class="mb-4 p-3 bg-gray-800 rounded">
+					<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+						{{ t("0x3C 事件响应") }}
+					</cl-text>
+					<view class="mb-2">
+						<cl-text color="gray-400" :size="12">
+							{{ t("事件头") }}: {{ eventText.header }}
+						</cl-text>
+					</view>
+					<view>
+						<cl-text color="gray-400" :size="12">
+							{{ t("事件列表 (前 10 条)") }}: {{ eventText.items }}
+						</cl-text>
+					</view>
+					<view class="mt-2">
+						<cl-text color="gray-400" :size="12"> {{ t("自动读取明细") }}: </cl-text>
+						<text class="protocol-log-line protocol-log-detail">{{
+							eventAutoDetail
+						}}</text>
+					</view>
+				</view>
+
+				<!-- 设备控制 -->
 				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-					{{ t("0x3C 事件响应") }}
+					{{ t("设备控制") }}
 				</cl-text>
-				<view class="mb-2">
-					<cl-text color="gray-400" :size="12">
-						{{ t("事件头") }}: {{ eventText.header }}
-					</cl-text>
+				<view class="flex flex-row flex-wrap mb-4">
+					<cl-button
+						type="primary"
+						color="#333"
+						rounded
+						size="small"
+						class="mr-2 mb-2"
+						:disabled="activeCommand != ''"
+						@tap="testDisconnect"
+					>
+						{{ t("断开连接") }}
+					</cl-button>
+					<cl-button
+						type="primary"
+						color="#333"
+						rounded
+						size="small"
+						class="mr-2 mb-2"
+						:disabled="activeCommand != ''"
+						@tap="testReconnect"
+					>
+						{{ t("测试重连") }}
+					</cl-button>
+					<cl-button
+						type="primary"
+						color="#555"
+						rounded
+						size="small"
+						class="mr-2 mb-2"
+						:disabled="activeCommand != ''"
+						@tap="testClearError"
+					>
+						{{ t("清除错误") }}
+					</cl-button>
+					<cl-button
+						type="primary"
+						color="#555"
+						rounded
+						size="small"
+						class="mr-2 mb-2"
+						@tap="openProtocolLog"
+					>
+						{{ t("协议日志") }}
+					</cl-button>
 				</view>
-				<view>
-					<cl-text color="gray-400" :size="12">
-						{{ t("事件列表 (前 10 条)") }}: {{ eventText.items }}
-					</cl-text>
-				</view>
-				<view class="mt-2">
-					<cl-text color="gray-400" :size="12"> {{ t("自动读取明细") }}: </cl-text>
-					<text class="protocol-log-line protocol-log-detail">{{ eventAutoDetail }}</text>
-				</view>
-			</view>
-
-			<!-- 设备控制 -->
-			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-				{{ t("设备控制") }}
-			</cl-text>
-			<view class="flex flex-row flex-wrap mb-4">
-				<cl-button
-					type="primary"
-					color="#333"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					:disabled="activeCommand != ''"
-					@tap="testDisconnect"
-				>
-					{{ t("断开连接") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#333"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					:disabled="activeCommand != ''"
-					@tap="testReconnect"
-				>
-					{{ t("测试重连") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#555"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					:disabled="activeCommand != ''"
-					@tap="testClearError"
-				>
-					{{ t("清除错误") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#555"
-					rounded
-					size="small"
-					class="mr-2 mb-2"
-					@tap="openProtocolLog"
-				>
-					{{ t("协议日志") }}
-				</cl-button>
-			</view>
+			</template>
 		</scroll-view>
 
 		<!-- 参数输入子弹窗（0x31/0x35/0x3A/0x3C 共用） -->
@@ -674,7 +735,7 @@
 
 <script lang="ts" setup>
 //#ifndef H5
-import { computed, reactive, ref } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import {
 	DEVICE_NUMBER_MAX_LEN,
 	DOC_EXAMPLES_BY_T,
@@ -703,6 +764,7 @@ type RtText = {
 	ppgAttached: string;
 	behavior: string;
 	activity: string;
+	status: string;
 	bhr: string;
 	receivedAt: string;
 };
@@ -710,10 +772,15 @@ type RtText = {
 type AdvText = {
 	seq: string;
 	diff: string;
+	deviceId: string;
+	rssi: string;
 	summary: string;
+	parsed: string;
 	rawHex: string;
 	vHex: string;
 };
+
+type TestMode = "connect" | "broadcast";
 
 const ui = useUi();
 const { device: deviceStore } = useStore();
@@ -724,9 +791,27 @@ const show = defineModel("show", {
 
 const protocolLogVisible = ref(false);
 const manualRawHex = ref("");
+const testMode = ref<TestMode>("connect");
+const testModeChanging = ref<boolean>(false);
 const protocolLogs = computed<ProtocolLogItem[]>((): ProtocolLogItem[] => {
 	if (protocolLogVisible.value == false) return [];
 	return deviceStore.protocolLogs.value.slice();
+});
+
+const testModeText = computed<string>(() => {
+	if (testMode.value == "broadcast") {
+		const boundId = deviceStore.boundDeviceId;
+		if (boundId == "") return t("广播模式需要先连接并绑定设备");
+		return `${t("只解析绑定设备广播")}: ${boundId}`;
+	}
+	return t("连接模式使用 GATT 命令和历史读取");
+});
+
+watch(show, (visible: boolean) => {
+	if (visible == false && testMode.value == "broadcast") {
+		deviceStore.broadcast.stopBoundBroadcastScan();
+		testMode.value = "connect";
+	}
 });
 
 /* ===== 展示用 computed ===== */
@@ -804,6 +889,7 @@ const rtText = computed<RtText>(() => {
 			ppgAttached: "-",
 			behavior: "-",
 			activity: "-",
+			status: "-",
 			bhr: "-",
 			receivedAt: "-"
 		};
@@ -811,15 +897,21 @@ const rtText = computed<RtText>(() => {
 	return {
 		hr: r.hr.toString(),
 		spo2: r.spo2Pct.toFixed(1),
-		voltage: (r.voltageMv / 100).toFixed(2),
+		voltage: (r.voltageMv / 1000).toFixed(3),
 		ppi: r.ppi.toString(),
 		ppgAttached: r.ppgAttached ? t("已佩戴") : t("未佩戴"),
-		behavior: r.behavior.toString(),
-		activity: r.activity.toString(),
+		behavior: `${r.behavior} ${r.behaviorLabel}`,
+		activity: `${r.activity} ${r.activityLabel}`,
+		status: `0x${toByteHex(r.status)} bit7=${r.statusReserved}`,
 		bhr: r.bhr.toString(),
 		receivedAt: new Date(r.receivedAt).toLocaleTimeString()
 	};
 });
+
+function toByteHex(value: number): string {
+	const item = (value & 0xff).toString(16);
+	return item.length == 1 ? "0" + item : item;
+}
 
 const advText = computed<AdvText>(() => {
 	const d = deviceStore.broadcastDebug.value;
@@ -827,15 +919,26 @@ const advText = computed<AdvText>(() => {
 		return {
 			seq: "-",
 			diff: "-",
+			deviceId: "-",
+			rssi: "-",
 			summary: "-",
+			parsed: "-",
 			rawHex: "-",
 			vHex: "-"
 		};
 	}
+	const r = deviceStore.realtime.value;
+	let parsed = "-";
+	if (r != null) {
+		parsed = `utc=${r.utc} status=0x${toByteHex(r.status)} bit7=${r.statusReserved} ppg=${r.ppgAttached} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr} ppi=${r.ppi} spo2=${r.spo2Pct.toFixed(1)} bhr=${r.bhr} voltage=${r.voltageMv}mV`;
+	}
 	return {
 		seq: d.seq.toString(),
 		diff: `diff=${d.diffSec}s`,
+		deviceId: d.deviceId,
+		rssi: `${d.rssi} dBm`,
 		summary: `${d.summary} ${new Date(d.receivedAt).toLocaleTimeString()}`,
+		parsed,
 		rawHex: d.rawHex,
 		vHex: d.vHex
 	};
@@ -862,6 +965,7 @@ const protocolReady = computed<boolean>(() => {
 });
 
 const protocolReadyText = computed<string>(() => {
+	if (testMode.value == "broadcast") return t("广播模式只解析绑定设备广播，不连接 GATT");
 	if (deviceStore.status.value != "CONNECTED") return t("设备未连接，测试命令暂不可用");
 	if (deviceStore.protocol.writeCharUuid == "") return t("未发现写入特征，请重新连接设备");
 	if (deviceStore.protocol.notifyCharUuid == "") return t("未发现通知特征，请重新连接设备");
@@ -869,7 +973,9 @@ const protocolReadyText = computed<string>(() => {
 });
 
 function isCommandDisabled(cmd: string): boolean {
-	return protocolReady.value == false || activeCommand.value != "";
+	return (
+		testMode.value == "broadcast" || protocolReady.value == false || activeCommand.value != ""
+	);
 }
 
 function setCommandResponse(cmd: string, message: string): void {
@@ -984,6 +1090,44 @@ const vitalAutoDetail = ref<string>("-");
 const eventAutoDetail = ref<string>("-");
 const MAX_AUTO_PAGES = 100;
 const VITAL_FORM_DEFAULT_OFFSET_SECONDS = 120;
+
+async function switchToBroadcastMode(): Promise<void> {
+	if (deviceStore.boundDeviceId == "") {
+		ui.showToast({ message: t("请先连接/绑定设备"), type: "warn" });
+		return;
+	}
+	vitalAutoReading.value = false;
+	eventAutoReading.value = false;
+	await deviceStore.connection.disconnectForBroadcastMode();
+	const ok = await deviceStore.broadcast.startBoundBroadcastScan();
+	if (ok == false) {
+		ui.showToast({ message: t("广播扫描启动失败"), type: "error" });
+		return;
+	}
+	testMode.value = "broadcast";
+	ui.showToast({ message: t("已进入广播模式"), type: "success" });
+}
+
+async function switchToConnectMode(): Promise<void> {
+	await deviceStore.broadcast.stopBoundBroadcastScan();
+	testMode.value = "connect";
+	ui.showToast({ message: t("已进入连接模式"), type: "success" });
+}
+
+async function switchTestMode(mode: TestMode): Promise<void> {
+	if (testModeChanging.value == true) return;
+	if (mode == testMode.value) return;
+	testModeChanging.value = true;
+	try {
+		if (mode == "broadcast") {
+			await switchToBroadcastMode();
+		} else {
+			await switchToConnectMode();
+		}
+	} finally {
+		testModeChanging.value = false;
+	}
+}
 
 /* ===== 参数输入子弹窗状态 ===== */
 
@@ -1584,6 +1728,110 @@ function testClearError(): void {
 </script>
 
 <style lang="scss" scoped>
+.test-mode-panel,
+.broadcast-panel {
+	border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mode-pill {
+	min-width: 54px;
+	height: 26px;
+	padding: 0 10px;
+	border-radius: 14px;
+	background-color: rgba(0, 170, 119, 0.16);
+	border: 1px solid rgba(0, 170, 119, 0.35);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.mode-pill-text {
+	color: #7ee2bd;
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.mode-switch {
+	display: flex;
+	flex-direction: row;
+	gap: 8px;
+}
+
+.mode-button {
+	flex: 1;
+	min-width: 0;
+}
+
+.broadcast-hero {
+	display: flex;
+	flex-direction: row;
+	gap: 8px;
+}
+
+.metric-large {
+	flex: 1;
+	min-width: 0;
+	padding: 10px 8px;
+	border-radius: 8px;
+	background-color: rgba(255, 255, 255, 0.06);
+	border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.metric-label,
+.metric-unit,
+.cell-label {
+	display: block;
+	color: #9ca3af;
+	font-size: 11px;
+	line-height: 16px;
+}
+
+.metric-value {
+	display: block;
+	color: #ffffff;
+	font-size: 22px;
+	font-weight: 700;
+	line-height: 28px;
+}
+
+.broadcast-grid {
+	display: flex;
+	flex-direction: row;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.broadcast-cell {
+	width: calc(50% - 4px);
+	min-height: 48px;
+	padding: 8px;
+	border-radius: 8px;
+	background-color: rgba(255, 255, 255, 0.04);
+}
+
+.cell-value {
+	display: block;
+	color: #ffffff;
+	font-size: 13px;
+	line-height: 18px;
+	word-break: break-all;
+}
+
+.broadcast-debug {
+	padding: 8px;
+	border-radius: 8px;
+	background-color: rgba(0, 0, 0, 0.18);
+	border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.debug-line {
+	display: block;
+	color: #9ca3af;
+	font-size: 10px;
+	line-height: 15px;
+	word-break: break-all;
+}
+
 .protocol-log-line {
 	display: block;
 	width: 100%;

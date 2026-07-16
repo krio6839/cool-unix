@@ -73,6 +73,7 @@ export type BroadcastDebugInfo = {
 	seq: number;
 	deviceId: string;
 	name: string;
+	rssi: number;
 	rawHex: string;
 	vHex: string;
 	utc: number;
