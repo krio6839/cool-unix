@@ -76,6 +76,20 @@
 						<cl-text color="white" :size="12">{{ rtText.receivedAt }}</cl-text>
 					</view>
 				</view>
+				<view class="mt-2 pt-2 border-t border-gray-700">
+					<cl-text color="gray-400" :size="12">
+						{{ t("广播调试") }} #{{ advText.seq }} {{ advText.diff }}
+					</cl-text>
+					<cl-text color="white" :size="11" class="break-all">
+						{{ advText.summary }}
+					</cl-text>
+					<cl-text color="gray-400" :size="10" class="break-all">
+						raw={{ advText.rawHex }}
+					</cl-text>
+					<cl-text color="gray-400" :size="10" class="break-all">
+						v={{ advText.vHex }}
+					</cl-text>
+				</view>
 			</view>
 
 			<!-- BOOM GATT 协议测试（8 个按钮 + 上次响应行） -->
@@ -693,6 +707,14 @@ type RtText = {
 	receivedAt: string;
 };
 
+type AdvText = {
+	seq: string;
+	diff: string;
+	summary: string;
+	rawHex: string;
+	vHex: string;
+};
+
 const ui = useUi();
 const { device: deviceStore } = useStore();
 
@@ -796,6 +818,26 @@ const rtText = computed<RtText>(() => {
 		activity: r.activity.toString(),
 		bhr: r.bhr.toString(),
 		receivedAt: new Date(r.receivedAt).toLocaleTimeString()
+	};
+});
+
+const advText = computed<AdvText>(() => {
+	const d = deviceStore.broadcastDebug.value;
+	if (d == null) {
+		return {
+			seq: "-",
+			diff: "-",
+			summary: "-",
+			rawHex: "-",
+			vHex: "-"
+		};
+	}
+	return {
+		seq: d.seq.toString(),
+		diff: `diff=${d.diffSec}s`,
+		summary: `${d.summary} ${new Date(d.receivedAt).toLocaleTimeString()}`,
+		rawHex: d.rawHex,
+		vHex: d.vHex
 	};
 });
 
@@ -941,6 +983,7 @@ const eventAutoReading = ref<boolean>(false);
 const vitalAutoDetail = ref<string>("-");
 const eventAutoDetail = ref<string>("-");
 const MAX_AUTO_PAGES = 100;
+const VITAL_FORM_DEFAULT_OFFSET_SECONDS = 120;
 
 /* ===== 参数输入子弹窗状态 ===== */
 
@@ -1019,9 +1062,21 @@ const exampleList = computed<DocExample[]>(() => {
 	return DOC_EXAMPLES_BY_T.get(tCode) ?? [];
 });
 
+function getNowSec(): number {
+	return Math.floor(Date.now() / 1000);
+}
+
+function resetVitalFormToCurrentWindow(): void {
+	const now = getNowSec();
+	const startSec = now - VITAL_FORM_DEFAULT_OFFSET_SECONDS;
+	formStartSec.value = startSec.toString();
+	formDirection.value = 0;
+	formMinutes.value = 2;
+	console.log(`[BOOM-TEST] 打开 0x3A 表单，刷新默认时间: nowSec=${now}, startSec=${startSec}`);
+}
+
 /** 打开子弹窗并重置默认值 */
 function openForm(cmd: "0x31" | "0x35" | "0x3A" | "0x3C"): void {
-	const now = Math.floor(Date.now() / 1000);
 	switch (cmd) {
 		case "0x31":
 			formDeviceNumber.value = "";
@@ -1035,16 +1090,16 @@ function openForm(cmd: "0x31" | "0x35" | "0x3A" | "0x3C"): void {
 			formBhr.value = "60";
 			break;
 		case "0x3A":
-			formStartSec.value = (now - 120).toString();
-			formDirection.value = 0;
-			formMinutes.value = 2;
+			resetVitalFormToCurrentWindow();
 			break;
-		case "0x3C":
+		case "0x3C": {
+			const now = getNowSec();
 			formType.value = 0;
 			formStartSec.value = (now - 3600).toString();
 			formEndSec.value = now.toString();
 			formMaxCount.value = "10";
 			break;
+		}
 	}
 	activeForm.value = cmd;
 	formVisible.value = true;

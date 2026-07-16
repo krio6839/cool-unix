@@ -48,6 +48,7 @@ import { DeviceConnection } from "./connection";
 import { DeviceProtocol } from "./protocol";
 import { EventHandler } from "./event-handler";
 import { DeviceHistoryReader } from "./history-reader";
+import { DeviceBroadcast } from "./broadcast";
 
 /* 设备选择 actionSheet 调用参数（对象参数，UTS 不支持内联对象字面量类型） */
 export type ShowDevicePickerOptions = {
@@ -66,6 +67,18 @@ export type ProtocolLogItem = {
 	title: string;
 	hex: string;
 	detail: string;
+};
+
+export type BroadcastDebugInfo = {
+	seq: number;
+	deviceId: string;
+	name: string;
+	rawHex: string;
+	vHex: string;
+	utc: number;
+	diffSec: number;
+	summary: string;
+	receivedAt: number;
 };
 
 export class Device {
@@ -95,6 +108,8 @@ export class Device {
 
 	/** 0x50 广播解析后的最新实时数据（每秒刷新，可能为 null） */
 	realtime = ref<RealtimeBroadcast | null>(null);
+	/** 0x50 广播调试信息（raw + 解析摘要） */
+	broadcastDebug = ref<BroadcastDebugInfo | null>(null);
 
 	/* ===== 协议调试日志 ===== */
 	protocolLogs = ref<ProtocolLogItem[]>([]);
@@ -112,6 +127,7 @@ export class Device {
 	readonly protocol: DeviceProtocol;
 	readonly event: EventHandler;
 	readonly history: DeviceHistoryReader;
+	readonly broadcast: DeviceBroadcast;
 	//#endif
 
 	/* ===== 共享 actionSheet 引用（由 pages/device/index.uvue 在 onMounted 注入）===== */
@@ -127,6 +143,7 @@ export class Device {
 		this.protocol = new DeviceProtocol(this);
 		this.event = new EventHandler(this);
 		this.history = new DeviceHistoryReader(this);
+		this.broadcast = new DeviceBroadcast(this);
 
 		this.connection.onBluetoothAdapterStateChange();
 		this.connection.onBLEConnectionStateChange();

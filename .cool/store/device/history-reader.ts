@@ -83,6 +83,7 @@ const VITAL_POLL_WINDOW_SECONDS = 120;
 const VITAL_POLL_DIRECTION = 0;
 const VITAL_POLL_MINUTES = 2;
 const VITAL_POLL_MAX_PAGES = 10;
+const VITAL_POLL_MAX_FUTURE_DRIFT_SECONDS = VITAL_POLL_MINUTES * VITAL_POLL_MAX_PAGES * 60;
 const MAX_FORMAT_DETAIL_LINES = 260;
 
 export class DeviceHistoryReader {
@@ -279,6 +280,7 @@ export class DeviceHistoryReader {
 				`[BOOM-HISTORY] 自动补拉窗口: nowSec=${nowSec} ${this.formatMaybeTime(nowSec)}, startSec=${startSec} ${this.formatMaybeTime(startSec)}, boomTimestamp=${this.device.event.boomTimestamp.value}, direction=${VITAL_POLL_DIRECTION}, minutes=${VITAL_POLL_MINUTES}, vitalSeq=${beforeVitalSeq}, notifySeq=${beforeNotifySeq}`
 			);
 			const targetEndSec = nowSec;
+			let stopRecentRead = false;
 			const result = await this.readVitalDataAutoInner({
 				startSec,
 				direction: VITAL_POLL_DIRECTION,
@@ -286,6 +288,7 @@ export class DeviceHistoryReader {
 				timeoutMs: DEFAULT_TIMEOUT_MS,
 				maxPages: VITAL_POLL_MAX_PAGES,
 				pageDelayMs: DEFAULT_PAGE_DELAY_MS,
+				shouldStop: () => stopRecentRead,
 				onPage: (response, page) => {
 					let validCount = 0;
 					for (let i = 0; i < response.vitalData.length; i++) {
@@ -294,6 +297,17 @@ export class DeviceHistoryReader {
 					console.log(
 						`[BOOM-HISTORY] 自动补拉段: page=${page}, responseStart=${response.startSec} ${this.formatMaybeTime(response.startSec)}, responseEnd=${this.getVitalWindowEndSec(response)}, n=${response.n}, valid=${validCount}/${response.vitalData.length}`
 					);
+					const stopReason = this.getRecentVitalStopReason(
+						response,
+						startSec,
+						targetEndSec
+					);
+					if (stopReason != null) {
+						stopRecentRead = true;
+						console.warn(
+							`[BOOM-HISTORY] 自动补拉停止续读: ${stopReason}, page=${page}, target=${startSec} ${this.formatMaybeTime(startSec)} ~ ${targetEndSec} ${this.formatMaybeTime(targetEndSec)}, response=${response.startSec} ${this.formatMaybeTime(response.startSec)} ~ ${this.getVitalWindowEndSec(response)} ${this.formatMaybeTime(this.getVitalWindowEndSec(response))}`
+						);
+					}
 				}
 			});
 			if (result.status == "TIMEOUT") {
@@ -640,6 +654,29 @@ export class DeviceHistoryReader {
 		if (response.startSec <= 0) return 0;
 		const minutes = response.n > 0 ? response.n : VITAL_POLL_MINUTES;
 		return response.startSec + minutes * 60;
+	}
+
+	private getRecentVitalStopReason(
+		response: VitalDataQueryResponse,
+		targetStartSec: number,
+		targetEndSec: number
+	): string | null {
+		if (response.startSec <= 0) return null;
+		const responseEndSec = this.getVitalWindowEndSec(response);
+		if (responseEndSec <= 0) return null;
+		if (responseEndSec <= targetStartSec) {
+			return "返回段已早于目标窗口，继续 0x3B 只会读取更早数据";
+		}
+		if (response.startSec <= targetStartSec && responseEndSec >= targetEndSec) {
+			return "返回段已覆盖目标窗口";
+		}
+		if (
+			response.startSec > targetEndSec &&
+			response.startSec - targetEndSec > VITAL_POLL_MAX_FUTURE_DRIFT_SECONDS
+		) {
+			return "返回段明显晚于目标窗口，停止追读";
+		}
+		return null;
 	}
 
 	private makeEventResult(

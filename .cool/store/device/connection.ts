@@ -14,13 +14,7 @@
 
 import { t } from "../../locale";
 import { TARGET_DEVICE_NAME_PREFIX } from "./types";
-import {
-	BOOM_GATT_SERVICE_UUID,
-	bluetoothDataManager,
-	parseCustomAdvData,
-	toRealtimeBroadcast
-} from "../../bluetooth";
-import type { RealtimeBroadcast } from "../../bluetooth";
+import { BOOM_GATT_SERVICE_UUID, bluetoothDataManager } from "../../bluetooth";
 
 //#ifndef H5
 import {
@@ -222,6 +216,7 @@ export class DeviceConnection {
 					const name = d.name ?? d.localName ?? "";
 					console.log("[SCAN] 发现设备:", name);
 					if (name.startsWith(TARGET_DEVICE_NAME_PREFIX)) {
+						this.device.broadcast.handleFoundDevice(d);
 						this._handleFoundDevice(d, name);
 					}
 				});
@@ -345,29 +340,6 @@ export class DeviceConnection {
 		this.device.showDevicePicker(pickerOptions);
 	}
 
-	/**
-	 * 从扫描结果中提取 Manufacturer Specific Data → 解析 0x50 实时广播
-	 * 优先 manufacturerData（uni-app x 标准字段），兜底用 number[] → hex
-	 * 未来扩展：睡眠/血氧历史数据可能也走此通道（见 parseCustomAdvExtended）
-	 */
-	// private _tryParseBroadcast(d: DeviceInfo): void {
-	// 	// 优先 manufacturerData（标准字段）
-	// 	let mfgData: string = d.manufacturerData ?? "";
-	// 	// 兜底：advertisData 是 number[]，转 hex 字符串
-	// 	if (mfgData == "") {
-	// 		const ad = d.advertisData ?? null;
-	// 		if (ad != null && ad.length > 0) {
-	// 			mfgData = ad.map((b: number) => (b & 0xff).toString(16).padStart(2, "0")).join("");
-	// 		}
-	// 	}
-	// 	if (mfgData == "") return;
-	// 	const parsed = parseCustomAdvData(mfgData);
-	// 	if (parsed != null) {
-	// 		const r: RealtimeBroadcast = toRealtimeBroadcast(parsed);
-	// 		this.device.realtime.value = r;
-	// 	}
-	// }
-
 	/** 停止扫描 + 清理定时器 */
 	stopBluetoothSearch(): void {
 		//#ifndef H5
@@ -375,6 +347,7 @@ export class DeviceConnection {
 		stopDiscovery();
 		offDeviceFound();
 		this._isSearching = false;
+		this.device.broadcast.markScanStopped();
 		//#endif
 	}
 
@@ -443,6 +416,9 @@ export class DeviceConnection {
 			}
 
 			this.device.status.value = "CONNECTED";
+			// 实测连接后当前平台收不到 0x50 广播，先关闭连接后常驻广播扫描。
+			// 保留 DeviceBroadcast 供配对扫描解析与后续固件/平台确认后恢复。
+			// await this.device.broadcast.startRealtimeScan();
 			this.device.history.startVitalHistoryPolling();
 		} catch (e) {
 			console.error("[BOOM] afterConnected 流程异常:", e);
@@ -520,6 +496,7 @@ export class DeviceConnection {
 
 	/** 内部：清空连接相关字段 */
 	_resetConnectionState(): void {
+		this.device.broadcast.stopRealtimeScan();
 		this.device.history.stopVitalHistoryPolling();
 		this.device.status.value = "UNPAIRED";
 		this.device.currentDeviceId = "";
