@@ -249,13 +249,34 @@ export class DeviceConnection {
 				connectable: true
 			} as DeviceInfo);
 		}
-		// UTS Android 对响应式数组原地 sort 偶发 ConcurrentModificationException,用快照替换。
-		this.device.devices = nextDevices.sort((a, b) => (b.RSSI ?? -100) - (a.RSSI ?? -100));
+		this.device.devices = this.sortDevicesByRssiDesc(nextDevices);
 		console.log("[SCAN] 当前 BOOM 设备列表长度:", this.device.devices.length);
 
 		if (this._scanMode == "reconnect" && found.deviceId == this.device.boundDeviceId) {
 			this._connectFoundBoundDevice(found.deviceId, name);
 		}
+	}
+
+	private sortDevicesByRssiDesc(list: DeviceInfo[]): DeviceInfo[] {
+		const sorted: DeviceInfo[] = [];
+		for (let i = 0; i < list.length; i++) {
+			const item = list[i];
+			const itemRssi = item.RSSI ?? -100;
+			let inserted = false;
+			for (let j = 0; j < sorted.length; j++) {
+				const current = sorted[j];
+				const currentRssi = current.RSSI ?? -100;
+				if (itemRssi > currentRssi) {
+					sorted.splice(j, 0, item);
+					inserted = true;
+					break;
+				}
+			}
+			if (inserted == false) {
+				sorted.push(item);
+			}
+		}
+		return sorted;
 	}
 
 	/** 重连扫描中一旦发现绑定设备,立即停止扫描并直连 */

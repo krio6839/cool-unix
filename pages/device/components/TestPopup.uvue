@@ -18,29 +18,29 @@
 						}}</text>
 					</view>
 				</view>
-				<view class="mode-switch">
-					<cl-button
-						type="primary"
-						:color="testMode == 'connect' ? '#0a7' : '#444'"
-						rounded
-						size="small"
-						class="mode-button"
-						:disabled="testModeChanging"
+				<view class="mode-segment">
+					<view
+						:class="
+							testMode == 'connect'
+								? 'segment-option segment-option-active'
+								: 'segment-option'
+						"
 						@tap="switchTestMode('connect')"
 					>
-						{{ t("连接模式") }}
-					</cl-button>
-					<cl-button
-						type="primary"
-						:color="testMode == 'broadcast' ? '#0a7' : '#444'"
-						rounded
-						size="small"
-						class="mode-button"
-						:disabled="testModeChanging"
+						<text class="segment-title">{{ t("连接模式") }}</text>
+						<text class="segment-desc">{{ t("GATT / 历史") }}</text>
+					</view>
+					<view
+						:class="
+							testMode == 'broadcast'
+								? 'segment-option segment-option-active'
+								: 'segment-option'
+						"
 						@tap="switchTestMode('broadcast')"
 					>
-						{{ t("广播模式") }}
-					</cl-button>
+						<text class="segment-title">{{ t("广播模式") }}</text>
+						<text class="segment-desc">{{ t("0x50 实时") }}</text>
+					</view>
 				</view>
 			</view>
 
@@ -345,32 +345,39 @@
 				</view>
 
 				<!-- 0x3A 生命体征响应展示区 -->
-				<view v-if="hasVitalData" class="mb-4 p-3 bg-gray-800 rounded">
-					<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-						{{ t("0x3A 生命体征响应") }}
-					</cl-text>
-					<view class="mb-2">
-						<cl-text color="gray-400" :size="12">
-							{{ t("起始时间 / 方向 / 返回分钟数") }}: {{ vitalText.start }}
+				<view v-if="hasVitalData" class="mb-4 p-3 bg-gray-800 rounded data-card">
+					<view class="data-card-header">
+						<cl-text color="white" :size="14" :pt="{ className: 'font-bold' }">
+							{{ t("0x3A 生命体征响应") }}
 						</cl-text>
+						<cl-text color="gray-400" :size="11">{{ vitalText.summary }}</cl-text>
 					</view>
-					<view class="mb-2">
-						<cl-text color="gray-400" :size="12">
-							{{ t("读取状态") }}: {{ vitalText.status }}
-						</cl-text>
+					<view class="data-grid">
+						<view class="data-cell">
+							<text class="cell-label">{{ t("起始时间") }}</text>
+							<text class="cell-value">{{ vitalText.start }}</text>
+						</view>
+						<view class="data-cell">
+							<text class="cell-label">{{ t("方向 / 分钟") }}</text>
+							<text class="cell-value">{{ vitalText.directionMinutes }}</text>
+						</view>
+						<view class="data-cell">
+							<text class="cell-label">{{ t("有效心率") }}</text>
+							<text class="cell-value">{{ vitalText.valid }}</text>
+						</view>
+						<view class="data-cell">
+							<text class="cell-label">PPI</text>
+							<text class="cell-value">{{ vitalText.ppi }}</text>
+						</view>
 					</view>
-					<view class="mb-2">
-						<cl-text color="gray-400" :size="12">
-							{{ t("RMSSD/SDNN") }}: {{ vitalText.rmssdSdnn }}
-						</cl-text>
+					<view class="data-debug mt-3">
+						<text class="debug-line">{{ vitalText.status }}</text>
+						<text class="debug-line">RMSSD/SDNN: {{ vitalText.rmssdSdnn }}</text>
+						<text class="debug-line"
+							>{{ t("逐秒数据 (前 30 条)") }}: {{ vitalText.vital }}</text
+						>
 					</view>
-					<view>
-						<cl-text color="gray-400" :size="12">
-							{{ t("逐秒数据 (前 30 条)") }}: {{ vitalText.vital }}
-						</cl-text>
-					</view>
-					<view class="mt-2">
-						<cl-text color="gray-400" :size="12"> {{ t("自动读取明细") }}: </cl-text>
+					<view class="mt-3">
 						<text class="protocol-log-line protocol-log-detail">{{
 							vitalAutoDetail
 						}}</text>
@@ -378,22 +385,28 @@
 				</view>
 
 				<!-- 0x3C/0x3D 事件响应展示区 -->
-				<view v-if="hasEventData" class="mb-4 p-3 bg-gray-800 rounded">
-					<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-						{{ t("0x3C 事件响应") }}
-					</cl-text>
-					<view class="mb-2">
-						<cl-text color="gray-400" :size="12">
-							{{ t("事件头") }}: {{ eventText.header }}
+				<view v-if="hasEventData" class="mb-4 p-3 bg-gray-800 rounded data-card">
+					<view class="data-card-header">
+						<cl-text color="white" :size="14" :pt="{ className: 'font-bold' }">
+							{{ t("0x3C 事件响应") }}
 						</cl-text>
+						<cl-text color="gray-400" :size="11">{{ eventText.summary }}</cl-text>
 					</view>
-					<view>
-						<cl-text color="gray-400" :size="12">
-							{{ t("事件列表 (前 10 条)") }}: {{ eventText.items }}
-						</cl-text>
+					<view class="data-grid">
+						<view class="data-cell">
+							<text class="cell-label">{{ t("事件头") }}</text>
+							<text class="cell-value">{{ eventText.header }}</text>
+						</view>
+						<view class="data-cell">
+							<text class="cell-label">{{ t("事件数量") }}</text>
+							<text class="cell-value">{{ eventText.count }}</text>
+						</view>
 					</view>
-					<view class="mt-2">
-						<cl-text color="gray-400" :size="12"> {{ t("自动读取明细") }}: </cl-text>
+					<view class="data-debug mt-3">
+						<text class="debug-line">{{ t("事件列表 (前 10 条)") }}:</text>
+						<text class="debug-line">{{ eventText.items }}</text>
+					</view>
+					<view class="mt-3">
 						<text class="protocol-log-line protocol-log-detail">{{
 							eventAutoDetail
 						}}</text>
@@ -878,6 +891,11 @@ function isAlphaNumeric(value: string): boolean {
 	return true;
 }
 
+function toByteHex(value: number): string {
+	const item = (value & 0xff).toString(16);
+	return item.length == 1 ? "0" + item : item;
+}
+
 const rtText = computed<RtText>(() => {
 	const r = deviceStore.realtime.value;
 	if (r == null) {
@@ -907,11 +925,6 @@ const rtText = computed<RtText>(() => {
 		receivedAt: new Date(r.receivedAt).toLocaleTimeString()
 	};
 });
-
-function toByteHex(value: number): string {
-	const item = (value & 0xff).toString(16);
-	return item.length == 1 ? "0" + item : item;
-}
 
 const advText = computed<AdvText>(() => {
 	const d = deviceStore.broadcastDebug.value;
@@ -1617,20 +1630,72 @@ async function testVibration(): Promise<void> {
 /* ===== v5 历史数据展示用 computed ===== */
 
 type VitalText = {
+	summary: string;
 	start: string;
+	directionMinutes: string;
+	valid: string;
+	ppi: string;
 	status: string;
 	rmssdSdnn: string;
 	vital: string;
 };
 type EventText = {
+	summary: string;
 	header: string;
+	count: string;
 	items: string;
 };
+
+function getBehaviorLabel(value: number): string {
+	if (value == 0) return t("休息");
+	if (value == 1) return t("日常生活");
+	if (value == 2) return t("步行");
+	if (value == 3) return t("跑步");
+	if (value == 4) return t("骑行");
+	if (value == 5) return t("有氧运动");
+	if (value == 6) return t("其他运动");
+	if (value == 7) return t("保留");
+	return t("未知");
+}
+
+function getActivityLabel(value: number): string {
+	if (value == 0) return t("深度睡眠");
+	if (value == 1) return t("浅度睡眠");
+	if (value == 2) return t("其他睡眠");
+	if (value == 3) return t("精神放松");
+	if (value == 4) return t("活动量低");
+	if (value == 5) return t("活动量高");
+	if (value == 6) return t("精神兴奋");
+	if (value == 7) return t("身体压力");
+	return t("未知");
+}
+
+function formatStatusByte(status: number): string {
+	const reserved = (status >> 6) & 0x03;
+	const behavior = (status >> 3) & 0x07;
+	const activity = status & 0x07;
+	return `0x${toByteHex(status)} rsv=${reserved} b${behavior}(${getBehaviorLabel(behavior)}) a${activity}(${getActivityLabel(activity)})`;
+}
+
+function formatEventParsed(value: UTSJSONObject): string {
+	const text = JSON.stringify(value);
+	if (text == null || text == "") return "{}";
+	return text;
+}
 
 const vitalText = computed<VitalText>(() => {
 	const r = deviceStore.history.vitalDataResponse.value;
 	if (r == null) {
-		return { start: "-", status: "-", rmssdSdnn: "-", vital: "-" };
+		return {
+			summary: "-",
+			start: "-",
+			directionMinutes: "-",
+			valid: "-",
+			ppi: "-",
+			status: "-",
+			rmssdSdnn: "-",
+			vital: "-"
+		};
 	}
 	const startTime =
 		r.startSec > 0 ? new Date(r.startSec * 1000).toLocaleString() : t("无后续数据");
@@ -1640,7 +1705,8 @@ const vitalText = computed<VitalText>(() => {
 			: r.direction == 1
 				? t("向后")
 				: `${t("未知")}(${r.direction})`;
-	const start = `${r.startSec} (${startTime}) / ${directionText} / ${r.n}min`;
+	const start = `${r.startSec} (${startTime})`;
+	const directionMinutes = `${directionText} / ${r.n}min`;
 	let validCount = 0;
 	let ppiCount = 0;
 	for (let i = 0; i < r.vitalData.length; i++) {
@@ -1648,7 +1714,10 @@ const vitalText = computed<VitalText>(() => {
 		if (r.vitalData[i].ppi > 0) ppiCount++;
 	}
 	const expectedCount = r.n * 60;
-	let status = `${validCount}/${r.vitalData.length} ${t("心率有效")}，${ppiCount}/${r.vitalData.length} PPI`;
+	const valid = `${validCount}/${r.vitalData.length}`;
+	const ppi = `${ppiCount}/${r.vitalData.length}`;
+	const summary = `${validCount}/${expectedCount} ${t("有效")} · ${ppiCount} PPI`;
+	let status = `${validCount}/${r.vitalData.length} ${t("心率有效")}，${ppiCount}/${r.vitalData.length} PPI，expected=${expectedCount}`;
 	if (r.startSec == 0) {
 		status = t("设备返回时间戳 0，后面没有数据，不需要续读");
 	} else if (r.vitalData.length == 0) {
@@ -1673,10 +1742,10 @@ const vitalText = computed<VitalText>(() => {
 			const behavior = (d.status >> 3) & 0x07;
 			const activity = d.status & 0x07;
 			const ppi = d.ppi > 0 ? `${d.ppi}ms` : "PPI-";
-			return `${i}s:${d.hr}bpm/${ppi}/b${behavior}a${activity}`;
+			return `${i}s hr=${d.hr} ppi=${ppi} pitch=${d.pitch} acc=${d.acc} ${formatStatusByte(d.status)} b=${getBehaviorLabel(behavior)} a=${getActivityLabel(activity)}`;
 		})
 		.join(" ");
-	return { start, status, rmssdSdnn, vital };
+	return { summary, start, directionMinutes, valid, ppi, status, rmssdSdnn, vital };
 });
 
 const hasVitalData = computed<boolean>(() => {
@@ -1687,20 +1756,22 @@ const eventText = computed<EventText>(() => {
 	const h = deviceStore.history.eventDataHeader.value;
 	const list = deviceStore.history.eventDataList.value;
 	if (h == null && list.length == 0) {
-		return { header: "-", items: "-" };
+		return { summary: "-", header: "-", count: "-", items: "-" };
 	}
 	const header =
 		h == null
 			? "-"
-			: `type=${h.type} sn[${h.earliestSn}~${h.latestSn}] ts[${h.earliestSec}~${h.latestSec}]`;
+			: `type=${h.type} sn[${h.earliestSn}~${h.latestSn}] ts[${h.earliestSec}~${h.latestSec}] ${new Date(h.earliestSec * 1000).toLocaleString()} ~ ${new Date(h.latestSec * 1000).toLocaleString()}`;
+	const count = list.length.toString();
+	const summary = `${list.length} ${t("条事件")}`;
 	const items = list
 		.slice(0, 10)
 		.map((it) => {
 			const typeName = LOG_EVENT_NAMES[it.eventType] ?? "?";
-			return `sn=${it.header.sn} ${typeName} ts=${it.ts}`;
+			return `sn=${it.header.sn} global=${it.header.globalSn} ts=${it.ts} ${new Date(it.ts * 1000).toLocaleString()} tick=${it.tick} type=${it.eventType}(${typeName}) len=${it.dataLen} data=${it.eventDataHex} parsed=${formatEventParsed(it.parsedEvent)}`;
 		})
 		.join("\n");
-	return { header, items };
+	return { summary, header, count, items };
 });
 
 const hasEventData = computed<boolean>(() => {
@@ -1760,6 +1831,46 @@ function testClearError(): void {
 .mode-button {
 	flex: 1;
 	min-width: 0;
+}
+
+.mode-segment {
+	display: flex;
+	flex-direction: row;
+	gap: 8px;
+	padding: 4px;
+	border-radius: 8px;
+	background-color: rgba(0, 0, 0, 0.18);
+}
+
+.segment-option {
+	flex: 1;
+	min-width: 0;
+	padding: 9px 8px;
+	border-radius: 6px;
+	border: 1px solid rgba(255, 255, 255, 0.06);
+	background-color: rgba(255, 255, 255, 0.04);
+}
+
+.segment-option-active {
+	background-color: rgba(0, 170, 119, 0.18);
+	border-color: rgba(0, 170, 119, 0.52);
+}
+
+.segment-title {
+	display: block;
+	color: #ffffff;
+	font-size: 13px;
+	font-weight: 700;
+	line-height: 18px;
+	text-align: center;
+}
+
+.segment-desc {
+	display: block;
+	color: #9ca3af;
+	font-size: 10px;
+	line-height: 14px;
+	text-align: center;
 }
 
 .broadcast-hero {
@@ -1830,6 +1941,36 @@ function testClearError(): void {
 	font-size: 10px;
 	line-height: 15px;
 	word-break: break-all;
+}
+
+.data-card {
+	border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.data-card-header {
+	margin-bottom: 10px;
+}
+
+.data-grid {
+	display: flex;
+	flex-direction: row;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.data-cell {
+	width: calc(50% - 4px);
+	min-height: 48px;
+	padding: 8px;
+	border-radius: 8px;
+	background-color: rgba(255, 255, 255, 0.04);
+}
+
+.data-debug {
+	padding: 8px;
+	border-radius: 8px;
+	background-color: rgba(0, 0, 0, 0.18);
+	border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .protocol-log-line {

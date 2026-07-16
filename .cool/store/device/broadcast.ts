@@ -11,6 +11,7 @@ import type { DeviceInfo } from "../../bluetooth/kux";
 
 const BROADCAST_TIME_DRIFT_SEC = 10;
 const BROADCAST_TIME_SYNC_COOLDOWN_MS = 60000;
+const BOUND_BROADCAST_MIN_INTERVAL_MS = 1000;
 
 export class DeviceBroadcast {
 	private device: Device;
@@ -20,6 +21,7 @@ export class DeviceBroadcast {
 	private lastBroadcastUtc: number = 0;
 	private broadcastSeq: number = 0;
 	private boundBroadcastScanning: boolean = false;
+	private lastBoundBroadcastHandledAt: number = 0;
 
 	constructor(device: Device) {
 		this.device = device;
@@ -65,6 +67,7 @@ export class DeviceBroadcast {
 		}
 		this.isScanning = true;
 		this.boundBroadcastScanning = true;
+		this.lastBoundBroadcastHandledAt = 0;
 		const ok = await startDiscovery();
 		if (ok == false) {
 			console.warn("[BOOM-ADV] 绑定设备广播扫描启动失败");
@@ -74,9 +77,7 @@ export class DeviceBroadcast {
 		}
 		console.log(`[BOOM-ADV] 已启动绑定设备广播扫描: ${this.device.boundDeviceId}`);
 		onDeviceFound((devices) => {
-			devices.forEach((d) => {
-				this.handleBoundDeviceFound(d);
-			});
+			this.handleBoundDeviceList(devices);
 		});
 		return true;
 		//#endif
@@ -90,6 +91,7 @@ export class DeviceBroadcast {
 		if (this.boundBroadcastScanning == false) return;
 		this.boundBroadcastScanning = false;
 		this.isScanning = false;
+		this.lastBoundBroadcastHandledAt = 0;
 		await stopDiscovery();
 		offDeviceFound();
 		console.log("[BOOM-ADV] 已停止绑定设备广播扫描");
@@ -116,17 +118,26 @@ export class DeviceBroadcast {
 	handleBoundDeviceFound(d: DeviceInfo): void {
 		//#ifndef H5
 		if (this.device.boundDeviceId == "") return;
-		if (d.deviceId != this.device.boundDeviceId) {
-			const name = d.name ?? d.localName ?? "";
-			const ad = d.advertisData ?? [];
-			if (name.startsWith(TARGET_DEVICE_NAME_PREFIX) || ad.length > 0) {
-				console.log(
-					`[BOOM-ADV] 忽略非绑定广播: deviceId=${d.deviceId}, bound=${this.device.boundDeviceId}, name=${name}, adLen=${ad.length}`
-				);
-			}
-			return;
-		}
+		if (d.deviceId != this.device.boundDeviceId) return;
+		const now = Date.now();
+		if (now - this.lastBoundBroadcastHandledAt < BOUND_BROADCAST_MIN_INTERVAL_MS) return;
+		this.lastBoundBroadcastHandledAt = now;
 		this.tryParseBroadcast(d);
+		//#endif
+	}
+
+	private handleBoundDeviceList(devices: DeviceInfo[]): void {
+		//#ifndef H5
+		if (this.device.boundDeviceId == "") return;
+		let bound: DeviceInfo | null = null;
+		for (let i = 0; i < devices.length; i++) {
+			const item = devices[i];
+			if (item.deviceId == this.device.boundDeviceId) {
+				bound = item;
+			}
+		}
+		if (bound == null) return;
+		this.handleBoundDeviceFound(bound);
 		//#endif
 	}
 
@@ -171,7 +182,7 @@ export class DeviceBroadcast {
 		if (diff < 0) diff = 0 - diff;
 		const name = d.name ?? d.localName ?? "";
 		const rssi = d.RSSI ?? 0;
-		const summary = `utc=${r.utc} diff=${diff}s status=0x${this.byteToHex(r.status)} ppg=${r.ppgAttached} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr} ppi=${r.ppi} spo2=${r.spo2Pct.toFixed(1)} bhr=${r.bhr} v=${r.voltageMv}mV`;
+		const summary = `phone=${nowSec} utc=${r.utc} diff=${diff}s status=0x${this.byteToHex(r.status)} ppg=${r.ppgAttached} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr} ppi=${r.ppi} spo2=${r.spo2Pct.toFixed(1)} bhr=${r.bhr} v=${r.voltageMv}mV`;
 		const info: BroadcastDebugInfo = {
 			seq: this.broadcastSeq,
 			deviceId: d.deviceId,

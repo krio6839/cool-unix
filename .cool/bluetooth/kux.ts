@@ -80,7 +80,6 @@ export function startDiscovery(): Promise<boolean> {
 		console.log("[SCAN] startDiscovery 请求");
 		kx.startBluetoothDevicesDiscovery({
 			allowDuplicatesKey: true,
-			interval: 0,
 			powerLevel: "high",
 			success: (res: ApiCommonSuccessCallback) => {
 				console.log("[SCAN] startDiscovery 成功");
