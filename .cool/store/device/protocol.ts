@@ -72,6 +72,12 @@ export class DeviceProtocol {
 	 */
 	async getDeviceServicesAndCharacteristics(deviceId: string): Promise<void> {
 		//#ifndef H5
+		this.services = [];
+		this.characteristics.clear();
+		this.writeCharUuid = "";
+		this.notifyCharUuid = "";
+		this.device.touchState();
+
 		// 等待设备连接稳定
 		await new Promise<void>((resolve, reject) => {
 			setTimeout(() => {
@@ -140,6 +146,7 @@ export class DeviceProtocol {
 					this.notifyCharUuid = c.uuid;
 			}
 		}
+		this.device.touchState();
 		//#endif
 	}
 
@@ -271,10 +278,7 @@ export class DeviceProtocol {
 	 * @param req.minutes 2 或 5
 	 */
 	readVitalData(req: VitalDataQueryRequest): Promise<boolean> {
-		if (
-			req.direction != VITAL_DIRECTION_FORWARD &&
-			req.direction != VITAL_DIRECTION_BACKWARD
-		) {
+		if (req.direction != VITAL_DIRECTION_FORWARD && req.direction != VITAL_DIRECTION_BACKWARD) {
 			console.warn(`[BOOM-PROTO] 0x3A direction=${req.direction} 非法（应=0或1）`);
 			return Promise.resolve(false);
 		}

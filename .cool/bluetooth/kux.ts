@@ -58,8 +58,13 @@ export function openAdapter(): Promise<OpenBluetoothAdapterSuccess> {
 			fail: (err: UniError) => {
 				const status = handleBluetoothError(err);
 				if (status) {
-					reject(err);
+					resolve({
+						errCode: err.errCode,
+						errMsg: err.errMsg
+					} as OpenBluetoothAdapterSuccess);
+					return;
 				}
+				reject(err);
 			}
 		});
 	});

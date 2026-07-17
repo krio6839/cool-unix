@@ -1,5 +1,6 @@
-import { parseCustomAdvData, toRealtimeBroadcast } from "../../bluetooth";
+import { bluetoothDataManager, parseCustomAdvData, toRealtimeBroadcast } from "../../bluetooth";
 import type { RealtimeBroadcast } from "../../bluetooth";
+import { home } from "../home";
 import { TARGET_DEVICE_NAME_PREFIX } from "./types";
 import type { Device } from "./index";
 import type { BroadcastDebugInfo } from "./index";
@@ -163,10 +164,41 @@ export class DeviceBroadcast {
 		if (parsed != null) {
 			const r: RealtimeBroadcast = toRealtimeBroadcast(parsed);
 			this.device.realtime.value = r;
+			this.storeBroadcastRecord(d, hex, vHex, r);
 			this.publishDebugInfo(d, hex, vHex, r);
 			this.checkBroadcastTimestamp(r);
 		} else if (this.boundBroadcastScanning == true) {
 			console.log(`[BOOM-ADV] 绑定设备广播解析失败: ${d.deviceId}, raw=${hex}, v=${vHex}`);
+		}
+	}
+
+	private async storeBroadcastRecord(
+		d: DeviceInfo,
+		rawHex: string,
+		vHex: string,
+		r: RealtimeBroadcast
+	): Promise<void> {
+		const id = `${r.receivedAt}-${r.utc}`;
+		const ok = await bluetoothDataManager.storeRealtimeBroadcastRecord(
+			id,
+			r.utc > 0 ? r.utc : Math.floor(r.receivedAt / 1000),
+			r.receivedAt,
+			r.utc,
+			r.voltageMv,
+			r.status,
+			r.ppgAttached,
+			r.behavior,
+			r.activity,
+			r.hr,
+			r.ppi,
+			Math.round(r.spo2Pct * 10),
+			r.bhr,
+			rawHex,
+			vHex,
+			d.deviceId
+		);
+		if (ok == true) {
+			home.setRealtimeHealthCardValues(r.hr, r.bhr, Math.round(r.spo2Pct * 10), r.ppi);
 		}
 	}
 
@@ -182,7 +214,7 @@ export class DeviceBroadcast {
 		if (diff < 0) diff = 0 - diff;
 		const name = d.name ?? d.localName ?? "";
 		const rssi = d.RSSI ?? 0;
-		const summary = `phone=${nowSec} utc=${r.utc} diff=${diff}s status=0x${this.byteToHex(r.status)} ppg=${r.ppgAttached} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr} ppi=${r.ppi} spo2=${r.spo2Pct.toFixed(1)} bhr=${r.bhr} v=${r.voltageMv}mV`;
+		const summary = `phone=${nowSec} utc=${r.utc} diff=${diff}s status=0x${this.byteToHex(r.status)} bit7=${r.statusReserved} ppg=${r.ppgAttached ? "attached" : "detached"} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr}${r.hrValid ? "" : "!"} ppi=${r.ppi}${r.ppiValid ? "" : "!"} hrv=${r.hrvMs}ms spo2=${r.spo2Pct.toFixed(1)}${r.spo2Valid ? "" : "!"} bhr=${r.bhr}${r.bhrValid ? "" : "!"} v=${r.voltageMv}mV/${r.voltageV.toFixed(3)}V`;
 		const info: BroadcastDebugInfo = {
 			seq: this.broadcastSeq,
 			deviceId: d.deviceId,

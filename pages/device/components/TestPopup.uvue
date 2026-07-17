@@ -95,8 +95,8 @@
 						<text class="metric-unit">bpm</text>
 					</view>
 					<view class="metric-large">
-						<text class="metric-label">PPI</text>
-						<text class="metric-value">{{ rtText.ppi }}</text>
+						<text class="metric-label">{{ t("HRV/PPI") }}</text>
+						<text class="metric-value">{{ rtText.hrv }}</text>
 						<text class="metric-unit">ms</text>
 					</view>
 					<view class="metric-large">
@@ -108,7 +108,13 @@
 				<view class="broadcast-grid">
 					<view class="broadcast-cell">
 						<text class="cell-label">{{ t("电池电压") }}</text>
-						<text class="cell-value">{{ rtText.voltage }} V</text>
+						<text class="cell-value"
+							>{{ rtText.voltage }} V / {{ rtText.voltageMv }} mV</text
+						>
+					</view>
+					<view class="broadcast-cell">
+						<text class="cell-label">PPI</text>
+						<text class="cell-value">{{ rtText.ppi }} ms</text>
 					</view>
 					<view class="broadcast-cell">
 						<text class="cell-label">{{ t("PPG 佩戴") }}</text>
@@ -125,12 +131,16 @@
 						>
 					</view>
 					<view class="broadcast-cell">
-						<text class="cell-label">{{ t("基础心率") }}</text>
+						<text class="cell-label">{{ t("静息心率 BHR") }}</text>
 						<text class="cell-value">{{ rtText.bhr }} bpm</text>
 					</view>
 					<view class="broadcast-cell">
 						<text class="cell-label">{{ t("上次接收") }}</text>
 						<text class="cell-value">{{ rtText.receivedAt }}</text>
+					</view>
+					<view class="broadcast-cell">
+						<text class="cell-label">UTC</text>
+						<text class="cell-value">{{ rtText.utc }}</text>
 					</view>
 					<view class="broadcast-cell">
 						<text class="cell-label">{{ t("时间偏差") }}</text>
@@ -463,7 +473,26 @@
 					</cl-button>
 				</view>
 			</template>
+
+			<!-- 更多测试 -->
+			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+				{{ t("更多测试") }}
+			</cl-text>
+			<view class="flex flex-row flex-wrap mb-4">
+				<cl-button
+					type="primary"
+					color="#256"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="openDatabasePopup"
+				>
+					{{ t("数据库查询") }}
+				</cl-button>
+			</view>
 		</scroll-view>
+
+		<DatabaseTestPopup v-model:show="databasePopupVisible"></DatabaseTestPopup>
 
 		<!-- 参数输入子弹窗（0x31/0x35/0x3A/0x3C 共用） -->
 		<cl-popup v-model="formVisible" direction="bottom" :size="700" :title="formTitle">
@@ -526,7 +555,7 @@
 					</view>
 					<view class="mb-3">
 						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("基础心率 BHR (28~240)") }}
+							{{ t("静息心率 BHR (28~240)") }}
 							<cl-text color="error">*</cl-text>
 						</cl-text>
 						<cl-input v-model="formBhr" type="number" placeholder="60"></cl-input>
@@ -748,7 +777,7 @@
 
 <script lang="ts" setup>
 //#ifndef H5
-import { computed, reactive, ref, watch } from "vue";
+import { computed, reactive, ref } from "vue";
 import {
 	DEVICE_NUMBER_MAX_LEN,
 	DOC_EXAMPLES_BY_T,
@@ -767,18 +796,22 @@ import type {
 } from "@/.cool";
 import type { PpgPositionOption } from "@/.cool";
 import { useUi, type ClSelectOption } from "@/uni_modules/cool-ui";
+import DatabaseTestPopup from "./DatabaseTestPopup.uvue";
 
 /* 0x50 实时数据展示用 computed 类型（9 字段全部 string） */
 type RtText = {
 	hr: string;
 	spo2: string;
 	voltage: string;
+	voltageMv: string;
 	ppi: string;
+	hrv: string;
 	ppgAttached: string;
 	behavior: string;
 	activity: string;
 	status: string;
 	bhr: string;
+	utc: string;
 	receivedAt: string;
 };
 
@@ -793,8 +826,6 @@ type AdvText = {
 	vHex: string;
 };
 
-type TestMode = "connect" | "broadcast";
-
 const ui = useUi();
 const { device: deviceStore } = useStore();
 
@@ -803,8 +834,9 @@ const show = defineModel("show", {
 });
 
 const protocolLogVisible = ref(false);
+const databasePopupVisible = ref(false);
 const manualRawHex = ref("");
-const testMode = ref<TestMode>("connect");
+const testMode = deviceStore.testMode;
 const testModeChanging = ref<boolean>(false);
 const protocolLogs = computed<ProtocolLogItem[]>((): ProtocolLogItem[] => {
 	if (protocolLogVisible.value == false) return [];
@@ -812,6 +844,7 @@ const protocolLogs = computed<ProtocolLogItem[]>((): ProtocolLogItem[] => {
 });
 
 const testModeText = computed<string>(() => {
+	deviceStore.stateVersion.value;
 	if (testMode.value == "broadcast") {
 		const boundId = deviceStore.boundDeviceId;
 		if (boundId == "") return t("广播模式需要先连接并绑定设备");
@@ -820,17 +853,14 @@ const testModeText = computed<string>(() => {
 	return t("连接模式使用 GATT 命令和历史读取");
 });
 
-watch(show, (visible: boolean) => {
-	if (visible == false && testMode.value == "broadcast") {
-		deviceStore.broadcast.stopBoundBroadcastScan();
-		testMode.value = "connect";
-	}
-});
-
 /* ===== 展示用 computed ===== */
 
 function openProtocolLog(): void {
 	protocolLogVisible.value = true;
+}
+
+function openDatabasePopup(): void {
+	databasePopupVisible.value = true;
 }
 
 function clearManualRawHex(): void {
@@ -850,6 +880,11 @@ function protocolLogColor(direction: ProtocolLogDirection): string {
 	if (direction == "RX") return "primary";
 	if (direction == "ERR") return "error";
 	return "warning";
+}
+
+function toByteHex(value: number): string {
+	const item = (value & 0xff).toString(16);
+	return item.length == 1 ? "0" + item : item;
 }
 
 function formatBiometric(b: VitalBiometric): string {
@@ -891,11 +926,6 @@ function isAlphaNumeric(value: string): boolean {
 	return true;
 }
 
-function toByteHex(value: number): string {
-	const item = (value & 0xff).toString(16);
-	return item.length == 1 ? "0" + item : item;
-}
-
 const rtText = computed<RtText>(() => {
 	const r = deviceStore.realtime.value;
 	if (r == null) {
@@ -903,25 +933,31 @@ const rtText = computed<RtText>(() => {
 			hr: "-",
 			spo2: "-",
 			voltage: "-",
+			voltageMv: "-",
 			ppi: "-",
+			hrv: "-",
 			ppgAttached: "-",
 			behavior: "-",
 			activity: "-",
 			status: "-",
 			bhr: "-",
+			utc: "-",
 			receivedAt: "-"
 		};
 	}
 	return {
-		hr: r.hr.toString(),
-		spo2: r.spo2Pct.toFixed(1),
-		voltage: (r.voltageMv / 1000).toFixed(3),
-		ppi: r.ppi.toString(),
+		hr: r.hrValid ? r.hr.toString() : `${r.hr}(${t("无效")})`,
+		spo2: r.spo2Valid ? r.spo2Pct.toFixed(1) : `${r.spo2Pct.toFixed(1)}(${t("无效")})`,
+		voltage: r.voltageV.toFixed(3),
+		voltageMv: r.voltageMv.toString(),
+		ppi: r.ppiValid ? r.ppi.toString() : `${r.ppi}(${t("无效")})`,
+		hrv: r.ppiValid ? r.hrvMs.toString() : `${r.hrvMs}(${t("无效")})`,
 		ppgAttached: r.ppgAttached ? t("已佩戴") : t("未佩戴"),
 		behavior: `${r.behavior} ${r.behaviorLabel}`,
 		activity: `${r.activity} ${r.activityLabel}`,
 		status: `0x${toByteHex(r.status)} bit7=${r.statusReserved}`,
-		bhr: r.bhr.toString(),
+		bhr: r.bhrValid ? r.bhr.toString() : `${r.bhr}(${t("无效")})`,
+		utc: r.utc > 0 ? new Date(r.utc * 1000).toLocaleString() : "0",
 		receivedAt: new Date(r.receivedAt).toLocaleTimeString()
 	};
 });
@@ -943,7 +979,7 @@ const advText = computed<AdvText>(() => {
 	const r = deviceStore.realtime.value;
 	let parsed = "-";
 	if (r != null) {
-		parsed = `utc=${r.utc} status=0x${toByteHex(r.status)} bit7=${r.statusReserved} ppg=${r.ppgAttached} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr} ppi=${r.ppi} spo2=${r.spo2Pct.toFixed(1)} bhr=${r.bhr} voltage=${r.voltageMv}mV`;
+		parsed = `utc=${r.utc} ${rtText.value.utc} received=${rtText.value.receivedAt} status=0x${toByteHex(r.status)} bit7=${r.statusReserved} ppg=${r.ppgAttached} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr} valid=${r.hrValid} ppi=${r.ppi} valid=${r.ppiValid} hrv=${r.hrvMs}ms spo2=${r.spo2Pct.toFixed(1)} valid=${r.spo2Valid} bhr=${r.bhr} valid=${r.bhrValid} voltage=${r.voltageMv}mV/${r.voltageV.toFixed(3)}V`;
 	}
 	return {
 		seq: d.seq.toString(),
@@ -970,6 +1006,7 @@ function getResp(cmd: string): string {
 }
 
 const protocolReady = computed<boolean>(() => {
+	deviceStore.stateVersion.value;
 	return (
 		deviceStore.status.value == "CONNECTED" &&
 		deviceStore.protocol.writeCharUuid != "" &&
@@ -978,6 +1015,7 @@ const protocolReady = computed<boolean>(() => {
 });
 
 const protocolReadyText = computed<string>(() => {
+	deviceStore.stateVersion.value;
 	if (testMode.value == "broadcast") return t("广播模式只解析绑定设备广播，不连接 GATT");
 	if (deviceStore.status.value != "CONNECTED") return t("设备未连接，测试命令暂不可用");
 	if (deviceStore.protocol.writeCharUuid == "") return t("未发现写入特征，请重新连接设备");
@@ -1123,11 +1161,23 @@ async function switchToBroadcastMode(): Promise<void> {
 
 async function switchToConnectMode(): Promise<void> {
 	await deviceStore.broadcast.stopBoundBroadcastScan();
+	const boundId = deviceStore.boundDeviceId;
+	if (boundId == "") {
+		testMode.value = "connect";
+		ui.showToast({ message: t("请先连接/绑定设备"), type: "warn" });
+		return;
+	}
 	testMode.value = "connect";
-	ui.showToast({ message: t("已进入连接模式"), type: "success" });
+	if (deviceStore.currentDeviceId != "") {
+		ui.showToast({ message: t("已进入连接模式"), type: "success" });
+		return;
+	}
+	deviceStore.status.value = "SEARCHING";
+	deviceStore.connection.startBluetoothSearch("reconnect");
+	ui.showToast({ message: t("正在搜索并连接设备..."), type: "warn" });
 }
 
-async function switchTestMode(mode: TestMode): Promise<void> {
+async function switchTestMode(mode: "connect" | "broadcast"): Promise<void> {
 	if (testModeChanging.value == true) return;
 	if (mode == testMode.value) return;
 	testModeChanging.value = true;

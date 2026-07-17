@@ -1,0 +1,260 @@
+<template>
+	<cl-popup v-model="show" :title="t('本地数据库查询')" direction="bottom" :size="680">
+		<scroll-view class="p-4 db-popup" scroll-y="true" style="height: 100%">
+			<view class="mb-4 p-3 bg-gray-800 rounded">
+				<view class="flex flex-row flex-wrap">
+					<cl-button
+						type="primary"
+						color="#256"
+						rounded
+						size="small"
+						class="mr-2 mb-2"
+						:disabled="loading"
+						@tap="loadOverview"
+					>
+						{{ t("总览") }}
+					</cl-button>
+					<cl-button
+						type="primary"
+						color="#256"
+						rounded
+						size="small"
+						class="mr-2 mb-2"
+						:disabled="loading"
+						@tap="loadBroadcastRows"
+					>
+						{{ t("最近广播") }}
+					</cl-button>
+					<cl-button
+						type="primary"
+						color="#265"
+						rounded
+						size="small"
+						class="mr-2 mb-2"
+						:disabled="loading"
+						@tap="loadPpiRows"
+					>
+						{{ t("最近PPI") }}
+					</cl-button>
+					<cl-button
+						type="primary"
+						color="#526"
+						rounded
+						size="small"
+						class="mr-2 mb-2"
+						:disabled="loading"
+						@tap="loadUploadQueues"
+					>
+						{{ t("待上传") }}
+					</cl-button>
+					<cl-button type="light" rounded size="small" class="mr-2 mb-2" @tap="clearRows">
+						{{ t("清空") }}
+					</cl-button>
+				</view>
+				<cl-text color="gray-400" :size="12">
+					{{ t("只查询，不清库不上传。列表最多显示 10 条。") }}
+				</cl-text>
+			</view>
+
+			<view class="mb-3 p-3 bg-gray-800 rounded">
+				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+					{{ titleText }}
+				</cl-text>
+				<view v-if="rows.length == 0" class="py-4">
+					<cl-text color="gray-400" :size="13">{{ t("暂无查询结果") }}</cl-text>
+				</view>
+				<view v-for="(row, index) in rows" :key="index" class="db-row">
+					<text class="db-row-index">#{{ index + 1 }}</text>
+					<text class="db-row-text">{{ row }}</text>
+				</view>
+			</view>
+		</scroll-view>
+	</cl-popup>
+</template>
+
+<script lang="ts" setup>
+//#ifndef H5
+import { ref } from "vue";
+import { bluetoothDataManager, t } from "@/.cool";
+import type { BluetoothData, PpiData, RealtimeBroadcastRecord, SleepData } from "@/.cool";
+
+const show = defineModel("show", {
+	default: false
+});
+
+const loading = ref<boolean>(false);
+const titleText = ref<string>("-");
+const rows = ref<string[]>([]);
+
+function toByteHex(value: number): string {
+	const item = (value & 0xff).toString(16);
+	return item.length == 1 ? "0" + item : item;
+}
+
+function formatSecTime(sec: number): string {
+	if (sec <= 0) return "0";
+	return `${sec} ${new Date(sec * 1000).toLocaleString()}`;
+}
+
+function formatMsTime(ms: number): string {
+	if (ms <= 0) return "0";
+	return `${ms} ${new Date(ms).toLocaleString()}`;
+}
+
+function setLoading(title: string): boolean {
+	if (loading.value == true) return false;
+	loading.value = true;
+	titleText.value = `${new Date().toLocaleTimeString()} ${title}`;
+	rows.value = [t("查询中...")];
+	return true;
+}
+
+function finishLoading(): void {
+	loading.value = false;
+}
+
+function clearRows(): void {
+	titleText.value = "-";
+	rows.value = [];
+}
+
+function formatBroadcast(item: RealtimeBroadcastRecord): string {
+	const spo2Pct = (item.spo2 / 10).toFixed(1);
+	const voltage = (item.voltageMv / 1000).toFixed(3);
+	return `received=${formatMsTime(item.receivedAt)}, utc=${formatSecTime(item.utc)}, hr=${item.hr}, bhr=${item.bhr}, spo2=${spo2Pct}%, ppi=${item.ppi}, v=${voltage}V, status=0x${toByteHex(item.status)}, ppg=${item.ppgAttached}, behavior=${item.behavior}, activity=${item.activity}, device=${item.deviceId}, raw=${item.rawHex}`;
+}
+
+function formatPpi(item: PpiData): string {
+	return `time=${formatSecTime(item.timestamp)}, hr=${item.hr}, spo2=${item.spo2}, ppi=${item.ppi}, uploaded=${item.uploaded}, id=${item.id}`;
+}
+
+function formatLegacy(item: BluetoothData): string {
+	return `time=${formatSecTime(item.timestamp)}, type=${item.type}, value=${item.value}, ppi=${item.ppi}, uploaded=${item.uploaded}, id=${item.id}`;
+}
+
+function formatSleep(item: SleepData): string {
+	return `report=${formatSecTime(item.reportTimestamp)}, bedtime=${formatSecTime(item.bedtime)}, sleep=${formatSecTime(item.sleepTime)}, wake=${formatSecTime(item.wakeTime)}, getup=${formatSecTime(item.getupTime)}, count=${item.recordCount}`;
+}
+
+async function loadOverview(): Promise<void> {
+	if (setLoading(t("数据库总览")) == false) return;
+	try {
+		const broadcastCount = await bluetoothDataManager.getRealtimeBroadcastDataCount();
+		const latestBroadcast = await bluetoothDataManager.getLatestRealtimeBroadcastRecord();
+		const ppiCount = await bluetoothDataManager.getPpiDataCount();
+		const latestPpi = await bluetoothDataManager.getLatestPpiData();
+		const unuploadedPpi = await bluetoothDataManager.getUnuploadedPpiData();
+		const unuploadedLegacy = await bluetoothDataManager.getUnuploadedData();
+		const unuploadedSleep = await bluetoothDataManager.getUnuploadedSleepData();
+		const result: string[] = [];
+		result.push(`realtime_broadcast_data count=${broadcastCount}`);
+		result.push(
+			latestBroadcast == null
+				? "latest broadcast=无"
+				: `latest broadcast: ${formatBroadcast(latestBroadcast)}`
+		);
+		result.push(`ppi_data count=${ppiCount}, unuploaded=${unuploadedPpi.length}`);
+		result.push(latestPpi == null ? "latest ppi=无" : `latest ppi: ${formatPpi(latestPpi)}`);
+		result.push(
+			`upload queues: bluetooth_data=${unuploadedLegacy.length}, sleep_data=${unuploadedSleep.length}`
+		);
+		rows.value = result;
+	} catch (e) {
+		rows.value = [`${t("查询失败")}: ${e}`];
+	} finally {
+		finishLoading();
+	}
+}
+
+async function loadBroadcastRows(): Promise<void> {
+	if (setLoading(t("最近 10 条广播")) == false) return;
+	try {
+		const data = await bluetoothDataManager.getRecentRealtimeBroadcastRecords(10);
+		const result: string[] = [];
+		for (let i = 0; i < data.length; i++) {
+			const item = data[i];
+			result.push(formatBroadcast(item));
+		}
+		rows.value = result;
+	} catch (e) {
+		rows.value = [`${t("查询失败")}: ${e}`];
+	} finally {
+		finishLoading();
+	}
+}
+
+async function loadPpiRows(): Promise<void> {
+	if (setLoading(t("最近 10 条 PPI")) == false) return;
+	try {
+		const data = await bluetoothDataManager.getRecentPpiData(10);
+		const result: string[] = [];
+		for (let i = 0; i < data.length; i++) {
+			const item = data[i];
+			result.push(formatPpi(item));
+		}
+		rows.value = result;
+	} catch (e) {
+		rows.value = [`${t("查询失败")}: ${e}`];
+	} finally {
+		finishLoading();
+	}
+}
+
+async function loadUploadQueues(): Promise<void> {
+	if (setLoading(t("待上传队列")) == false) return;
+	try {
+		const ppi = await bluetoothDataManager.getUnuploadedPpiData();
+		const legacy = await bluetoothDataManager.getUnuploadedData();
+		const sleep = await bluetoothDataManager.getUnuploadedSleepData();
+		const result: string[] = [];
+		result.push(`ppi_data unuploaded=${ppi.length}`);
+		for (let i = 0; i < ppi.length && i < 10; i++) {
+			const item = ppi[i];
+			result.push(`ppi ${formatPpi(item)}`);
+		}
+		result.push(`bluetooth_data unuploaded=${legacy.length}`);
+		for (let j = 0; j < legacy.length && j < 10; j++) {
+			const item = legacy[j];
+			result.push(`legacy ${formatLegacy(item)}`);
+		}
+		result.push(`sleep_data unuploaded=${sleep.length}`);
+		for (let k = 0; k < sleep.length && k < 10; k++) {
+			const item = sleep[k];
+			result.push(`sleep ${formatSleep(item)}`);
+		}
+		rows.value = result;
+	} catch (e) {
+		rows.value = [`${t("查询失败")}: ${e}`];
+	} finally {
+		finishLoading();
+	}
+}
+//#endif
+</script>
+
+<style lang="scss" scoped>
+.db-popup {
+	background-color: #2b2c28;
+}
+
+.db-row {
+	padding: 10px;
+	margin-bottom: 8px;
+	border-radius: 6px;
+	background-color: #1f201d;
+}
+
+.db-row-index {
+	display: block;
+	margin-bottom: 4px;
+	color: #9ca3af;
+	font-size: 11px;
+}
+
+.db-row-text {
+	color: #e5e7eb;
+	font-size: 12px;
+	line-height: 18px;
+	word-break: break-all;
+}
+</style>

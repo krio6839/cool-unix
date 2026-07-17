@@ -56,6 +56,28 @@ export type PpiData = {
 };
 
 /**
+ * 0x50 广播实时数据记录（本地首页展示使用，不参与 PPI 上传）
+ */
+export type RealtimeBroadcastRecord = {
+	id: string;
+	timestamp: number;
+	receivedAt: number;
+	utc: number;
+	voltageMv: number;
+	status: number;
+	ppgAttached: boolean;
+	behavior: number;
+	activity: number;
+	hr: number;
+	ppi: number;
+	spo2: number;
+	bhr: number;
+	rawHex: string;
+	vHex: string;
+	deviceId: string;
+};
+
+/**
  * 心率记录（用于历史数据解析）
  */
 export type HeartRateRecord = {

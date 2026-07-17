@@ -10,7 +10,9 @@
 					<text class="mr-1 text-2xl font-bold text-white">{{ item.value }}</text>
 					<text class="text-sm text-[#9ca3af]">{{ item.unit }}</text>
 				</view>
-				<text class="text-xs text-[#6b7280]">{{ getChangeText(item.change) }}</text>
+				<text class="text-xs text-[#6b7280]">{{
+					getChangeText(item.title, item.change)
+				}}</text>
 				<cl-svg
 					class="absolute w-[30px] h-[30px] bottom-5 right-[15px]"
 					:src="item.icon"
@@ -21,15 +23,23 @@
 </template>
 
 <script lang="ts" setup>
-import { router, useStore } from "@/.cool";
-import { computed, ref, watch } from "vue";
+import { bluetoothDataManager, router, useStore } from "@/.cool";
+import { computed, onMounted, ref, watch } from "vue";
 import type { HealthCardItem, HealthCardValues } from "@/.cool";
 
 const { home } = useStore();
 
 const values = computed<HealthCardValues>(() => {
-	return home.healthCardValues.value as HealthCardValues;
+	return home.realtimeHealthCardValues.value as HealthCardValues;
 });
+
+async function refreshRealtimeFromDb(): Promise<void> {
+	const record = await bluetoothDataManager.getLatestRealtimeBroadcastRecord();
+	if (record == null) {
+		return;
+	}
+	home.setRealtimeHealthCardValues(record.hr, record.bhr, record.spo2, record.ppi);
+}
 
 const lastHealthData = ref<HealthCardValues>({
 	heartRate: null,
@@ -65,6 +75,10 @@ watch(
 	},
 	{ immediate: true }
 );
+
+onMounted(() => {
+	refreshRealtimeFromDb();
+});
 
 const healthData = computed<HealthCardItem[]>(() => {
 	const current = values.value as HealthCardValues;
@@ -115,12 +129,13 @@ const healthData = computed<HealthCardItem[]>(() => {
 	return items;
 });
 
-const getChangeText = (change: number) => {
+const getChangeText = (title: string, change: number) => {
 	if (change === 0) {
 		return "";
 	}
 	const prefix = change > 0 ? "+" : "";
-	return `较上次 ${prefix}${change}`;
+	const valueText = title == "血氧" ? change.toFixed(1) : change.toString();
+	return `较上次 ${prefix}${valueText}`;
 };
 
 function goToMetrics(title: string) {

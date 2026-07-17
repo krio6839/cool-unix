@@ -192,6 +192,7 @@ export function toRealtimeBroadcast(d: CustomAdvData): RealtimeBroadcast {
 		receivedAt: Date.now(),
 		utc: d.utc,
 		voltageMv: d.voltage,
+		voltageV: d.voltage / 1000,
 		status: d.status,
 		statusReserved: s.reserved,
 		ppgAttached: s.ppgAttached,
@@ -200,9 +201,14 @@ export function toRealtimeBroadcast(d: CustomAdvData): RealtimeBroadcast {
 		activity: s.activity,
 		activityLabel: s.activityLabel,
 		hr: d.hr,
+		hrValid: d.hr >= 28 && d.hr <= 240,
 		ppi: d.ppi,
+		ppiValid: d.ppi > 0,
 		spo2Pct: d.spo2 / 10, // 950 → 95.0
-		bhr: d.bhr
+		spo2Valid: d.spo2 >= 700 && d.spo2 <= 1000,
+		bhr: d.bhr,
+		bhrValid: d.bhr >= 28 && d.bhr <= 240,
+		hrvMs: d.ppi
 	};
 }
 

@@ -17,7 +17,8 @@ import type {
 	HeartRateDataMap,
 	PpiDataItem,
 	PpiData,
-	HeartRateRecord
+	HeartRateRecord,
+	RealtimeBroadcastRecord
 } from "./types";
 
 /**
@@ -135,6 +136,73 @@ export class BluetoothDataManager {
 	}
 
 	/**
+	 * 存储 0x50 广播实时数据（本地首页展示使用，不上传）
+	 */
+	async storeRealtimeBroadcastRecord(
+		id: string,
+		timestamp: number,
+		receivedAt: number,
+		utc: number,
+		voltageMv: number,
+		status: number,
+		ppgAttachedValue: boolean,
+		behavior: number,
+		activity: number,
+		hr: number,
+		ppi: number,
+		spo2: number,
+		bhr: number,
+		rawHexValue: string,
+		vHexValue: string,
+		deviceIdValue: string
+	): Promise<boolean> {
+		const rawHex = this.escapeSqlText(rawHexValue);
+		const vHex = this.escapeSqlText(vHexValue);
+		const deviceId = this.escapeSqlText(deviceIdValue);
+		const ppgAttached = ppgAttachedValue == true ? 1 : 0;
+		const sql =
+			"INSERT OR REPLACE INTO realtime_broadcast_data " +
+			"(id, timestamp, received_at, utc, voltage_mv, status, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, raw_hex, v_hex, device_id) VALUES " +
+			`('${id}', ${timestamp}, ${receivedAt}, ${utc}, ${voltageMv}, ${status}, ${ppgAttached}, ${behavior}, ${activity}, ${hr}, ${ppi}, ${spo2}, ${bhr}, '${rawHex}', '${vHex}', '${deviceId}')`;
+		return bluetoothDatabase.execute(sql);
+	}
+
+	/**
+	 * 获取最后一条 0x50 广播实时数据
+	 */
+	async getLatestRealtimeBroadcastRecord(): Promise<RealtimeBroadcastRecord | null> {
+		const sql =
+			"SELECT id, timestamp, received_at, utc, voltage_mv, status, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, raw_hex, v_hex, device_id FROM realtime_broadcast_data ORDER BY received_at DESC LIMIT 1";
+		const result = await bluetoothDatabase.query(sql);
+		if (result == null || result.rows.length == 0) {
+			return null;
+		}
+		const row = result.rows[0];
+		return {
+			id: row[0] as string,
+			timestamp: parseInt(row[1] as string),
+			receivedAt: parseInt(row[2] as string),
+			utc: parseInt(row[3] as string),
+			voltageMv: parseInt(row[4] as string),
+			status: parseInt(row[5] as string),
+			ppgAttached: parseInt(row[6] as string) == 1,
+			behavior: parseInt(row[7] as string),
+			activity: parseInt(row[8] as string),
+			hr: parseInt(row[9] as string),
+			ppi: parseInt(row[10] as string),
+			spo2: parseInt(row[11] as string),
+			bhr: parseInt(row[12] as string),
+			rawHex: row[13] as string,
+			vHex: row[14] as string,
+			deviceId: row[15] as string
+		} as RealtimeBroadcastRecord;
+	}
+
+	private escapeSqlText(value: string): string {
+		return value.split("'").join("''");
+	}
+
+	/**
 	 * 获取所有蓝牙数据
 	 * @returns 蓝牙数据数组
 	 */
@@ -206,6 +274,107 @@ export class BluetoothDataManager {
 		}
 
 		return parseInt(result.rows[0][0] as string);
+	}
+
+	/**
+	 * 获取 0x50 广播实时数据总数
+	 */
+	async getRealtimeBroadcastDataCount(): Promise<number> {
+		const sql = "SELECT COUNT(*) FROM realtime_broadcast_data";
+		const result = await bluetoothDatabase.query(sql);
+
+		if (result == null || result.rows.length == 0) {
+			return 0;
+		}
+
+		return parseInt(result.rows[0][0] as string);
+	}
+
+	/**
+	 * 获取最近 N 条 0x50 广播实时数据
+	 */
+	async getRecentRealtimeBroadcastRecords(limit: number): Promise<RealtimeBroadcastRecord[]> {
+		const safeLimit = limit <= 0 ? 10 : limit;
+		const sql =
+			"SELECT id, timestamp, received_at, utc, voltage_mv, status, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, raw_hex, v_hex, device_id FROM realtime_broadcast_data ORDER BY received_at DESC LIMIT " +
+			safeLimit.toString();
+		const result = await bluetoothDatabase.query(sql);
+		if (result == null) {
+			return [];
+		}
+
+		const records: RealtimeBroadcastRecord[] = [];
+		for (let i = 0; i < result.rows.length; i++) {
+			const row = result.rows[i];
+			records.push({
+				id: row[0] as string,
+				timestamp: parseInt(row[1] as string),
+				receivedAt: parseInt(row[2] as string),
+				utc: parseInt(row[3] as string),
+				voltageMv: parseInt(row[4] as string),
+				status: parseInt(row[5] as string),
+				ppgAttached: parseInt(row[6] as string) == 1,
+				behavior: parseInt(row[7] as string),
+				activity: parseInt(row[8] as string),
+				hr: parseInt(row[9] as string),
+				ppi: parseInt(row[10] as string),
+				spo2: parseInt(row[11] as string),
+				bhr: parseInt(row[12] as string),
+				rawHex: row[13] as string,
+				vHex: row[14] as string,
+				deviceId: row[15] as string
+			} as RealtimeBroadcastRecord);
+		}
+		return records;
+	}
+
+	/**
+	 * 获取最后一条 PPI 历史数据
+	 */
+	async getLatestPpiData(): Promise<PpiData | null> {
+		const sql =
+			"SELECT id, timestamp, hr, spo2, ppi, uploaded FROM ppi_data ORDER BY timestamp DESC LIMIT 1";
+		const result = await bluetoothDatabase.query(sql);
+		if (result == null || result.rows.length == 0) {
+			return null;
+		}
+		const row = result.rows[0];
+		return {
+			id: row[0] as string,
+			timestamp: parseInt(row[1] as string),
+			hr: parseInt(row[2] as string),
+			spo2: parseInt(row[3] as string),
+			ppi: parseInt(row[4] as string),
+			uploaded: parseInt(row[5] as string) == 1
+		} as PpiData;
+	}
+
+	/**
+	 * 获取最近 N 条 PPI 历史数据
+	 */
+	async getRecentPpiData(limit: number): Promise<PpiData[]> {
+		const safeLimit = limit <= 0 ? 10 : limit;
+		const sql =
+			"SELECT id, timestamp, hr, spo2, ppi, uploaded FROM ppi_data ORDER BY timestamp DESC LIMIT " +
+			safeLimit.toString();
+		const result = await bluetoothDatabase.query(sql);
+		if (result == null) {
+			return [];
+		}
+
+		const dataList: PpiData[] = [];
+		for (let i = 0; i < result.rows.length; i++) {
+			const row = result.rows[i];
+			dataList.push({
+				id: row[0] as string,
+				timestamp: parseInt(row[1] as string),
+				hr: parseInt(row[2] as string),
+				spo2: parseInt(row[3] as string),
+				ppi: parseInt(row[4] as string),
+				uploaded: parseInt(row[5] as string) == 1
+			} as PpiData);
+		}
+		return dataList;
 	}
 
 	/**
@@ -285,6 +454,7 @@ export class BluetoothDataManager {
 		await bluetoothDatabase.execute("DELETE FROM bluetooth_data");
 		await bluetoothDatabase.execute("DELETE FROM sleep_data");
 		await bluetoothDatabase.execute("DELETE FROM ppi_data");
+		await bluetoothDatabase.execute("DELETE FROM realtime_broadcast_data");
 		console.log("数据库数据清空完成");
 	}
 

@@ -54,7 +54,7 @@ export type TlvcFrame = {
 /** 0x50 自定义广播数据 raw（13B packed LE）— 状态说明.txt 2.1.2 */
 export type CustomAdvData = {
 	utc: number; // 0~3   UINT32 LE  秒
-	voltage: number; // 4~5   INT16  LE  电池电压 ×100
+	voltage: number; // 4~5   INT16  LE  电池电压 mV
 	status: number; // 6     UINT8
 	//   bit6: PPG 佩戴 (0/1)
 	//   bit5-3: 行为类型 (0=休息 1=日常 2=步行 3=跑步 4=骑行 5=有氧 6=其他运动 7=保留)
@@ -62,7 +62,7 @@ export type CustomAdvData = {
 	hr: number; // 7     UINT8  bpm
 	ppi: number; // 8~9   UINT16 LE  ms
 	spo2: number; // 10~11 UINT16 LE  ×10（950=95.0%）
-	bhr: number; // 12    UINT8  基础心率
+	bhr: number; // 12    UINT8  静息心率/Basal heart rate
 };
 
 /** 0x50 解析后用于 UI 展示的扁平实时数据 */
@@ -70,6 +70,7 @@ export type RealtimeBroadcast = {
 	receivedAt: number; // 本地接收时间 ms
 	utc: number;
 	voltageMv: number; // mV
+	voltageV: number;
 	status: number;
 	statusReserved: number;
 	ppgAttached: boolean;
@@ -78,9 +79,14 @@ export type RealtimeBroadcast = {
 	activity: number; // 0..7
 	activityLabel: string;
 	hr: number;
+	hrValid: boolean;
 	ppi: number;
+	ppiValid: boolean;
 	spo2Pct: number; // 950 → 95.0
+	spo2Valid: boolean;
 	bhr: number;
+	bhrValid: boolean;
+	hrvMs: number;
 };
 
 /** status 字节解码结果（来自 decodeAdvStatus） */

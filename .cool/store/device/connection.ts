@@ -4,7 +4,7 @@
  * 职责：
  * - 蓝牙适配器初始化、状态监听
  * - 设备扫描：设备名前缀匹配 "BOOM-"
- * - 已连接设备 / 当前通信设备的 0x50 广播解析 → device.realtime
+ * - 扫描期 0x50 广播解析 → realtime_broadcast_data，本轮状态同步到 device.realtime
  * - 静默直连（重连）+ 配对扫描（首次配对 / 直连失败后降级）
  * - 连接成功后的 GATT 流程（services 发现 → notify 启用 → 0x30 读固件 → 0x33 写时戳）
  *
@@ -41,10 +41,9 @@ export class DeviceConnection {
 	private device: Device;
 
 	/* ===== 静默直连（重连）配置 ===== */
-	private static readonly RECONNECT_RETRY_COUNT = 3; // 最多重试次数
-	private static readonly RECONNECT_RETRY_INTERVAL_MS = 3000; // 每次间隔
 	private static readonly DIRECT_CONNECT_TIMEOUT_MS = 8000; // 单次直连超时
 	private _isSilentReconnecting: boolean = false;
+	private _isInitializingConnectedDevice: boolean = false;
 	private _reconnectAttempts: number = 0;
 
 	/* ===== 配对页扫描配置 ===== */
@@ -79,6 +78,7 @@ export class DeviceConnection {
 			this.device.discovering = res.discovering;
 			if (this.device.available == res.available) return;
 			this.device.available = res.available;
+			this.device.touchState();
 			if (res.available == false) {
 				// 蓝牙关闭：清理状态
 				console.log("蓝牙已关闭");
@@ -104,8 +104,9 @@ export class DeviceConnection {
 	/* ===== 静默直连（重连）===== */
 
 	/**
-	 * 静默直连已绑定设备
-	 * 失败 RECONNECT_RETRY_COUNT 次后降级为后台配对扫描
+	 * 静默重连已绑定设备
+	 * - 先尝试一次直连,命中插件 discovered 缓存时最快
+	 * - 失败后立即扫描绑定设备,避免缓存为空时反复报"没有找到指定设备"
 	 */
 	private async _silentReconnect(): Promise<void> {
 		if (this._isSilentReconnecting) {
@@ -119,32 +120,22 @@ export class DeviceConnection {
 		this._reconnectAttempts = 0;
 
 		try {
-			while (this._reconnectAttempts < DeviceConnection.RECONNECT_RETRY_COUNT) {
-				if (this.device.currentDeviceId != "") break;
-				this._reconnectAttempts++;
-				console.log(
-					`[RECONNECT] 静默直连第 ${this._reconnectAttempts} 次,设备:`,
-					this.device.boundDeviceId
-				);
+			this.device.status.value = "SEARCHING";
+			this._reconnectAttempts++;
+			console.log("[RECONNECT] 静默直连已绑定设备:", this.device.boundDeviceId);
 
-				const ok = await connect(
-					this.device.boundDeviceId,
-					DeviceConnection.DIRECT_CONNECT_TIMEOUT_MS
-				);
-				if (ok == true) {
-					console.log("[RECONNECT] 静默直连成功");
-					await this._markConnected(this.device.boundDeviceId, "");
-					this._reconnectAttempts = 0;
-					return;
-				}
-
-				await sleepTimeout(DeviceConnection.RECONNECT_RETRY_INTERVAL_MS);
+			const ok = await connect(
+				this.device.boundDeviceId,
+				DeviceConnection.DIRECT_CONNECT_TIMEOUT_MS
+			);
+			if (ok == true) {
+				console.log("[RECONNECT] 静默直连成功");
+				await this._markConnected(this.device.boundDeviceId, "");
+				this._reconnectAttempts = 0;
+				return;
 			}
 
-			// 3 次都失败 → 启动配对扫描(后台)
-			console.warn(
-				`[RECONNECT] 静默直连 ${DeviceConnection.RECONNECT_RETRY_COUNT} 次都失败,启动配对扫描(后台)`
-			);
+			console.warn("[RECONNECT] 静默直连失败,启动绑定设备扫描重连");
 			this._startPairingScan();
 		} finally {
 			this._isSilentReconnecting = false;
@@ -160,11 +151,13 @@ export class DeviceConnection {
 	/** 标记已连接：刷新状态 + 持久化绑定 */
 	private async _markConnected(deviceId: string, deviceName: string): Promise<void> {
 		await this.stopBluetoothSearch();
+		const displayName = deviceName == "" ? "BOOM" : deviceName;
 		this.device.currentDeviceId = deviceId;
-		this.device.currentDeviceName = deviceName;
+		this.device.currentDeviceName = displayName;
 		this.device.status.value = "CONNECTED";
 		this.device.saveBoundDevice(deviceId);
-		bluetoothDataManager.setDeviceInfo(deviceName == "" ? "BOOM" : deviceName, deviceId);
+		bluetoothDataManager.setDeviceInfo(displayName, deviceId);
+		this.device.touchState();
 	}
 
 	/* ===== 设备扫描 ===== */
@@ -172,7 +165,7 @@ export class DeviceConnection {
 	/**
 	 * 启动扫描
 	 * - 设备名前缀匹配 "BOOM-"
-	 * - 0x50 广播数据从 Manufacturer Specific Data 字段解析 → 写入 device.realtime
+	 * - 0x50 广播数据从 Manufacturer Specific Data 字段解析 → 入库并同步本轮状态
 	 * @param mode pairing=配对 / reconnect=重连（仅连 boundDeviceId）
 	 */
 	startBluetoothSearch(mode: "pairing" | "reconnect"): void {
@@ -216,8 +209,8 @@ export class DeviceConnection {
 					// 优先用 name,fallback 到 localName
 					const name = d.name ?? d.localName ?? "";
 					console.log("[SCAN] 发现设备:", name);
+					this.device.broadcast.handleFoundDevice(d);
 					if (name.startsWith(TARGET_DEVICE_NAME_PREFIX)) {
-						this.device.broadcast.handleFoundDevice(d);
 						this._handleFoundDevice(d, name);
 					}
 				});
@@ -391,7 +384,25 @@ export class DeviceConnection {
 		console.log("连接设备成功:", deviceId);
 		//#endif
 		await this._markConnected(deviceId, deviceName ?? "");
+		if (this.device.isDeviceInitialized == false) {
+			await this._initializeConnectedDevice(deviceId);
+		}
 		console.log("设备连接状态:", this.device.status.value);
+	}
+
+	private async _initializeConnectedDevice(deviceId: string): Promise<void> {
+		if (this._isInitializingConnectedDevice == true) return;
+		this._isInitializingConnectedDevice = true;
+		this.device.isDeviceInitialized = true;
+		try {
+			await this.afterConnected(deviceId);
+		} catch (e) {
+			console.error("[BOOM] 连接后初始化失败:", e);
+			this.device.isDeviceInitialized = false;
+			this.device.touchState();
+		} finally {
+			this._isInitializingConnectedDevice = false;
+		}
 	}
 
 	/**
@@ -402,6 +413,16 @@ export class DeviceConnection {
 	 */
 	private async afterConnected(deviceId: string): Promise<void> {
 		try {
+			if (this.device.currentDeviceId != deviceId) {
+				this.device.currentDeviceId = deviceId;
+				if (this.device.currentDeviceName == "") {
+					this.device.currentDeviceName = "BOOM";
+				}
+				this.device.saveBoundDevice(deviceId);
+				bluetoothDataManager.setDeviceInfo(this.device.currentDeviceName, deviceId);
+				this.device.touchState();
+			}
+
 			await this.device.protocol.getDeviceServicesAndCharacteristics(deviceId);
 			console.log("获取设备服务和特征值成功");
 
@@ -438,9 +459,7 @@ export class DeviceConnection {
 			}
 
 			this.device.status.value = "CONNECTED";
-			// 实测连接后当前平台收不到 0x50 广播，先关闭连接后常驻广播扫描。
-			// 保留 DeviceBroadcast 供配对扫描解析与后续固件/平台确认后恢复。
-			// await this.device.broadcast.startRealtimeScan();
+			this.device.touchState();
 			this.device.history.startVitalHistoryPolling();
 		} catch (e) {
 			console.error("[BOOM] afterConnected 流程异常:", e);
@@ -471,13 +490,16 @@ export class DeviceConnection {
 		onConnectionStateChange((res) => {
 			console.log("蓝牙连接状态变化:", res);
 			if (res.connected) {
-				if (this.device.isDeviceInitialized) {
+				if (
+					this.device.isDeviceInitialized &&
+					this.device.protocol.writeCharUuid != "" &&
+					this.device.protocol.notifyCharUuid != ""
+				) {
 					console.log("设备已初始化，跳过");
 					return;
 				}
-				this.device.isDeviceInitialized = true;
 				console.log("设备已连接:", res.deviceId);
-				this.afterConnected(res.deviceId);
+				this._initializeConnectedDevice(res.deviceId);
 				this.device.resetReconnectState();
 			} else {
 				if (res.deviceId == this.device.currentDeviceId) {
@@ -547,6 +569,7 @@ export class DeviceConnection {
 		this.device.status.value = "UNPAIRED";
 		this.device.currentDeviceId = "";
 		this.device.currentDeviceName = "";
+		this.device.isDeviceInitialized = false;
 		this.device.protocol.services = [];
 		this.device.protocol.characteristics.clear();
 		this.device.protocol.writeCharUuid = "";
@@ -554,6 +577,7 @@ export class DeviceConnection {
 		this.device.realtime.value = null;
 		bluetoothDataManager.clearDeviceInfo();
 		this.device.resetReconnectState();
+		this.device.touchState();
 	}
 
 	/** 内部：重连策略（指数退避，由 device.maxReconnectAttempts 控制次数） */
@@ -579,8 +603,8 @@ export class DeviceConnection {
 		console.log(`开始第 ${this.device.reconnectAttempts} 次重连，间隔 ${currentInterval}ms`);
 
 		setTimeout(() => {
-			console.log("执行重连操作");
-			this.connectToDevice(this.device.boundDeviceId, "");
+			console.log("执行扫描重连操作");
+			this._startPairingScan();
 			this.device.isReconnecting = false;
 			console.log("重连操作完成");
 		}, currentInterval);

@@ -133,6 +133,32 @@ class BluetoothDatabase {
 
 		this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_timestamp ON ppi_data(timestamp)");
 		this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_uploaded ON ppi_data(uploaded)");
+
+		this.execute(`CREATE TABLE IF NOT EXISTS realtime_broadcast_data (
+        id TEXT PRIMARY KEY,
+        timestamp INTEGER NOT NULL,
+        received_at INTEGER NOT NULL,
+        utc INTEGER NOT NULL,
+        voltage_mv INTEGER NOT NULL,
+        status INTEGER NOT NULL,
+        ppg_attached INTEGER NOT NULL,
+        behavior INTEGER NOT NULL,
+        activity INTEGER NOT NULL,
+        hr INTEGER NOT NULL,
+        ppi INTEGER NOT NULL,
+        spo2 INTEGER NOT NULL,
+        bhr INTEGER NOT NULL,
+        raw_hex TEXT NOT NULL DEFAULT '',
+        v_hex TEXT NOT NULL DEFAULT '',
+        device_id TEXT NOT NULL DEFAULT ''
+      )`);
+
+		this.execute(
+			"CREATE INDEX IF NOT EXISTS idx_realtime_broadcast_timestamp ON realtime_broadcast_data(timestamp)"
+		);
+		this.execute(
+			"CREATE INDEX IF NOT EXISTS idx_realtime_broadcast_received ON realtime_broadcast_data(received_at)"
+		);
 	}
 
 	// 执行 SQL 语句

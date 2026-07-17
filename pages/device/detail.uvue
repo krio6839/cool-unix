@@ -6,18 +6,10 @@
 			<!-- A. 基本信息 -->
 			<cl-list :pt="{ className: 'mb-3' }">
 				<cl-list-item :label="t('设备名称')">
-					<cl-text>{{
-						deviceStore.currentDeviceName != "" ? deviceStore.currentDeviceName : "—"
-					}}</cl-text>
+					<cl-text>{{ deviceNameText }}</cl-text>
 				</cl-list-item>
 				<cl-list-item :label="t('设备ID')">
-					<cl-text :pt="{ className: 'text-xs' }">{{
-						deviceStore.currentDeviceId != ""
-							? deviceStore.currentDeviceId
-							: deviceStore.boundDeviceId != ""
-								? deviceStore.boundDeviceId
-								: "—"
-					}}</cl-text>
+					<cl-text :pt="{ className: 'text-xs' }">{{ deviceIdText }}</cl-text>
 				</cl-list-item>
 				<cl-list-item :label="t('连接状态')">
 					<cl-text>{{ statusText }}</cl-text>
@@ -115,7 +107,22 @@ const wearLocationOptions: ClSelectOption[] = getWearLocationOptions().map(
 );
 
 const currentWearLocationLabel = computed((): string => {
+	deviceStore.stateVersion.value;
 	return t(getWearLocationLabel(deviceStore.currentWearLocation));
+});
+
+const deviceNameText = computed((): string => {
+	deviceStore.stateVersion.value;
+	if (deviceStore.currentDeviceName != "") return deviceStore.currentDeviceName;
+	if (deviceStore.currentDeviceId != "") return "BOOM";
+	return "—";
+});
+
+const deviceIdText = computed((): string => {
+	deviceStore.stateVersion.value;
+	if (deviceStore.currentDeviceId != "") return deviceStore.currentDeviceId;
+	if (deviceStore.boundDeviceId != "") return deviceStore.boundDeviceId;
+	return "—";
 });
 
 // 基本信息 - 连接状态文案
@@ -128,12 +135,14 @@ const statusText = computed((): string => {
 
 // 基本信息 - 蓝牙适配器状态
 const btStatusText = computed((): string => {
+	deviceStore.stateVersion.value;
 	return deviceStore.available ? t("已开启") : t("未开启");
 });
 
 // 基本信息 - 信号强度(查 devices 数组中绑定设备 RSSI;可能为空)
 const rssiText = computed((): string => {
 	// #ifndef H5
+	deviceStore.stateVersion.value;
 	const boundId = deviceStore.boundDeviceId;
 	if (boundId == "") return "—";
 	const found = deviceStore.devices.find((d) => d.deviceId == boundId);

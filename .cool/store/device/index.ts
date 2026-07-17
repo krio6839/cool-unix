@@ -16,6 +16,7 @@
 import { ref } from "vue";
 import { storage } from "../../utils";
 import { t } from "../../locale";
+import { home } from "../home";
 import type { ClActionSheetOptions, ClActionSheetItem } from "@/uni_modules/cool-ui";
 
 import { bluetoothDataManager, type DataReadyStatus, type SleepData } from "../../bluetooth";
@@ -82,9 +83,13 @@ export type BroadcastDebugInfo = {
 	receivedAt: number;
 };
 
+export type DeviceTestMode = "connect" | "broadcast";
+
 export class Device {
 	/* ===== 基本状态 ===== */
 	status = ref<keyof typeof DeviceStatusEnum>("UNPAIRED");
+	stateVersion = ref<number>(0);
+	testMode = ref<DeviceTestMode>("connect");
 	available: boolean = false;
 	discovering: boolean = false;
 	errorMessage = ref<string>("");
@@ -174,18 +179,21 @@ export class Device {
 		const normalized = normalizeWearLocation(location);
 		this.currentWearLocation = normalized;
 		storage.set(KEY_WEAR_LOCATION, normalized, 0);
+		this.touchState();
 	}
 
 	/** 持久化绑定设备 ID */
 	saveBoundDevice(deviceId: string): void {
 		this.boundDeviceId = deviceId;
 		storage.set(KEY_BOUND_DEVICE_ID, deviceId, 0);
+		this.touchState();
 	}
 
 	/** 清除绑定设备 ID */
 	clearBoundDevice(): void {
 		this.boundDeviceId = "";
 		storage.remove(KEY_BOUND_DEVICE_ID);
+		this.touchState();
 	}
 
 	/** 清除所有持久化数据（保留接口，备用） */
@@ -194,6 +202,11 @@ export class Device {
 	}
 
 	/* ===== 状态管理 ===== */
+
+	/** 普通字段变更后触发页面 / computed 重新计算 */
+	touchState(): void {
+		this.stateVersion.value++;
+	}
 
 	/** 是否已配对（currentDeviceId 非空） */
 	getPaired(): boolean {
@@ -328,6 +341,7 @@ export class Device {
 
 		// 3. 清空本地 storage(boundDeviceId)
 		this.clearAllSavedData();
+		home.clearRealtimeHealthCardValues();
 
 		// 4. 补充:清错误信息(disconnectDevice 不清,这里兜底)
 		this.errorMessage.value = "";
