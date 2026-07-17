@@ -66,6 +66,9 @@ export class DeviceBroadcast {
 			console.warn("[BOOM-ADV] 未绑定设备，无法启动绑定设备广播扫描");
 			return false;
 		}
+		const deviceName =
+			this.device.currentDeviceName == "" ? "BOOM" : this.device.currentDeviceName;
+		bluetoothDataManager.setDeviceInfo(deviceName, this.device.boundDeviceId);
 		this.isScanning = true;
 		this.boundBroadcastScanning = true;
 		this.lastBoundBroadcastHandledAt = 0;
@@ -181,7 +184,7 @@ export class DeviceBroadcast {
 		const id = `${r.receivedAt}-${r.utc}`;
 		const ok = await bluetoothDataManager.storeRealtimeBroadcastRecord(
 			id,
-			r.utc > 0 ? r.utc : Math.floor(r.receivedAt / 1000),
+			this.getBroadcastTimestamp(r),
 			r.receivedAt,
 			r.utc,
 			r.voltageMv,
@@ -199,7 +202,23 @@ export class DeviceBroadcast {
 		);
 		if (ok == true) {
 			home.setRealtimeHealthCardValues(r.hr, r.bhr, Math.round(r.spo2Pct * 10), r.ppi);
+			await this.storeBroadcastPpiData(r);
 		}
+	}
+
+	private async storeBroadcastPpiData(r: RealtimeBroadcast): Promise<void> {
+		const timestamp = this.getBroadcastTimestamp(r);
+		const hr = r.hrValid ? r.hr : 0;
+		const spo2 = r.spo2Valid ? Math.round(r.spo2Pct * 10) : 0;
+		const ppi = r.ppiValid ? r.ppi : 0;
+		const ok = await bluetoothDataManager.storeBroadcastPpiData(timestamp, hr, spo2, ppi);
+		if (ok == true) {
+			await bluetoothDataManager.requestPpiUpload();
+		}
+	}
+
+	private getBroadcastTimestamp(r: RealtimeBroadcast): number {
+		return r.utc > 0 ? r.utc : Math.floor(r.receivedAt / 1000);
 	}
 
 	private publishDebugInfo(

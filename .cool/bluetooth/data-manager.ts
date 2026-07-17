@@ -21,6 +21,9 @@ import type {
 	RealtimeBroadcastRecord
 } from "./types";
 
+const PPI_UPLOAD_BATCH_SIZE = 30;
+const PPI_UPLOAD_MIN_INTERVAL_MS = 30 * 1000;
+
 /**
  * 蓝牙数据管理器类
  * 提供数据存储、查询、上传等功能
@@ -31,6 +34,8 @@ export class BluetoothDataManager {
 
 	/** 是否正在上传中 */
 	private isUploading: boolean = false;
+	private ppiUploadPending: boolean = false;
+	private lastPpiUploadAttemptAt: number = 0;
 
 	/** 设备名称 */
 	private deviceName: string = "";
@@ -132,6 +137,19 @@ export class BluetoothDataManager {
 			)
 			.join(",");
 		const sql = `INSERT OR IGNORE INTO ppi_data (id, timestamp, hr, spo2, ppi, uploaded) VALUES ${values}`;
+		return bluetoothDatabase.execute(sql);
+	}
+
+	async storeBroadcastPpiData(
+		timestamp: number,
+		hr: number,
+		spo2: number,
+		ppi: number
+	): Promise<boolean> {
+		if (hr <= 0 && spo2 <= 0 && ppi <= 0) {
+			return false;
+		}
+		const sql = `INSERT OR IGNORE INTO ppi_data (id, timestamp, hr, spo2, ppi, uploaded) VALUES ('${timestamp}', ${timestamp}, ${hr}, ${spo2}, ${ppi}, 0)`;
 		return bluetoothDatabase.execute(sql);
 	}
 
@@ -407,6 +425,15 @@ export class BluetoothDataManager {
 		return dataList;
 	}
 
+	async getUnuploadedPpiCount(): Promise<number> {
+		const sql = "SELECT COUNT(*) FROM ppi_data WHERE uploaded = 0";
+		const result = await bluetoothDatabase.query(sql);
+		if (result == null || result.rows.length == 0) {
+			return 0;
+		}
+		return parseInt(result.rows[0][0] as string);
+	}
+
 	/**
 	 * 标记PPI数据为已上传
 	 * @param ids 数据ID数组
@@ -602,7 +629,40 @@ export class BluetoothDataManager {
 			return false;
 		} finally {
 			this.isUploading = false;
+			if (this.ppiUploadPending == true) {
+				this.ppiUploadPending = false;
+				setTimeout(() => {
+					this.requestPpiUpload();
+				}, 0);
+			}
 		}
+	}
+
+	async requestPpiUpload(): Promise<void> {
+		if (this.isUploading == true) {
+			this.ppiUploadPending = true;
+			return;
+		}
+
+		const count = await this.getUnuploadedPpiCount();
+		if (count == 0) {
+			return;
+		}
+
+		const now = Date.now();
+		if (this.lastPpiUploadAttemptAt == 0) {
+			this.lastPpiUploadAttemptAt = now;
+			if (count < PPI_UPLOAD_BATCH_SIZE) {
+				return;
+			}
+		}
+		const elapsed = now - this.lastPpiUploadAttemptAt;
+		if (count < PPI_UPLOAD_BATCH_SIZE && elapsed < PPI_UPLOAD_MIN_INTERVAL_MS) {
+			return;
+		}
+
+		this.lastPpiUploadAttemptAt = now;
+		await this.uploadPpiData();
 	}
 
 	/**

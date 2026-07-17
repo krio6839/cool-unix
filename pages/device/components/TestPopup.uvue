@@ -1048,10 +1048,18 @@ function beginCommand(cmd: string): boolean {
 	return true;
 }
 
+async function restoreBroadcastAfterGattTask(): Promise<void> {
+	if (testMode.value != "connect") return;
+	if (deviceStore.boundDeviceId == "") return;
+	await deviceStore.connection.disconnectForBroadcastMode();
+	testMode.value = "broadcast";
+}
+
 function endCommand(cmd: string): void {
 	if (activeCommand.value == cmd) {
 		activeCommand.value = "";
 	}
+	restoreBroadcastAfterGattTask();
 }
 
 async function sendManualRawHex(): Promise<void> {

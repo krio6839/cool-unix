@@ -34,9 +34,6 @@ import type { DeviceInfo } from "../../bluetooth/kux";
 import type { Device, ShowDevicePickerOptions } from "./index";
 import { sleepTimeout } from "@/.cool/utils";
 
-/** 设备页面路由路径（保留以备将来跳转） */
-const PAGE_DEVICE = "/pages/device/index";
-
 export class DeviceConnection {
 	private device: Device;
 
@@ -66,6 +63,9 @@ export class DeviceConnection {
 		this.device.clearError();
 		//#ifndef H5
 		await openAdapter();
+		if (this.device.boundDeviceId != "" && this.device.currentDeviceId == "") {
+			await this.startBoundBroadcastMode();
+		}
 		//#endif
 	}
 
@@ -85,17 +85,15 @@ export class DeviceConnection {
 				this.device.status.value = "UNPAIRED";
 				this.device.errorMessage.value = t("蓝牙未开启");
 			} else {
-				// 蓝牙开启：自动恢复（已绑定→静默直连，未绑定→配对扫描）
+				// 蓝牙开启：自动恢复（已绑定→广播扫描，未绑定→配对扫描）
 				console.log("蓝牙已开启");
 				if (this.device.boundDeviceId == "") {
 					this.device.status.value = "PAIRING";
 					this.startBluetoothSearch("pairing");
+				} else if (this.device.currentDeviceId == "") {
+					this.startBoundBroadcastMode();
 				}
 				this.device.errorMessage.value = "";
-
-				if (this.device.boundDeviceId != "" && this.device.currentDeviceId == "") {
-					this._silentReconnect();
-				}
 			}
 		});
 		//#endif
@@ -146,6 +144,21 @@ export class DeviceConnection {
 		this.device.status.value = "SEARCHING";
 		this.device.errorMessage.value = "";
 		this.startBluetoothSearch("reconnect");
+	}
+
+	async startBoundBroadcastMode(): Promise<boolean> {
+		this.stopBluetoothSearch();
+		this.device.history.stopVitalHistoryPolling();
+		await this.device.broadcast.stopRealtimeScan();
+		if (this.device.boundDeviceId == "") return false;
+		this.device.testMode.value = "broadcast";
+		this.device.status.value = "SEARCHING";
+		this.device.errorMessage.value = "";
+		const ok = await this.device.broadcast.startBoundBroadcastScan();
+		if (ok == true) {
+			this.device.touchState();
+		}
+		return ok;
 	}
 
 	/** 标记已连接：刷新状态 + 持久化绑定 */
@@ -460,7 +473,6 @@ export class DeviceConnection {
 
 			this.device.status.value = "CONNECTED";
 			this.device.touchState();
-			this.device.history.startVitalHistoryPolling();
 		} catch (e) {
 			console.error("[BOOM] afterConnected 流程异常:", e);
 			throw e;
@@ -510,9 +522,10 @@ export class DeviceConnection {
 					if (this._suppressNextReconnect == true) {
 						console.log("[BOOM] 本次断开由广播模式触发，跳过自动重连");
 						this._suppressNextReconnect = false;
+						this.startBoundBroadcastMode();
 						return;
 					}
-					this.reconnect();
+					this.startBoundBroadcastMode();
 				}
 			}
 		});
@@ -559,6 +572,7 @@ export class DeviceConnection {
 		}
 		//#endif
 		this._resetConnectionState();
+		await this.startBoundBroadcastMode();
 	}
 
 	/** 内部：清空连接相关字段 */
