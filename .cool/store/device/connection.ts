@@ -37,13 +37,9 @@ import { sleepTimeout } from "@/.cool/utils";
 export class DeviceConnection {
 	private device: Device;
 
-	/* ===== 静默直连（重连）配置 ===== */
+	/* ===== 直连 / 扫描配置 ===== */
 	private static readonly DIRECT_CONNECT_TIMEOUT_MS = 8000; // 单次直连超时
-	private _isSilentReconnecting: boolean = false;
 	private _isInitializingConnectedDevice: boolean = false;
-	private _reconnectAttempts: number = 0;
-
-	/* ===== 配对页扫描配置 ===== */
 	private static readonly PAIRING_SCAN_TIMEOUT_MS = 30000; // 扫描总时长
 	private _scanMode: "pairing" | "reconnect" = "pairing";
 	private _isSearching: boolean = false;
@@ -100,47 +96,6 @@ export class DeviceConnection {
 			}
 		});
 		//#endif
-	}
-
-	/* ===== 静默直连（重连）===== */
-
-	/**
-	 * 静默重连已绑定设备
-	 * - 先尝试一次直连,命中插件 discovered 缓存时最快
-	 * - 失败后立即扫描绑定设备,避免缓存为空时反复报"没有找到指定设备"
-	 */
-	private async _silentReconnect(): Promise<void> {
-		if (this._isSilentReconnecting) {
-			console.log("[RECONNECT] 静默重连已在进行,跳过");
-			return;
-		}
-		if (this.device.boundDeviceId == "" || this.device.currentDeviceId != "") {
-			return;
-		}
-		this._isSilentReconnecting = true;
-		this._reconnectAttempts = 0;
-
-		try {
-			this.device.status.value = "SEARCHING";
-			this._reconnectAttempts++;
-			console.log("[RECONNECT] 静默直连已绑定设备:", this.device.boundDeviceId);
-
-			const ok = await connect(
-				this.device.boundDeviceId,
-				DeviceConnection.DIRECT_CONNECT_TIMEOUT_MS
-			);
-			if (ok == true) {
-				console.log("[RECONNECT] 静默直连成功");
-				await this._markConnected(this.device.boundDeviceId, "");
-				this._reconnectAttempts = 0;
-				return;
-			}
-
-			console.warn("[RECONNECT] 静默直连失败,启动绑定设备扫描重连");
-			this._startPairingScan();
-		} finally {
-			this._isSilentReconnecting = false;
-		}
 	}
 
 	private _startPairingScan(): void {
@@ -250,77 +205,13 @@ export class DeviceConnection {
 	 */
 	private _handleFoundDevice(found: DeviceInfo, name: string): void {
 		console.log("[SCAN] 发现目标设备:", found.deviceId);
-		const nextDevices = this.device.devices.slice();
-		const exists = nextDevices.some((d) => d.deviceId == found.deviceId);
-		if (exists == false) {
-			nextDevices.push({
-				name,
-				localName: found.localName ?? name, // BOOM 设备 localName 通常 == name
-				deviceId: found.deviceId,
-				RSSI: found.RSSI ?? 0,
-				advertisData: [],
-				advertisServiceUUIDs: [],
-				serviceData: null,
-				connectable: true
-			} as DeviceInfo);
-		}
-		this.device.devices = this.sortDevicesByRssiDesc(nextDevices);
+		this.device.cacheFoundDevice(found, name);
 		console.log("[SCAN] 当前 BOOM 设备列表长度:", this.device.devices.length);
 
 		if (this._scanMode == "reconnect" && found.deviceId == this.device.boundDeviceId) {
 			this.device.saveBoundDeviceName(name);
 			this._connectFoundBoundDevice(found.deviceId, name);
 		}
-	}
-
-	private sortDevicesByRssiDesc(list: DeviceInfo[]): DeviceInfo[] {
-		const sorted: DeviceInfo[] = [];
-		for (let i = 0; i < list.length; i++) {
-			const item = list[i];
-			const itemRssi = item.RSSI ?? -100;
-			let inserted = false;
-			for (let j = 0; j < sorted.length; j++) {
-				const current = sorted[j];
-				const currentRssi = current.RSSI ?? -100;
-				if (itemRssi > currentRssi) {
-					sorted.splice(j, 0, item);
-					inserted = true;
-					break;
-				}
-			}
-			if (inserted == false) {
-				sorted.push(item);
-			}
-		}
-		return sorted;
-	}
-
-	cacheFoundDevice(found: DeviceInfo, name: string): void {
-		const nextDevices = this.device.devices.slice();
-		let index = -1;
-		for (let i = 0; i < nextDevices.length; i++) {
-			if (nextDevices[i].deviceId == found.deviceId) {
-				index = i;
-				break;
-			}
-		}
-		const item = {
-			name,
-			localName: found.localName ?? name,
-			deviceId: found.deviceId,
-			RSSI: found.RSSI ?? 0,
-			advertisData: found.advertisData ?? [],
-			advertisServiceUUIDs: found.advertisServiceUUIDs ?? [],
-			serviceData: found.serviceData,
-			connectable: true
-		} as DeviceInfo;
-		if (index >= 0) {
-			nextDevices.splice(index, 1, item);
-		} else {
-			nextDevices.push(item);
-		}
-		this.device.devices = this.sortDevicesByRssiDesc(nextDevices);
-		this.device.touchState();
 	}
 
 	/** 重连扫描中一旦发现绑定设备,立即停止扫描并直连 */
@@ -369,7 +260,7 @@ export class DeviceConnection {
 
 		// === 重连 mode:只连 boundDeviceId,绝不连其他设备 ===
 		if (mode == "reconnect") {
-			const bound = this.device.devices.find((d) => d.deviceId == this.device.boundDeviceId);
+			const bound = this.device.findCachedDevice(this.device.boundDeviceId);
 			if (bound == null) {
 				this.device.status.value = "UNPAIRED";
 				this.device.errorMessage.value = t("未找到设备,请确认设备已开机且在范围内");
@@ -425,20 +316,31 @@ export class DeviceConnection {
 	 * @param deviceName 可选 UI 展示名
 	 */
 	async connectToDevice(deviceId: string, deviceName?: string): Promise<void> {
-		this.device.status.value = "SEARCHING";
-		//#ifndef H5
-		const ok = await connect(deviceId, 100000);
+		const ok = await this.connectToDeviceWithTimeout(deviceId, deviceName ?? "", 100000);
 		if (ok == false) {
 			this.device.status.value = "PAIRING";
-			return;
+		}
+	}
+
+	private async connectToDeviceWithTimeout(
+		deviceId: string,
+		deviceName: string,
+		timeoutMs: number
+	): Promise<boolean> {
+		this.device.status.value = "SEARCHING";
+		//#ifndef H5
+		const ok = await connect(deviceId, timeoutMs);
+		if (ok == false) {
+			return false;
 		}
 		console.log("连接设备成功:", deviceId);
 		//#endif
-		await this._markConnected(deviceId, deviceName ?? "");
+		await this._markConnected(deviceId, deviceName);
 		if (this.device.isDeviceInitialized == false) {
 			await this._initializeConnectedDevice(deviceId);
 		}
 		console.log("设备连接状态:", this.device.status.value);
+		return true;
 	}
 
 	/** 从广播模式临时切到 GATT 连接模式：先直连绑定设备，失败再扫描重连 */
@@ -457,18 +359,18 @@ export class DeviceConnection {
 		//#ifndef H5
 		let connectId = boundId;
 		let connectName = this.device.getDisplayDeviceName();
-		const cached = this.device.devices.find((d) => d.deviceId == boundId);
+		const cached = this.device.findCachedDevice(boundId);
 		if (cached != null) {
 			connectId = cached.deviceId;
 			connectName = cached.name ?? cached.localName ?? connectName;
 		}
 		console.log("[BOOM] 连接模式直连绑定设备:", connectId);
-		const ok = await connect(connectId, DeviceConnection.DIRECT_CONNECT_TIMEOUT_MS);
+		const ok = await this.connectToDeviceWithTimeout(
+			connectId,
+			connectName,
+			DeviceConnection.DIRECT_CONNECT_TIMEOUT_MS
+		);
 		if (ok == true) {
-			await this._markConnected(connectId, connectName);
-			if (this.device.isDeviceInitialized == false) {
-				await this._initializeConnectedDevice(connectId);
-			}
 			return true;
 		}
 		console.warn("[BOOM] 连接模式直连失败，改为扫描绑定设备");
@@ -661,7 +563,7 @@ export class DeviceConnection {
 	 * 用户从设备列表（actionSheet）点选某个设备后，启动连接
 	 */
 	public connectToFoundDevice(deviceId: string): void {
-		const found = this.device.devices.find((d) => d.deviceId == deviceId);
+		const found = this.device.findCachedDevice(deviceId);
 		if (found == null) {
 			console.warn("[SCAN] 设备列表中找不到 deviceId:", deviceId);
 			return;

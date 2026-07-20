@@ -19,7 +19,7 @@ import { t } from "../../locale";
 import { realtime } from "../realtime";
 import type { ClActionSheetOptions, ClActionSheetItem } from "@/uni_modules/cool-ui";
 
-import { bluetoothDataManager, type DataReadyStatus, type SleepData } from "../../bluetooth";
+import { bluetoothDataManager } from "../../bluetooth";
 
 //#ifndef H5
 import type { DeviceInfo } from "../../bluetooth/kux";
@@ -256,6 +256,75 @@ export class Device {
 		if (s == "PAIRING" || s == "SEARCHING") return t("搜索中");
 		return t("未配对");
 	}
+
+	//#ifndef H5
+	cacheFoundDevice(found: DeviceInfo, name: string): void {
+		const nextDevices = this.devices.slice();
+		let index = -1;
+		for (let i = 0; i < nextDevices.length; i++) {
+			if (nextDevices[i].deviceId == found.deviceId) {
+				index = i;
+				break;
+			}
+		}
+		let shouldTouch = index < 0;
+		if (index >= 0) {
+			const old = nextDevices[index];
+			if (old.name != name) shouldTouch = true;
+			if ((old.localName ?? "") != (found.localName ?? name)) shouldTouch = true;
+			if ((old.RSSI ?? 0) != (found.RSSI ?? 0)) shouldTouch = true;
+		}
+		const item = {
+			name,
+			localName: found.localName ?? name,
+			deviceId: found.deviceId,
+			RSSI: found.RSSI ?? 0,
+			advertisData: found.advertisData ?? [],
+			advertisServiceUUIDs: found.advertisServiceUUIDs ?? [],
+			serviceData: found.serviceData,
+			connectable: true
+		} as DeviceInfo;
+		if (index >= 0) {
+			nextDevices.splice(index, 1, item);
+		} else {
+			nextDevices.push(item);
+		}
+		this.devices = this.sortDevicesByRssiDesc(nextDevices);
+		if (shouldTouch == true) {
+			this.touchState();
+		}
+	}
+
+	findCachedDevice(deviceId: string): DeviceInfo | null {
+		for (let i = 0; i < this.devices.length; i++) {
+			const item = this.devices[i];
+			if (item.deviceId == deviceId) return item;
+		}
+		return null;
+	}
+
+	private sortDevicesByRssiDesc(list: DeviceInfo[]): DeviceInfo[] {
+		const sorted: DeviceInfo[] = [];
+		for (let i = 0; i < list.length; i++) {
+			const item = list[i];
+			const itemRssi = item.RSSI ?? -100;
+			let inserted = false;
+			for (let j = 0; j < sorted.length; j++) {
+				const current = sorted[j];
+				const currentRssi = current.RSSI ?? -100;
+				if (itemRssi > currentRssi) {
+					sorted.splice(j, 0, item);
+					inserted = true;
+					break;
+				}
+			}
+			if (inserted == false) {
+				sorted.push(item);
+			}
+		}
+		return sorted;
+	}
+	//#endif
 
 	/** 清除错误信息 */
 	clearError(): void {

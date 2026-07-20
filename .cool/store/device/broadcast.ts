@@ -19,7 +19,6 @@ export class DeviceBroadcast {
 	private isScanning: boolean = false;
 	private isTimeSyncing: boolean = false;
 	private lastTimeSyncAt: number = 0;
-	private lastBroadcastUtc: number = 0;
 	private broadcastSeq: number = 0;
 	private boundBroadcastScanning: boolean = false;
 	private lastBoundBroadcastHandledAt: number = 0;
@@ -124,7 +123,7 @@ export class DeviceBroadcast {
 		if (d.deviceId != this.device.boundDeviceId) return;
 		const name = d.name ?? d.localName ?? "";
 		this.device.saveBoundDeviceName(name);
-		this.device.connection.cacheFoundDevice(d, name);
+		this.device.cacheFoundDevice(d, name);
 		if (name != "") {
 			bluetoothDataManager.setDeviceInfo(name, this.device.boundDeviceId);
 		}
@@ -148,7 +147,7 @@ export class DeviceBroadcast {
 				: this.device.boundDeviceId;
 		const name = this.device.getDisplayDeviceName();
 		this.device.realtime.value = r;
-		this.storeBroadcastRecordByDevice(deviceId, name, 0, vHex, vHex, r);
+		this.storeBroadcastRecordByDevice(deviceId, vHex, vHex, r);
 		this.publishDebugInfoByDevice(deviceId, name, 0, vHex, vHex, r);
 		this.checkBroadcastTimestamp(r);
 	}
@@ -192,7 +191,7 @@ export class DeviceBroadcast {
 			this.device.realtime.value = r;
 			const name = d.name ?? d.localName ?? "";
 			const rssi = d.RSSI ?? 0;
-			this.storeBroadcastRecordByDevice(d.deviceId, name, rssi, hex, vHex, r);
+			this.storeBroadcastRecordByDevice(d.deviceId, hex, vHex, r);
 			this.publishDebugInfoByDevice(d.deviceId, name, rssi, hex, vHex, r);
 			this.checkBroadcastTimestamp(r);
 		} else if (this.boundBroadcastScanning == true) {
@@ -202,8 +201,6 @@ export class DeviceBroadcast {
 
 	private async storeBroadcastRecordByDevice(
 		deviceIdValue: string,
-		_name: string,
-		_rssi: number,
 		rawHex: string,
 		vHex: string,
 		r: RealtimeBroadcast
@@ -313,7 +310,6 @@ export class DeviceBroadcast {
 
 	private checkBroadcastTimestamp(r: RealtimeBroadcast): void {
 		if (r.utc <= 0) return;
-		this.lastBroadcastUtc = r.utc;
 		const nowSec = Math.floor(Date.now() / 1000);
 		let diff = nowSec - r.utc;
 		if (diff < 0) diff = 0 - diff;
