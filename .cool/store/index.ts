@@ -8,6 +8,7 @@ import { Load, load } from "./load";
 import { Sleep, sleep } from "./sleep";
 import { Recovery, recovery } from "./recovery";
 import { Metrics, metrics } from "./metrics";
+import { Realtime, realtime } from "./realtime";
 
 type Store = {
 	user: User;
@@ -20,6 +21,7 @@ type Store = {
 	sleep: Sleep;
 	recovery: Recovery;
 	metrics: Metrics;
+	realtime: Realtime;
 };
 
 export function useStore(): Store {
@@ -33,7 +35,8 @@ export function useStore(): Store {
 		load,
 		sleep,
 		recovery,
-		metrics
+		metrics,
+		realtime
 	};
 }
 
@@ -47,3 +50,4 @@ export * from "./load";
 export * from "./sleep";
 export * from "./recovery";
 export * from "./metrics";
+export * from "./realtime";

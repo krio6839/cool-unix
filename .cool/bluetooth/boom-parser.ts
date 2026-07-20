@@ -6,6 +6,7 @@
 
 import type {
 	CustomAdvData,
+	DeviceControlResult,
 	FirmwareVersion,
 	RealtimeBroadcast,
 	VitalBiometric,
@@ -47,6 +48,7 @@ import {
 	VITAL_DATA_BLANK,
 	VITAL_DATA_ALL_FF,
 	VITAL_MINUTES_OPTIONS,
+	LOG_DATA_FLAG,
 	LOG_EVENT_TYPE
 } from "./boom-constants";
 
@@ -110,6 +112,14 @@ export function parseVibrationResult(v: string): VibrationResult {
 	return { code: parseU8(v, 0) };
 }
 
+/** 0x41 响应 V：控制代码 + 控制结果（0=成功） */
+export function parseDeviceControlResult(v: string): DeviceControlResult {
+	return {
+		code: parseU8(v, 0),
+		result: parseU8(v, 2)
+	};
+}
+
 /* ==================== V 字段序列化（请求） ==================== */
 
 /** 0x31 请求 V：ASCII 设备编号 */
@@ -148,15 +158,15 @@ export function serializeVibration(spec: VibrationSpec): string {
 	return h;
 }
 
-/* ==================== 0x50 自定义广播解析（13 字节） ==================== */
+/* ==================== 0x50 自定义广播解析（21 字节） ==================== */
 
 /**
- * 解析 0x50 自定义广播的 V 数据（13B packed LE）
- * @param vHex 13 字节的 hex 字符串（26 hex 字符）
+ * 解析 0x50 自定义广播的 V 数据（21B packed LE）
+ * @param vHex 21 字节的 hex 字符串（42 hex 字符）
  * @returns CustomAdvData；长度不足返回 null
  */
 export function parseCustomAdvData(vHex: string): CustomAdvData | null {
-	if (vHex.length < 26) return null; // 13B = 26 hex
+	if (vHex.length < 42) return null; // 21B = 42 hex
 	return {
 		utc: parseU32LE(vHex, 0),
 		voltage: parseI16LE(vHex, 8),
@@ -164,7 +174,9 @@ export function parseCustomAdvData(vHex: string): CustomAdvData | null {
 		hr: parseU8(vHex, 14),
 		ppi: parseU16LE(vHex, 16),
 		spo2: parseU16LE(vHex, 20),
-		bhr: parseU8(vHex, 24)
+		bhr: parseU8(vHex, 24),
+		stepsEveryday: parseU32LE(vHex, 26),
+		calorieEveryday: parseU32LE(vHex, 34)
 	};
 }
 
@@ -208,7 +220,12 @@ export function toRealtimeBroadcast(d: CustomAdvData): RealtimeBroadcast {
 		spo2Valid: d.spo2 >= 700 && d.spo2 <= 1000,
 		bhr: d.bhr,
 		bhrValid: d.bhr >= 28 && d.bhr <= 240,
-		hrvMs: d.ppi
+		hrvMs: d.ppi,
+		stepsEveryday: d.stepsEveryday,
+		calorieEveryday: d.calorieEveryday,
+		calorieKcal: d.calorieEveryday / 100,
+		stepsValid: d.stepsEveryday >= 0,
+		calorieValid: d.calorieEveryday >= 0
 	};
 }
 
@@ -517,6 +534,8 @@ export function parseLogDataList(
 	let count = 0;
 	while (cur + 40 <= hex.length) {
 		if (maxCount > 0 && count >= maxCount) break;
+		const flag = parseU8(hex, cur);
+		if (flag != LOG_DATA_FLAG) break;
 		const dataLen = parseU8(hex, cur + 38);
 		if (cur + 40 + dataLen * 2 > hex.length) break;
 		const previous = cur;

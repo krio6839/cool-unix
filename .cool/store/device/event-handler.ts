@@ -17,9 +17,15 @@ import {
 	parseTimestamp,
 	parseBiometric,
 	parseVibrationResult,
+	parseDeviceControlResult,
 	DataIdentifierReassembler
 } from "../../bluetooth";
-import type { FirmwareVersion, VitalBiometric, VibrationResult } from "../../bluetooth";
+import type {
+	DeviceControlResult,
+	FirmwareVersion,
+	VitalBiometric,
+	VibrationResult
+} from "../../bluetooth";
 
 //#ifndef H5
 import { onCharacteristicValueChange } from "../../bluetooth/kux";
@@ -47,6 +53,10 @@ export class EventHandler {
 	biometricInfoReceivedAt = ref<number>(0);
 	/** 0x40 震动马达最后一次响应 */
 	lastVibration = ref<VibrationResult | null>(null);
+	/** 0x41 设备控制最后一次响应 */
+	lastDeviceControl = ref<DeviceControlResult | null>(null);
+	deviceControlSeq = ref<number>(0);
+	deviceControlReceivedAt = ref<number>(0);
 
 	/** 任意 BOOM notify 到达序号（用于自动补拉超时诊断） */
 	notifySeqValue: number = 0;
@@ -175,6 +185,12 @@ export class EventHandler {
 			case BOOM_CMD.CONTROL_VIBRATION:
 				this.lastVibration.value = parseVibrationResult(f.v);
 				console.log("[BOOM] 震动结果:", this.lastVibration.value);
+				break;
+			case BOOM_CMD.CONTROL_DEVICE:
+				this.lastDeviceControl.value = parseDeviceControlResult(f.v);
+				this.deviceControlSeq.value = this.deviceControlSeq.value + 1;
+				this.deviceControlReceivedAt.value = Date.now();
+				console.log("[BOOM] 设备控制结果:", this.lastDeviceControl.value);
 				break;
 			/* ===== 0x3A/0x3B 生命体征（多帧重组） ===== */
 			case BOOM_CMD.READ_VITAL_DATA_START:

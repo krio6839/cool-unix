@@ -50,6 +50,7 @@ export class DeviceConnection {
 	private _isConnectingFoundBoundDevice: boolean = false;
 	private _pairingScanTimer: number = 0;
 	private _suppressNextReconnect: boolean = false;
+	private _isSwitchingToBroadcastMode: boolean = false;
 
 	constructor(device: Device) {
 		this.device = device;
@@ -210,6 +211,7 @@ export class DeviceConnection {
 			if (ok == false) {
 				this.device.status.value = "UNPAIRED";
 				this.device.errorMessage.value = t("搜索设备失败,请检查蓝牙和位置权限");
+				this._isSearching = false;
 				return;
 			}
 			console.log("[SCAN] 开始搜索 BOOM-* 设备,mode:", mode);
@@ -228,8 +230,9 @@ export class DeviceConnection {
 					}
 				});
 			});
-		} finally {
+		} catch (e) {
 			this._isSearching = false;
+			throw e;
 		}
 		//#endif
 	}
@@ -403,6 +406,36 @@ export class DeviceConnection {
 		console.log("设备连接状态:", this.device.status.value);
 	}
 
+	/** 从广播模式临时切到 GATT 连接模式：先直连绑定设备，失败再扫描重连 */
+	async connectBoundDeviceForGatt(): Promise<boolean> {
+		const boundId = this.device.boundDeviceId;
+		if (boundId == "") return false;
+		await this.device.broadcast.stopBoundBroadcastScan();
+		await this.device.broadcast.stopRealtimeScan();
+		this.stopBluetoothSearch();
+		this.device.testMode.value = "connect";
+		if (this.device.currentDeviceId != "") return true;
+
+		this.device.status.value = "SEARCHING";
+		this.device.errorMessage.value = "";
+
+		//#ifndef H5
+		console.log("[BOOM] 连接模式直连绑定设备:", boundId);
+		const ok = await connect(boundId, DeviceConnection.DIRECT_CONNECT_TIMEOUT_MS);
+		if (ok == true) {
+			await this._markConnected(boundId, this.device.currentDeviceName);
+			if (this.device.isDeviceInitialized == false) {
+				await this._initializeConnectedDevice(boundId);
+			}
+			return true;
+		}
+		console.warn("[BOOM] 连接模式直连失败，改为扫描绑定设备");
+		this.startBluetoothSearch("reconnect");
+		//#endif
+
+		return false;
+	}
+
 	private async _initializeConnectedDevice(deviceId: string): Promise<void> {
 		if (this._isInitializingConnectedDevice == true) return;
 		this._isInitializingConnectedDevice = true;
@@ -519,10 +552,11 @@ export class DeviceConnection {
 					this.device.status.value = "UNPAIRED";
 					this.device.currentDeviceId = "";
 					this.device.isDeviceInitialized = false;
-					if (this._suppressNextReconnect == true) {
+					if (
+						this._suppressNextReconnect == true ||
+						this._isSwitchingToBroadcastMode == true
+					) {
 						console.log("[BOOM] 本次断开由广播模式触发，跳过自动重连");
-						this._suppressNextReconnect = false;
-						this.startBoundBroadcastMode();
 						return;
 					}
 					this.startBoundBroadcastMode();
@@ -558,21 +592,31 @@ export class DeviceConnection {
 
 	/** 切换到广播测试模式时断开 GATT，但保留 boundDeviceId 且不触发自动重连 */
 	async disconnectForBroadcastMode(): Promise<void> {
-		this.stopBluetoothSearch();
-		this.device.history.stopVitalHistoryPolling();
-		await this.device.broadcast.stopRealtimeScan();
-		await this.device.broadcast.stopBoundBroadcastScan();
-		//#ifndef H5
-		if (this.device.currentDeviceId != "") {
-			this._suppressNextReconnect = true;
-			await disconnect(this.device.currentDeviceId);
-			setTimeout(() => {
-				this._suppressNextReconnect = false;
-			}, 3000);
+		if (this._isSwitchingToBroadcastMode == true) {
+			console.log("[BOOM] 正在切换广播模式，跳过重复请求");
+			return;
 		}
-		//#endif
-		this._resetConnectionState();
-		await this.startBoundBroadcastMode();
+		this._isSwitchingToBroadcastMode = true;
+		try {
+			this.stopBluetoothSearch();
+			this.device.history.stopVitalHistoryPolling();
+			await this.device.broadcast.stopRealtimeScan();
+			await this.device.broadcast.stopBoundBroadcastScan();
+			//#ifndef H5
+			if (this.device.currentDeviceId != "") {
+				this._suppressNextReconnect = true;
+				await disconnect(this.device.currentDeviceId);
+				await sleepTimeout(350);
+			}
+			//#endif
+			this._suppressNextReconnect = false;
+			this._resetConnectionState();
+			await sleepTimeout(120);
+			await this.startBoundBroadcastMode();
+		} finally {
+			this._suppressNextReconnect = false;
+			this._isSwitchingToBroadcastMode = false;
+		}
 	}
 
 	/** 内部：清空连接相关字段 */

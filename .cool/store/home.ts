@@ -19,13 +19,6 @@ export class Home {
 		hrv: null
 	});
 
-	realtimeHealthCardValues = ref<HealthCardValues>({
-		heartRate: null,
-		restingHeartRate: null,
-		oxygen: null,
-		hrv: null
-	});
-
 	boomGoText = ref<string>("");
 	energyPercentage = ref<number>(0);
 	details = ref<TrainingDetails>({
@@ -92,24 +85,6 @@ export class Home {
 		this.boomGoText.value = "";
 		this.energyPercentage.value = 0;
 		this.details.value = { supercompensationTime: "" } as TrainingDetails;
-	}
-
-	clearRealtimeHealthCardValues(): void {
-		this.realtimeHealthCardValues.value = {
-			heartRate: null,
-			restingHeartRate: null,
-			oxygen: null,
-			hrv: null
-		} as HealthCardValues;
-	}
-
-	setRealtimeHealthCardValues(hr: number, bhr: number, spo2: number, ppi: number): void {
-		this.realtimeHealthCardValues.value = {
-			heartRate: hr >= 28 && hr <= 240 ? hr : null,
-			restingHeartRate: bhr >= 28 && bhr <= 240 ? bhr : null,
-			oxygen: spo2 >= 700 && spo2 <= 1000 ? spo2 / 10 : null,
-			hrv: ppi > 0 ? ppi : null
-		} as HealthCardValues;
 	}
 }
 

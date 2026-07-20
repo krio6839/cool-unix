@@ -96,7 +96,7 @@
 </template>
 
 <script lang="ts" setup>
-import { isMp, dayUts, useStore, getDateRange } from "@/.cool";
+import { bluetoothDataManager, isMp, dayUts, useStore, getDateRange } from "@/.cool";
 import { metrics } from "@/.cool/store/metrics";
 import { ref, computed, onMounted, watch } from "vue";
 import type { MetricItem } from "./types";
@@ -104,7 +104,7 @@ import type { ClTabsItem } from "@/uni_modules/cool-ui";
 // @ts-ignore
 import Chart from "./components/chart.uvue";
 
-const { device } = useStore();
+const { device, realtime } = useStore();
 
 interface Props {
 	metric: string;
@@ -151,7 +151,22 @@ const timeRanges = ref<ClTabsItem[]>([
 
 const activeTimeRange = ref<string>("7d");
 
-const currentData = computed(() => metrics.currentData.value);
+const currentData = computed(() => {
+	const realtimeValues = realtime.healthCardValues.value;
+	if (activeMetric.value == "heartRate" && realtimeValues.heartRate != null) {
+		return `${realtimeValues.heartRate}bpm`;
+	}
+	if (activeMetric.value == "restingHeartRate" && realtimeValues.restingHeartRate != null) {
+		return `${realtimeValues.restingHeartRate}bpm`;
+	}
+	if (activeMetric.value == "bloodOxygen" && realtimeValues.oxygen != null) {
+		return `${realtimeValues.oxygen.toFixed(1)}%`;
+	}
+	if (activeMetric.value == "hrv" && realtimeValues.hrv != null) {
+		return `${realtimeValues.hrv}ms`;
+	}
+	return "-";
+});
 const normalRange = computed(() => metrics.normalRange.value);
 const updateTime = computed(() => metrics.updateTime.value);
 const analysisText = computed(() => metrics.analysisText.value);
@@ -172,7 +187,7 @@ function getDaysFromOption(option: string): number {
 }
 
 async function fetchMetricsData() {
-	const deviceId = device.currentDeviceId;
+	const deviceId = device.boundDeviceId;
 	if (deviceId == null || deviceId == "") {
 		console.log("设备未连接，跳过获取身体指标数据");
 		return;
@@ -184,6 +199,12 @@ async function fetchMetricsData() {
 	} catch (err) {
 		console.error("获取身体指标失败:", err);
 	}
+}
+
+async function refreshRealtimeFromDb(): Promise<void> {
+	const record = await bluetoothDataManager.getLatestRealtimeBroadcastRecord();
+	if (record == null) return;
+	realtime.setBroadcastRecord(record);
 }
 
 const chartOption = computed(() => {
@@ -277,6 +298,7 @@ function goBack() {
 }
 
 onMounted(() => {
+	refreshRealtimeFromDb();
 	fetchMetricsData();
 });
 

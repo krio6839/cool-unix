@@ -9,7 +9,7 @@ export type HealthItem = {
 
 export type HealthCardItem = {
 	title: string;
-	value: number;
+	value: string | number;
 	unit: string;
 	change: number;
 	icon: string;

@@ -2,6 +2,7 @@ import {
 	BOOM_CMD,
 	bluetoothDataManager,
 	LOG_EVENT_NAMES,
+	LOG_EVENT_TYPE,
 	parseEventDataHeader,
 	parseLogDataList,
 	parseVitalDataResponse
@@ -793,13 +794,79 @@ export class DeviceHistoryReader {
 			const it = items[i];
 			const typeName = LOG_EVENT_NAMES[it.eventType] ?? "?";
 			lines.push(
-				`#${i} sn=${it.header.sn} globalSn=${it.header.globalSn} ts=${it.ts} ${this.formatMaybeTime(it.ts)} tick=${it.tick} type=${it.eventType}(${typeName}) len=${it.dataLen} data=${it.eventDataHex}`
+				`#${i} sn=${it.header.sn} globalSn=${it.header.globalSn} ts=${it.ts} ${this.formatMaybeTime(it.ts)} tick=${it.tick} type=${it.eventType}(${typeName}) len=${it.dataLen} data=${it.eventDataHex} parsed=${this.formatEventParsedForDetail(it.eventType, it.parsedEvent)}`
 			);
 		}
 		if (items.length > MAX_FORMAT_DETAIL_LINES) {
 			lines.push("... 明细过长，已截断");
 		}
 		return lines.join("\n");
+	}
+
+	private formatEventParsedForDetail(eventType: number, parsed: UTSJSONObject): string {
+		if (
+			eventType == LOG_EVENT_TYPE.Text ||
+			eventType == LOG_EVENT_TYPE.RemoteCmd ||
+			eventType == LOG_EVENT_TYPE.SetDeviceSn
+		) {
+			return `text="${this.getParsedString(parsed, "text")}"`;
+		}
+		if (eventType == LOG_EVENT_TYPE.Reset) {
+			return `reason=${this.getParsedNumber(parsed, "value")}`;
+		}
+		if (eventType == LOG_EVENT_TYPE.SetTime) {
+			const oldSec = this.getParsedNumber(parsed, "oldSec");
+			const newSec = this.getParsedNumber(parsed, "newSec");
+			return `old=${oldSec} ${this.formatMaybeTime(oldSec)} -> new=${newSec} ${this.formatMaybeTime(newSec)}`;
+		}
+		if (eventType == LOG_EVENT_TYPE.FormatDS || eventType == LOG_EVENT_TYPE.SflashErase) {
+			return `address=${this.getParsedNumber(parsed, "address")}`;
+		}
+		if (eventType == LOG_EVENT_TYPE.Wear) {
+			const before = this.getParsedNumber(parsed, "before");
+			const after = this.getParsedNumber(parsed, "after");
+			return `wear ${before == 1 ? "佩戴" : "未佩戴"} -> ${after == 1 ? "佩戴" : "未佩戴"}`;
+		}
+		if (eventType == LOG_EVENT_TYPE.SleepResult) {
+			const onset = this.getParsedNumber(parsed, "sleepOnsetSec");
+			const awake = this.getParsedNumber(parsed, "awakeSec");
+			const light = this.getParsedNumber(parsed, "lightSleepSec");
+			const deep = this.getParsedNumber(parsed, "deepSleepSec");
+			const other = this.getParsedNumber(parsed, "otherSleepSec");
+			const restHr = this.getParsedNumber(parsed, "restHr");
+			return `sleep onset=${onset} awake=${awake} light=${this.formatDurationSeconds(light)} deep=${this.formatDurationSeconds(deep)} other=${this.formatDurationSeconds(other)} restHr=${restHr}`;
+		}
+		if (eventType == LOG_EVENT_TYPE.Sedentary) {
+			return `threshold=${this.formatDurationSeconds(this.getParsedNumber(parsed, "thresholdSec"))}`;
+		}
+		if (eventType == LOG_EVENT_TYPE.SetBiometricInfo) {
+			return `gender=${this.getParsedNumber(parsed, "gender")} weight=${(this.getParsedNumber(parsed, "weight") / 100).toFixed(1)}kg height=${(this.getParsedNumber(parsed, "height") / 100).toFixed(1)}cm age=${this.getParsedNumber(parsed, "age")} ppg=${this.getParsedNumber(parsed, "ppgPosition")} bhr=${this.getParsedNumber(parsed, "bhr")}`;
+		}
+		const text = JSON.stringify(parsed);
+		if (text == null || text == "") return "{}";
+		return text;
+	}
+
+	private getParsedNumber(value: UTSJSONObject, key: string): number {
+		const raw = value[key];
+		if (raw == null) return 0;
+		return raw as number;
+	}
+
+	private getParsedString(value: UTSJSONObject, key: string): string {
+		const raw = value[key];
+		if (raw == null) return "";
+		return raw as string;
+	}
+
+	private formatDurationSeconds(sec: number): string {
+		if (sec <= 0) return "0s";
+		const h = Math.floor(sec / 3600);
+		const m = Math.floor((sec % 3600) / 60);
+		const s = sec % 60;
+		if (h > 0) return `${h}h${m}m${s}s`;
+		if (m > 0) return `${m}m${s}s`;
+		return `${s}s`;
 	}
 
 	private formatMaybeTime(sec: number): string {

@@ -53,14 +53,14 @@
 </template>
 
 <script lang="ts" setup>
-import { isMp, dayUts, useStore } from "@/.cool";
+import { bluetoothDataManager, isMp, dayUts, useStore } from "@/.cool";
 import type { TrendType, TimeValuePair, DateValuePair, HealthItem } from "@/.cool";
 import { ref, computed, onMounted, watch } from "vue";
 import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
 import Chart from "./components/chart.uvue";
 
-const { device, status } = useStore();
+const { device, status, realtime } = useStore();
 const selectedDate = ref<string>(dayUts().format("YYYY-MM-DD"));
 const readinessDays = ref<string>("7d");
 
@@ -94,15 +94,25 @@ function onReadinessDaysChange(days: string) {
 }
 
 const healthItems = computed((): HealthItem[] => {
+	const realtimeValues = realtime.healthCardValues.value;
+	const hrv = realtimeValues.hrv == null ? "-" : `${realtimeValues.hrv}ms`;
+	const restingHeartRate =
+		realtimeValues.restingHeartRate == null ? "-" : `${realtimeValues.restingHeartRate}bpm`;
 	return [
-		{ label: "心率变异性", value: `${status.hrv.value}ms`, trend: "up" as TrendType },
+		{ label: "心率变异性", value: hrv, trend: "up" as TrendType },
 		{
 			label: "静息心率",
-			value: `${status.restingHeartRate.value}bpm`,
+			value: restingHeartRate,
 			trend: "down" as TrendType
 		}
 	];
 });
+
+async function refreshRealtimeFromDb(): Promise<void> {
+	const record = await bluetoothDataManager.getLatestRealtimeBroadcastRecord();
+	if (record == null) return;
+	realtime.setBroadcastRecord(record);
+}
 
 watch(
 	selectedDate,
@@ -339,6 +349,10 @@ const readinessChartOption = computed((): UTSJSONObject => {
 function goBack() {
 	uni.navigateBack();
 }
+
+onMounted(() => {
+	refreshRealtimeFromDb();
+});
 </script>
 
 <style lang="scss" scoped></style>

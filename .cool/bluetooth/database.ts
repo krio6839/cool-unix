@@ -30,8 +30,14 @@ class BluetoothDatabase {
 				success: (_res) => {
 					console.log("数据库打开成功");
 					this.isOpen = true;
-					this.initTables();
-					resolve(true);
+					this.initTables()
+						.then(() => {
+							resolve(true);
+						})
+						.catch((e) => {
+							console.error("数据库初始化失败:", e);
+							resolve(false);
+						});
 				},
 				fail: (err) => {
 					console.error("数据库打开失败:", err.errMsg);
@@ -87,8 +93,8 @@ class BluetoothDatabase {
 	}
 
 	// 初始化表结构
-	private initTables(): void {
-		this.execute(`CREATE TABLE IF NOT EXISTS bluetooth_data (
+	private async initTables(): Promise<void> {
+		await this.execute(`CREATE TABLE IF NOT EXISTS bluetooth_data (
         id TEXT PRIMARY KEY,
         timestamp INTEGER NOT NULL,
         type TEXT NOT NULL,
@@ -97,11 +103,11 @@ class BluetoothDatabase {
         uploaded INTEGER DEFAULT 0
       )`);
 
-		this.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON bluetooth_data(timestamp)");
-		this.execute("CREATE INDEX IF NOT EXISTS idx_uploaded ON bluetooth_data(uploaded)");
-		this.execute("CREATE INDEX IF NOT EXISTS idx_type ON bluetooth_data(type)");
+		await this.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON bluetooth_data(timestamp)");
+		await this.execute("CREATE INDEX IF NOT EXISTS idx_uploaded ON bluetooth_data(uploaded)");
+		await this.execute("CREATE INDEX IF NOT EXISTS idx_type ON bluetooth_data(type)");
 
-		this.execute(`CREATE TABLE IF NOT EXISTS sleep_data (
+		await this.execute(`CREATE TABLE IF NOT EXISTS sleep_data (
         id TEXT PRIMARY KEY,
         report_timestamp INTEGER NOT NULL,
         bedtime INTEGER NOT NULL,
@@ -119,10 +125,12 @@ class BluetoothDatabase {
 		// // 删除 sleep_status 表（已合并到 sleep_data.detail 字段）
 		// this.execute(`DROP TABLE IF EXISTS sleep_status`);
 
-		this.execute("CREATE INDEX IF NOT EXISTS idx_sleep_report ON sleep_data(report_timestamp)");
-		this.execute("CREATE INDEX IF NOT EXISTS idx_sleep_uploaded ON sleep_data(uploaded)");
+		await this.execute(
+			"CREATE INDEX IF NOT EXISTS idx_sleep_report ON sleep_data(report_timestamp)"
+		);
+		await this.execute("CREATE INDEX IF NOT EXISTS idx_sleep_uploaded ON sleep_data(uploaded)");
 
-		this.execute(`CREATE TABLE IF NOT EXISTS ppi_data (
+		await this.execute(`CREATE TABLE IF NOT EXISTS ppi_data (
         id TEXT PRIMARY KEY,
         timestamp INTEGER NOT NULL,
         hr INTEGER NOT NULL,
@@ -131,10 +139,10 @@ class BluetoothDatabase {
         uploaded INTEGER DEFAULT 0
       )`);
 
-		this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_timestamp ON ppi_data(timestamp)");
-		this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_uploaded ON ppi_data(uploaded)");
+		await this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_timestamp ON ppi_data(timestamp)");
+		await this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_uploaded ON ppi_data(uploaded)");
 
-		this.execute(`CREATE TABLE IF NOT EXISTS realtime_broadcast_data (
+		await this.execute(`CREATE TABLE IF NOT EXISTS realtime_broadcast_data (
         id TEXT PRIMARY KEY,
         timestamp INTEGER NOT NULL,
         received_at INTEGER NOT NULL,
@@ -148,16 +156,45 @@ class BluetoothDatabase {
         ppi INTEGER NOT NULL,
         spo2 INTEGER NOT NULL,
         bhr INTEGER NOT NULL,
+        steps_everyday INTEGER NOT NULL DEFAULT 0,
+        calorie_everyday INTEGER NOT NULL DEFAULT 0,
         raw_hex TEXT NOT NULL DEFAULT '',
         v_hex TEXT NOT NULL DEFAULT '',
         device_id TEXT NOT NULL DEFAULT ''
       )`);
+		await this.ensureColumn(
+			"realtime_broadcast_data",
+			"steps_everyday",
+			"INTEGER NOT NULL DEFAULT 0"
+		);
+		await this.ensureColumn(
+			"realtime_broadcast_data",
+			"calorie_everyday",
+			"INTEGER NOT NULL DEFAULT 0"
+		);
 
-		this.execute(
+		await this.execute(
 			"CREATE INDEX IF NOT EXISTS idx_realtime_broadcast_timestamp ON realtime_broadcast_data(timestamp)"
 		);
-		this.execute(
+		await this.execute(
 			"CREATE INDEX IF NOT EXISTS idx_realtime_broadcast_received ON realtime_broadcast_data(received_at)"
+		);
+	}
+
+	private async ensureColumn(
+		tableName: string,
+		columnName: string,
+		definition: string
+	): Promise<void> {
+		const result = await this.query("PRAGMA table_info(" + tableName + ")");
+		if (result == null) return;
+		for (let i = 0; i < result.rows.length; i++) {
+			const row = result.rows[i];
+			const name = row[1] as string;
+			if (name == columnName) return;
+		}
+		await this.execute(
+			"ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + definition
 		);
 	}
 

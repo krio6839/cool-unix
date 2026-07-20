@@ -27,10 +27,10 @@ import { bluetoothDataManager, router, useStore } from "@/.cool";
 import { computed, onMounted, ref, watch } from "vue";
 import type { HealthCardItem, HealthCardValues } from "@/.cool";
 
-const { home } = useStore();
+const { realtime } = useStore();
 
 const values = computed<HealthCardValues>(() => {
-	return home.realtimeHealthCardValues.value as HealthCardValues;
+	return realtime.healthCardValues.value as HealthCardValues;
 });
 
 async function refreshRealtimeFromDb(): Promise<void> {
@@ -38,7 +38,7 @@ async function refreshRealtimeFromDb(): Promise<void> {
 	if (record == null) {
 		return;
 	}
-	home.setRealtimeHealthCardValues(record.hr, record.bhr, record.spo2, record.ppi);
+	realtime.setBroadcastRecord(record);
 }
 
 const lastHealthData = ref<HealthCardValues>({
@@ -86,43 +86,43 @@ const healthData = computed<HealthCardItem[]>(() => {
 
 	const items: HealthCardItem[] = [];
 
-	const heartRate = (current.heartRate ?? 0) as number;
-	const lastHeartRate = (last.heartRate ?? heartRate) as number;
+	const heartRate = current.heartRate;
+	const lastHeartRate = (last.heartRate ?? heartRate ?? 0) as number;
 	items.push({
 		title: "心率",
-		value: heartRate,
+		value: heartRate == null ? "-" : heartRate,
 		unit: "bpm",
-		change: heartRate - lastHeartRate,
+		change: heartRate == null ? 0 : heartRate - lastHeartRate,
 		icon: "/static/icon/health/heart-rate.svg"
 	});
 
-	const restingHeartRateVal = (current.restingHeartRate ?? 0) as number;
-	const lastRestingHeartRateVal = (last.restingHeartRate ?? restingHeartRateVal) as number;
+	const restingHeartRateVal = current.restingHeartRate;
+	const lastRestingHeartRateVal = (last.restingHeartRate ?? restingHeartRateVal ?? 0) as number;
 	items.push({
 		title: "静息心率",
-		value: restingHeartRateVal,
+		value: restingHeartRateVal == null ? "-" : restingHeartRateVal,
 		unit: "bpm",
-		change: restingHeartRateVal - lastRestingHeartRateVal,
+		change: restingHeartRateVal == null ? 0 : restingHeartRateVal - lastRestingHeartRateVal,
 		icon: "/static/icon/health/heart-rate.svg"
 	});
 
-	const oxygen = (current.oxygen ?? 0) as number;
-	const lastOxygen = (last.oxygen ?? oxygen) as number;
+	const oxygen = current.oxygen;
+	const lastOxygen = (last.oxygen ?? oxygen ?? 0) as number;
 	items.push({
 		title: "血氧",
-		value: oxygen,
+		value: oxygen == null ? "-" : oxygen,
 		unit: "%",
-		change: oxygen - lastOxygen,
+		change: oxygen == null ? 0 : oxygen - lastOxygen,
 		icon: "/static/icon/health/spo2.svg"
 	});
 
-	const hrv = (current.hrv ?? 0) as number;
-	const lastHrv = (last.hrv ?? hrv) as number;
+	const hrv = current.hrv;
+	const lastHrv = (last.hrv ?? hrv ?? 0) as number;
 	items.push({
 		title: "心率变异性",
-		value: hrv,
+		value: hrv == null ? "-" : hrv,
 		unit: "ms",
-		change: hrv - lastHrv,
+		change: hrv == null ? 0 : hrv - lastHrv,
 		icon: "/static/icon/health/hrv.svg"
 	});
 

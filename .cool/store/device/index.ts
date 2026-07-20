@@ -16,7 +16,7 @@
 import { ref } from "vue";
 import { storage } from "../../utils";
 import { t } from "../../locale";
-import { home } from "../home";
+import { realtime } from "../realtime";
 import type { ClActionSheetOptions, ClActionSheetItem } from "@/uni_modules/cool-ui";
 
 import { bluetoothDataManager, type DataReadyStatus, type SleepData } from "../../bluetooth";
@@ -324,6 +324,15 @@ export class Device {
 	 */
 	async deleteDevice(): Promise<void> {
 		console.log("[DEVICE] 用户删除设备");
+		let remoteUnbindOk = false;
+		let remoteUnbindAttempted = false;
+
+		try {
+			remoteUnbindOk = await this.unbindRemoteDevice();
+			remoteUnbindAttempted = true;
+		} catch (e) {
+			console.warn("[DEVICE] deleteDevice: 设备解绑异常,继续清理本地:", e);
+		}
 
 		// 1. 断开 BLE(在清数据前先断开,避免回调中读到空状态)
 		try {
@@ -341,10 +350,58 @@ export class Device {
 
 		// 3. 清空本地 storage(boundDeviceId)
 		this.clearAllSavedData();
-		home.clearRealtimeHealthCardValues();
+		realtime.clear();
 
 		// 4. 补充:清错误信息(disconnectDevice 不清,这里兜底)
 		this.errorMessage.value = "";
+		if (remoteUnbindAttempted == true && remoteUnbindOk == false) {
+			console.warn("[DEVICE] 设备未确认解绑，本地已删除");
+		}
+	}
+
+	private async unbindRemoteDevice(): Promise<boolean> {
+		const boundId = this.boundDeviceId;
+		if (boundId == "") return true;
+		await this.broadcast.stopBoundBroadcastScan();
+		await this.broadcast.stopRealtimeScan();
+		if (this.currentDeviceId == "") {
+			await this.connection.connectToDevice(boundId, this.currentDeviceName);
+		}
+		if (this.currentDeviceId == "") {
+			console.warn("[DEVICE] 解绑前连接设备失败，继续删除本地");
+			return false;
+		}
+		const beforeSeq = this.event.deviceControlSeq.value;
+		const ok = await this.protocol.controlDevice(1);
+		if (ok == false) {
+			console.warn("[DEVICE] 0x41 解绑发送失败，继续删除本地");
+			return false;
+		}
+		return await this.waitForDeviceControlResult(beforeSeq, 1, 3000);
+	}
+
+	private async waitForDeviceControlResult(
+		beforeSeq: number,
+		code: number,
+		timeoutMs: number
+	): Promise<boolean> {
+		const start = Date.now();
+		while (Date.now() - start < timeoutMs) {
+			if (this.event.deviceControlSeq.value > beforeSeq) {
+				const result = this.event.lastDeviceControl.value;
+				if (result != null && result.code == code && result.result == 0) {
+					return true;
+				}
+				return false;
+			}
+			await new Promise<void>((resolve) => {
+				setTimeout(() => {
+					resolve();
+				}, 120);
+			});
+		}
+		console.warn("[DEVICE] 等待 0x41 解绑响应超时，继续删除本地");
+		return false;
 	}
 	//#endif
 }

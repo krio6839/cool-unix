@@ -72,9 +72,25 @@ export type RealtimeBroadcastRecord = {
 	ppi: number;
 	spo2: number;
 	bhr: number;
+	stepsEveryday: number;
+	calorieEveryday: number;
 	rawHex: string;
 	vHex: string;
 	deviceId: string;
+};
+
+/**
+ * 本地上传状态统计
+ */
+export type UploadTableStats = {
+	tableName: string;
+	total: number;
+	uploaded: number;
+	unuploaded: number;
+	earliestTimestamp: number;
+	latestTimestamp: number;
+	latestUploadedTimestamp: number;
+	latestUnuploadedTimestamp: number;
 };
 
 /**

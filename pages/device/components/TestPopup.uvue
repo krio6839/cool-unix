@@ -42,6 +42,17 @@
 						<text class="segment-desc">{{ t("0x50 实时") }}</text>
 					</view>
 				</view>
+				<view class="auto-restore-row mt-3">
+					<view class="auto-restore-copy">
+						<text class="auto-restore-title">{{ t("命令后回广播") }}</text>
+						<text class="auto-restore-desc">{{
+							autoRestoreBroadcastAfterGattTask
+								? t("连接模式下，执行完 GATT 命令后自动恢复 0x50")
+								: t("连接模式下保持连接，便于连续测试多个 GATT 命令")
+						}}</text>
+					</view>
+					<cl-switch v-model="autoRestoreBroadcastAfterGattTask"></cl-switch>
+				</view>
 			</view>
 
 			<!-- 设备状态 -->
@@ -79,7 +90,10 @@
 			</view>
 
 			<!-- 0x50 实时广播 -->
-			<view class="mb-4 p-3 bg-gray-800 rounded broadcast-panel">
+			<view
+				v-if="testMode == 'broadcast'"
+				class="mb-4 p-3 bg-gray-800 rounded broadcast-panel"
+			>
 				<view class="flex flex-row items-center justify-between mb-3">
 					<cl-text color="white" :size="15" :pt="{ className: 'font-bold' }">
 						{{ t("0x50 实时广播") }}
@@ -133,6 +147,14 @@
 					<view class="broadcast-cell">
 						<text class="cell-label">{{ t("静息心率 BHR") }}</text>
 						<text class="cell-value">{{ rtText.bhr }} bpm</text>
+					</view>
+					<view class="broadcast-cell">
+						<text class="cell-label">{{ t("步数") }}</text>
+						<text class="cell-value">{{ rtText.steps }}</text>
+					</view>
+					<view class="broadcast-cell">
+						<text class="cell-label">{{ t("卡路里") }}</text>
+						<text class="cell-value">{{ rtText.calories }} kcal</text>
 					</view>
 					<view class="broadcast-cell">
 						<text class="cell-label">{{ t("上次接收") }}</text>
@@ -593,6 +615,20 @@
 
 				<!-- 0x3C 读事件 -->
 				<template v-else-if="activeForm == '0x3C'">
+					<view class="event-window-shortcuts mb-3">
+						<view class="event-window-button" @tap="setEventWindowMinutes(15)">
+							<text class="event-window-button-text">{{ t("近15分钟") }}</text>
+						</view>
+						<view class="event-window-button" @tap="setEventWindowMinutes(60)">
+							<text class="event-window-button-text">{{ t("近1小时") }}</text>
+						</view>
+						<view class="event-window-button" @tap="setEventWindowMinutes(360)">
+							<text class="event-window-button-text">{{ t("近6小时") }}</text>
+						</view>
+						<view class="event-window-button" @tap="setEventWindowMinutes(1440)">
+							<text class="event-window-button-text">{{ t("近24小时") }}</text>
+						</view>
+					</view>
 					<view class="mb-3">
 						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
 							{{ t("类型") }}
@@ -602,25 +638,24 @@
 					</view>
 					<view class="mb-3">
 						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("起始时戳 (秒)") }}
+							{{ t("事件时间范围") }}
 							<cl-text color="error">*</cl-text>
 						</cl-text>
-						<cl-input
-							v-model="formStartSec"
-							type="number"
-							:placeholder="t('默认 1 小时前')"
-						></cl-input>
-					</view>
-					<view class="mb-3">
-						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("结束时戳 (秒)") }}
-							<cl-text color="error">*</cl-text>
-						</cl-text>
-						<cl-input
-							v-model="formEndSec"
-							type="number"
-							:placeholder="t('默认当前时间')"
-						></cl-input>
+						<cl-select-date
+							v-model:values="formEventRange"
+							type="second"
+							rangeable
+							:show-shortcuts="false"
+							value-format="YYYY-MM-DD HH:mm:ss"
+							label-format="YYYY-MM-DD HH:mm:ss"
+							:start-placeholder="t('开始时间')"
+							:end-placeholder="t('结束时间')"
+						></cl-select-date>
+						<view class="event-window-preview">
+							<text class="event-window-preview-text">
+								{{ eventWindowPreviewText }}
+							</text>
+						</view>
 					</view>
 					<view class="mb-3">
 						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
@@ -782,7 +817,9 @@ import {
 	DEVICE_NUMBER_MAX_LEN,
 	DOC_EXAMPLES_BY_T,
 	LOG_EVENT_NAMES,
+	LOG_EVENT_TYPE,
 	PPG_POSITION_OPTIONS,
+	dayUts,
 	t,
 	useStore
 } from "@/.cool";
@@ -811,6 +848,8 @@ type RtText = {
 	activity: string;
 	status: string;
 	bhr: string;
+	steps: string;
+	calories: string;
 	utc: string;
 	receivedAt: string;
 };
@@ -838,6 +877,8 @@ const databasePopupVisible = ref(false);
 const manualRawHex = ref("");
 const testMode = deviceStore.testMode;
 const testModeChanging = ref<boolean>(false);
+const autoRestoreBroadcastAfterGattTask = ref<boolean>(true);
+const restoringBroadcastAfterGattTask = ref<boolean>(false);
 const protocolLogs = computed<ProtocolLogItem[]>((): ProtocolLogItem[] => {
 	if (protocolLogVisible.value == false) return [];
 	return deviceStore.protocolLogs.value.slice();
@@ -941,6 +982,8 @@ const rtText = computed<RtText>(() => {
 			activity: "-",
 			status: "-",
 			bhr: "-",
+			steps: "-",
+			calories: "-",
 			utc: "-",
 			receivedAt: "-"
 		};
@@ -957,6 +1000,8 @@ const rtText = computed<RtText>(() => {
 		activity: `${r.activity} ${r.activityLabel}`,
 		status: `0x${toByteHex(r.status)} bit7=${r.statusReserved}`,
 		bhr: r.bhrValid ? r.bhr.toString() : `${r.bhr}(${t("无效")})`,
+		steps: r.stepsEveryday.toString(),
+		calories: r.calorieKcal.toFixed(1),
 		utc: r.utc > 0 ? new Date(r.utc * 1000).toLocaleString() : "0",
 		receivedAt: new Date(r.receivedAt).toLocaleTimeString()
 	};
@@ -979,7 +1024,7 @@ const advText = computed<AdvText>(() => {
 	const r = deviceStore.realtime.value;
 	let parsed = "-";
 	if (r != null) {
-		parsed = `utc=${r.utc} ${rtText.value.utc} received=${rtText.value.receivedAt} status=0x${toByteHex(r.status)} bit7=${r.statusReserved} ppg=${r.ppgAttached} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr} valid=${r.hrValid} ppi=${r.ppi} valid=${r.ppiValid} hrv=${r.hrvMs}ms spo2=${r.spo2Pct.toFixed(1)} valid=${r.spo2Valid} bhr=${r.bhr} valid=${r.bhrValid} voltage=${r.voltageMv}mV/${r.voltageV.toFixed(3)}V`;
+		parsed = `utc=${r.utc} ${rtText.value.utc} received=${rtText.value.receivedAt} status=0x${toByteHex(r.status)} bit7=${r.statusReserved} ppg=${r.ppgAttached} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr} valid=${r.hrValid} ppi=${r.ppi} valid=${r.ppiValid} hrv=${r.hrvMs}ms spo2=${r.spo2Pct.toFixed(1)} valid=${r.spo2Valid} bhr=${r.bhr} valid=${r.bhrValid} steps=${r.stepsEveryday} calories=${r.calorieKcal.toFixed(1)}kcal voltage=${r.voltageMv}mV/${r.voltageV.toFixed(3)}V`;
 	}
 	return {
 		seq: d.seq.toString(),
@@ -1049,10 +1094,24 @@ function beginCommand(cmd: string): boolean {
 }
 
 async function restoreBroadcastAfterGattTask(): Promise<void> {
+	if (autoRestoreBroadcastAfterGattTask.value == false) return;
 	if (testMode.value != "connect") return;
 	if (deviceStore.boundDeviceId == "") return;
-	await deviceStore.connection.disconnectForBroadcastMode();
-	testMode.value = "broadcast";
+	if (restoringBroadcastAfterGattTask.value == true) return;
+	restoringBroadcastAfterGattTask.value = true;
+	try {
+		await new Promise<void>((resolve) => {
+			setTimeout(() => {
+				resolve();
+			}, 350);
+		});
+		await deviceStore.connection.disconnectForBroadcastMode();
+		testMode.value = "broadcast";
+	} catch (e) {
+		console.warn("[TEST] GATT 命令结束后恢复广播模式失败:", e);
+	} finally {
+		restoringBroadcastAfterGattTask.value = false;
+	}
 }
 
 function endCommand(cmd: string): void {
@@ -1158,17 +1217,11 @@ async function switchToBroadcastMode(): Promise<void> {
 	vitalAutoReading.value = false;
 	eventAutoReading.value = false;
 	await deviceStore.connection.disconnectForBroadcastMode();
-	const ok = await deviceStore.broadcast.startBoundBroadcastScan();
-	if (ok == false) {
-		ui.showToast({ message: t("广播扫描启动失败"), type: "error" });
-		return;
-	}
 	testMode.value = "broadcast";
 	ui.showToast({ message: t("已进入广播模式"), type: "success" });
 }
 
 async function switchToConnectMode(): Promise<void> {
-	await deviceStore.broadcast.stopBoundBroadcastScan();
 	const boundId = deviceStore.boundDeviceId;
 	if (boundId == "") {
 		testMode.value = "connect";
@@ -1180,9 +1233,12 @@ async function switchToConnectMode(): Promise<void> {
 		ui.showToast({ message: t("已进入连接模式"), type: "success" });
 		return;
 	}
-	deviceStore.status.value = "SEARCHING";
-	deviceStore.connection.startBluetoothSearch("reconnect");
-	ui.showToast({ message: t("正在搜索并连接设备..."), type: "warn" });
+	const ok = await deviceStore.connection.connectBoundDeviceForGatt();
+	if (ok == true) {
+		ui.showToast({ message: t("已进入连接模式"), type: "success" });
+	} else {
+		ui.showToast({ message: t("直连失败，正在搜索并连接设备..."), type: "warn" });
+	}
 }
 
 async function switchTestMode(mode: "connect" | "broadcast"): Promise<void> {
@@ -1226,6 +1282,7 @@ const formTitle = computed<string>(() => {
 const formDeviceNumber = ref<string>("");
 const formStartSec = ref<string>("0");
 const formEndSec = ref<string>("0");
+const formEventRange = ref<string[]>([]);
 const formMaxCount = ref<string>("10");
 const formDirection = ref<number>(0);
 const formMinutes = ref<number>(2);
@@ -1250,11 +1307,8 @@ const minutesOptions: ClSelectOption[] = [
 	{ label: t("5 分钟"), value: 5 }
 ];
 
-/** 事件类型选项（0=ALL 1=BY_TIME） */
-const eventTypeOptions: ClSelectOption[] = [
-	{ label: t("全部 (0)"), value: 0 },
-	{ label: t("按时间 (1)"), value: 1 }
-];
+/** 事件查询类型：文档 1.4.4.10 示例固定 Byte1=1，按时间窗口读取全部事件类型 */
+const eventTypeOptions: ClSelectOption[] = [{ label: t("按时间读取全部事件 (1)"), value: 1 }];
 
 /** 性别选项（0=男 1=女） */
 const genderOptions: ClSelectOption[] = [
@@ -1290,6 +1344,50 @@ function resetVitalFormToCurrentWindow(): void {
 	console.log(`[BOOM-TEST] 打开 0x3A 表单，刷新默认时间: nowSec=${now}, startSec=${startSec}`);
 }
 
+function formatEventWindowTime(sec: number): string {
+	return new Date(sec * 1000).toLocaleString();
+}
+
+function formatEventPickerTime(sec: number): string {
+	return dayUts(new Date(sec * 1000)).format("YYYY-MM-DD HH:mm:ss");
+}
+
+function syncEventWindowSec(startSec: number, endSec: number): void {
+	formStartSec.value = startSec.toString();
+	formEndSec.value = endSec.toString();
+	formEventRange.value = [formatEventPickerTime(startSec), formatEventPickerTime(endSec)];
+}
+
+function setEventWindowMinutes(minutes: number): void {
+	const now = getNowSec();
+	const start = now - minutes * 60;
+	syncEventWindowSec(start, now);
+}
+
+function parseEventPickerSec(value: string): number {
+	if (value == "") return 0;
+	const ms = dayUts(value).valueOf();
+	if (Number.isNaN(ms)) return 0;
+	return Math.floor(ms / 1000);
+}
+
+const eventWindowPreviewText = computed<string>(() => {
+	let startSec = parseInt(formStartSec.value, 10);
+	let endSec = parseInt(formEndSec.value, 10);
+	if (formEventRange.value.length >= 2) {
+		const pickedStart = parseEventPickerSec(formEventRange.value[0]);
+		const pickedEnd = parseEventPickerSec(formEventRange.value[1]);
+		if (pickedStart > 0 && pickedEnd > 0) {
+			startSec = pickedStart;
+			endSec = pickedEnd;
+		}
+	}
+	if (Number.isNaN(startSec) || Number.isNaN(endSec) || startSec <= 0 || endSec <= 0) {
+		return `${t("协议秒")}: -`;
+	}
+	return `${t("协议秒")}: ${startSec} ~ ${endSec}`;
+});
+
 /** 打开子弹窗并重置默认值 */
 function openForm(cmd: "0x31" | "0x35" | "0x3A" | "0x3C"): void {
 	switch (cmd) {
@@ -1309,9 +1407,8 @@ function openForm(cmd: "0x31" | "0x35" | "0x3A" | "0x3C"): void {
 			break;
 		case "0x3C": {
 			const now = getNowSec();
-			formType.value = 0;
-			formStartSec.value = (now - 3600).toString();
-			formEndSec.value = now.toString();
+			formType.value = 1;
+			syncEventWindowSec(now - 3600, now);
 			formMaxCount.value = "10";
 			break;
 		}
@@ -1454,8 +1551,18 @@ async function submitForm(): Promise<void> {
 				break;
 			}
 			case "0x3C": {
-				const startSec = parseInt(formStartSec.value, 10);
-				const endSec = parseInt(formEndSec.value, 10);
+				let startSec = parseInt(formStartSec.value, 10);
+				let endSec = parseInt(formEndSec.value, 10);
+				if (formEventRange.value.length >= 2) {
+					const pickedStart = parseEventPickerSec(formEventRange.value[0]);
+					const pickedEnd = parseEventPickerSec(formEventRange.value[1]);
+					if (pickedStart > 0 && pickedEnd > 0) {
+						startSec = pickedStart;
+						endSec = pickedEnd;
+						formStartSec.value = startSec.toString();
+						formEndSec.value = endSec.toString();
+					}
+				}
 				if (
 					Number.isNaN(startSec) ||
 					startSec <= 0 ||
@@ -1473,7 +1580,10 @@ async function submitForm(): Promise<void> {
 				const finalMaxCount = Number.isNaN(maxCount) || maxCount <= 0 ? 10 : maxCount;
 				eventAutoReading.value = true;
 				eventAutoDetail.value = "-";
-				setCommandResponse("EVENT", t("0x3C 已开始，自动续读中"));
+				setCommandResponse(
+					"EVENT",
+					`${t("0x3C 已开始")} ${formatEventWindowTime(startSec)} ~ ${formatEventWindowTime(endSec)}`
+				);
 				closeForm();
 				const result = await deviceStore.history.readEventDataAuto({
 					type: formType.value,
@@ -1741,6 +1851,70 @@ function formatEventParsed(value: UTSJSONObject): string {
 	return text;
 }
 
+function getJsonNumber(value: UTSJSONObject, key: string): number {
+	const raw = value[key];
+	if (raw == null) return 0;
+	return raw as number;
+}
+
+function getJsonString(value: UTSJSONObject, key: string): string {
+	const raw = value[key];
+	if (raw == null) return "";
+	return raw as string;
+}
+
+function formatDurationSeconds(sec: number): string {
+	if (sec <= 0) return "0s";
+	const h = Math.floor(sec / 3600);
+	const m = Math.floor((sec % 3600) / 60);
+	const s = sec % 60;
+	if (h > 0) return `${h}h${m}m${s}s`;
+	if (m > 0) return `${m}m${s}s`;
+	return `${s}s`;
+}
+
+function formatEventParsedByType(eventType: number, parsed: UTSJSONObject): string {
+	if (
+		eventType == LOG_EVENT_TYPE.Text ||
+		eventType == LOG_EVENT_TYPE.RemoteCmd ||
+		eventType == LOG_EVENT_TYPE.SetDeviceSn
+	) {
+		return `text="${getJsonString(parsed, "text")}"`;
+	}
+	if (eventType == LOG_EVENT_TYPE.Reset) {
+		return `reason=${getJsonNumber(parsed, "value")}`;
+	}
+	if (eventType == LOG_EVENT_TYPE.SetTime) {
+		const oldSec = getJsonNumber(parsed, "oldSec");
+		const newSec = getJsonNumber(parsed, "newSec");
+		return `old=${oldSec} ${new Date(oldSec * 1000).toLocaleString()} -> new=${newSec} ${new Date(newSec * 1000).toLocaleString()}`;
+	}
+	if (eventType == LOG_EVENT_TYPE.FormatDS || eventType == LOG_EVENT_TYPE.SflashErase) {
+		return `address=${getJsonNumber(parsed, "address")}`;
+	}
+	if (eventType == LOG_EVENT_TYPE.Wear) {
+		const before = getJsonNumber(parsed, "before");
+		const after = getJsonNumber(parsed, "after");
+		return `wear ${before == 1 ? t("佩戴") : t("未佩戴")} -> ${after == 1 ? t("佩戴") : t("未佩戴")}`;
+	}
+	if (eventType == LOG_EVENT_TYPE.SleepResult) {
+		const onset = getJsonNumber(parsed, "sleepOnsetSec");
+		const awake = getJsonNumber(parsed, "awakeSec");
+		const light = getJsonNumber(parsed, "lightSleepSec");
+		const deep = getJsonNumber(parsed, "deepSleepSec");
+		const other = getJsonNumber(parsed, "otherSleepSec");
+		const restHr = getJsonNumber(parsed, "restHr");
+		return `sleep onset=${onset} awake=${awake} light=${formatDurationSeconds(light)} deep=${formatDurationSeconds(deep)} other=${formatDurationSeconds(other)} restHr=${restHr}`;
+	}
+	if (eventType == LOG_EVENT_TYPE.Sedentary) {
+		return `threshold=${formatDurationSeconds(getJsonNumber(parsed, "thresholdSec"))}`;
+	}
+	if (eventType == LOG_EVENT_TYPE.SetBiometricInfo) {
+		return `gender=${getJsonNumber(parsed, "gender")} weight=${(getJsonNumber(parsed, "weight") / 100).toFixed(1)}kg height=${(getJsonNumber(parsed, "height") / 100).toFixed(1)}cm age=${getJsonNumber(parsed, "age")} ppg=${getJsonNumber(parsed, "ppgPosition")} bhr=${getJsonNumber(parsed, "bhr")}`;
+	}
+	return formatEventParsed(parsed);
+}
+
 const vitalText = computed<VitalText>(() => {
 	const r = deviceStore.history.vitalDataResponse.value;
 	if (r == null) {
@@ -1826,7 +2000,7 @@ const eventText = computed<EventText>(() => {
 		.slice(0, 10)
 		.map((it) => {
 			const typeName = LOG_EVENT_NAMES[it.eventType] ?? "?";
-			return `sn=${it.header.sn} global=${it.header.globalSn} ts=${it.ts} ${new Date(it.ts * 1000).toLocaleString()} tick=${it.tick} type=${it.eventType}(${typeName}) len=${it.dataLen} data=${it.eventDataHex} parsed=${formatEventParsed(it.parsedEvent)}`;
+			return `sn=${it.header.sn} global=${it.header.globalSn} ts=${it.ts} ${new Date(it.ts * 1000).toLocaleString()} tick=${it.tick} type=${it.eventType}(${typeName}) len=${it.dataLen} data=${it.eventDataHex} parsed=${formatEventParsedByType(it.eventType, it.parsedEvent)}`;
 		})
 		.join("\n");
 	return { summary, header, count, items };
@@ -1898,6 +2072,37 @@ function testClearError(): void {
 	padding: 4px;
 	border-radius: 8px;
 	background-color: rgba(0, 0, 0, 0.18);
+}
+
+.auto-restore-row {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 10px 8px;
+	border-radius: 8px;
+	background-color: rgba(255, 255, 255, 0.04);
+}
+
+.auto-restore-copy {
+	flex: 1;
+	min-width: 0;
+}
+
+.auto-restore-title {
+	display: block;
+	color: #ffffff;
+	font-size: 13px;
+	font-weight: 700;
+	line-height: 18px;
+}
+
+.auto-restore-desc {
+	display: block;
+	color: #9ca3af;
+	font-size: 11px;
+	line-height: 16px;
 }
 
 .segment-option {
@@ -1991,6 +2196,43 @@ function testClearError(): void {
 	border-radius: 8px;
 	background-color: rgba(0, 0, 0, 0.18);
 	border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.event-window-shortcuts {
+	display: flex;
+	flex-direction: row;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.event-window-button {
+	width: calc(50% - 4px);
+	min-height: 34px;
+	border-radius: 8px;
+	background-color: rgba(255, 255, 255, 0.06);
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.event-window-button-text {
+	color: #ffffff;
+	font-size: 12px;
+	line-height: 16px;
+}
+
+.event-window-preview {
+	margin-top: 8px;
+	padding: 8px;
+	border-radius: 8px;
+	background-color: rgba(0, 0, 0, 0.18);
+}
+
+.event-window-preview-text {
+	color: #9ca3af;
+	font-size: 11px;
+	line-height: 16px;
 }
 
 .debug-line {

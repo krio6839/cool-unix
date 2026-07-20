@@ -21,6 +21,7 @@ import {
 	serializeTimestamp,
 	serializeBiometric,
 	serializeVibration,
+	encodeU8,
 	serializeVitalDataQuery,
 	serializeVitalContinueQuery,
 	serializeEventDataQuery,
@@ -267,6 +268,11 @@ export class DeviceProtocol {
 			return Promise.resolve(false);
 		}
 		return this.sendTlvc(BOOM_CMD.CONTROL_VIBRATION, serializeVibration(spec));
+	}
+
+	/** 0x41 控制设备：0=重启，1=解绑并清除设备数据 */
+	controlDevice(code: number): Promise<boolean> {
+		return this.sendTlvc(BOOM_CMD.CONTROL_DEVICE, encodeU8(code));
 	}
 
 	/* ===== 0x3A/0x3B 历史生命体征（1.4.4.8/1.4.4.9） ===== */

@@ -142,14 +142,14 @@
 </template>
 
 <script lang="ts" setup>
-import { isMp, dayUts, useStore } from "@/.cool";
+import { bluetoothDataManager, isMp, dayUts, useStore } from "@/.cool";
 import type { HealthItem, TimeValuePair, DateValuePair, ZoneItem } from "@/.cool";
 import { ref, computed, onMounted, watch } from "vue";
 import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
 import Chart from "./components/chart.uvue";
 
-const { device, load } = useStore();
+const { device, load, realtime } = useStore();
 const currentDate = ref<string>(dayUts().format("YYYY-MM-DD"));
 const loadTrendDays = ref<string>("7d");
 const sportLoadDays = ref<string>("7d");
@@ -208,13 +208,24 @@ function onSleepPressureDaysChange(days: string) {
 }
 
 const loadStatusItems = computed((): HealthItem[] => {
+	const realtimeValues = realtime.healthCardValues.value;
+	const restingHeartRate =
+		realtimeValues.restingHeartRate == null ? "-" : realtimeValues.restingHeartRate.toString();
+	const steps = realtime.steps.value == null ? "-" : realtime.steps.value.toString();
+	const calories = realtime.calories.value == null ? "-" : realtime.calories.value.toFixed(1);
 	return [
 		{ label: "平均负荷", value: `${load.avgLoad.value}` },
-		{ label: "静息心率", value: `${load.restingHeartRate.value}` },
-		{ label: "步数", value: `${load.steps.value}` },
-		{ label: "卡路里", value: `${load.calories.value}` }
+		{ label: "静息心率", value: restingHeartRate },
+		{ label: "步数", value: steps },
+		{ label: "卡路里", value: calories }
 	];
 });
+
+async function refreshRealtimeFromDb(): Promise<void> {
+	const record = await bluetoothDataManager.getLatestRealtimeBroadcastRecord();
+	if (record == null) return;
+	realtime.setBroadcastRecord(record);
+}
 
 const loadZoneItems = computed((): ZoneItem[] => {
 	const z = load.loadZones.value;
@@ -636,6 +647,7 @@ watch(
 );
 
 onMounted(() => {
+	refreshRealtimeFromDb();
 	fetchLoadStatus();
 	fetchLoadTrend(loadTrendDays.value);
 	fetchSportLoad(sportLoadDays.value);

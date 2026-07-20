@@ -39,7 +39,7 @@
 			</view>
 
 			<view class="messages-container">
-				<block v-for="(msg, index) in messages" :key="index">
+				<view v-for="(msg, index) in messages" :key="index">
 					<!-- AI 消息 -->
 					<view v-if="msg.role === 'ai'" class="message-row ai">
 						<cl-svg src="/static/icon/coach/bot.svg" class="ai-avatar"></cl-svg>
@@ -59,7 +59,7 @@
 							<text class="message-text">{{ msg.content }}</text>
 						</view>
 					</view>
-				</block>
+				</view>
 			</view>
 		</scroll-view>
 
@@ -195,7 +195,6 @@ onMounted(() => {});
 .boom-coach-container {
 	height: 100%;
 	background-color: #000;
-	color: #fff;
 	display: flex;
 	flex-direction: column;
 }
@@ -204,7 +203,7 @@ onMounted(() => {});
 .chat-area {
 	flex: 1;
 	padding: 20rpx;
-		overflow: visible;
+	overflow: visible;
 
 	.greeting-section {
 		text-align: center;

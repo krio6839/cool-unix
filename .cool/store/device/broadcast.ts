@@ -1,6 +1,6 @@
 import { bluetoothDataManager, parseCustomAdvData, toRealtimeBroadcast } from "../../bluetooth";
 import type { RealtimeBroadcast } from "../../bluetooth";
-import { home } from "../home";
+import { realtime } from "../realtime";
 import { TARGET_DEVICE_NAME_PREFIX } from "./types";
 import type { Device } from "./index";
 import type { BroadcastDebugInfo } from "./index";
@@ -196,12 +196,21 @@ export class DeviceBroadcast {
 			r.ppi,
 			Math.round(r.spo2Pct * 10),
 			r.bhr,
+			r.stepsEveryday,
+			r.calorieEveryday,
 			rawHex,
 			vHex,
 			d.deviceId
 		);
 		if (ok == true) {
-			home.setRealtimeHealthCardValues(r.hr, r.bhr, Math.round(r.spo2Pct * 10), r.ppi);
+			realtime.setBroadcastValues(
+				r.hr,
+				r.bhr,
+				Math.round(r.spo2Pct * 10),
+				r.ppi,
+				r.stepsEveryday,
+				r.calorieEveryday
+			);
 			await this.storeBroadcastPpiData(r);
 		}
 	}
@@ -233,7 +242,7 @@ export class DeviceBroadcast {
 		if (diff < 0) diff = 0 - diff;
 		const name = d.name ?? d.localName ?? "";
 		const rssi = d.RSSI ?? 0;
-		const summary = `phone=${nowSec} utc=${r.utc} diff=${diff}s status=0x${this.byteToHex(r.status)} bit7=${r.statusReserved} ppg=${r.ppgAttached ? "attached" : "detached"} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr}${r.hrValid ? "" : "!"} ppi=${r.ppi}${r.ppiValid ? "" : "!"} hrv=${r.hrvMs}ms spo2=${r.spo2Pct.toFixed(1)}${r.spo2Valid ? "" : "!"} bhr=${r.bhr}${r.bhrValid ? "" : "!"} v=${r.voltageMv}mV/${r.voltageV.toFixed(3)}V`;
+		const summary = `phone=${nowSec} utc=${r.utc} diff=${diff}s status=0x${this.byteToHex(r.status)} bit7=${r.statusReserved} ppg=${r.ppgAttached ? "attached" : "detached"} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr}${r.hrValid ? "" : "!"} ppi=${r.ppi}${r.ppiValid ? "" : "!"} hrv=${r.hrvMs}ms spo2=${r.spo2Pct.toFixed(1)}${r.spo2Valid ? "" : "!"} bhr=${r.bhr}${r.bhrValid ? "" : "!"} steps=${r.stepsEveryday} kcal=${r.calorieKcal.toFixed(1)} v=${r.voltageMv}mV/${r.voltageV.toFixed(3)}V`;
 		const info: BroadcastDebugInfo = {
 			seq: this.broadcastSeq,
 			deviceId: d.deviceId,
@@ -264,12 +273,12 @@ export class DeviceBroadcast {
 	}
 
 	private extractCustomAdvVHex(hex: string): string {
-		if (hex.length == 26) return hex;
-		if (hex.length >= 34 && hex.substring(0, 8).toLowerCase() == "50000d00") {
-			return hex.substring(8, 34);
+		if (hex.length == 42) return hex;
+		if (hex.length >= 50 && hex.substring(0, 8).toLowerCase() == "50001500") {
+			return hex.substring(8, 50);
 		}
-		if (hex.length > 26) {
-			return hex.substring(hex.length - 26);
+		if (hex.length > 42) {
+			return hex.substring(hex.length - 42);
 		}
 		return "";
 	}
