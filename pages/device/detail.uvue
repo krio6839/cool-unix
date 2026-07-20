@@ -113,8 +113,8 @@ const currentWearLocationLabel = computed((): string => {
 
 const deviceNameText = computed((): string => {
 	deviceStore.stateVersion.value;
-	if (deviceStore.currentDeviceName != "") return deviceStore.currentDeviceName;
-	if (deviceStore.currentDeviceId != "") return "BOOM";
+	const name = deviceStore.getDisplayDeviceName();
+	if (name != "") return name;
 	return "—";
 });
 
@@ -129,6 +129,8 @@ const deviceIdText = computed((): string => {
 const statusText = computed((): string => {
 	const s = deviceStore.status.value;
 	if (s == "CONNECTED") return t("已连接");
+	const debug = deviceStore.broadcastDebug.value;
+	if (debug != null && Date.now() - debug.receivedAt <= 65000) return t("广播中");
 	if (s == "PAIRING" || s == "SEARCHING") return t("搜索中");
 	return t("未配对");
 });

@@ -50,14 +50,14 @@
 				<view
 					class="h-8 w-8 rounded-full border border-solid flex flex-row items-center justify-center mr-3"
 					:class="{
-						'border-white opacity-60': device.status.value === 'CONNECTED',
-						'border-[#FF5C5C] opacity-100': device.status.value !== 'CONNECTED'
+						'border-white opacity-60': deviceOnline,
+						'border-[#FF5C5C] opacity-100': deviceOnline == false
 					}"
 					@tap="goToDevice"
 				>
 					<cl-icon
-						:name="device.status.value === 'CONNECTED' ? 'link' : 'forbid-line'"
-						:color="device.status.value === 'CONNECTED' ? 'white' : '#FF5C5C'"
+						:name="deviceOnline ? 'link' : 'forbid-line'"
+						:color="deviceOnline ? 'white' : '#FF5C5C'"
 						:size="16"
 					></cl-icon>
 				</view>
@@ -142,7 +142,7 @@
 
 <script lang="ts" setup>
 import { isMp, dayUts, router, useStore } from "@/.cool";
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import CustomTabbar from "./components/tabbar.uvue";
 import EnergyRing from "./components/energy-ring.uvue";
 import HealthCard from "./components/health-card.uvue";
@@ -153,6 +153,17 @@ const { user, device, home } = useStore();
 const currentDate = ref<string>("");
 let refreshTimer: number = 0;
 const REFRESH_INTERVAL = 30 * 1000;
+const BROADCAST_ONLINE_WINDOW_MS = 65 * 1000;
+const onlineTick = ref<number>(Date.now());
+
+const deviceOnline = computed<boolean>(() => {
+	onlineTick.value;
+	device.stateVersion.value;
+	if (device.status.value == "CONNECTED") return true;
+	const debug = device.broadcastDebug.value;
+	if (debug == null) return false;
+	return Date.now() - debug.receivedAt <= BROADCAST_ONLINE_WINDOW_MS;
+});
 
 // 格式化当前日期
 function formatDate() {
@@ -169,10 +180,12 @@ function stopRefreshTimer() {
 
 function startRefreshTimer() {
 	stopRefreshTimer();
-	home.fetch(device.currentDeviceId);
+	onlineTick.value = Date.now();
+	home.fetch(device.boundDeviceId);
 	// @ts-ignore
 	refreshTimer = setInterval(() => {
-		home.fetch(device.currentDeviceId);
+		onlineTick.value = Date.now();
+		home.fetch(device.boundDeviceId);
 	}, REFRESH_INTERVAL);
 }
 

@@ -66,8 +66,7 @@ export class DeviceBroadcast {
 			console.warn("[BOOM-ADV] 未绑定设备，无法启动绑定设备广播扫描");
 			return false;
 		}
-		const deviceName =
-			this.device.currentDeviceName == "" ? "BOOM" : this.device.currentDeviceName;
+		const deviceName = this.device.getDisplayDeviceName();
 		bluetoothDataManager.setDeviceInfo(deviceName, this.device.boundDeviceId);
 		this.isScanning = true;
 		this.boundBroadcastScanning = true;
@@ -123,6 +122,11 @@ export class DeviceBroadcast {
 		//#ifndef H5
 		if (this.device.boundDeviceId == "") return;
 		if (d.deviceId != this.device.boundDeviceId) return;
+		const name = d.name ?? d.localName ?? "";
+		this.device.saveBoundDeviceName(name);
+		if (name != "") {
+			bluetoothDataManager.setDeviceInfo(name, this.device.boundDeviceId);
+		}
 		const now = Date.now();
 		if (now - this.lastBoundBroadcastHandledAt < BOUND_BROADCAST_MIN_INTERVAL_MS) return;
 		this.lastBoundBroadcastHandledAt = now;

@@ -165,11 +165,15 @@ export class DeviceConnection {
 	/** 标记已连接：刷新状态 + 持久化绑定 */
 	private async _markConnected(deviceId: string, deviceName: string): Promise<void> {
 		await this.stopBluetoothSearch();
-		const displayName = deviceName == "" ? "BOOM" : deviceName;
+		const boundName = this.device.boundDeviceName;
+		let displayName = deviceName == "" ? boundName : deviceName;
+		if (displayName == "") {
+			displayName = deviceId;
+		}
 		this.device.currentDeviceId = deviceId;
 		this.device.currentDeviceName = displayName;
 		this.device.status.value = "CONNECTED";
-		this.device.saveBoundDevice(deviceId);
+		this.device.saveBoundDevice(deviceId, displayName);
 		bluetoothDataManager.setDeviceInfo(displayName, deviceId);
 		this.device.touchState();
 	}
@@ -262,6 +266,7 @@ export class DeviceConnection {
 		console.log("[SCAN] 当前 BOOM 设备列表长度:", this.device.devices.length);
 
 		if (this._scanMode == "reconnect" && found.deviceId == this.device.boundDeviceId) {
+			this.device.saveBoundDeviceName(name);
 			this._connectFoundBoundDevice(found.deviceId, name);
 		}
 	}
@@ -423,7 +428,7 @@ export class DeviceConnection {
 		console.log("[BOOM] 连接模式直连绑定设备:", boundId);
 		const ok = await connect(boundId, DeviceConnection.DIRECT_CONNECT_TIMEOUT_MS);
 		if (ok == true) {
-			await this._markConnected(boundId, this.device.currentDeviceName);
+			await this._markConnected(boundId, this.device.getDisplayDeviceName());
 			if (this.device.isDeviceInitialized == false) {
 				await this._initializeConnectedDevice(boundId);
 			}
@@ -462,9 +467,9 @@ export class DeviceConnection {
 			if (this.device.currentDeviceId != deviceId) {
 				this.device.currentDeviceId = deviceId;
 				if (this.device.currentDeviceName == "") {
-					this.device.currentDeviceName = "BOOM";
+					this.device.currentDeviceName = this.device.getDisplayDeviceName();
 				}
-				this.device.saveBoundDevice(deviceId);
+				this.device.saveBoundDevice(deviceId, this.device.currentDeviceName);
 				bluetoothDataManager.setDeviceInfo(this.device.currentDeviceName, deviceId);
 				this.device.touchState();
 			}

@@ -30,6 +30,7 @@ import {
 	DeviceStatusEnum,
 	KEY_WEAR_LOCATION,
 	KEY_BOUND_DEVICE_ID,
+	KEY_BOUND_DEVICE_NAME,
 	DEFAULT_WEAR_LOCATION,
 	normalizeWearLocation
 } from "./types";
@@ -96,6 +97,7 @@ export class Device {
 
 	/* ===== 设备信息 ===== */
 	currentDeviceName: string = "";
+	boundDeviceName: string = "";
 	//#ifndef H5
 	devices: DeviceInfo[] = [];
 	currentDeviceId: string = "";
@@ -172,6 +174,10 @@ export class Device {
 		if (this.boundDeviceId == "" && id != null && id != "") {
 			this.boundDeviceId = id;
 		}
+		const name = storage.get(KEY_BOUND_DEVICE_NAME) as string | null;
+		if (this.boundDeviceName == "" && name != null && name != "") {
+			this.boundDeviceName = name;
+		}
 	}
 
 	/** 保存佩戴位置 */
@@ -183,16 +189,30 @@ export class Device {
 	}
 
 	/** 持久化绑定设备 ID */
-	saveBoundDevice(deviceId: string): void {
+	saveBoundDevice(deviceId: string, deviceName: string = ""): void {
 		this.boundDeviceId = deviceId;
+		if (deviceName != "") {
+			this.boundDeviceName = deviceName;
+			storage.set(KEY_BOUND_DEVICE_NAME, deviceName, 0);
+		}
 		storage.set(KEY_BOUND_DEVICE_ID, deviceId, 0);
+		this.touchState();
+	}
+
+	saveBoundDeviceName(deviceName: string): void {
+		if (deviceName == "") return;
+		if (this.boundDeviceName == deviceName) return;
+		this.boundDeviceName = deviceName;
+		storage.set(KEY_BOUND_DEVICE_NAME, deviceName, 0);
 		this.touchState();
 	}
 
 	/** 清除绑定设备 ID */
 	clearBoundDevice(): void {
 		this.boundDeviceId = "";
+		this.boundDeviceName = "";
 		storage.remove(KEY_BOUND_DEVICE_ID);
+		storage.remove(KEY_BOUND_DEVICE_NAME);
 		this.touchState();
 	}
 
@@ -211,6 +231,13 @@ export class Device {
 	/** 是否已配对（currentDeviceId 非空） */
 	getPaired(): boolean {
 		return this.currentDeviceId != "";
+	}
+
+	getDisplayDeviceName(): string {
+		if (this.currentDeviceName != "") return this.currentDeviceName;
+		if (this.boundDeviceName != "") return this.boundDeviceName;
+		if (this.boundDeviceId != "") return this.boundDeviceId;
+		return "";
 	}
 
 	/** 清除错误信息 */
@@ -309,7 +336,7 @@ export class Device {
 		//#ifndef H5
 		this.connection._resetConnectionState();
 		//#endif
-		this.boundDeviceId = "";
+		this.clearBoundDevice();
 		this.realtime.value = null;
 		this.errorMessage.value = "";
 	}
@@ -365,7 +392,7 @@ export class Device {
 		await this.broadcast.stopBoundBroadcastScan();
 		await this.broadcast.stopRealtimeScan();
 		if (this.currentDeviceId == "") {
-			await this.connection.connectToDevice(boundId, this.currentDeviceName);
+			await this.connection.connectToDevice(boundId, this.getDisplayDeviceName());
 		}
 		if (this.currentDeviceId == "") {
 			console.warn("[DEVICE] 解绑前连接设备失败，继续删除本地");
