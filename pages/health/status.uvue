@@ -53,7 +53,7 @@
 </template>
 
 <script lang="ts" setup>
-import { bluetoothDataManager, isMp, dayUts, useStore } from "@/.cool";
+import { isMp, dayUts, useStore } from "@/.cool";
 import type { TrendType, TimeValuePair, DateValuePair, HealthItem } from "@/.cool";
 import { ref, computed, onMounted, watch } from "vue";
 import Header from "./components/header.uvue";
@@ -107,12 +107,6 @@ const healthItems = computed((): HealthItem[] => {
 		}
 	];
 });
-
-async function refreshRealtimeFromDb(): Promise<void> {
-	const record = await bluetoothDataManager.getLatestRealtimeBroadcastRecord();
-	if (record == null) return;
-	realtime.setBroadcastRecord(record);
-}
 
 watch(
 	selectedDate,
@@ -350,9 +344,6 @@ function goBack() {
 	uni.navigateBack();
 }
 
-onMounted(() => {
-	refreshRealtimeFromDb();
-});
 </script>
 
 <style lang="scss" scoped></style>

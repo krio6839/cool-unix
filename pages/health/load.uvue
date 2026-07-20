@@ -142,7 +142,7 @@
 </template>
 
 <script lang="ts" setup>
-import { bluetoothDataManager, isMp, dayUts, useStore } from "@/.cool";
+import { isMp, dayUts, useStore } from "@/.cool";
 import type { HealthItem, TimeValuePair, DateValuePair, ZoneItem } from "@/.cool";
 import { ref, computed, onMounted, watch } from "vue";
 import Header from "./components/header.uvue";
@@ -220,12 +220,6 @@ const loadStatusItems = computed((): HealthItem[] => {
 		{ label: "卡路里", value: calories }
 	];
 });
-
-async function refreshRealtimeFromDb(): Promise<void> {
-	const record = await bluetoothDataManager.getLatestRealtimeBroadcastRecord();
-	if (record == null) return;
-	realtime.setBroadcastRecord(record);
-}
 
 const loadZoneItems = computed((): ZoneItem[] => {
 	const z = load.loadZones.value;
@@ -647,7 +641,6 @@ watch(
 );
 
 onMounted(() => {
-	refreshRealtimeFromDb();
 	fetchLoadStatus();
 	fetchLoadTrend(loadTrendDays.value);
 	fetchSportLoad(sportLoadDays.value);

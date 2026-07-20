@@ -11,6 +11,7 @@ import type {
 	EventDataHeaderResponse,
 	HeartRateRecord,
 	LogDataItem,
+	SleepData,
 	VitalDataPerSecond,
 	VitalDataQueryResponse
 } from "../../bluetooth";
@@ -60,6 +61,8 @@ export type EventAutoReadOptions = {
 	maxPages?: number;
 	pageDelayMs?: number;
 	timeoutMs?: number;
+	persistSleepData?: boolean;
+	uploadAfterSave?: boolean;
 	shouldStop?: () => boolean;
 	onProgress?: (progress: HistoryReadProgress) => void;
 	onHeader?: (header: EventDataHeaderResponse) => void;
@@ -74,6 +77,10 @@ export type EventAutoReadResult = {
 	items: LogDataItem[];
 	done: boolean;
 	stoppedByLimit: boolean;
+	savedSleepRecords: number;
+	saveOk: boolean;
+	uploadAttempted: boolean;
+	uploadOk: boolean;
 };
 
 const DEFAULT_TIMEOUT_MS = 8000;
@@ -168,35 +175,45 @@ export class DeviceHistoryReader {
 	 * - 0x3D: 多条 Log_Data_t 串联
 	 */
 	handleEventData(vHex: string, t: number): void {
-		// 文档表格把续读响应写成 0x3C，示例则是 0x3D；17B 头长度可用于兼容判断。
-		if (t == BOOM_CMD.READ_EVENT_DATA_START && vHex.length == 34) {
-			const header = parseEventDataHeader(vHex);
-			this.latestEventDataHeader = header;
-			this.eventDataHeaderSeqValue = this.eventDataHeaderSeqValue + 1;
-			if (this.displaySuspended == false) {
-				this.eventDataHeader.value = header;
-				this.eventDataHeaderSeq.value = this.eventDataHeaderSeqValue;
-			}
+		try {
 			console.log(
-				`[BOOM] 事件头: type=${header.type}, earliestSn=${header.earliestSn}, latestSn=${header.latestSn}`
+				`[BOOM] handleEventData enter: t=0x${t.toString(16)}, vBytes=${vHex.length / 2}`
 			);
-		} else {
-			const r = parseLogDataList(vHex, 2);
-			this.lastEventBatchCountValue = r.items.length;
-			this.eventDataListSeqValue = this.eventDataListSeqValue + 1;
-			if (r.items.length > 0) {
-				this.eventDataListRaw = this.eventDataListRaw.concat(r.items);
+			// 文档表格把续读响应写成 0x3C，示例则是 0x3D；17B 头长度可用于兼容判断。
+			if (t == BOOM_CMD.READ_EVENT_DATA_START && vHex.length == 34) {
+				const header = parseEventDataHeader(vHex);
+				this.latestEventDataHeader = header;
+				this.eventDataHeaderSeqValue = this.eventDataHeaderSeqValue + 1;
 				if (this.displaySuspended == false) {
-					this.eventDataList.value = this.eventDataListRaw.slice();
+					this.eventDataHeader.value = header;
+					this.eventDataHeaderSeq.value = this.eventDataHeaderSeqValue;
 				}
 				console.log(
-					`[BOOM] 事件追加: count=${r.items.length}, total=${this.eventDataListRaw.length}`
+					`[BOOM] 事件头: type=${header.type}, earliestSn=${header.earliestSn}, latestSn=${header.latestSn}`
 				);
+			} else {
+				const r = parseLogDataList(vHex, 2);
+				this.lastEventBatchCountValue = r.items.length;
+				this.eventDataListSeqValue = this.eventDataListSeqValue + 1;
+				console.log(
+					`[BOOM] 事件批次解析: t=0x${t.toString(16)}, vBytes=${vHex.length / 2}, count=${r.items.length}, nextOff=${r.nextOff}`
+				);
+				if (r.items.length > 0) {
+					this.eventDataListRaw = this.eventDataListRaw.concat(r.items);
+					if (this.displaySuspended == false) {
+						this.eventDataList.value = this.eventDataListRaw.slice();
+					}
+					console.log(
+						`[BOOM] 事件追加: count=${r.items.length}, total=${this.eventDataListRaw.length}`
+					);
+				}
+				if (this.displaySuspended == false) {
+					this.lastEventBatchCount.value = this.lastEventBatchCountValue;
+					this.eventDataListSeq.value = this.eventDataListSeqValue;
+				}
 			}
-			if (this.displaySuspended == false) {
-				this.lastEventBatchCount.value = this.lastEventBatchCountValue;
-				this.eventDataListSeq.value = this.eventDataListSeqValue;
-			}
+		} catch (e) {
+			console.error("[BOOM] 事件响应解析异常:", e);
 		}
 	}
 
@@ -358,6 +375,7 @@ export class DeviceHistoryReader {
 		if (options.onProgress != null) {
 			options.onProgress!({ phase: "0x3A", page, message: "start" });
 		}
+		this.device.event.resetDataIdentifierReassembler();
 		let beforeSeq = this.vitalDataResponseSeqValue;
 		let ok = await this.device.protocol.readVitalData({
 			startSec: options.startSec,
@@ -433,7 +451,23 @@ export class DeviceHistoryReader {
 		this.historyReadBusy = true;
 		this.setDisplaySuspended(true);
 		try {
-			return await this.readEventDataAutoInner(options);
+			const result = await this.readEventDataAutoInner(options);
+			if (options.persistSleepData == false) {
+				return result;
+			}
+			try {
+				const saved = await this.persistSleepResultsFromEvents(result.items);
+				result.savedSleepRecords = saved;
+				result.saveOk = true;
+				if (saved > 0 && options.uploadAfterSave != false) {
+					result.uploadAttempted = true;
+					result.uploadOk = await bluetoothDataManager.uploadSleepData();
+				}
+			} catch (e) {
+				result.saveOk = false;
+				console.error("[BOOM] 睡眠事件保存/上传异常:", e);
+			}
+			return result;
 		} finally {
 			this.setDisplaySuspended(false);
 			this.historyReadBusy = false;
@@ -459,6 +493,7 @@ export class DeviceHistoryReader {
 		if (options.onProgress != null) {
 			options.onProgress!({ phase: "0x3C", page, message: "start" });
 		}
+		this.device.event.resetDataIdentifierReassembler();
 		const beforeHeaderSeq = this.eventDataHeaderSeqValue;
 		let ok = await this.device.protocol.readEventData({
 			type: options.type,
@@ -487,6 +522,12 @@ export class DeviceHistoryReader {
 		}
 		if (options.onHeader != null) {
 			options.onHeader!(header);
+		}
+		if (header.earliestSn <= 0 || header.latestSn <= 0) {
+			if (options.onProgress != null) {
+				options.onProgress!({ phase: "done", page, message: "empty-header" });
+			}
+			return this.makeEventResult("DONE", "no event data", header, page, startListCount);
 		}
 
 		while (true) {
@@ -556,8 +597,9 @@ export class DeviceHistoryReader {
 			page++;
 			const list = this.eventDataListRaw;
 			const batch = list.slice(beforeListCount);
+			const filteredBatch = this.trimEventBatchToHeaderRange(header, beforeListCount, batch);
 			if (options.onBatch != null) {
-				options.onBatch!(batch, page);
+				options.onBatch!(filteredBatch, page);
 			}
 
 			if (options.shouldStop != null && options.shouldStop!() == true) {
@@ -570,7 +612,11 @@ export class DeviceHistoryReader {
 				);
 			}
 
-			if (batchCount <= 0 || batchCount < options.maxCount) {
+			if (
+				batchCount <= 0 ||
+				batchCount < options.maxCount ||
+				this.batchReachedEventLowerBound(header, batch) == true
+			) {
 				if (options.onProgress != null) {
 					options.onProgress!({ phase: "done", page, message: "no-more-data" });
 				}
@@ -687,7 +733,10 @@ export class DeviceHistoryReader {
 		pages: number,
 		startListCount: number
 	): EventAutoReadResult {
-		const items = this.eventDataListRaw.slice(startListCount);
+		let items = this.eventDataListRaw.slice(startListCount);
+		if (header != null) {
+			items = this.filterEventItemsByHeaderRange(items, header);
+		}
 		return {
 			status,
 			message,
@@ -695,8 +744,144 @@ export class DeviceHistoryReader {
 			pages,
 			items,
 			done: status == "DONE",
-			stoppedByLimit: status == "LIMIT"
+			stoppedByLimit: status == "LIMIT",
+			savedSleepRecords: 0,
+			saveOk: true,
+			uploadAttempted: false,
+			uploadOk: false
 		};
+	}
+
+	private async persistSleepResultsFromEvents(items: LogDataItem[]): Promise<number> {
+		let saved = 0;
+		const seen = new Map<number, boolean>();
+		for (let i = 0; i < items.length; i++) {
+			const item = items[i];
+			if (item.eventType != LOG_EVENT_TYPE.SleepResult) continue;
+			if (seen.get(item.ts) == true) continue;
+			seen.set(item.ts, true);
+			const sleepData = this.toSleepData(item);
+			if (sleepData == null) continue;
+			await bluetoothDataManager.storeSleepData(sleepData);
+			saved++;
+		}
+		if (saved > 0) {
+			console.log(`[BOOM] 睡眠事件已保存: ${saved}`);
+		}
+		return saved;
+	}
+
+	private toSleepData(item: LogDataItem): SleepData | null {
+		const parsed = item.parsedEvent;
+		const sleepOnsetSec = this.getParsedNumber(parsed, "sleepOnsetSec");
+		const awakeSec = this.getParsedNumber(parsed, "awakeSec");
+		const lightSleepSec = this.getParsedNumber(parsed, "lightSleepSec");
+		const deepSleepSec = this.getParsedNumber(parsed, "deepSleepSec");
+		const otherSleepSec = this.getParsedNumber(parsed, "otherSleepSec");
+		const restHr = this.getParsedNumber(parsed, "restHr");
+		if (item.ts <= 0 || sleepOnsetSec <= 0 || awakeSec <= 0) return null;
+		const sleepSeconds = lightSleepSec + deepSleepSec + otherSleepSec;
+		let recordCount = Math.ceil(sleepSeconds / 60);
+		if (recordCount <= 0 && awakeSec > sleepOnsetSec) {
+			recordCount = Math.ceil((awakeSec - sleepOnsetSec) / 60);
+		}
+		const detail = this.buildSleepResultDetail(
+			lightSleepSec,
+			deepSleepSec,
+			otherSleepSec,
+			restHr
+		);
+		return {
+			reportTimestamp: item.ts,
+			bedtime: sleepOnsetSec,
+			sleepTime: sleepOnsetSec,
+			wakeTime: awakeSec,
+			getupTime: awakeSec,
+			recordCount,
+			detail
+		} as SleepData;
+	}
+
+	private buildSleepResultDetail(
+		lightSleepSec: number,
+		deepSleepSec: number,
+		otherSleepSec: number,
+		restHr: number
+	): string {
+		const statuses = this.buildSleepStatusDetail(lightSleepSec, deepSleepSec, otherSleepSec);
+		const detail: UTSJSONObject = {
+			source: "boom_event_sleep_result",
+			lightSleepSec,
+			deepSleepSec,
+			otherSleepSec,
+			restHr,
+			statuses
+		};
+		return JSON.stringify(detail);
+	}
+
+	private buildSleepStatusDetail(
+		lightSleepSec: number,
+		deepSleepSec: number,
+		otherSleepSec: number
+	): number[] {
+		const statuses: number[] = [];
+		this.appendSleepStatusMinutes(statuses, deepSleepSec, 0);
+		this.appendSleepStatusMinutes(statuses, lightSleepSec, 1);
+		this.appendSleepStatusMinutes(statuses, otherSleepSec, 2);
+		return statuses;
+	}
+
+	private appendSleepStatusMinutes(statuses: number[], seconds: number, status: number): void {
+		const minutes = Math.ceil(seconds / 60);
+		for (let i = 0; i < minutes; i++) {
+			statuses.push(status);
+		}
+	}
+
+	private trimEventBatchToHeaderRange(
+		header: EventDataHeaderResponse,
+		beforeListCount: number,
+		batch: LogDataItem[]
+	): LogDataItem[] {
+		const filteredBatch = this.filterEventItemsByHeaderRange(batch, header);
+		if (filteredBatch.length != batch.length) {
+			const prefix = this.eventDataListRaw.slice(0, beforeListCount);
+			this.eventDataListRaw = prefix.concat(filteredBatch);
+			this.lastEventBatchCountValue = filteredBatch.length;
+			if (this.displaySuspended == false) {
+				this.eventDataList.value = this.eventDataListRaw.slice();
+				this.lastEventBatchCount.value = this.lastEventBatchCountValue;
+			}
+			console.log(
+				`[BOOM] 事件按 globalSn 范围过滤: ${batch.length} -> ${filteredBatch.length}, range=${header.earliestSn}~${header.latestSn}`
+			);
+		}
+		return filteredBatch;
+	}
+
+	private filterEventItemsByHeaderRange(
+		items: LogDataItem[],
+		header: EventDataHeaderResponse
+	): LogDataItem[] {
+		const result: LogDataItem[] = [];
+		for (let i = 0; i < items.length; i++) {
+			const globalSn = items[i].header.globalSn;
+			if (globalSn >= header.earliestSn && globalSn <= header.latestSn) {
+				result.push(items[i]);
+			}
+		}
+		return result;
+	}
+
+	private batchReachedEventLowerBound(
+		header: EventDataHeaderResponse,
+		batch: LogDataItem[]
+	): boolean {
+		for (let i = 0; i < batch.length; i++) {
+			if (batch[i].header.globalSn <= header.earliestSn) return true;
+		}
+		return false;
 	}
 
 	private async waitForVitalResponse(

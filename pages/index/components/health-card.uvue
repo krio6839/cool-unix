@@ -23,8 +23,8 @@
 </template>
 
 <script lang="ts" setup>
-import { bluetoothDataManager, router, useStore } from "@/.cool";
-import { computed, onMounted, ref, watch } from "vue";
+import { router, useStore } from "@/.cool";
+import { computed, ref, watch } from "vue";
 import type { HealthCardItem, HealthCardValues } from "@/.cool";
 
 const { realtime } = useStore();
@@ -32,14 +32,6 @@ const { realtime } = useStore();
 const values = computed<HealthCardValues>(() => {
 	return realtime.healthCardValues.value as HealthCardValues;
 });
-
-async function refreshRealtimeFromDb(): Promise<void> {
-	const record = await bluetoothDataManager.getLatestRealtimeBroadcastRecord();
-	if (record == null) {
-		return;
-	}
-	realtime.setBroadcastRecord(record);
-}
 
 const lastHealthData = ref<HealthCardValues>({
 	heartRate: null,
@@ -75,10 +67,6 @@ watch(
 	},
 	{ immediate: true }
 );
-
-onMounted(() => {
-	refreshRealtimeFromDb();
-});
 
 const healthData = computed<HealthCardItem[]>(() => {
 	const current = values.value as HealthCardValues;

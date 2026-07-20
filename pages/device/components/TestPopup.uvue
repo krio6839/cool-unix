@@ -1634,13 +1634,21 @@ async function submitForm(): Promise<void> {
 				});
 				eventAutoReading.value = false;
 				eventAutoDetail.value = deviceStore.history.formatEventAutoDetail(result.items);
+				let sleepSaveText = "";
+				if (result.savedSleepRecords > 0) {
+					sleepSaveText = `, ${t("睡眠保存")} ${result.savedSleepRecords}`;
+					if (result.uploadAttempted == true) {
+						sleepSaveText +=
+							result.uploadOk == true ? ` ${t("上传成功")}` : ` ${t("上传失败")}`;
+					}
+				}
 				setCommandResponse(
 					"EVENT",
 					result.done
-						? `${t("读取完成")} ${result.items.length} ${t("条")}`
+						? `${t("读取完成")} ${result.items.length} ${t("条")}${sleepSaveText}`
 						: result.stoppedByLimit
-							? `${t("达到上限")} ${result.items.length} ${t("条")}`
-							: `${t("读取停止")} ${result.items.length} ${t("条")}`
+							? `${t("达到上限")} ${result.items.length} ${t("条")}${sleepSaveText}`
+							: `${t("读取停止")} ${result.items.length} ${t("条")}${sleepSaveText}`
 				);
 				shouldClose = false;
 				break;

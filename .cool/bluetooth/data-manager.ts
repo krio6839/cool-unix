@@ -645,9 +645,10 @@ export class BluetoothDataManager {
 		const { reportTimestamp, bedtime, sleepTime, wakeTime, getupTime, recordCount, detail } =
 			sleepData;
 		const sleepId = reportTimestamp.toString();
+		const safeDetail = this.escapeSqlText(detail);
 		const sleepSql = `INSERT OR IGNORE INTO sleep_data
 			(id, report_timestamp, bedtime, sleep_time, wake_time, getup_time, record_count, detail, uploaded)
-			VALUES ('${sleepId}', ${reportTimestamp}, ${bedtime}, ${sleepTime}, ${wakeTime}, ${getupTime}, ${recordCount}, '${detail}', 0)`;
+			VALUES ('${sleepId}', ${reportTimestamp}, ${bedtime}, ${sleepTime}, ${wakeTime}, ${getupTime}, ${recordCount}, '${safeDetail}', 0)`;
 		await bluetoothDatabase.execute(sleepSql);
 	}
 
@@ -934,10 +935,10 @@ export class BluetoothDataManager {
 		this.isUploading = true;
 
 		try {
-			const sleepData = unuploadedSleepData[0];
-
-			const dataItem = this.buildSleepUploadItem(sleepData);
-			const datas: SleepUploadDataItem[] = [dataItem];
+			const datas: SleepUploadDataItem[] = [];
+			for (let i = 0; i < unuploadedSleepData.length; i++) {
+				datas.push(this.buildSleepUploadItem(unuploadedSleepData[i]));
+			}
 
 			const requestData: SleepUploadRequest = {
 				address: this.deviceAddress,

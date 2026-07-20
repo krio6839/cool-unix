@@ -34,6 +34,10 @@ import { onCharacteristicValueChange } from "../../bluetooth/kux";
 import { ref } from "vue";
 import type { Device } from "./index";
 
+const DUPLICATE_NOTIFY_WINDOW_MS = 150;
+let lastBoomNotifyHex = "";
+let lastBoomNotifyAt = 0;
+
 export class EventHandler {
 	/* ===== 响应字段（按 T 码分派，ref 响应式）===== */
 
@@ -71,6 +75,7 @@ export class EventHandler {
 
 	/** 0x3A/0x3B 多帧重组器（跨多帧 DI 拼成完整 V） */
 	private _vitalReassembler: DataIdentifierReassembler = new DataIdentifierReassembler();
+	private _notifyListening: boolean = false;
 
 	constructor(device: Device) {
 		this.device = device;
@@ -82,6 +87,8 @@ export class EventHandler {
 	 */
 	onCharacteristicValueChange(): void {
 		//#ifndef H5
+		if (this._notifyListening == true) return;
+		this._notifyListening = true;
 		onCharacteristicValueChange((res) => {
 			// 过滤：只处理 BOOM GATT Service
 			const serviceId = (res.serviceId ?? "").toLowerCase();
@@ -89,6 +96,12 @@ export class EventHandler {
 			this.handleNotifyData(res.value);
 		});
 		//#endif
+	}
+
+	resetDataIdentifierReassembler(): void {
+		this._vitalReassembler.reset();
+		lastBoomNotifyHex = "";
+		lastBoomNotifyAt = 0;
 	}
 
 	/**
@@ -101,49 +114,65 @@ export class EventHandler {
 	 */
 	handleNotifyData(value: ArrayBuffer): void {
 		const hexData = arrayBufferToHexString(value);
+		const now = Date.now();
+		if (hexData == lastBoomNotifyHex && now - lastBoomNotifyAt <= DUPLICATE_NOTIFY_WINDOW_MS) {
+			console.log(`[BOOM] 忽略重复 notify: ${hexData.substring(0, 32)}`);
+			return;
+		}
+		lastBoomNotifyHex = hexData;
+		lastBoomNotifyAt = now;
 		let tlvcHex = hexData;
 		this.notifySeqValue = this.notifySeqValue + 1;
-		this.lastNotifyAtValue = Date.now();
+		this.lastNotifyAtValue = now;
 		console.log(`[BOOM] notify hex=${hexData}`);
 		this.device.addProtocolLog("RX", "notify", hexData, "");
 
-		// DI 检测：bit 15 (0x8000) 或 bit 14 (0x4000) 非 0 → DI 帧
-		if (this._vitalReassembler.expectsContinuationFragment()) {
-			const reassembled = this._vitalReassembler.push(hexData);
-			if (reassembled == null) {
-				return;
-			}
-			tlvcHex = reassembled;
-		} else if (hexData.length >= 4) {
-			const firstTwoBytes = parseU16LE(hexData, 0);
-			if ((firstTwoBytes & 0xc000) != 0) {
-				const di = parseDataIdentifier(hexData);
-				if (
-					di != null &&
-					di.isStart == true &&
-					di.isEnd == true &&
-					hexData.length >= 4 + di.validBytes * 2
-				) {
-					tlvcHex = hexData.substring(4, 4 + di.validBytes * 2);
-				} else {
-					// 多帧或单个 DI payload 被底层 notify 拆片
-					const reassembled = this._vitalReassembler.push(hexData);
-					if (reassembled == null) {
-						// 还在接收中，等待后续帧
-						return;
+		let f = decodeTlvc(tlvcHex);
+		if (f == null) {
+			// DI 检测：只有直接 TLVC 解码失败后才尝试 DI，避免 FB C0 3D... 这类大 TLVC 被误判。
+			const singleFrameDiPayload = this.tryExtractSingleFrameDiPayload(hexData);
+			if (singleFrameDiPayload != "") {
+				this._vitalReassembler.reset();
+				tlvcHex = singleFrameDiPayload;
+			} else if (this._vitalReassembler.expectsContinuationFragment()) {
+				const reassembled = this._vitalReassembler.push(hexData);
+				if (reassembled == null) {
+					return;
+				}
+				tlvcHex = reassembled;
+			} else if (hexData.length >= 4) {
+				const firstTwoBytes = parseU16LE(hexData, 0);
+				if ((firstTwoBytes & 0xc000) != 0) {
+					const di = parseDataIdentifier(hexData);
+					if (
+						di != null &&
+						di.isStart == true &&
+						di.isEnd == true &&
+						hexData.length >= 4 + di.validBytes * 2
+					) {
+						tlvcHex = hexData.substring(4, 4 + di.validBytes * 2);
+					} else {
+						// 多帧或单个 DI payload 被底层 notify 拆片
+						const reassembled = this._vitalReassembler.push(hexData);
+						if (reassembled == null) {
+							// 还在接收中，等待后续帧
+							return;
+						}
+						// 重组完成 → 走正常 TLVC 解析
+						tlvcHex = reassembled;
 					}
-					// 重组完成 → 走正常 TLVC 解析
-					tlvcHex = reassembled;
 				}
 			}
+			f = decodeTlvc(tlvcHex);
 		}
-
-		const f = decodeTlvc(tlvcHex);
 		if (f == null) {
 			console.warn("[BOOM] CRC 校验失败:", tlvcHex);
 			this.device.addProtocolLog("ERR", "CRC 校验失败", tlvcHex, "");
 			return;
 		}
+		console.log(
+			`[BOOM] TLVC parsed: t=0x${f.t.toString(16)}, l=${f.l}, vlen=${f.v.length / 2}`
+		);
 		if (f.l == 0) {
 			console.warn(`[BOOM] 设备返回参数或格式错误: t=0x${f.t.toString(16)}`);
 			this.device.addProtocolLog("ERR", `0x${f.t.toString(16)} 空响应`, tlvcHex, "");
@@ -155,6 +184,12 @@ export class EventHandler {
 			tlvcHex,
 			`L=${f.l}, V=${f.v}`
 		);
+
+		if (f.t == BOOM_CMD.READ_EVENT_DATA_START || f.t == BOOM_CMD.READ_EVENT_DATA_CONTINUE) {
+			console.log(`[BOOM] 分发事件响应: t=0x${f.t.toString(16)}`);
+			this.device.history.handleEventData(f.v, f.t);
+			return;
+		}
 
 		// 按 T 码分派到对应字段
 		switch (f.t) {
@@ -200,13 +235,19 @@ export class EventHandler {
 			case BOOM_CMD.READ_VITAL_DATA_CONTINUE:
 				this.device.history.handleVitalData(f.v, f.t);
 				break;
-			/* ===== 0x3C/0x3D 事件数据 ===== */
-			case BOOM_CMD.READ_EVENT_DATA_START:
-			case BOOM_CMD.READ_EVENT_DATA_CONTINUE:
-				this.device.history.handleEventData(f.v, f.t);
-				break;
 			default:
 				console.log("[BOOM] 未知 T:", f.t, "数据:", hexData);
 		}
+	}
+
+	private tryExtractSingleFrameDiPayload(hexData: string): string {
+		if (hexData.length < 4) return "";
+		const firstTwoBytes = parseU16LE(hexData, 0);
+		if ((firstTwoBytes & 0xc000) == 0) return "";
+		const di = parseDataIdentifier(hexData);
+		if (di == null) return "";
+		if (di.isStart != true || di.isEnd != true) return "";
+		if (hexData.length < 4 + di.validBytes * 2) return "";
+		return hexData.substring(4, 4 + di.validBytes * 2);
 	}
 }

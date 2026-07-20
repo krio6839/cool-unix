@@ -465,23 +465,61 @@ export function parseEventData(eventType: number, eventDataHex: string): EventDa
 	switch (eventType) {
 		case LOG_EVENT_TYPE.Text:
 		case LOG_EVENT_TYPE.RemoteCmd:
-		case LOG_EVENT_TYPE.SetDeviceSn:
-			return parseEventDataText(eventDataHex) as UTSJSONObject;
-		case LOG_EVENT_TYPE.Reset:
-			return parseEventDataReset(eventDataHex) as UTSJSONObject;
-		case LOG_EVENT_TYPE.SetTime:
-			return parseEventDataSetTime(eventDataHex) as UTSJSONObject;
+		case LOG_EVENT_TYPE.SetDeviceSn: {
+			const parsed = parseEventDataText(eventDataHex);
+			const result: UTSJSONObject = { text: parsed.text };
+			return result;
+		}
+		case LOG_EVENT_TYPE.Reset: {
+			const parsed = parseEventDataReset(eventDataHex);
+			const result: UTSJSONObject = { value: parsed.value };
+			return result;
+		}
+		case LOG_EVENT_TYPE.SetTime: {
+			const parsed = parseEventDataSetTime(eventDataHex);
+			const result: UTSJSONObject = { oldSec: parsed.oldSec, newSec: parsed.newSec };
+			return result;
+		}
 		case LOG_EVENT_TYPE.FormatDS:
-		case LOG_EVENT_TYPE.SflashErase:
-			return parseEventDataFormatDS(eventDataHex) as UTSJSONObject;
-		case LOG_EVENT_TYPE.Wear:
-			return parseEventDataWear(eventDataHex) as UTSJSONObject;
-		case LOG_EVENT_TYPE.SleepResult:
-			return parseEventDataSleepResult(eventDataHex) as UTSJSONObject;
-		case LOG_EVENT_TYPE.Sedentary:
-			return parseEventDataSedentary(eventDataHex) as UTSJSONObject;
-		case LOG_EVENT_TYPE.SetBiometricInfo:
-			return parseBiometric(eventDataHex) as UTSJSONObject;
+		case LOG_EVENT_TYPE.SflashErase: {
+			const parsed = parseEventDataFormatDS(eventDataHex);
+			const result: UTSJSONObject = { address: parsed.address };
+			return result;
+		}
+		case LOG_EVENT_TYPE.Wear: {
+			const parsed = parseEventDataWear(eventDataHex);
+			const result: UTSJSONObject = { before: parsed.before, after: parsed.after };
+			return result;
+		}
+		case LOG_EVENT_TYPE.SleepResult: {
+			const parsed = parseEventDataSleepResult(eventDataHex);
+			const result: UTSJSONObject = {
+				sleepOnsetSec: parsed.sleepOnsetSec,
+				awakeSec: parsed.awakeSec,
+				lightSleepSec: parsed.lightSleepSec,
+				deepSleepSec: parsed.deepSleepSec,
+				otherSleepSec: parsed.otherSleepSec,
+				restHr: parsed.restHr
+			};
+			return result;
+		}
+		case LOG_EVENT_TYPE.Sedentary: {
+			const parsed = parseEventDataSedentary(eventDataHex);
+			const result: UTSJSONObject = { thresholdSec: parsed.thresholdSec };
+			return result;
+		}
+		case LOG_EVENT_TYPE.SetBiometricInfo: {
+			const parsed = parseBiometric(eventDataHex);
+			const result: UTSJSONObject = {
+				gender: parsed.gender,
+				weight: parsed.weight,
+				height: parsed.height,
+				age: parsed.age,
+				ppgPosition: parsed.ppgPosition,
+				bhr: parsed.bhr
+			};
+			return result;
+		}
 		default:
 			// 未知类型：返回原始 hex 兜底
 			const fallback: UTSJSONObject = { rawHex: eventDataHex };

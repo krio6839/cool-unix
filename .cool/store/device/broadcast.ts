@@ -236,7 +236,8 @@ export class DeviceBroadcast {
 				Math.round(r.spo2Pct * 10),
 				r.ppi,
 				r.stepsEveryday,
-				r.calorieEveryday
+				r.calorieEveryday,
+				r.receivedAt
 			);
 			await this.storeBroadcastPpiData(r);
 		}

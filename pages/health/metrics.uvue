@@ -96,7 +96,7 @@
 </template>
 
 <script lang="ts" setup>
-import { bluetoothDataManager, isMp, dayUts, useStore, getDateRange } from "@/.cool";
+import { isMp, dayUts, useStore, getDateRange } from "@/.cool";
 import { metrics } from "@/.cool/store/metrics";
 import { ref, computed, onMounted, watch } from "vue";
 import type { MetricItem } from "./types";
@@ -201,12 +201,6 @@ async function fetchMetricsData() {
 	}
 }
 
-async function refreshRealtimeFromDb(): Promise<void> {
-	const record = await bluetoothDataManager.getLatestRealtimeBroadcastRecord();
-	if (record == null) return;
-	realtime.setBroadcastRecord(record);
-}
-
 const chartOption = computed(() => {
 	let option: UTSJSONObject = {
 		title: {
@@ -298,7 +292,6 @@ function goBack() {
 }
 
 onMounted(() => {
-	refreshRealtimeFromDb();
 	fetchMetricsData();
 });
 
