@@ -229,17 +229,6 @@ export function toRealtimeBroadcast(d: CustomAdvData): RealtimeBroadcast {
 	};
 }
 
-/**
- * 预留：状态说明文档补全后，按 status 分支处理历史数据片段（睡眠/血氧/活动）
- * 当前实现：仅返回 null；文档补全后在此按 status.behavior / status.activity 分支
- *   - behavior ∈ {0,1,2} && activity ∈ {0,1,2} → 睡眠片段
- *   - activity == 5                              → 活动数据片段
- */
-export function parseCustomAdvExtended(_d: CustomAdvData): UTSJSONObject | null {
-	// TODO: 文档补全后实现
-	return null;
-}
-
 /* ==================== 0x3A/0x3B 生命体征数据（1.4.4.8/1.4.4.9 + 2.1.3） ==================== */
 
 /* ----- 请求侧序列化 ----- */

@@ -4,12 +4,9 @@
  * 职责：
  * - 蓝牙适配器初始化、状态监听
  * - 设备扫描：设备名前缀匹配 "BOOM-"
- * - 扫描期 0x50 广播解析 → realtime_broadcast_data，本轮状态同步到 device.realtime
+ * - 绑定设备广播解析 → realtime_broadcast_data，本轮状态同步到 device.realtime
  * - 静默直连（重连）+ 配对扫描（首次配对 / 直连失败后降级）
  * - 连接成功后的 GATT 流程（services 发现 → notify 启用 → 0x30 读固件 → 0x33 写时戳）
- *
- * 未来扩展：睡眠 / 血氧历史数据可能也走 0x50 广播通道，
- * 详见 connection.ts:_tryParseBroadcast 与 boom-parser.parseCustomAdvExtended。
  */
 
 import { t } from "../../locale";

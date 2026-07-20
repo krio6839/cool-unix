@@ -35,15 +35,6 @@ export type SleepData = {
 };
 
 /**
- * 心率数据映射（用于内部数据处理）
- */
-export type HeartRateDataMap = {
-	hr: number;
-	spo2: number;
-	ppi: number;
-};
-
-/**
  * PPI数据记录（数据库记录）
  */
 export type PpiData = {

@@ -145,14 +145,3 @@ export const PPG_POSITION_OPTIONS: PpgPositionOption[] = [
 	{ label: "大腿", value: 5 },
 	{ label: "身体", value: 6 }
 ];
-
-/** PPG 佩戴位置名（兼容旧调用；顺序与 PPG_POSITION_OPTIONS 一致） */
-export const PPG_POSITION_LIST: Array<string> = [
-	"手腕",
-	"前臂",
-	"上臂",
-	"头部",
-	"膝盖下方",
-	"大腿",
-	"身体"
-];

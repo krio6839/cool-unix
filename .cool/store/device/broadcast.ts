@@ -27,26 +27,6 @@ export class DeviceBroadcast {
 		this.device = device;
 	}
 
-	async startRealtimeScan(): Promise<void> {
-		//#ifndef H5
-		if (this.isScanning == true) return;
-		if (this.device.currentDeviceId == "") return;
-		this.isScanning = true;
-		const ok = await startDiscovery();
-		if (ok == false) {
-			console.warn("[BOOM-ADV] 实时广播扫描启动失败");
-			this.isScanning = false;
-			return;
-		}
-		console.log("[BOOM-ADV] 已启动连接后实时广播扫描");
-		onDeviceFound((devices) => {
-			devices.forEach((d) => {
-				this.handleFoundDevice(d);
-			});
-		});
-		//#endif
-	}
-
 	async stopRealtimeScan(): Promise<void> {
 		//#ifndef H5
 		if (this.isScanning == false) return;

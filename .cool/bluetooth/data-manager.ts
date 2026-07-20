@@ -14,7 +14,6 @@ import type {
 	PpiUploadRequest,
 	SleepUploadRequest,
 	SleepUploadDataItem,
-	HeartRateDataMap,
 	PpiDataItem,
 	PpiData,
 	HeartRateRecord,
@@ -240,16 +239,7 @@ export class BluetoothDataManager {
 
 		const dataList: BluetoothData[] = [];
 		for (let i = 0; i < result.rows.length; i++) {
-			const row = result.rows[i];
-			console.log("查询到数据:", row);
-			dataList.push({
-				id: row[0],
-				timestamp: parseInt(row[1]),
-				type: row[2] as BluetoothDataType,
-				value: parseFloat(row[3]),
-				ppi: row[4] != null ? parseInt(row[4]) : null,
-				uploaded: row[5] == "1"
-			} as BluetoothData);
+			dataList.push(this.parseBluetoothDataRow(result.rows[i]));
 		}
 		return dataList;
 	}
@@ -321,17 +311,7 @@ export class BluetoothDataManager {
 
 		const dataList: BluetoothData[] = [];
 		for (let i = 0; i < result.rows.length; i++) {
-			const row = result.rows[i];
-			const data = {
-				id: row[0] as string,
-				timestamp: parseInt(row[1] as string),
-				type: row[2] as BluetoothDataType,
-				value: parseFloat(row[3]),
-				ppi: row[4] != null ? parseInt(row[4] as string) : 0,
-				uploaded: false
-			} as BluetoothData;
-			console.log("查询到数据:", i, data);
-			dataList.push(data);
+			dataList.push(this.parseBluetoothDataRow(result.rows[i]));
 		}
 		return dataList;
 	}
@@ -412,28 +392,14 @@ export class BluetoothDataManager {
 	 * @returns ppi_data表中的总记录数
 	 */
 	async getPpiDataCount(): Promise<number> {
-		const sql = "SELECT COUNT(*) FROM ppi_data";
-		const result = await bluetoothDatabase.query(sql);
-
-		if (result == null || result.rows.length == 0) {
-			return 0;
-		}
-
-		return parseInt(result.rows[0][0] as string);
+		return this.queryCount("SELECT COUNT(*) FROM ppi_data");
 	}
 
 	/**
 	 * 获取 0x50 广播实时数据总数
 	 */
 	async getRealtimeBroadcastDataCount(): Promise<number> {
-		const sql = "SELECT COUNT(*) FROM realtime_broadcast_data";
-		const result = await bluetoothDatabase.query(sql);
-
-		if (result == null || result.rows.length == 0) {
-			return 0;
-		}
-
-		return parseInt(result.rows[0][0] as string);
+		return this.queryCount("SELECT COUNT(*) FROM realtime_broadcast_data");
 	}
 
 	/**
@@ -487,14 +453,7 @@ export class BluetoothDataManager {
 			return null;
 		}
 		const row = result.rows[0];
-		return {
-			id: row[0] as string,
-			timestamp: parseInt(row[1] as string),
-			hr: parseInt(row[2] as string),
-			spo2: parseInt(row[3] as string),
-			ppi: parseInt(row[4] as string),
-			uploaded: parseInt(row[5] as string) == 1
-		} as PpiData;
+		return this.parsePpiDataRow(row);
 	}
 
 	/**
@@ -512,15 +471,7 @@ export class BluetoothDataManager {
 
 		const dataList: PpiData[] = [];
 		for (let i = 0; i < result.rows.length; i++) {
-			const row = result.rows[i];
-			dataList.push({
-				id: row[0] as string,
-				timestamp: parseInt(row[1] as string),
-				hr: parseInt(row[2] as string),
-				spo2: parseInt(row[3] as string),
-				ppi: parseInt(row[4] as string),
-				uploaded: parseInt(row[5] as string) == 1
-			} as PpiData);
+			dataList.push(this.parsePpiDataRow(result.rows[i]));
 		}
 		return dataList;
 	}
@@ -560,28 +511,13 @@ export class BluetoothDataManager {
 
 		const dataList: PpiData[] = [];
 		for (let i = 0; i < result.rows.length; i++) {
-			const row = result.rows[i];
-			const data: PpiData = {
-				id: row[0] as string,
-				timestamp: parseInt(row[1] as string),
-				hr: parseInt(row[2] as string),
-				spo2: parseInt(row[3] as string),
-				ppi: parseInt(row[4] as string),
-				uploaded: false
-			};
-			// console.log("查询到PPI数据:", i, data);
-			dataList.push(data);
+			dataList.push(this.parsePpiDataRow(result.rows[i]));
 		}
 		return dataList;
 	}
 
 	async getUnuploadedPpiCount(): Promise<number> {
-		const sql = "SELECT COUNT(*) FROM ppi_data WHERE uploaded = 0";
-		const result = await bluetoothDatabase.query(sql);
-		if (result == null || result.rows.length == 0) {
-			return 0;
-		}
-		return parseInt(result.rows[0][0] as string);
+		return this.queryCount("SELECT COUNT(*) FROM ppi_data WHERE uploaded = 0");
 	}
 
 	/**
@@ -838,76 +774,6 @@ export class BluetoothDataManager {
 
 		this.lastPpiUploadAttemptAt = now;
 		await this.uploadPpiData();
-	}
-
-	/**
-	 * 合并心率数据到映射表
-	 */
-	private mergeHeartRateData(
-		ppiData: BluetoothData[],
-		timestampMap: Map<number, HeartRateDataMap>
-	): void {
-		for (let i = 0; i < ppiData.length; i++) {
-			const item = ppiData[i];
-			let existing = timestampMap.get(item.timestamp);
-			if (existing == null) {
-				existing = { hr: 0, spo2: 0, ppi: 0 };
-			}
-			const newData: HeartRateDataMap = {
-				hr: item.value,
-				spo2: existing.spo2,
-				ppi: item.ppi ?? 0
-			};
-			timestampMap.set(item.timestamp, newData);
-		}
-	}
-
-	/**
-	 * 合并血氧数据到映射表
-	 */
-	private mergeBloodOxygenData(
-		bloodOxygenData: BluetoothData[],
-		timestampMap: Map<number, HeartRateDataMap>
-	): void {
-		for (let i = 0; i < bloodOxygenData.length; i++) {
-			const item = bloodOxygenData[i];
-			let existing = timestampMap.get(item.timestamp);
-			if (existing == null) {
-				existing = { hr: 0, spo2: 0, ppi: 0 };
-			}
-			const newData: HeartRateDataMap = {
-				hr: existing.hr,
-				spo2: item.value,
-				ppi: existing.ppi
-			};
-			timestampMap.set(item.timestamp, newData);
-		}
-	}
-
-	/**
-	 * 构建上传数据数组
-	 */
-	private buildUploadDatas(
-		timestampMap: Map<number, HeartRateDataMap>,
-		datas: PpiDataItem[]
-	): void {
-		const keys: number[] = [];
-		timestampMap.forEach((_value, key) => {
-			keys.push(key);
-		});
-		for (let i = 0; i < keys.length; i++) {
-			const timestamp = keys[i];
-			const values = timestampMap.get(timestamp);
-			if (values != null) {
-				const ppiItem: PpiDataItem = {
-					time: this.formatTimestamp(timestamp),
-					hr: values.hr,
-					spo2: values.spo2,
-					ppi: values.ppi
-				};
-				datas.push(ppiItem);
-			}
-		}
 	}
 
 	/**
