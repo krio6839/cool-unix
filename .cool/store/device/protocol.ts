@@ -275,6 +275,11 @@ export class DeviceProtocol {
 		return this.sendTlvc(BOOM_CMD.CONTROL_DEVICE, encodeU8(code));
 	}
 
+	/** 0x50 读广播数据：连接态读取 custom_adv_data_t 快照 */
+	readBroadcastData(): Promise<boolean> {
+		return this.sendTlvc(BOOM_CMD.READ_BROADCAST_DATA, "");
+	}
+
 	/* ===== 0x3A/0x3B 历史生命体征（1.4.4.8/1.4.4.9） ===== */
 
 	/**

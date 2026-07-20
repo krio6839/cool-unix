@@ -51,6 +51,8 @@ export class DeviceConnection {
 	private _pairingScanTimer: number = 0;
 	private _suppressNextReconnect: boolean = false;
 	private _isSwitchingToBroadcastMode: boolean = false;
+	private _gattBroadcastTimer: number = 0;
+	private _isReadingGattBroadcast: boolean = false;
 
 	constructor(device: Device) {
 		this.device = device;
@@ -511,6 +513,7 @@ export class DeviceConnection {
 
 			this.device.status.value = "CONNECTED";
 			this.device.touchState();
+			this.startGattBroadcastPolling();
 		} catch (e) {
 			console.error("[BOOM] afterConnected 流程异常:", e);
 			throw e;
@@ -532,6 +535,42 @@ export class DeviceConnection {
 			await sleepTimeout(120);
 		}
 		return false;
+	}
+
+	private startGattBroadcastPolling(): void {
+		this.stopGattBroadcastPolling();
+		this.readGattBroadcastOnce();
+		// @ts-ignore setInterval 在 UTS 不同平台返回类型不一
+		this._gattBroadcastTimer = setInterval(() => {
+			this.readGattBroadcastOnce();
+		}, 1000);
+		console.log("[BOOM-ADV] 已启动 GATT 0x50 轮询");
+	}
+
+	private stopGattBroadcastPolling(): void {
+		if (this._gattBroadcastTimer != 0) {
+			clearInterval(this._gattBroadcastTimer);
+			this._gattBroadcastTimer = 0;
+			console.log("[BOOM-ADV] 已停止 GATT 0x50 轮询");
+		}
+		this._isReadingGattBroadcast = false;
+	}
+
+	private async readGattBroadcastOnce(): Promise<void> {
+		if (this._isReadingGattBroadcast == true) return;
+		if (this.device.status.value != "CONNECTED") return;
+		if (this.device.protocol.writeCharUuid == "") return;
+		this._isReadingGattBroadcast = true;
+		try {
+			const ok = await this.device.protocol.readBroadcastData();
+			if (ok == false) {
+				console.warn("[BOOM-ADV] GATT 0x50 发送失败");
+			}
+		} catch (e) {
+			console.warn("[BOOM-ADV] GATT 0x50 读取异常:", e);
+		} finally {
+			this._isReadingGattBroadcast = false;
+		}
 	}
 
 	/** 订阅 GATT 连接状态变化 */
@@ -604,6 +643,7 @@ export class DeviceConnection {
 		this._isSwitchingToBroadcastMode = true;
 		try {
 			this.stopBluetoothSearch();
+			this.stopGattBroadcastPolling();
 			this.device.history.stopVitalHistoryPolling();
 			await this.device.broadcast.stopRealtimeScan();
 			await this.device.broadcast.stopBoundBroadcastScan();
@@ -626,6 +666,7 @@ export class DeviceConnection {
 
 	/** 内部：清空连接相关字段 */
 	_resetConnectionState(): void {
+		this.stopGattBroadcastPolling();
 		this.device.broadcast.stopRealtimeScan();
 		this.device.broadcast.stopBoundBroadcastScan();
 		this.device.history.stopVitalHistoryPolling();

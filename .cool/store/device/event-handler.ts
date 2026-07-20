@@ -192,6 +192,9 @@ export class EventHandler {
 				this.deviceControlReceivedAt.value = Date.now();
 				console.log("[BOOM] 设备控制结果:", this.lastDeviceControl.value);
 				break;
+			case BOOM_CMD.READ_BROADCAST_DATA:
+				this.device.broadcast.handleGattBroadcastData(f.v);
+				break;
 			/* ===== 0x3A/0x3B 生命体征（多帧重组） ===== */
 			case BOOM_CMD.READ_VITAL_DATA_START:
 			case BOOM_CMD.READ_VITAL_DATA_CONTINUE:

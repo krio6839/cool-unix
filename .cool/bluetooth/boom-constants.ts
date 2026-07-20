@@ -29,6 +29,7 @@ export type BoomCmd = {
 	READ_EVENT_DATA_CONTINUE: number;
 	CONTROL_VIBRATION: number; // 控制振动 0x40
 	CONTROL_DEVICE: number; // 控制设备 0x41
+	READ_BROADCAST_DATA: number; // 读广播数据 0x50
 };
 
 export const BOOM_CMD: BoomCmd = {
@@ -44,7 +45,8 @@ export const BOOM_CMD: BoomCmd = {
 	READ_EVENT_DATA_START: 0x3c,
 	READ_EVENT_DATA_CONTINUE: 0x3d,
 	CONTROL_VIBRATION: 0x40,
-	CONTROL_DEVICE: 0x41
+	CONTROL_DEVICE: 0x41,
+	READ_BROADCAST_DATA: 0x50
 };
 
 /* ===== 0x3A/0x3B 生命体征数据常量 ===== */

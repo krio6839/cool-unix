@@ -134,6 +134,24 @@ export class DeviceBroadcast {
 		//#endif
 	}
 
+	handleGattBroadcastData(vHex: string): void {
+		const parsed = parseCustomAdvData(vHex);
+		if (parsed == null) {
+			console.log(`[BOOM-ADV] GATT 0x50 解析失败: v=${vHex}`);
+			return;
+		}
+		const r: RealtimeBroadcast = toRealtimeBroadcast(parsed);
+		const deviceId =
+			this.device.currentDeviceId != ""
+				? this.device.currentDeviceId
+				: this.device.boundDeviceId;
+		const name = this.device.getDisplayDeviceName();
+		this.device.realtime.value = r;
+		this.storeBroadcastRecordByDevice(deviceId, name, 0, vHex, vHex, r);
+		this.publishDebugInfoByDevice(deviceId, name, 0, vHex, vHex, r);
+		this.checkBroadcastTimestamp(r);
+	}
+
 	private handleBoundDeviceList(devices: DeviceInfo[]): void {
 		//#ifndef H5
 		if (this.device.boundDeviceId == "") return;
@@ -171,16 +189,20 @@ export class DeviceBroadcast {
 		if (parsed != null) {
 			const r: RealtimeBroadcast = toRealtimeBroadcast(parsed);
 			this.device.realtime.value = r;
-			this.storeBroadcastRecord(d, hex, vHex, r);
-			this.publishDebugInfo(d, hex, vHex, r);
+			const name = d.name ?? d.localName ?? "";
+			const rssi = d.RSSI ?? 0;
+			this.storeBroadcastRecordByDevice(d.deviceId, name, rssi, hex, vHex, r);
+			this.publishDebugInfoByDevice(d.deviceId, name, rssi, hex, vHex, r);
 			this.checkBroadcastTimestamp(r);
 		} else if (this.boundBroadcastScanning == true) {
 			console.log(`[BOOM-ADV] 绑定设备广播解析失败: ${d.deviceId}, raw=${hex}, v=${vHex}`);
 		}
 	}
 
-	private async storeBroadcastRecord(
-		d: DeviceInfo,
+	private async storeBroadcastRecordByDevice(
+		deviceIdValue: string,
+		_name: string,
+		_rssi: number,
 		rawHex: string,
 		vHex: string,
 		r: RealtimeBroadcast
@@ -204,7 +226,7 @@ export class DeviceBroadcast {
 			r.calorieEveryday,
 			rawHex,
 			vHex,
-			d.deviceId
+			deviceIdValue
 		);
 		if (ok == true) {
 			realtime.setBroadcastValues(
@@ -234,8 +256,10 @@ export class DeviceBroadcast {
 		return r.utc > 0 ? r.utc : Math.floor(r.receivedAt / 1000);
 	}
 
-	private publishDebugInfo(
-		d: DeviceInfo,
+	private publishDebugInfoByDevice(
+		deviceId: string,
+		name: string,
+		rssi: number,
 		rawHex: string,
 		vHex: string,
 		r: RealtimeBroadcast
@@ -244,12 +268,10 @@ export class DeviceBroadcast {
 		const nowSec = Math.floor(Date.now() / 1000);
 		let diff = nowSec - r.utc;
 		if (diff < 0) diff = 0 - diff;
-		const name = d.name ?? d.localName ?? "";
-		const rssi = d.RSSI ?? 0;
 		const summary = `phone=${nowSec} utc=${r.utc} diff=${diff}s status=0x${this.byteToHex(r.status)} bit7=${r.statusReserved} ppg=${r.ppgAttached ? "attached" : "detached"} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr}${r.hrValid ? "" : "!"} ppi=${r.ppi}${r.ppiValid ? "" : "!"} hrv=${r.hrvMs}ms spo2=${r.spo2Pct.toFixed(1)}${r.spo2Valid ? "" : "!"} bhr=${r.bhr}${r.bhrValid ? "" : "!"} steps=${r.stepsEveryday} kcal=${r.calorieKcal.toFixed(1)} v=${r.voltageMv}mV/${r.voltageV.toFixed(3)}V`;
 		const info: BroadcastDebugInfo = {
 			seq: this.broadcastSeq,
-			deviceId: d.deviceId,
+			deviceId,
 			name,
 			rssi,
 			rawHex,
