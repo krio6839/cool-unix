@@ -283,7 +283,7 @@ export class DeviceBroadcast {
 			receivedAt: r.receivedAt
 		};
 		this.device.broadcastDebug.value = info;
-		console.log(`[BOOM-ADV] 收到广播 #${info.seq}: ${summary}, raw=${rawHex}, v=${vHex}`);
+		// console.log(`[BOOM-ADV] 收到广播 #${info.seq}: ${summary}, raw=${rawHex}, v=${vHex}`);
 	}
 
 	private bytesToHex(bytes: number[]): string {
