@@ -153,16 +153,12 @@ const { user, device, home } = useStore();
 const currentDate = ref<string>("");
 let refreshTimer: number = 0;
 const REFRESH_INTERVAL = 30 * 1000;
-const BROADCAST_ONLINE_WINDOW_MS = 65 * 1000;
 const onlineTick = ref<number>(Date.now());
 
 const deviceOnline = computed<boolean>(() => {
 	onlineTick.value;
 	device.stateVersion.value;
-	if (device.status.value == "CONNECTED") return true;
-	const debug = device.broadcastDebug.value;
-	if (debug == null) return false;
-	return Date.now() - debug.receivedAt <= BROADCAST_ONLINE_WINDOW_MS;
+	return device.isOnline();
 });
 
 // 格式化当前日期

@@ -127,12 +127,8 @@ const deviceIdText = computed((): string => {
 
 // 基本信息 - 连接状态文案
 const statusText = computed((): string => {
-	const s = deviceStore.status.value;
-	if (s == "CONNECTED") return t("已连接");
-	const debug = deviceStore.broadcastDebug.value;
-	if (debug != null && Date.now() - debug.receivedAt <= 65000) return t("广播中");
-	if (s == "PAIRING" || s == "SEARCHING") return t("搜索中");
-	return t("未配对");
+	deviceStore.stateVersion.value;
+	return deviceStore.getConnectionStatusText();
 });
 
 // 基本信息 - 蓝牙适配器状态

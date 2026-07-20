@@ -85,6 +85,7 @@ export type BroadcastDebugInfo = {
 };
 
 export type DeviceTestMode = "connect" | "broadcast";
+const BROADCAST_ONLINE_WINDOW_MS = 65 * 1000;
 
 export class Device {
 	/* ===== 基本状态 ===== */
@@ -238,6 +239,21 @@ export class Device {
 		if (this.boundDeviceName != "") return this.boundDeviceName;
 		if (this.boundDeviceId != "") return this.boundDeviceId;
 		return "";
+	}
+
+	isOnline(nowMs: number = Date.now()): boolean {
+		if (this.status.value == "CONNECTED") return true;
+		const debug = this.broadcastDebug.value;
+		if (debug == null) return false;
+		return nowMs - debug.receivedAt <= BROADCAST_ONLINE_WINDOW_MS;
+	}
+
+	getConnectionStatusText(): string {
+		const s = this.status.value;
+		if (s == "CONNECTED") return t("已连接");
+		if (this.isOnline()) return t("广播中");
+		if (s == "PAIRING" || s == "SEARCHING") return t("搜索中");
+		return t("未配对");
 	}
 
 	/** 清除错误信息 */
