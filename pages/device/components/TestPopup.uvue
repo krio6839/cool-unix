@@ -1120,8 +1120,7 @@ async function restoreBroadcastAfterGattTask(cmd: string): Promise<void> {
 				resolve();
 			}, delayMs);
 		});
-		await deviceStore.connection.disconnectForBroadcastMode();
-		testMode.value = "broadcast";
+		await deviceStore.connection.switchToBroadcastMode();
 	} catch (e) {
 		console.warn("[TEST] GATT 命令结束后恢复广播模式失败:", e);
 	} finally {
@@ -1236,28 +1235,27 @@ async function switchToBroadcastMode(): Promise<void> {
 	}
 	vitalAutoReading.value = false;
 	eventAutoReading.value = false;
-	await deviceStore.connection.disconnectForBroadcastMode();
-	testMode.value = "broadcast";
+	await deviceStore.connection.switchToBroadcastMode();
 	ui.showToast({ message: t("已进入广播模式"), type: "success" });
 }
 
 async function switchToConnectMode(): Promise<void> {
 	const boundId = deviceStore.boundDeviceId;
 	if (boundId == "") {
-		testMode.value = "connect";
+		await deviceStore.connection.switchToConnectMode();
 		ui.showToast({ message: t("请先连接/绑定设备"), type: "warn" });
 		return;
 	}
-	testMode.value = "connect";
 	if (deviceStore.currentDeviceId != "") {
+		await deviceStore.connection.switchToConnectMode();
 		ui.showToast({ message: t("已进入连接模式"), type: "success" });
 		return;
 	}
-	const ok = await deviceStore.connection.connectBoundDeviceForGatt();
+	const ok = await deviceStore.connection.switchToConnectMode();
 	if (ok == true) {
 		ui.showToast({ message: t("已进入连接模式"), type: "success" });
 	} else {
-		ui.showToast({ message: t("直连失败，正在搜索并连接设备..."), type: "warn" });
+		ui.showToast({ message: t("未找到设备，请确认设备已开机且在范围内"), type: "warn" });
 	}
 }
 

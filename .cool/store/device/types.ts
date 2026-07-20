@@ -3,6 +3,33 @@ import type { PpgPositionOption, PpgPositionValue } from "../../bluetooth/boom-t
 
 export type WearLocation = PpgPositionValue;
 export type WearLocationOption = PpgPositionOption;
+export type DeviceTestMode = "connect" | "broadcast";
+export type DeviceOnlineSource = "gatt" | "broadcast" | "searching" | "offline";
+export type ScanPurpose = "none" | "pairing" | "boundBroadcast" | "reconnect";
+
+export type DeviceOnlineInfo = {
+	online: boolean;
+	source: DeviceOnlineSource;
+	statusText: string;
+	iconColor: string;
+	iconName: string;
+	deviceName: string;
+	lastSeenAt: number;
+};
+
+export type BroadcastDebugInfo = {
+	seq: number;
+	source: "broadcast" | "gatt";
+	deviceId: string;
+	name: string;
+	rssi: number;
+	rawHex: string;
+	vHex: string;
+	utc: number;
+	diffSec: number;
+	summary: string;
+	receivedAt: number;
+};
 
 export const DEFAULT_WEAR_LOCATION: WearLocation = 2;
 

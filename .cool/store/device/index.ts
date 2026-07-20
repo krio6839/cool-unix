@@ -34,8 +34,16 @@ import {
 	DEFAULT_WEAR_LOCATION,
 	normalizeWearLocation
 } from "./types";
-import type { WearLocation } from "./types";
-export type { WearLocation, WearLocationOption, DeviceStatus } from "./types";
+import type { BroadcastDebugInfo, DeviceOnlineInfo, DeviceTestMode, WearLocation } from "./types";
+export type {
+	BroadcastDebugInfo,
+	DeviceOnlineInfo,
+	DeviceOnlineSource,
+	DeviceTestMode,
+	WearLocation,
+	WearLocationOption,
+	DeviceStatus
+} from "./types";
 export {
 	DeviceStatusEnum,
 	DEFAULT_WEAR_LOCATION,
@@ -71,21 +79,7 @@ export type ProtocolLogItem = {
 	detail: string;
 };
 
-export type BroadcastDebugInfo = {
-	seq: number;
-	deviceId: string;
-	name: string;
-	rssi: number;
-	rawHex: string;
-	vHex: string;
-	utc: number;
-	diffSec: number;
-	summary: string;
-	receivedAt: number;
-};
-
-export type DeviceTestMode = "connect" | "broadcast";
-const BROADCAST_ONLINE_WINDOW_MS = 65 * 1000;
+const BROADCAST_ONLINE_WINDOW_MS = 10 * 1000;
 
 export class Device {
 	/* ===== 基本状态 ===== */
@@ -243,18 +237,64 @@ export class Device {
 	}
 
 	isOnline(nowMs: number = Date.now()): boolean {
-		if (this.status.value == "CONNECTED") return true;
+		return this.getOnlineInfo(nowMs).online;
+	}
+
+	getOnlineInfo(nowMs: number = Date.now()): DeviceOnlineInfo {
+		const deviceName = this.getDisplayDeviceName();
+		if (this.status.value == "CONNECTED") {
+			return {
+				online: true,
+				source: "gatt",
+				statusText: t("已连接"),
+				iconColor: "white",
+				iconName: "link",
+				deviceName,
+				lastSeenAt: nowMs
+			} as DeviceOnlineInfo;
+		}
 		const debug = this.broadcastDebug.value;
-		if (debug == null) return false;
-		return nowMs - debug.receivedAt <= BROADCAST_ONLINE_WINDOW_MS;
+		if (
+			debug != null &&
+			debug.source == "broadcast" &&
+			this.boundDeviceId != "" &&
+			debug.deviceId == this.boundDeviceId &&
+			nowMs - debug.receivedAt <= BROADCAST_ONLINE_WINDOW_MS
+		) {
+			return {
+				online: true,
+				source: "broadcast",
+				statusText: t("广播中"),
+				iconColor: "white",
+				iconName: "link",
+				deviceName,
+				lastSeenAt: debug.receivedAt
+			} as DeviceOnlineInfo;
+		}
+		if (this.status.value == "PAIRING" || this.status.value == "SEARCHING") {
+			return {
+				online: false,
+				source: "searching",
+				statusText: t("搜索中"),
+				iconColor: "#FBBF24",
+				iconName: "search-line",
+				deviceName,
+				lastSeenAt: 0
+			} as DeviceOnlineInfo;
+		}
+		return {
+			online: false,
+			source: "offline",
+			statusText: t("未配对"),
+			iconColor: "#FF5C5C",
+			iconName: "forbid-line",
+			deviceName,
+			lastSeenAt: 0
+		} as DeviceOnlineInfo;
 	}
 
 	getConnectionStatusText(): string {
-		const s = this.status.value;
-		if (s == "CONNECTED") return t("已连接");
-		if (this.isOnline()) return t("广播中");
-		if (s == "PAIRING" || s == "SEARCHING") return t("搜索中");
-		return t("未配对");
+		return this.getOnlineInfo().statusText;
 	}
 
 	//#ifndef H5
@@ -331,6 +371,12 @@ export class Device {
 		this.errorMessage.value = "";
 	}
 
+	setUnpairedError(message: string): void {
+		this.status.value = "UNPAIRED";
+		this.errorMessage.value = message;
+		this.touchState();
+	}
+
 	/** 追加协议调试日志，最多保留最近 80 条 */
 	addProtocolLog(
 		direction: ProtocolLogDirection,
@@ -366,9 +412,9 @@ export class Device {
 	/* ===== 资源管理 ===== */
 
 	/** 销毁：停止扫描 → 断开 → 关闭适配器 */
-	destroy() {
+	async destroy(): Promise<void> {
 		//#ifndef H5
-		this.connection.stopBluetoothSearch();
+		await this.connection.stopBluetoothSearch();
 		if (this.currentDeviceId != "") {
 			disconnect(this.currentDeviceId);
 		}
@@ -475,10 +521,12 @@ export class Device {
 	private async unbindRemoteDevice(): Promise<boolean> {
 		const boundId = this.boundDeviceId;
 		if (boundId == "") return true;
-		await this.broadcast.stopBoundBroadcastScan();
-		await this.broadcast.stopRealtimeScan();
 		if (this.currentDeviceId == "") {
-			await this.connection.connectToDevice(boundId, this.getDisplayDeviceName());
+			const connected = await this.connection.switchToConnectMode();
+			if (connected == false) {
+				console.warn("[DEVICE] 解绑前连接设备失败，继续删除本地");
+				return false;
+			}
 		}
 		if (this.currentDeviceId == "") {
 			console.warn("[DEVICE] 解绑前连接设备失败，继续删除本地");

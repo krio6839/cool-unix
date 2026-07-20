@@ -140,17 +140,15 @@ async function enterPairingMode() {
 		if (deviceStore.available == false) {
 			await deviceStore.connection.initBluetooth();
 		}
-		deviceStore.status.value = "SEARCHING";
 		if (deviceStore.boundDeviceId == "") {
-			deviceStore.connection.startBluetoothSearch("pairing");
+			await deviceStore.connection.startPairingScan();
 		} else {
-			await deviceStore.connection.startBoundBroadcastMode();
+			await deviceStore.connection.switchToBroadcastMode();
 		}
 	} catch (e) {
 		console.warn("[DEVICE] 初始化蓝牙失败:", e);
 		const message = t("蓝牙初始化失败,请检查蓝牙和位置权限");
-		deviceStore.status.value = "UNPAIRED";
-		deviceStore.errorMessage.value = message;
+		deviceStore.setUnpairedError(message);
 		ui.showToast({ message, type: "error" });
 	}
 }

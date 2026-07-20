@@ -56,8 +56,8 @@
 					@tap="goToDevice"
 				>
 					<cl-icon
-						:name="deviceOnline ? 'link' : 'forbid-line'"
-						:color="deviceOnline ? 'white' : '#FF5C5C'"
+						:name="onlineInfo.iconName"
+						:color="onlineInfo.iconColor"
 						:size="16"
 					></cl-icon>
 				</view>
@@ -148,6 +148,7 @@ import EnergyRing from "./components/energy-ring.uvue";
 import HealthCard from "./components/health-card.uvue";
 import HealthStatus from "./components/health-status.uvue";
 import UserInfo from "./components/user-info.uvue";
+import type { DeviceOnlineInfo } from "@/.cool/store/device";
 
 const { user, device, home } = useStore();
 const currentDate = ref<string>("");
@@ -155,10 +156,14 @@ let refreshTimer: number = 0;
 const REFRESH_INTERVAL = 30 * 1000;
 const onlineTick = ref<number>(Date.now());
 
-const deviceOnline = computed<boolean>(() => {
+const onlineInfo = computed<DeviceOnlineInfo>(() => {
 	onlineTick.value;
 	device.stateVersion.value;
-	return device.isOnline();
+	return device.getOnlineInfo();
+});
+
+const deviceOnline = computed<boolean>(() => {
+	return onlineInfo.value.online;
 });
 
 // 格式化当前日期
