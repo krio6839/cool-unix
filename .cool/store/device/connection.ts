@@ -295,6 +295,34 @@ export class DeviceConnection {
 		return sorted;
 	}
 
+	cacheFoundDevice(found: DeviceInfo, name: string): void {
+		const nextDevices = this.device.devices.slice();
+		let index = -1;
+		for (let i = 0; i < nextDevices.length; i++) {
+			if (nextDevices[i].deviceId == found.deviceId) {
+				index = i;
+				break;
+			}
+		}
+		const item = {
+			name,
+			localName: found.localName ?? name,
+			deviceId: found.deviceId,
+			RSSI: found.RSSI ?? 0,
+			advertisData: found.advertisData ?? [],
+			advertisServiceUUIDs: found.advertisServiceUUIDs ?? [],
+			serviceData: found.serviceData,
+			connectable: true
+		} as DeviceInfo;
+		if (index >= 0) {
+			nextDevices.splice(index, 1, item);
+		} else {
+			nextDevices.push(item);
+		}
+		this.device.devices = this.sortDevicesByRssiDesc(nextDevices);
+		this.device.touchState();
+	}
+
 	/** 重连扫描中一旦发现绑定设备,立即停止扫描并直连 */
 	private async _connectFoundBoundDevice(deviceId: string, deviceName: string): Promise<void> {
 		if (this._isConnectingFoundBoundDevice == true) return;
@@ -427,12 +455,19 @@ export class DeviceConnection {
 		this.device.errorMessage.value = "";
 
 		//#ifndef H5
-		console.log("[BOOM] 连接模式直连绑定设备:", boundId);
-		const ok = await connect(boundId, DeviceConnection.DIRECT_CONNECT_TIMEOUT_MS);
+		let connectId = boundId;
+		let connectName = this.device.getDisplayDeviceName();
+		const cached = this.device.devices.find((d) => d.deviceId == boundId);
+		if (cached != null) {
+			connectId = cached.deviceId;
+			connectName = cached.name ?? cached.localName ?? connectName;
+		}
+		console.log("[BOOM] 连接模式直连绑定设备:", connectId);
+		const ok = await connect(connectId, DeviceConnection.DIRECT_CONNECT_TIMEOUT_MS);
 		if (ok == true) {
-			await this._markConnected(boundId, this.device.getDisplayDeviceName());
+			await this._markConnected(connectId, connectName);
 			if (this.device.isDeviceInitialized == false) {
-				await this._initializeConnectedDevice(boundId);
+				await this._initializeConnectedDevice(connectId);
 			}
 			return true;
 		}
@@ -538,6 +573,7 @@ export class DeviceConnection {
 	}
 
 	private startGattBroadcastPolling(): void {
+		if (this.device.gattBroadcastPollingEnabled.value == false) return;
 		this.stopGattBroadcastPolling();
 		this.readGattBroadcastOnce();
 		// @ts-ignore setInterval 在 UTS 不同平台返回类型不一
@@ -558,6 +594,7 @@ export class DeviceConnection {
 
 	private async readGattBroadcastOnce(): Promise<void> {
 		if (this._isReadingGattBroadcast == true) return;
+		if (this.device.gattBroadcastPollingEnabled.value == false) return;
 		if (this.device.status.value != "CONNECTED") return;
 		if (this.device.protocol.writeCharUuid == "") return;
 		this._isReadingGattBroadcast = true;
@@ -571,6 +608,16 @@ export class DeviceConnection {
 		} finally {
 			this._isReadingGattBroadcast = false;
 		}
+	}
+
+	setGattBroadcastPollingEnabled(enabled: boolean): void {
+		this.device.gattBroadcastPollingEnabled.value = enabled;
+		if (enabled == true) {
+			this.startGattBroadcastPolling();
+		} else {
+			this.stopGattBroadcastPolling();
+		}
+		this.device.touchState();
 	}
 
 	/** 订阅 GATT 连接状态变化 */

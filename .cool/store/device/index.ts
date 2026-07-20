@@ -92,6 +92,7 @@ export class Device {
 	status = ref<keyof typeof DeviceStatusEnum>("UNPAIRED");
 	stateVersion = ref<number>(0);
 	testMode = ref<DeviceTestMode>("connect");
+	gattBroadcastPollingEnabled = ref<boolean>(true);
 	available: boolean = false;
 	discovering: boolean = false;
 	errorMessage = ref<string>("");

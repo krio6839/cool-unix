@@ -124,6 +124,7 @@ export class DeviceBroadcast {
 		if (d.deviceId != this.device.boundDeviceId) return;
 		const name = d.name ?? d.localName ?? "";
 		this.device.saveBoundDeviceName(name);
+		this.device.connection.cacheFoundDevice(d, name);
 		if (name != "") {
 			bluetoothDataManager.setDeviceInfo(name, this.device.boundDeviceId);
 		}

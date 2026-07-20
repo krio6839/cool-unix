@@ -53,6 +53,20 @@
 					</view>
 					<cl-switch v-model="autoRestoreBroadcastAfterGattTask"></cl-switch>
 				</view>
+				<view class="auto-restore-row mt-3">
+					<view class="auto-restore-copy">
+						<text class="auto-restore-title">{{ t("连接态读 0x50") }}</text>
+						<text class="auto-restore-desc">{{
+							deviceStore.gattBroadcastPollingEnabled.value
+								? t("连接模式下每秒读取一次广播数据快照")
+								: t("连接模式下不主动读取 0x50")
+						}}</text>
+					</view>
+					<cl-switch
+						:model-value="deviceStore.gattBroadcastPollingEnabled.value"
+						@change="onGattBroadcastPollingChange"
+					></cl-switch>
+				</view>
 			</view>
 
 			<!-- 设备状态 -->
@@ -1093,17 +1107,18 @@ function beginCommand(cmd: string): boolean {
 	return true;
 }
 
-async function restoreBroadcastAfterGattTask(): Promise<void> {
+async function restoreBroadcastAfterGattTask(cmd: string): Promise<void> {
 	if (autoRestoreBroadcastAfterGattTask.value == false) return;
 	if (testMode.value != "connect") return;
 	if (deviceStore.boundDeviceId == "") return;
 	if (restoringBroadcastAfterGattTask.value == true) return;
 	restoringBroadcastAfterGattTask.value = true;
 	try {
+		const delayMs = cmd == "VITAL" || cmd == "EVENT" ? 1200 : 350;
 		await new Promise<void>((resolve) => {
 			setTimeout(() => {
 				resolve();
-			}, 350);
+			}, delayMs);
 		});
 		await deviceStore.connection.disconnectForBroadcastMode();
 		testMode.value = "broadcast";
@@ -1114,11 +1129,16 @@ async function restoreBroadcastAfterGattTask(): Promise<void> {
 	}
 }
 
+function onGattBroadcastPollingChange(): void {
+	const next = deviceStore.gattBroadcastPollingEnabled.value == false;
+	deviceStore.connection.setGattBroadcastPollingEnabled(next);
+}
+
 function endCommand(cmd: string): void {
 	if (activeCommand.value == cmd) {
 		activeCommand.value = "";
 	}
-	restoreBroadcastAfterGattTask();
+	restoreBroadcastAfterGattTask(cmd);
 }
 
 async function sendManualRawHex(): Promise<void> {
