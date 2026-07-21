@@ -59,6 +59,7 @@ import { DeviceProtocol } from "./protocol";
 import { EventHandler } from "./event-handler";
 import { DeviceHistoryReader } from "./history-reader";
 import { DeviceBroadcast } from "./broadcast";
+import { DeviceSync } from "./sync";
 
 /* 设备选择 actionSheet 调用参数（对象参数，UTS 不支持内联对象字面量类型） */
 export type ShowDevicePickerOptions = {
@@ -85,8 +86,7 @@ export class Device {
 	/* ===== 基本状态 ===== */
 	status = ref<keyof typeof DeviceStatusEnum>("UNPAIRED");
 	stateVersion = ref<number>(0);
-	testMode = ref<DeviceTestMode>("connect");
-	gattBroadcastPollingEnabled = ref<boolean>(true);
+	testMode = ref<DeviceTestMode>("broadcast");
 	available: boolean = false;
 	discovering: boolean = false;
 	errorMessage = ref<string>("");
@@ -131,6 +131,7 @@ export class Device {
 	readonly protocol: DeviceProtocol;
 	readonly event: EventHandler;
 	readonly history: DeviceHistoryReader;
+	readonly sync: DeviceSync;
 	readonly broadcast: DeviceBroadcast;
 	//#endif
 
@@ -147,12 +148,16 @@ export class Device {
 		this.protocol = new DeviceProtocol(this);
 		this.event = new EventHandler(this);
 		this.history = new DeviceHistoryReader(this);
+		this.sync = new DeviceSync(this);
 		this.broadcast = new DeviceBroadcast(this);
 
 		this.connection.onBluetoothAdapterStateChange();
 		this.connection.onBLEConnectionStateChange();
 		this.event.onCharacteristicValueChange();
 		this.connection.initBluetooth();
+		if (this.boundDeviceId != "") {
+			this.sync.startAutoRepair();
+		}
 		//#endif
 	}
 
@@ -193,6 +198,9 @@ export class Device {
 		}
 		storage.set(KEY_BOUND_DEVICE_ID, deviceId, 0);
 		this.touchState();
+		//#ifndef H5
+		this.sync.startAutoRepair();
+		//#endif
 	}
 
 	saveBoundDeviceName(deviceName: string): void {
@@ -205,6 +213,9 @@ export class Device {
 
 	/** 清除绑定设备 ID */
 	clearBoundDevice(): void {
+		//#ifndef H5
+		this.sync.stopAutoRepair();
+		//#endif
 		this.boundDeviceId = "";
 		this.boundDeviceName = "";
 		storage.remove(KEY_BOUND_DEVICE_ID);
@@ -414,6 +425,7 @@ export class Device {
 	/** 销毁：停止扫描 → 断开 → 关闭适配器 */
 	async destroy(): Promise<void> {
 		//#ifndef H5
+		this.sync.stop();
 		await this.connection.stopBluetoothSearch();
 		if (this.currentDeviceId != "") {
 			disconnect(this.currentDeviceId);
@@ -495,7 +507,7 @@ export class Device {
 
 		// 1. 断开 BLE(在清数据前先断开,避免回调中读到空状态)
 		try {
-			await this.connection.disconnectDevice();
+			await this.connection.disconnectDevice(false);
 		} catch (e) {
 			console.warn("[DEVICE] deleteDevice: disconnectDevice 异常,继续清理:", e);
 		}
@@ -579,3 +591,12 @@ export type {
 	VitalAutoReadOptions,
 	VitalAutoReadResult
 } from "./history-reader";
+export type {
+	DeviceSyncReason,
+	DeviceSyncState,
+	HistoryGap,
+	HistoryGapRepairResult,
+	HistoryRepairResult,
+	HistorySyncGroupPlan,
+	HistorySyncPlan
+} from "./sync";

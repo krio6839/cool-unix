@@ -423,7 +423,6 @@ async function loadUploadQueues(): Promise<void> {
 }
 
 .db-row-index {
-	display: block;
 	margin-bottom: 4px;
 	color: #9ca3af;
 	font-size: 11px;

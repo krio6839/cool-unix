@@ -47,30 +47,16 @@
 						<text class="auto-restore-title">{{ t("命令后回广播") }}</text>
 						<text class="auto-restore-desc">{{
 							autoRestoreBroadcastAfterGattTask
-								? t("连接模式下，执行完 GATT 命令后自动恢复 0x50")
+								? t("连接只用于执行指令，完成后回到广播扫描")
 								: t("连接模式下保持连接，便于连续测试多个 GATT 命令")
 						}}</text>
 					</view>
 					<cl-switch v-model="autoRestoreBroadcastAfterGattTask"></cl-switch>
 				</view>
-				<view class="auto-restore-row mt-3">
-					<view class="auto-restore-copy">
-						<text class="auto-restore-title">{{ t("连接态读 0x50") }}</text>
-						<text class="auto-restore-desc">{{
-							deviceStore.gattBroadcastPollingEnabled.value
-								? t("连接模式下每秒读取一次广播数据快照")
-								: t("连接模式下不主动读取 0x50")
-						}}</text>
-					</view>
-					<cl-switch
-						:model-value="deviceStore.gattBroadcastPollingEnabled.value"
-						@change="onGattBroadcastPollingChange"
-					></cl-switch>
-				</view>
 			</view>
 
 			<!-- 设备状态 -->
-			<view class="mb-4 p-3 bg-gray-800 rounded">
+			<view v-if="testMode == 'connect'" class="mb-4 p-3 bg-gray-800 rounded">
 				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
 					{{ t("BOOM 协议状态") }}
 				</cl-text>
@@ -1128,11 +1114,6 @@ async function restoreBroadcastAfterGattTask(cmd: string): Promise<void> {
 	}
 }
 
-function onGattBroadcastPollingChange(): void {
-	const next = deviceStore.gattBroadcastPollingEnabled.value == false;
-	deviceStore.connection.setGattBroadcastPollingEnabled(next);
-}
-
 function endCommand(cmd: string): void {
 	if (activeCommand.value == cmd) {
 		activeCommand.value = "";
@@ -1235,8 +1216,12 @@ async function switchToBroadcastMode(): Promise<void> {
 	}
 	vitalAutoReading.value = false;
 	eventAutoReading.value = false;
-	await deviceStore.connection.switchToBroadcastMode();
-	ui.showToast({ message: t("已进入广播模式"), type: "success" });
+	const ok = await deviceStore.connection.switchToBroadcastMode();
+	if (ok == true) {
+		ui.showToast({ message: t("已进入广播模式"), type: "success" });
+	} else {
+		ui.showToast({ message: t("广播扫描启动失败，请检查蓝牙和位置权限"), type: "warn" });
+	}
 }
 
 async function switchToConnectMode(): Promise<void> {
@@ -1261,7 +1246,6 @@ async function switchToConnectMode(): Promise<void> {
 
 async function switchTestMode(mode: "connect" | "broadcast"): Promise<void> {
 	if (testModeChanging.value == true) return;
-	if (mode == testMode.value) return;
 	testModeChanging.value = true;
 	try {
 		if (mode == "broadcast") {
@@ -2117,7 +2101,6 @@ function testClearError(): void {
 }
 
 .auto-restore-title {
-	display: block;
 	color: #ffffff;
 	font-size: 13px;
 	font-weight: 700;
@@ -2125,7 +2108,6 @@ function testClearError(): void {
 }
 
 .auto-restore-desc {
-	display: block;
 	color: #9ca3af;
 	font-size: 11px;
 	line-height: 16px;
@@ -2146,7 +2128,6 @@ function testClearError(): void {
 }
 
 .segment-title {
-	display: block;
 	color: #ffffff;
 	font-size: 13px;
 	font-weight: 700;
@@ -2155,7 +2136,6 @@ function testClearError(): void {
 }
 
 .segment-desc {
-	display: block;
 	color: #9ca3af;
 	font-size: 10px;
 	line-height: 14px;
@@ -2180,14 +2160,12 @@ function testClearError(): void {
 .metric-label,
 .metric-unit,
 .cell-label {
-	display: block;
 	color: #9ca3af;
 	font-size: 11px;
 	line-height: 16px;
 }
 
 .metric-value {
-	display: block;
 	color: #ffffff;
 	font-size: 22px;
 	font-weight: 700;
@@ -2202,7 +2180,7 @@ function testClearError(): void {
 }
 
 .broadcast-cell {
-	width: calc(50% - 4px);
+	width: 48%;
 	min-height: 48px;
 	padding: 8px;
 	border-radius: 8px;
@@ -2210,7 +2188,6 @@ function testClearError(): void {
 }
 
 .cell-value {
-	display: block;
 	color: #ffffff;
 	font-size: 13px;
 	line-height: 18px;
@@ -2232,7 +2209,7 @@ function testClearError(): void {
 }
 
 .event-window-button {
-	width: calc(50% - 4px);
+	width: 48%;
 	min-height: 34px;
 	border-radius: 8px;
 	background-color: rgba(255, 255, 255, 0.06);
@@ -2262,7 +2239,6 @@ function testClearError(): void {
 }
 
 .debug-line {
-	display: block;
 	color: #9ca3af;
 	font-size: 10px;
 	line-height: 15px;
@@ -2285,7 +2261,7 @@ function testClearError(): void {
 }
 
 .data-cell {
-	width: calc(50% - 4px);
+	width: 48%;
 	min-height: 48px;
 	padding: 8px;
 	border-radius: 8px;
@@ -2300,7 +2276,6 @@ function testClearError(): void {
 }
 
 .protocol-log-line {
-	display: block;
 	width: 100%;
 	font-size: 11px;
 	line-height: 16px;

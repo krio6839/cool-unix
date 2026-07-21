@@ -4,6 +4,15 @@ import { isArray, isNull, isObject, parse } from "../utils";
 import type { EnergyStatusApiResponse } from "../types/energy";
 import type { TimeValuePair, DateValuePair } from "../types/common";
 
+function isNoDataResponse(err?: any | null): boolean {
+	if (err == null || !isObject(err)) {
+		return false;
+	}
+
+	const message = (err as UTSJSONObject)["message"];
+	return typeof message == "string" && message.indexOf("No data found for device") >= 0;
+}
+
 export class Energy {
 	data = ref<EnergyStatusApiResponse | null>(null);
 
@@ -37,7 +46,11 @@ export class Energy {
 				})
 				.catch((err) => {
 					console.error("获取储能状态失败:", err);
-					this.clear();
+					this.clearStatus();
+					if (isNoDataResponse(err)) {
+						resolve();
+						return;
+					}
 					reject(err);
 				});
 		});
@@ -65,7 +78,11 @@ export class Energy {
 				})
 				.catch((err) => {
 					console.error("获取储能趋势失败:", err);
-					this.clear();
+					this.clearTrend();
+					if (isNoDataResponse(err)) {
+						resolve();
+						return;
+					}
 					reject(err);
 				});
 		});
@@ -85,14 +102,22 @@ export class Energy {
 		this.energyChartData.value = statusData.energyChartData ?? [];
 	}
 
-	clear(): void {
+	clearStatus(): void {
 		this.data.value = null;
 		this.totalEnergy.value = 0;
 		this.energyProgress.value = 0;
 		this.totalCharge.value = 0;
 		this.totalConsume.value = 0;
 		this.energyChartData.value = [];
+	}
+
+	clearTrend(): void {
 		this.bodyEnergyChartData.value = [];
+	}
+
+	clear(): void {
+		this.clearStatus();
+		this.clearTrend();
 	}
 }
 

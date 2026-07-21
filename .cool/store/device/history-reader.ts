@@ -83,15 +83,29 @@ export type EventAutoReadResult = {
 	uploadOk: boolean;
 };
 
+/** 等待一帧 0x3A/0x3B/0x3C/0x3D 响应的默认超时时间。 */
 const DEFAULT_TIMEOUT_MS = 8000;
+/** 手动/自动续读的默认最大页数兜底，防止设备异常时无限续读。 */
 const DEFAULT_MAX_PAGES = 100;
+/** 连续发送 0x3B/0x3D 前的短暂停顿，给设备一点处理时间。 */
 const DEFAULT_PAGE_DELAY_MS = 250;
+
+/* ===== 连接态近实时历史轮询 ===== */
+/** 连接模式下每 2 分钟自动补一次最近生命体征窗口。 */
 const VITAL_POLL_INTERVAL_MS = 120000;
+/** 近实时轮询只关心最近 120 秒。更大的缺口后续由明确的 GATT 任务按需补。 */
 const VITAL_POLL_WINDOW_SECONDS = 120;
+/** 0x3A 查询方向：0=向前读，1=向后读。这里按时间向后续页推进。 */
 const VITAL_POLL_DIRECTION = 0;
+/** 近实时轮询每页读 2 分钟，减少单次连接态轮询的响应体积。 */
 const VITAL_POLL_MINUTES = 2;
+/** 历史缺口补拉每页读 5 分钟，符合设备限制，同时减少大缺口页数。 */
+const VITAL_GAP_READ_MINUTES = 5;
+/** 近实时轮询最多续读 10 页，避免设备时间异常时追太远。 */
 const VITAL_POLL_MAX_PAGES = 10;
+/** 如果设备返回窗口明显晚于目标窗口，用这个上限判断“别再追了”。 */
 const VITAL_POLL_MAX_FUTURE_DRIFT_SECONDS = VITAL_POLL_MINUTES * VITAL_POLL_MAX_PAGES * 60;
+/** 调试弹窗展示历史明细时最多输出的行数。 */
 const MAX_FORMAT_DETAIL_LINES = 260;
 
 export class DeviceHistoryReader {
@@ -349,6 +363,66 @@ export class DeviceHistoryReader {
 			}
 			console.log(
 				`[BOOM-HISTORY] 自动补拉完成: status=${result.status}, pages=${result.pages}, saved=${result.savedRecords}, upload=${result.uploadOk}`
+			);
+			return result;
+		} finally {
+			this.setDisplaySuspended(false);
+			this.historyReadBusy = false;
+		}
+	}
+
+	/**
+	 * 按指定窗口补拉生命体征历史。
+	 *
+	 * readRecentVitalWindow() 面向“连接状态下定期补最近两分钟”；而设备同步调度层
+	 * 需要按本地数据库 gap 精确补某一段，所以这里提供一个更通用的窗口入口。
+	 * 入库仍使用 INSERT OR IGNORE，调用方可以放心传入带 overlap 的窗口。
+	 */
+	async readVitalWindow(startSec: number, endSec: number): Promise<VitalAutoReadResult> {
+		if (this.historyReadBusy == true) {
+			return this.makeVitalResult("STOPPED", "history reader busy", 0, []);
+		}
+		if (endSec <= startSec) {
+			return this.makeVitalResult("STOPPED", "invalid vital window", 0, []);
+		}
+		this.historyReadBusy = true;
+		this.setDisplaySuspended(true);
+		try {
+			const windowSeconds = endSec - startSec;
+			// 设备协议不支持传 endSec；缺口窗口只用于本地判断何时停止续读。
+			// 真正发给设备的仍然是 startSec + minutes，且 minutes 必须是 2 或 5。
+			const pageSeconds = VITAL_GAP_READ_MINUTES * 60;
+			const maxPages = Math.max(1, Math.ceil(windowSeconds / pageSeconds) + 2);
+			let stopRead = false;
+			console.log(
+				`[BOOM-HISTORY] 缺口补拉窗口: ${startSec} ${this.formatMaybeTime(startSec)} ~ ${endSec} ${this.formatMaybeTime(endSec)}, maxPages=${maxPages}`
+			);
+			const result = await this.readVitalDataAutoInner({
+				startSec,
+				direction: VITAL_POLL_DIRECTION,
+				minutes: VITAL_GAP_READ_MINUTES,
+				timeoutMs: DEFAULT_TIMEOUT_MS,
+				maxPages,
+				pageDelayMs: DEFAULT_PAGE_DELAY_MS,
+				shouldStop: () => stopRead,
+				onPage: (response, page) => {
+					const stopReason = this.getRecentVitalStopReason(response, startSec, endSec);
+					if (stopReason != null) {
+						stopRead = true;
+						console.log(`[BOOM-HISTORY] 缺口补拉停止续读: ${stopReason}, page=${page}`);
+					}
+				}
+			});
+			const records = this.toHeartRateRecordsInWindow(result.responses, startSec, endSec);
+			result.savedRecords = records.length;
+			result.saveOk =
+				await bluetoothDataManager.storeHistoricalHeartRateRecordsBatch(records);
+			if (result.savedRecords > 0) {
+				result.uploadAttempted = true;
+				result.uploadOk = await bluetoothDataManager.uploadData();
+			}
+			console.log(
+				`[BOOM-HISTORY] 缺口补拉完成: status=${result.status}, pages=${result.pages}, saved=${result.savedRecords}, upload=${result.uploadOk}`
 			);
 			return result;
 		} finally {

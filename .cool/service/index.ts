@@ -98,6 +98,16 @@ export function request(options: RequestOptions): Promise<any | null> {
 				timeout,
 
 				success(res) {
+					if (res.statusCode != 200) {
+						console.error(
+							"[request http error]",
+							method,
+							url,
+							res.statusCode,
+							res.data
+						);
+					}
+
 					// 401 无权限
 					if (res.statusCode == 401) {
 						user.logout();

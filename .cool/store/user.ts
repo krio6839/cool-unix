@@ -1,5 +1,5 @@
 import { computed, ref } from "vue";
-import { forInObject, isNull, isObject, parse, storage } from "../utils";
+import { forInObject, isNull, isObject, parse, parseToObject, storage } from "../utils";
 import { router } from "../router";
 import { request } from "../service";
 import type { UserInfo } from "../types";
@@ -71,7 +71,7 @@ export class User {
 			// 	});
 
 			// 使用模拟数据
-			this.set(mockUserInfo);
+			this.set(parseToObject(mockUserInfo));
 		}
 	}
 

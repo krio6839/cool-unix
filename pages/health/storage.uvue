@@ -78,14 +78,18 @@ function getDaysFromOption(option: string): number {
 	return 7;
 }
 
-async function fetchEnergyStatus() {
-	await energy.fetchStatus(device.boundDeviceId, currentDate.value);
+function fetchEnergyStatus(): Promise<void> {
+	return energy.fetchStatus(device.boundDeviceId, currentDate.value).catch((err) => {
+		console.error("刷新储能状态失败:", err);
+	});
 }
 
-async function fetchEnergyTrend(days: string) {
+function fetchEnergyTrend(days: string): Promise<void> {
 	const endDate = dayUts().format("YYYY-MM-DD");
 	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
-	await energy.fetchTrend(device.boundDeviceId, startDate, endDate);
+	return energy.fetchTrend(device.boundDeviceId, startDate, endDate).catch((err) => {
+		console.error("刷新储能趋势失败:", err);
+	});
 }
 
 function onTrendDaysChange(days: string) {

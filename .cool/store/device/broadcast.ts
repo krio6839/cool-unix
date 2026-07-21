@@ -1,5 +1,6 @@
 import { bluetoothDataManager, parseCustomAdvData, toRealtimeBroadcast } from "../../bluetooth";
 import type { RealtimeBroadcast } from "../../bluetooth";
+import { sleepTimeout } from "../../utils";
 import { realtime } from "../realtime";
 import { TARGET_DEVICE_NAME_PREFIX } from "./types";
 import type { Device } from "./index";
@@ -9,17 +10,19 @@ import type { BroadcastDebugInfo } from "./types";
 import type { DeviceInfo } from "../../bluetooth/kux";
 //#endif
 
-const BROADCAST_TIME_DRIFT_SEC = 10;
-const BROADCAST_TIME_SYNC_COOLDOWN_MS = 60000;
 const BOUND_BROADCAST_MIN_INTERVAL_MS = 1000;
+const BROADCAST_TIME_DRIFT_SEC = 10;
+const BROADCAST_TIME_SYNC_COOLDOWN_MS = 60 * 1000;
+const RECENT_GATT_TIME_SYNC_SUPPRESS_MS = 60 * 1000;
 
 export class DeviceBroadcast {
 	private device: Device;
-	private isTimeSyncing: boolean = false;
-	private lastTimeSyncAt: number = 0;
 	private broadcastSeq: number = 0;
 	private boundBroadcastScanning: boolean = false;
 	private lastBoundBroadcastHandledAt: number = 0;
+	private lastBoundScanDebugAt: number = 0;
+	private timeSyncBusy: boolean = false;
+	private lastTimeSyncAttemptAt: number = 0;
 
 	constructor(device: Device) {
 		this.device = device;
@@ -29,12 +32,14 @@ export class DeviceBroadcast {
 		this.boundBroadcastScanning = scanning;
 		if (scanning == true) {
 			this.lastBoundBroadcastHandledAt = 0;
+			this.lastBoundScanDebugAt = 0;
 		}
 	}
 
 	markScanStopped(): void {
 		this.boundBroadcastScanning = false;
 		this.lastBoundBroadcastHandledAt = 0;
+		this.lastBoundScanDebugAt = 0;
 	}
 
 	handleFoundDevice(d: DeviceInfo): void {
@@ -81,7 +86,7 @@ export class DeviceBroadcast {
 		this.device.realtime.value = r;
 		this.storeBroadcastRecordByDevice(deviceId, vHex, vHex, r);
 		this.publishDebugInfoByDevice("gatt", deviceId, name, 0, vHex, vHex, r);
-		this.checkBroadcastTimestamp(r);
+		this.checkBroadcastTime(r);
 	}
 
 	handleBoundDeviceList(devices: DeviceInfo[]): void {
@@ -94,9 +99,32 @@ export class DeviceBroadcast {
 				bound = item;
 			}
 		}
-		if (bound == null) return;
+		if (bound == null) {
+			this.logBoundScanMiss(devices);
+			return;
+		}
 		this.handleBoundDeviceFound(bound);
 		//#endif
+	}
+
+	private logBoundScanMiss(devices: DeviceInfo[]): void {
+		if (this.boundBroadcastScanning == false) return;
+		const now = Date.now();
+		if (now - this.lastBoundScanDebugAt < 2000) return;
+		this.lastBoundScanDebugAt = now;
+
+		const samples: string[] = [];
+		const max = devices.length < 5 ? devices.length : 5;
+		for (let i = 0; i < max; i++) {
+			const item = devices[i];
+			const name = item.name ?? item.localName ?? "";
+			const rssi = item.RSSI ?? 0;
+			const ad = item.advertisData ?? [];
+			samples.push(`${item.deviceId}/${name}/rssi=${rssi}/ad=${ad.length}`);
+		}
+		console.log(
+			`[BOOM-ADV] 广播扫描未匹配绑定设备: bound=${this.device.boundDeviceId}, count=${devices.length}, samples=${samples.join(" | ")}`
+		);
 	}
 
 	private tryParseBroadcast(d: DeviceInfo): void {
@@ -125,10 +153,93 @@ export class DeviceBroadcast {
 			const rssi = d.RSSI ?? 0;
 			this.storeBroadcastRecordByDevice(d.deviceId, hex, vHex, r);
 			this.publishDebugInfoByDevice("broadcast", d.deviceId, name, rssi, hex, vHex, r);
-			this.checkBroadcastTimestamp(r);
+			this.checkBroadcastTime(r);
 		} else if (this.boundBroadcastScanning == true) {
 			console.log(`[BOOM-ADV] 绑定设备广播解析失败: ${d.deviceId}, raw=${hex}, v=${vHex}`);
 		}
+	}
+
+	private checkBroadcastTime(r: RealtimeBroadcast): void {
+		if (this.device.boundDeviceId == "") return;
+		if (r.utc <= 0) return;
+		const nowSec = Math.floor(Date.now() / 1000);
+		let diffSec = nowSec - r.utc;
+		if (diffSec < 0) diffSec = 0 - diffSec;
+		if (diffSec <= BROADCAST_TIME_DRIFT_SEC) return;
+		if (this.hasRecentGoodGattTimestamp(nowSec) == true) return;
+		const nowMs = Date.now();
+		if (this.timeSyncBusy == true) return;
+		if (nowMs - this.lastTimeSyncAttemptAt < BROADCAST_TIME_SYNC_COOLDOWN_MS) return;
+		this.lastTimeSyncAttemptAt = nowMs;
+		this.syncTimeFromBroadcast(diffSec, r.utc);
+	}
+
+	private async syncTimeFromBroadcast(diffSec: number, broadcastUtc: number): Promise<void> {
+		if (this.timeSyncBusy == true) return;
+		this.timeSyncBusy = true;
+		const previousMode = this.device.testMode.value;
+		try {
+			console.warn(
+				`[BOOM-ADV] 广播时间偏差过大，自动校时: diff=${diffSec}s, advUtc=${broadcastUtc}`
+			);
+			let connected =
+				this.device.currentDeviceId != "" && this.device.status.value == "CONNECTED";
+			if (connected == false) {
+				connected = await this.device.connection.switchToConnectMode();
+			}
+			if (connected == false) {
+				console.warn("[BOOM-ADV] 自动校时连接失败，等待下次广播再试");
+				return;
+			}
+			const nowSec = Math.floor(Date.now() / 1000);
+			const beforeSeq = this.device.event.boomTimestampSeqValue;
+			const sent = await this.device.protocol.setTimestamp(nowSec);
+			if (sent == false) {
+				console.warn("[BOOM-ADV] 自动校时发送 0x33 失败");
+				return;
+			}
+			await sleepTimeout(300);
+			await this.device.protocol.readTimestamp();
+			const verified = await this.waitForTimestampResponse(beforeSeq, 3000);
+			if (verified == true) {
+				console.log(`[BOOM-ADV] 自动校时完成: utc=${nowSec}`);
+			} else {
+				console.warn("[BOOM-ADV] 自动校时读回超时，等待后续广播确认");
+			}
+		} catch (e) {
+			console.warn("[BOOM-ADV] 自动校时异常:", e);
+		} finally {
+			if (previousMode == "broadcast") {
+				try {
+					await this.device.connection.switchToBroadcastMode(false);
+				} catch (e) {
+					console.warn("[BOOM-ADV] 自动校时后恢复广播失败:", e);
+				}
+			}
+			this.timeSyncBusy = false;
+		}
+	}
+
+	private hasRecentGoodGattTimestamp(nowSec: number): boolean {
+		const boomSec = this.device.event.boomTimestamp.value;
+		if (boomSec <= 0) return false;
+		let diffSec = nowSec - boomSec;
+		if (diffSec < 0) diffSec = 0 - diffSec;
+		if (diffSec > BROADCAST_TIME_DRIFT_SEC) return false;
+		const lastNotifyAt = this.device.event.lastNotifyAtValue;
+		if (lastNotifyAt <= 0) return false;
+		return Date.now() - lastNotifyAt < RECENT_GATT_TIME_SYNC_SUPPRESS_MS;
+	}
+
+	private async waitForTimestampResponse(beforeSeq: number, timeoutMs: number): Promise<boolean> {
+		const start = Date.now();
+		while (Date.now() - start < timeoutMs) {
+			if (this.device.event.boomTimestampSeqValue > beforeSeq) {
+				return true;
+			}
+			await sleepTimeout(120);
+		}
+		return false;
 	}
 
 	private async storeBroadcastRecordByDevice(
@@ -215,7 +326,9 @@ export class DeviceBroadcast {
 			receivedAt: r.receivedAt
 		};
 		this.device.broadcastDebug.value = info;
-		// console.log(`[BOOM-ADV] 收到广播 #${info.seq}: ${summary}, raw=${rawHex}, v=${vHex}`);
+		if (source == "broadcast") {
+			console.log(`[BOOM-ADV] 收到广播 #${info.seq}: ${summary}, raw=${rawHex}, v=${vHex}`);
+		}
 	}
 
 	private bytesToHex(bytes: number[]): string {
@@ -240,40 +353,5 @@ export class DeviceBroadcast {
 			return hex.substring(hex.length - 42);
 		}
 		return "";
-	}
-
-	private checkBroadcastTimestamp(r: RealtimeBroadcast): void {
-		if (r.utc <= 0) return;
-		const nowSec = Math.floor(Date.now() / 1000);
-		let diff = nowSec - r.utc;
-		if (diff < 0) diff = 0 - diff;
-		if (diff <= BROADCAST_TIME_DRIFT_SEC) return;
-		const nowMs = Date.now();
-		if (this.isTimeSyncing == true) return;
-		if (nowMs - this.lastTimeSyncAt < BROADCAST_TIME_SYNC_COOLDOWN_MS) return;
-		this.syncTimestampFromBroadcast(nowSec, r.utc, diff);
-	}
-
-	private async syncTimestampFromBroadcast(
-		nowSec: number,
-		broadcastUtc: number,
-		diffSec: number
-	): Promise<void> {
-		if (this.device.status.value != "CONNECTED") return;
-		this.isTimeSyncing = true;
-		this.lastTimeSyncAt = Date.now();
-		try {
-			console.warn(
-				`[BOOM-ADV] 广播时戳偏差 ${diffSec}s，重新设置设备时间: adv=${broadcastUtc}, phone=${nowSec}`
-			);
-			const ok = await this.device.protocol.setTimestamp(nowSec);
-			if (ok == false) {
-				console.warn("[BOOM-ADV] 广播校时发送失败");
-			}
-		} catch (e) {
-			console.error("[BOOM-ADV] 广播校时异常:", e);
-		} finally {
-			this.isTimeSyncing = false;
-		}
 	}
 }

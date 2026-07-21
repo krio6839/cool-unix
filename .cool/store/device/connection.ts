@@ -45,8 +45,6 @@ export class DeviceConnection {
 	private _pairingScanTimer: number = 0;
 	private _suppressNextReconnect: boolean = false;
 	private _isSwitchingToBroadcastMode: boolean = false;
-	private _gattBroadcastTimer: number = 0;
-	private _isReadingGattBroadcast: boolean = false;
 	private _reconnectResolve: ((ok: boolean) => void) | null = null;
 
 	constructor(device: Device) {
@@ -103,7 +101,7 @@ export class DeviceConnection {
 		this.startScan("reconnect");
 	}
 
-	async switchToBroadcastMode(): Promise<boolean> {
+	async switchToBroadcastMode(readRecentVital: boolean = true): Promise<boolean> {
 		if (this._isSwitchingToBroadcastMode == true) {
 			console.log("[BOOM] 正在切换广播模式，跳过重复请求");
 			return true;
@@ -111,8 +109,10 @@ export class DeviceConnection {
 		this._isSwitchingToBroadcastMode = true;
 		try {
 			await this.stopBluetoothSearch();
-			this.stopGattBroadcastPolling();
 			this.device.history.stopVitalHistoryPolling();
+			if (readRecentVital == true) {
+				await this.readRecentVitalBeforeDisconnect();
+			}
 			//#ifndef H5
 			if (this.device.currentDeviceId != "") {
 				this._suppressNextReconnect = true;
@@ -127,6 +127,20 @@ export class DeviceConnection {
 		} finally {
 			this._suppressNextReconnect = false;
 			this._isSwitchingToBroadcastMode = false;
+		}
+	}
+
+	private async readRecentVitalBeforeDisconnect(): Promise<void> {
+		if (this.device.currentDeviceId == "") return;
+		if (this.device.status.value != "CONNECTED") return;
+		if (this.isProtocolReady() == false) return;
+		try {
+			const result = await this.device.history.readRecentVitalWindow();
+			console.log(
+				`[BOOM-HISTORY] 断开前补最近2分钟: status=${result.status}, pages=${result.pages}, saved=${result.savedRecords}, upload=${result.uploadOk}`
+			);
+		} catch (e) {
+			console.warn("[BOOM-HISTORY] 断开前补最近2分钟失败:", e);
 		}
 	}
 
@@ -416,7 +430,17 @@ export class DeviceConnection {
 		//#endif
 		await this._markConnected(deviceId, deviceName);
 		if (this.device.isDeviceInitialized == false) {
-			await this._initializeConnectedDevice(deviceId);
+			const initialized = await this._initializeConnectedDevice(deviceId);
+			if (initialized == false || this.isProtocolReady() == false) {
+				console.warn("[BOOM] 连接初始化未完成，断开并回到广播扫描");
+				//#ifndef H5
+				this._suppressNextReconnect = true;
+				await disconnect(deviceId);
+				this._suppressNextReconnect = false;
+				//#endif
+				this._resetConnectionState();
+				return false;
+			}
 		}
 		console.log("设备连接状态:", this.device.status.value);
 		return true;
@@ -428,7 +452,11 @@ export class DeviceConnection {
 		this.device.testMode.value = "connect";
 		if (boundId == "") return false;
 		await this.stopBluetoothSearch();
-		if (this.device.currentDeviceId != "") return true;
+		if (this.device.currentDeviceId != "") {
+			if (this.isProtocolReady() == true) return true;
+			const initialized = await this._initializeConnectedDevice(this.device.currentDeviceId);
+			return initialized == true && this.isProtocolReady() == true;
+		}
 
 		this.device.status.value = "SEARCHING";
 		this.device.errorMessage.value = "";
@@ -476,19 +504,29 @@ export class DeviceConnection {
 		});
 	}
 
-	private async _initializeConnectedDevice(deviceId: string): Promise<void> {
-		if (this._isInitializingConnectedDevice == true) return;
+	private async _initializeConnectedDevice(deviceId: string): Promise<boolean> {
+		if (this._isInitializingConnectedDevice == true) return this.isProtocolReady();
 		this._isInitializingConnectedDevice = true;
 		this.device.isDeviceInitialized = true;
 		try {
 			await this.afterConnected(deviceId);
+			return this.isProtocolReady();
 		} catch (e) {
 			console.error("[BOOM] 连接后初始化失败:", e);
 			this.device.isDeviceInitialized = false;
 			this.device.touchState();
+			return false;
 		} finally {
 			this._isInitializingConnectedDevice = false;
 		}
+	}
+
+	private isProtocolReady(): boolean {
+		return (
+			this.device.currentDeviceId != "" &&
+			this.device.protocol.writeCharUuid != "" &&
+			this.device.protocol.notifyCharUuid != ""
+		);
 	}
 
 	/**
@@ -546,7 +584,6 @@ export class DeviceConnection {
 
 			this.device.status.value = "CONNECTED";
 			this.device.touchState();
-			this.startGattBroadcastPolling();
 		} catch (e) {
 			console.error("[BOOM] afterConnected 流程异常:", e);
 			throw e;
@@ -568,54 +605,6 @@ export class DeviceConnection {
 			await sleepTimeout(120);
 		}
 		return false;
-	}
-
-	private startGattBroadcastPolling(): void {
-		if (this.device.gattBroadcastPollingEnabled.value == false) return;
-		this.stopGattBroadcastPolling();
-		this.readGattBroadcastOnce();
-		// @ts-ignore setInterval 在 UTS 不同平台返回类型不一
-		this._gattBroadcastTimer = setInterval(() => {
-			this.readGattBroadcastOnce();
-		}, 1000);
-		console.log("[BOOM-ADV] 已启动 GATT 0x50 轮询");
-	}
-
-	private stopGattBroadcastPolling(): void {
-		if (this._gattBroadcastTimer != 0) {
-			clearInterval(this._gattBroadcastTimer);
-			this._gattBroadcastTimer = 0;
-			console.log("[BOOM-ADV] 已停止 GATT 0x50 轮询");
-		}
-		this._isReadingGattBroadcast = false;
-	}
-
-	private async readGattBroadcastOnce(): Promise<void> {
-		if (this._isReadingGattBroadcast == true) return;
-		if (this.device.gattBroadcastPollingEnabled.value == false) return;
-		if (this.device.status.value != "CONNECTED") return;
-		if (this.device.protocol.writeCharUuid == "") return;
-		this._isReadingGattBroadcast = true;
-		try {
-			const ok = await this.device.protocol.readBroadcastData();
-			if (ok == false) {
-				console.warn("[BOOM-ADV] GATT 0x50 发送失败");
-			}
-		} catch (e) {
-			console.warn("[BOOM-ADV] GATT 0x50 读取异常:", e);
-		} finally {
-			this._isReadingGattBroadcast = false;
-		}
-	}
-
-	setGattBroadcastPollingEnabled(enabled: boolean): void {
-		this.device.gattBroadcastPollingEnabled.value = enabled;
-		if (enabled == true) {
-			this.startGattBroadcastPolling();
-		} else {
-			this.stopGattBroadcastPolling();
-		}
-		this.device.touchState();
 	}
 
 	/** 订阅 GATT 连接状态变化 */
@@ -685,8 +674,11 @@ export class DeviceConnection {
 	}
 
 	/** 主动断开当前设备 */
-	async disconnectDevice(): Promise<void> {
+	async disconnectDevice(readRecentVital: boolean = true): Promise<void> {
 		await this.stopBluetoothSearch();
+		if (readRecentVital == true) {
+			await this.readRecentVitalBeforeDisconnect();
+		}
 		//#ifndef H5
 		if (this.device.currentDeviceId != "") {
 			await disconnect(this.device.currentDeviceId);
@@ -697,7 +689,6 @@ export class DeviceConnection {
 
 	/** 内部：清空连接相关字段 */
 	_resetConnectionState(): void {
-		this.stopGattBroadcastPolling();
 		this.device.history.stopVitalHistoryPolling();
 		this.device.status.value = "UNPAIRED";
 		this.device.currentDeviceId = "";

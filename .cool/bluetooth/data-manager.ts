@@ -476,6 +476,31 @@ export class BluetoothDataManager {
 		return dataList;
 	}
 
+	/**
+	 * 获取某个时间窗口内已经落库的 PPI 时间点。
+	 *
+	 * 这里故意只取 timestamp，而不取整行数据：历史补拉规划只关心“本地有没有这段”，
+	 * 不关心当时的 HR/PPI 值。用轻量查询可以让 App 回前台时的 gap scan 更便宜。
+	 */
+	async getPpiTimestampsBetween(startSec: number, endSec: number): Promise<number[]> {
+		if (endSec <= startSec) return [];
+		const sql =
+			"SELECT timestamp FROM ppi_data WHERE timestamp >= " +
+			startSec.toString() +
+			" AND timestamp <= " +
+			endSec.toString() +
+			" ORDER BY timestamp ASC";
+		const result = await bluetoothDatabase.query(sql);
+		if (result == null) {
+			return [];
+		}
+		const timestamps: number[] = [];
+		for (let i = 0; i < result.rows.length; i++) {
+			timestamps.push(parseInt(result.rows[i][0] as string));
+		}
+		return timestamps;
+	}
+
 	async getRecentPpiDataByUploadStatus(limit: number, uploaded: boolean): Promise<PpiData[]> {
 		const safeLimit = limit <= 0 ? 10 : limit;
 		const uploadedValue = uploaded == true ? 1 : 0;
@@ -646,6 +671,18 @@ export class BluetoothDataManager {
 	}
 
 	/**
+	 * 获取最近一条睡眠报告。
+	 *
+	 * 睡眠事件不是每秒连续数据，不能像 PPI 一样做密集 gap scan；
+	 * 调度层只用它判断“最近有没有睡眠结果”，再决定是否读一段事件窗口。
+	 */
+	async getLatestSleepData(): Promise<SleepData | null> {
+		const list = await this.getRecentSleepData(1, null);
+		if (list.length == 0) return null;
+		return list[0];
+	}
+
+	/**
 	 * 标记睡眠数据为已上传
 	 * @param ids 睡眠数据ID数组
 	 */
@@ -701,7 +738,7 @@ export class BluetoothDataManager {
 				datas.push({
 					time: this.formatTimestamp(item.timestamp * 1000),
 					hr: item.hr,
-					spo2: item.spo2,
+					spo2: this.normalizeSpo2ForUpload(item.spo2),
 					ppi: item.ppi
 				});
 			}
@@ -860,6 +897,11 @@ export class BluetoothDataManager {
 			upSec: sleepData.wakeTime,
 			wakeSec: sleepData.getupTime
 		};
+	}
+
+	private normalizeSpo2ForUpload(spo2: number): number {
+		if (spo2 > 100) return Math.round(spo2 / 10);
+		return Math.round(spo2);
 	}
 
 	/**
