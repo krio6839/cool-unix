@@ -23,6 +23,7 @@ const BROADCAST_TIME_SYNC_COOLDOWN_MS = 60 * 1000;
 const RECENT_GATT_TIME_SYNC_SUPPRESS_MS = 60 * 1000;
 const STALE_BROADCAST_REPEAT_THRESHOLD = 3;
 const STALE_BROADCAST_SCAN_RESTART_COOLDOWN_MS = 20 * 1000;
+const BOUND_BROADCAST_SCAN_NO_CALLBACK_MS = 12 * 1000;
 const EVENT_SYNC_WINDOW_SECONDS = 24 * 60 * 60;
 const EVENT_SYNC_MAX_COUNT = 10;
 const EVENT_SYNC_MAX_PAGES = 20;
@@ -35,6 +36,7 @@ export class DeviceBroadcast {
 	private broadcastSeq: number = 0;
 	private boundBroadcastScanning: boolean = false;
 	private lastBoundBroadcastHandledAt: number = 0;
+	private lastBoundScanCallbackAt: number = 0;
 	private lastBoundScanDebugAt: number = 0;
 	private timeSyncBusy: boolean = false;
 	private lastTimeSyncAttemptAt: number = 0;
@@ -51,6 +53,7 @@ export class DeviceBroadcast {
 	private staleBroadcastRepeatCount: number = 0;
 	private lastBroadcastScanRestartAt: number = 0;
 	private broadcastScanRestartBusy: boolean = false;
+	private boundBroadcastScanGeneration: number = 0;
 
 	constructor(device: Device) {
 		this.device = device;
@@ -74,16 +77,21 @@ export class DeviceBroadcast {
 
 	setBoundBroadcastScanning(scanning: boolean): void {
 		this.boundBroadcastScanning = scanning;
+		this.boundBroadcastScanGeneration = this.boundBroadcastScanGeneration + 1;
 		if (scanning == true) {
 			this.lastBoundBroadcastHandledAt = 0;
+			this.lastBoundScanCallbackAt = 0;
 			this.lastBoundScanDebugAt = 0;
 			this.resetStaleBroadcastTracking();
+			this.watchBoundBroadcastScan(this.boundBroadcastScanGeneration);
 		}
 	}
 
 	markScanStopped(): void {
 		this.boundBroadcastScanning = false;
+		this.boundBroadcastScanGeneration = this.boundBroadcastScanGeneration + 1;
 		this.lastBoundBroadcastHandledAt = 0;
+		this.lastBoundScanCallbackAt = 0;
 		this.lastBoundScanDebugAt = 0;
 		this.resetStaleBroadcastTracking();
 	}
@@ -104,6 +112,7 @@ export class DeviceBroadcast {
 		//#ifndef H5
 		if (this.device.boundDeviceId == "") return;
 		if (d.deviceId != this.device.boundDeviceId) return;
+		this.markBoundScanCallback();
 		const name = d.name ?? d.localName ?? "";
 		this.device.saveBoundDeviceName(name);
 		this.device.cacheFoundDevice(d, name);
@@ -138,6 +147,7 @@ export class DeviceBroadcast {
 	handleBoundDeviceList(devices: DeviceInfo[]): void {
 		//#ifndef H5
 		if (this.device.boundDeviceId == "") return;
+		this.markBoundScanCallback();
 		let bound: DeviceInfo | null = null;
 		for (let i = 0; i < devices.length; i++) {
 			const item = devices[i];
@@ -151,6 +161,28 @@ export class DeviceBroadcast {
 		}
 		this.handleBoundDeviceFound(bound);
 		//#endif
+	}
+
+	private markBoundScanCallback(): void {
+		if (this.boundBroadcastScanning == false) return;
+		this.lastBoundScanCallbackAt = Date.now();
+	}
+
+	private watchBoundBroadcastScan(generation: number): void {
+		this.watchBoundBroadcastScanAsync(generation);
+	}
+
+	private async watchBoundBroadcastScanAsync(generation: number): Promise<void> {
+		await sleepTimeout(BOUND_BROADCAST_SCAN_NO_CALLBACK_MS);
+		if (this.boundBroadcastScanning == false) return;
+		if (generation != this.boundBroadcastScanGeneration) return;
+		if (this.lastBoundScanCallbackAt > 0) return;
+		if (this.lastBoundBroadcastHandledAt > 0) return;
+		logger.warn(
+			"bluetooth",
+			`[BOOM-ADV] 绑定广播扫描 ${BOUND_BROADCAST_SCAN_NO_CALLBACK_MS}ms 内无任何回调，重启扫描`
+		);
+		this.restartBoundBroadcastScan("no scan callback");
 	}
 
 	private logBoundScanMiss(devices: DeviceInfo[]): void {
@@ -266,11 +298,11 @@ export class DeviceBroadcast {
 			"bluetooth",
 			`[BOOM-ADV] 检测到扫描缓存广播，丢弃并重启广播扫描: device=${deviceId}, repeat=${this.staleBroadcastRepeatCount}, lastUtc=${this.lastBroadcastUtc}, utc=${r.utc}, diff=${diffSec}s`
 		);
-		this.restartBoundBroadcastScanForStalePacket();
+		this.restartBoundBroadcastScan("stale packet");
 		return true;
 	}
 
-	private restartBoundBroadcastScanForStalePacket(): void {
+	private restartBoundBroadcastScan(reason: string): void {
 		const now = Date.now();
 		if (now - this.lastBroadcastScanRestartAt < STALE_BROADCAST_SCAN_RESTART_COOLDOWN_MS) {
 			return;
@@ -278,12 +310,12 @@ export class DeviceBroadcast {
 		if (this.broadcastScanRestartBusy == true) return;
 		this.lastBroadcastScanRestartAt = now;
 		this.broadcastScanRestartBusy = true;
-		this.restartBoundBroadcastScanForStalePacketAsync();
+		this.restartBoundBroadcastScanAsync(reason);
 	}
 
-	private async restartBoundBroadcastScanForStalePacketAsync(): Promise<void> {
+	private async restartBoundBroadcastScanAsync(reason: string): Promise<void> {
 		try {
-			await this.device.connection.switchToBroadcastMode(false);
+			await this.device.connection.restartBoundBroadcastScan(reason);
 		} catch (e) {
 			logger.warn("bluetooth", "[BOOM-ADV] 重启广播扫描失败:", e);
 		} finally {

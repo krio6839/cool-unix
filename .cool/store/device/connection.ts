@@ -6,7 +6,7 @@
  * - 设备扫描：设备名前缀匹配 "BOOM-"
  * - 绑定设备广播解析 → realtime_broadcast_data，本轮状态同步到 device.realtime
  * - 静默直连（重连）+ 配对扫描（首次配对 / 直连失败后降级）
- * - 连接成功后的 GATT 流程（services 发现 → notify 启用 → 0x30 读固件 → 0x33 写时戳）
+ * - 连接成功后的 GATT 流程（services 发现 → notify 启用）
  */
 
 import { t } from "../../locale";
@@ -38,6 +38,7 @@ export class DeviceConnection {
 
 	/* ===== 直连 / 扫描配置 ===== */
 	private static readonly DIRECT_CONNECT_TIMEOUT_MS = 8000; // 单次直连超时
+	private static readonly BOUND_BROADCAST_RESTART_DELAY_MS = 600;
 	private _isInitializingConnectedDevice: boolean = false;
 	private _initializeConnectedDevicePromise: Promise<boolean> | null = null;
 	private static readonly PAIRING_SCAN_TIMEOUT_MS = 30000; // 扫描总时长
@@ -72,7 +73,8 @@ export class DeviceConnection {
 		//#ifndef H5
 		logger.info("bluetooth", "开始监听蓝牙适配器状态变化");
 		onAdapterStateChange((res) => {
-			logger.info("bluetooth",
+			logger.info(
+				"bluetooth",
 				"蓝牙适配器状态变化",
 				`available=${res.available}, discovering=${res.discovering}`
 			);
@@ -142,7 +144,8 @@ export class DeviceConnection {
 		if (this.isProtocolReady() == false) return;
 		try {
 			const result = await this.device.history.readRecentVitalWindow();
-			logger.info("bluetooth",
+			logger.info(
+				"bluetooth",
 				`[BOOM-HISTORY] 断开前补最近2分钟: status=${result.status}, pages=${result.pages}, saved=${result.savedRecords}, upload=${result.uploadOk}`
 			);
 		} catch (e) {
@@ -164,6 +167,13 @@ export class DeviceConnection {
 			this.device.touchState();
 		}
 		return ok;
+	}
+
+	async restartBoundBroadcastScan(reason: string): Promise<boolean> {
+		logger.warn("bluetooth", `[SCAN] 重启绑定广播扫描: ${reason}`);
+		await this.stopBluetoothSearch();
+		await sleepTimeout(DeviceConnection.BOUND_BROADCAST_RESTART_DELAY_MS);
+		return await this.startBoundBroadcastScan();
 	}
 
 	/** 标记已连接：刷新状态 + 持久化绑定 */
@@ -282,7 +292,8 @@ export class DeviceConnection {
 	 * 连接由 _handlePairingScanTimeout 根据 _scanMode + devices.length 决定
 	 */
 	private _handleFoundDevice(found: DeviceInfo, name: string): void {
-		logger.info("bluetooth",
+		logger.info(
+			"bluetooth",
 			"[SCAN] 发现目标设备",
 			`${name}/${found.deviceId}/RSSI=${found.RSSI}`
 		);
@@ -575,7 +586,8 @@ export class DeviceConnection {
 			}
 
 			await this.device.protocol.getDeviceServicesAndCharacteristics(deviceId);
-			logger.info("bluetooth",
+			logger.info(
+				"bluetooth",
 				"获取设备服务和特征值成功",
 				`services=${this.device.protocol.services.length}, write=${this.device.protocol.writeCharUuid}, notify=${this.device.protocol.notifyCharUuid}`
 			);
@@ -615,7 +627,8 @@ export class DeviceConnection {
 		const start = Date.now();
 		while (Date.now() - start < timeoutMs) {
 			if (this.device.event.boomTimestampSeqValue > beforeSeq) {
-				logger.info("bluetooth",
+				logger.info(
+					"bluetooth",
 					`[BOOM] 已收到读时戳响应: t=0x${this.device.event.boomTimestampLastT.toString(16)}, boomTimestamp=${this.device.event.boomTimestamp.value}`
 				);
 				return true;
@@ -762,7 +775,10 @@ export class DeviceConnection {
 		this.device.reconnectAttempts++;
 
 		const currentInterval = this.device.reconnectInterval * this.device.reconnectAttempts;
-		logger.info("bluetooth", `开始第 ${this.device.reconnectAttempts} 次重连，间隔 ${currentInterval}ms`);
+		logger.info(
+			"bluetooth",
+			`开始第 ${this.device.reconnectAttempts} 次重连，间隔 ${currentInterval}ms`
+		);
 
 		setTimeout(() => {
 			logger.info("bluetooth", "执行扫描重连操作");

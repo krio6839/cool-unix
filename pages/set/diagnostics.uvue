@@ -4,7 +4,8 @@
 			<view class="diagnostics-header">
 				<cl-text :size="18" :pt="{ className: 'font-bold mb-1' }">诊断日志</cl-text>
 				<cl-text :size="12" :pt="{ className: 'opacity-60 leading-5' }">
-					本机保留最近 {{ maxLogs }} 条，当前 {{ logs.length }} 条。超过上限自动覆盖最旧日志。
+					本机保留最近 {{ maxLogs }} 条，当前
+					{{ logs.length }} 条。超过上限自动覆盖最旧日志。
 				</cl-text>
 			</view>
 
@@ -40,12 +41,7 @@
 				</view>
 			</view>
 
-			<textarea
-				class="log-textarea"
-				:value="text"
-				:maxlength="-1"
-				disabled
-			/>
+			<textarea class="log-textarea" :value="text" :maxlength="-1" disabled />
 		</view>
 	</cl-page>
 </template>
@@ -107,7 +103,6 @@ onShow(() => {
 
 <style lang="scss" scoped>
 .diagnostics-page {
-	min-height: 100vh;
 	padding: 24rpx;
 	box-sizing: border-box;
 	display: flex;
@@ -139,14 +134,12 @@ onShow(() => {
 }
 
 .summary-label {
-	display: block;
 	font-size: 22rpx;
 	color: rgba(255, 255, 255, 0.55);
 	margin-bottom: 8rpx;
 }
 
 .summary-value {
-	display: block;
 	font-size: 30rpx;
 	color: #fff;
 	font-weight: 600;
