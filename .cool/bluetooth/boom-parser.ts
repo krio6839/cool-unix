@@ -30,6 +30,7 @@ import type {
 	EventDataSedentary,
 	EventDataParsed
 } from "./boom-types";
+import { logger } from "../service/logger";
 import {
 	encodeU8,
 	encodeU16BE,
@@ -259,7 +260,7 @@ export function serializeVitalDataQuery(req: VitalDataQueryRequest): string {
 		}
 	}
 	if (valid == false) {
-		console.warn(`[BOOM-PARSER] 0x3A minutes=${req.minutes} 非法（应=2或5），仍按原值编码`);
+		logger.warn("bluetooth", `[BOOM-PARSER] 0x3A minutes=${req.minutes} 非法（应=2或5），仍按原值编码`);
 	}
 	return encodeU32LE(req.startSec) + encodeU8(req.direction) + encodeU8(req.minutes);
 }

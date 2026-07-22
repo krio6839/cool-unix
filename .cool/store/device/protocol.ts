@@ -179,7 +179,7 @@ export class DeviceProtocol {
 		//#ifndef H5
 		if (this.writeCharUuid == "") return false;
 		const frame = wrapDataIdentifier(encodeTlvc(t, vHex));
-		console.log(`[BOOM-PROTO] sendTlvc t=0x${t.toString(16)}, frame=${frame}`);
+		logger.info("bluetooth", `[BOOM-PROTO] sendTlvc t=0x${t.toString(16)}, frame=${frame}`);
 		this.device.addProtocolLog("TX", `0x${t.toString(16)} TLVC`, frame, `V=${vHex}`);
 		return writeCharacteristic(
 			this.device.currentDeviceId,
@@ -200,7 +200,7 @@ export class DeviceProtocol {
 	async sendRawFrame(hex: string): Promise<boolean> {
 		//#ifndef H5
 		if (this.writeCharUuid == "") return false;
-		console.log(`[BOOM-PROTO] sendRawFrame frame=${hex}`);
+		logger.info("bluetooth", `[BOOM-PROTO] sendRawFrame frame=${hex}`);
 		this.device.addProtocolLog("TX", "RAW", hex, "手动/示例发送");
 		return writeCharacteristic(
 			this.device.currentDeviceId,
@@ -251,7 +251,7 @@ export class DeviceProtocol {
 			}
 		}
 		if (validPpgPosition == false) {
-			console.warn(`[BOOM-PROTO] 0x35 ppgPosition=${b.ppgPosition} 非法（应为0~6）`);
+			logger.warn("bluetooth", `[BOOM-PROTO] 0x35 ppgPosition=${b.ppgPosition} 非法（应为0~6）`);
 			return Promise.resolve(false);
 		}
 		return this.sendTlvc(BOOM_CMD.SET_BIOMETRIC, serializeBiometric(b));
@@ -265,11 +265,11 @@ export class DeviceProtocol {
 	/** 0x40 震动马达控制（onOffMs 长度=count*2-1；count 上限 10） */
 	controlVibration(spec: VibrationSpec): Promise<boolean> {
 		if (spec.count < 1 || spec.count > 10) {
-			console.warn(`[BOOM-PROTO] 0x40 count=${spec.count} 非法（应为1~10）`);
+			logger.warn("bluetooth", `[BOOM-PROTO] 0x40 count=${spec.count} 非法（应为1~10）`);
 			return Promise.resolve(false);
 		}
 		if (spec.onOffMs.length != spec.count * 2 - 1) {
-			console.warn("[BOOM-PROTO] 0x40 onOffMs 长度应为 count*2-1");
+			logger.warn("bluetooth", "[BOOM-PROTO] 0x40 onOffMs 长度应为 count*2-1");
 			return Promise.resolve(false);
 		}
 		return this.sendTlvc(BOOM_CMD.CONTROL_VIBRATION, serializeVibration(spec));
@@ -295,11 +295,11 @@ export class DeviceProtocol {
 	 */
 	readVitalData(req: VitalDataQueryRequest): Promise<boolean> {
 		if (req.direction != VITAL_DIRECTION_FORWARD && req.direction != VITAL_DIRECTION_BACKWARD) {
-			console.warn(`[BOOM-PROTO] 0x3A direction=${req.direction} 非法（应=0或1）`);
+			logger.warn("bluetooth", `[BOOM-PROTO] 0x3A direction=${req.direction} 非法（应=0或1）`);
 			return Promise.resolve(false);
 		}
 		if (req.minutes != 2 && req.minutes != 5) {
-			console.warn(`[BOOM-PROTO] 0x3A minutes=${req.minutes} 非法（应=2或5）`);
+			logger.warn("bluetooth", `[BOOM-PROTO] 0x3A minutes=${req.minutes} 非法（应=2或5）`);
 			return Promise.resolve(false);
 		}
 		return this.sendTlvc(BOOM_CMD.READ_VITAL_DATA_START, serializeVitalDataQuery(req));
@@ -308,7 +308,7 @@ export class DeviceProtocol {
 	/** 0x3B 继续读生命体征数据（minutes 只能是 2 或 5） */
 	continueReadVitalData(minutes: number): Promise<boolean> {
 		if (minutes != 2 && minutes != 5) {
-			console.warn(`[BOOM-PROTO] 0x3B minutes=${minutes} 非法（应=2或5）`);
+			logger.warn("bluetooth", `[BOOM-PROTO] 0x3B minutes=${minutes} 非法（应=2或5）`);
 			return Promise.resolve(false);
 		}
 		return this.sendTlvc(
@@ -322,7 +322,7 @@ export class DeviceProtocol {
 	/** 0x3C 开始读事件数据 */
 	readEventData(req: EventDataQuery): Promise<boolean> {
 		if (req.type != EVENT_QUERY_TYPE_ALL && req.type != EVENT_QUERY_TYPE_BY_TIME) {
-			console.warn(`[BOOM-PROTO] 0x3C type=${req.type} 非法（应=0或1）`);
+			logger.warn("bluetooth", `[BOOM-PROTO] 0x3C type=${req.type} 非法（应=0或1）`);
 			return Promise.resolve(false);
 		}
 		return this.sendTlvc(BOOM_CMD.READ_EVENT_DATA_START, serializeEventDataQuery(req));
@@ -331,7 +331,7 @@ export class DeviceProtocol {
 	/** 0x3D 继续读事件数据（maxCount 最大条数） */
 	continueReadEventData(maxCount: number): Promise<boolean> {
 		if (maxCount < 0) {
-			console.warn(`[BOOM-PROTO] 0x3D maxCount=${maxCount} 不能为负`);
+			logger.warn("bluetooth", `[BOOM-PROTO] 0x3D maxCount=${maxCount} 不能为负`);
 			return Promise.resolve(false);
 		}
 		return this.sendTlvc(

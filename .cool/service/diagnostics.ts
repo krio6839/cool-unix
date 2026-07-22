@@ -15,7 +15,7 @@ export type DiagnosticRequestContext = {
 };
 
 const LOG_STORAGE_KEY = "boom_diagnostic_logs";
-const MAX_LOGS = 300;
+const MAX_LOGS = 500;
 
 function stringify(value: any | null): string {
 	if (value == null) return "";

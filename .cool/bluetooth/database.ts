@@ -16,6 +16,7 @@ import type {
 	SelectSqlResult
 	//@ts-ignore
 } from "@/uni_modules/meibao-Sqlite";
+import { logger } from "../service/logger";
 
 const DB_NAME = "bluetooth_db";
 
@@ -28,19 +29,19 @@ class BluetoothDatabase {
 			const options: OpenDatabaseOptions = {
 				name: DB_NAME,
 				success: (_res) => {
-					console.log("数据库打开成功");
+					logger.info("bluetooth", "数据库打开成功");
 					this.isOpen = true;
 					this.initTables()
 						.then(() => {
 							resolve(true);
 						})
 						.catch((e) => {
-							console.error("数据库初始化失败:", e);
+							logger.error("bluetooth", "数据库初始化失败:", e);
 							resolve(false);
 						});
 				},
 				fail: (err) => {
-					console.error("数据库打开失败:", err.errMsg);
+					logger.error("bluetooth", "数据库打开失败:", err.errMsg);
 					this.isOpen = false;
 					resolve(false);
 				}
@@ -60,12 +61,12 @@ class BluetoothDatabase {
 			const options: CloseDatabaseOptions = {
 				name: DB_NAME,
 				success: () => {
-					console.log("数据库关闭成功");
+					logger.info("bluetooth", "数据库关闭成功");
 					this.isOpen = false;
 					resolve(true);
 				},
 				fail: (err) => {
-					console.error("数据库关闭失败:", err.errMsg);
+					logger.error("bluetooth", "数据库关闭失败:", err.errMsg);
 					resolve(false);
 				}
 			};
@@ -79,12 +80,12 @@ class BluetoothDatabase {
 			const options: DeleteDatabaseOptions = {
 				name: DB_NAME,
 				success: () => {
-					console.log("数据库删除成功");
+					logger.info("bluetooth", "数据库删除成功");
 					this.isOpen = false;
 					resolve(true);
 				},
 				fail: (err) => {
-					console.error("数据库删除失败:", err.errMsg);
+					logger.error("bluetooth", "数据库删除失败:", err.errMsg);
 					resolve(false);
 				}
 			};
@@ -213,7 +214,7 @@ class BluetoothDatabase {
 	execute(sql: string): Promise<boolean> {
 		return new Promise((resolve) => {
 			if (this.isOpen == false) {
-				console.error("数据库未打开");
+				logger.error("bluetooth", "数据库未打开");
 				resolve(false);
 				return;
 			}
@@ -225,7 +226,7 @@ class BluetoothDatabase {
 					resolve(true);
 				},
 				fail: (err) => {
-					console.error("SQL执行失败:", err.errMsg);
+					logger.error("bluetooth", "SQL执行失败:", err.errMsg);
 					resolve(false);
 				}
 			};
@@ -237,7 +238,7 @@ class BluetoothDatabase {
 	query(sql: string): Promise<SelectSqlResult | null> {
 		return new Promise((resolve) => {
 			if (this.isOpen == false) {
-				console.error("数据库未打开");
+				logger.error("bluetooth", "数据库未打开");
 				resolve(null);
 				return;
 			}
@@ -249,7 +250,7 @@ class BluetoothDatabase {
 					resolve(res);
 				},
 				fail: (err) => {
-					console.error("查询失败:", err.errMsg);
+					logger.error("bluetooth", "查询失败:", err.errMsg);
 					resolve(null);
 				}
 			};

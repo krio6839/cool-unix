@@ -3,7 +3,7 @@ import { locale, t } from "../locale";
 import { isNull, isObject, parse, storage } from "../utils";
 import { useStore } from "../store";
 import { defaultErrorNotice, type ErrorNoticeShowType } from "./error-notice";
-import { diagnostics } from "./diagnostics";
+import { logger } from "./logger";
 
 // 请求参数类型定义
 export type RequestOptions = {
@@ -101,14 +101,7 @@ export function request(options: RequestOptions): Promise<any | null> {
 
 				success(res) {
 					if (res.statusCode != 200) {
-						console.error(
-							"[request http error]",
-							method,
-							url,
-							res.statusCode,
-							res.data
-						);
-						diagnostics.captureRequest({
+						logger.requestError({
 							method,
 							url,
 							statusCode: res.statusCode,
@@ -170,7 +163,7 @@ export function request(options: RequestOptions): Promise<any | null> {
 										resolve(data);
 										break;
 									default:
-										diagnostics.captureRequest({
+										logger.requestError({
 											method,
 											url,
 											statusCode: res.statusCode,
@@ -197,8 +190,7 @@ export function request(options: RequestOptions): Promise<any | null> {
 
 				// 网络请求失败
 				fail(err) {
-					console.error("[request fail]", method, url, err);
-					diagnostics.captureRequest({
+					logger.requestError({
 						method,
 						url,
 						message: err.errMsg,

@@ -4,6 +4,7 @@
  */
 import { bluetoothDatabase } from "./database";
 import { request } from "../service";
+import { logger } from "../service/logger";
 import { dayUts } from "../utils/day";
 import { UPLOAD_INTERVAL, UPLOAD_PPI_URL, UPLOAD_SLEEP_URL } from "./constants";
 import type {
@@ -429,11 +430,11 @@ export class BluetoothDataManager {
 	 * 清空所有数据（包括睡眠数据、PPI数据、广播数据）
 	 */
 	async clearAllData(): Promise<void> {
-		console.log("清空所有数据库数据");
+		logger.info("bluetooth", "清空所有数据库数据");
 		await bluetoothDatabase.execute("DELETE FROM sleep_data");
 		await bluetoothDatabase.execute("DELETE FROM ppi_data");
 		await bluetoothDatabase.execute("DELETE FROM realtime_broadcast_data");
-		console.log("数据库数据清空完成");
+		logger.info("bluetooth", "数据库数据清空完成");
 	}
 
 	/**
@@ -551,19 +552,19 @@ export class BluetoothDataManager {
 	 */
 	async uploadPpiData(): Promise<boolean> {
 		if (this.isUploading == true) {
-			console.log("正在上传中，跳过PPI上传");
+			logger.info("bluetooth", "正在上传中，跳过PPI上传");
 			return false;
 		}
 
 		const unuploadedData = await this.getUnuploadedPpiData();
-		console.log("未上传的PPI数据数量:", unuploadedData.length, "全部数据:", unuploadedData);
+		logger.info("bluetooth", "未上传的PPI数据数量:", unuploadedData.length, "全部数据:", unuploadedData);
 		if (unuploadedData.length == 0) {
 			return true;
 		}
 
-		console.log("当前设备信息:", { deviceName: this.deviceName, address: this.deviceAddress });
+		logger.info("bluetooth", "当前设备信息:", { deviceName: this.deviceName, address: this.deviceAddress });
 		if (this.deviceAddress == "") {
-			console.log("设备未连接，跳过PPI上传");
+			logger.info("bluetooth", "设备未连接，跳过PPI上传");
 			return false;
 		}
 
@@ -590,7 +591,7 @@ export class BluetoothDataManager {
 				datas
 			};
 
-			console.log("上传PPI数据:", JSON.stringify(requestData));
+			logger.info("bluetooth", "上传PPI数据:", JSON.stringify(requestData));
 
 			const response = await request({
 				url: UPLOAD_PPI_URL,
@@ -601,7 +602,7 @@ export class BluetoothDataManager {
 				}
 			});
 
-			console.log("PPI上传响应:", response);
+			logger.info("bluetooth", "PPI上传响应:", response);
 
 			const uploadedIds: string[] = [];
 			for (let i = 0; i < unuploadedData.length; i++) {
@@ -609,10 +610,10 @@ export class BluetoothDataManager {
 			}
 			await this.markPpiDataAsUploaded(uploadedIds);
 
-			console.log("PPI上传成功");
+			logger.info("bluetooth", "PPI上传成功");
 			return true;
 		} catch (error) {
-			console.error("PPI上传失败:", error);
+			logger.error("bluetooth", "PPI上传失败:", error);
 			return false;
 		} finally {
 			this.isUploading = false;
@@ -658,19 +659,19 @@ export class BluetoothDataManager {
 	 */
 	async uploadSleepData(): Promise<boolean> {
 		if (this.isUploading == true) {
-			console.log("正在上传中，跳过睡眠数据上传");
+			logger.info("bluetooth", "正在上传中，跳过睡眠数据上传");
 			return false;
 		}
 
 		const unuploadedSleepData = await this.getUnuploadedSleepData();
-		console.log("未上传的睡眠数据数量:", unuploadedSleepData.length);
+		logger.info("bluetooth", "未上传的睡眠数据数量:", unuploadedSleepData.length);
 		if (unuploadedSleepData.length == 0) {
 			return true;
 		}
 
-		console.log("当前设备信息:", { deviceName: this.deviceName, address: this.deviceAddress });
+		logger.info("bluetooth", "当前设备信息:", { deviceName: this.deviceName, address: this.deviceAddress });
 		if (this.deviceAddress == "") {
-			console.log("设备未连接，跳过睡眠数据上传");
+			logger.info("bluetooth", "设备未连接，跳过睡眠数据上传");
 			return false;
 		}
 
@@ -693,7 +694,7 @@ export class BluetoothDataManager {
 				tiredScore: "1.0"
 			};
 
-			console.log("上传睡眠数据:", JSON.stringify(requestData));
+			logger.info("bluetooth", "上传睡眠数据:", JSON.stringify(requestData));
 
 			const response = await request({
 				url: UPLOAD_SLEEP_URL,
@@ -704,7 +705,7 @@ export class BluetoothDataManager {
 				}
 			});
 
-			console.log("睡眠数据上传响应:", response);
+			logger.info("bluetooth", "睡眠数据上传响应:", response);
 
 			const uploadedIds: string[] = [];
 			for (let i = 0; i < unuploadedSleepData.length; i++) {
@@ -712,10 +713,10 @@ export class BluetoothDataManager {
 			}
 			await this.markSleepAsUploaded(uploadedIds);
 
-			console.log("睡眠数据上传成功");
+			logger.info("bluetooth", "睡眠数据上传成功");
 			return true;
 		} catch (error) {
-			console.error("睡眠数据上传失败:", error);
+			logger.error("bluetooth", "睡眠数据上传失败:", error);
 			return false;
 		} finally {
 			this.isUploading = false;

@@ -108,7 +108,7 @@ export class DeviceConnection {
 
 	async switchToBroadcastMode(readRecentVital: boolean = true): Promise<boolean> {
 		if (this._isSwitchingToBroadcastMode == true) {
-			console.log("[BOOM] 正在切换广播模式，跳过重复请求");
+			logger.info("bluetooth", "[BOOM] 正在切换广播模式，跳过重复请求");
 			return true;
 		}
 		this._isSwitchingToBroadcastMode = true;
@@ -142,11 +142,11 @@ export class DeviceConnection {
 		if (this.isProtocolReady() == false) return;
 		try {
 			const result = await this.device.history.readRecentVitalWindow();
-			console.log(
+			logger.info("bluetooth",
 				`[BOOM-HISTORY] 断开前补最近2分钟: status=${result.status}, pages=${result.pages}, saved=${result.savedRecords}, upload=${result.uploadOk}`
 			);
 		} catch (e) {
-			console.warn("[BOOM-HISTORY] 断开前补最近2分钟失败:", e);
+			logger.warn("bluetooth", "[BOOM-HISTORY] 断开前补最近2分钟失败:", e);
 		}
 	}
 
@@ -202,7 +202,7 @@ export class DeviceConnection {
 		//#ifndef H5
 		if (this._isSearching == true) {
 			if (this._scanPurpose == purpose) {
-				console.log("[SCAN] 当前扫描已在进行,跳过");
+				logger.info("bluetooth", "[SCAN] 当前扫描已在进行,跳过");
 				return true;
 			}
 			await this.stopBluetoothSearch();
@@ -268,7 +268,6 @@ export class DeviceConnection {
 			// Nordic 设备的广播包经常只设 localName,不设 GAP name
 			// 优先用 name,fallback 到 localName
 			const name = d.name ?? d.localName ?? "";
-			console.log("[SCAN] 发现设备:", name);
 			this.device.broadcast.handleFoundDevice(d);
 			if (name.startsWith(TARGET_DEVICE_NAME_PREFIX)) {
 				this._handleFoundDevice(d, name);
@@ -288,7 +287,7 @@ export class DeviceConnection {
 			`${name}/${found.deviceId}/RSSI=${found.RSSI}`
 		);
 		this.device.cacheFoundDevice(found, name);
-		console.log("[SCAN] 当前 BOOM 设备列表长度:", this.device.devices.length);
+		logger.info("bluetooth", "[SCAN] 当前 BOOM 设备列表长度:", this.device.devices.length);
 
 		if (this._scanPurpose == "reconnect" && found.deviceId == this.device.boundDeviceId) {
 			this.device.saveBoundDeviceName(name);
@@ -302,7 +301,7 @@ export class DeviceConnection {
 		if (this.device.currentDeviceId != "") return;
 
 		this._isConnectingFoundBoundDevice = true;
-		console.log(`[SCAN] 重连模式发现绑定设备,立即连接: ${deviceId}`);
+		logger.info("bluetooth", `[SCAN] 重连模式发现绑定设备,立即连接: ${deviceId}`);
 		await this.stopBluetoothSearch(false);
 		this.device.devices = [];
 		try {
@@ -342,7 +341,7 @@ export class DeviceConnection {
 	private async _handlePairingScanTimeout(): Promise<void> {
 		const mode = this._scanPurpose;
 		const count = this.device.devices.length;
-		console.log(`[SCAN] 配对扫描结束,mode=${mode},共发现 ${count} 个目标设备`);
+		logger.info("bluetooth", `[SCAN] 配对扫描结束,mode=${mode},共发现 ${count} 个目标设备`);
 		await this.stopBluetoothSearch(false);
 
 		// === 重连 mode:只连 boundDeviceId,绝不连其他设备 ===
@@ -355,7 +354,7 @@ export class DeviceConnection {
 				return;
 			}
 			const displayName = bound.name ?? bound.localName ?? "";
-			console.log(`[SCAN] 重连模式,自动连接绑定设备: ${bound.deviceId}`);
+			logger.info("bluetooth", `[SCAN] 重连模式,自动连接绑定设备: ${bound.deviceId}`);
 			this.device.devices = [];
 			const ok = await this.connectToDeviceWithTimeout(
 				bound.deviceId,
@@ -374,14 +373,14 @@ export class DeviceConnection {
 		}
 
 		// 直接弹 actionSheet 让用户选择
-		console.log(`[SCAN] 发现 ${count} 个设备,直接弹窗让用户选择`);
+		logger.info("bluetooth", `[SCAN] 发现 ${count} 个设备,直接弹窗让用户选择`);
 		const pickerOptions: ShowDevicePickerOptions = {
 			onSelect: (deviceId: string, _device: DeviceInfo) => {
-				console.log(`[SCAN] 用户选择连接: ${deviceId}`);
+				logger.info("bluetooth", `[SCAN] 用户选择连接: ${deviceId}`);
 				this.connectToFoundDevice(deviceId);
 			},
 			onCancel: () => {
-				console.log(`[SCAN] 用户取消,降级为未配对`);
+				logger.info("bluetooth", `[SCAN] 用户取消,降级为未配对`);
 				this.device.devices = [];
 				this.device.status.value = "UNPAIRED";
 				this.device.errorMessage.value = t("已取消,请重新配对");
@@ -482,7 +481,7 @@ export class DeviceConnection {
 			connectId = cached.deviceId;
 			connectName = cached.name ?? cached.localName ?? connectName;
 		}
-		console.log("[BOOM] 连接模式直连绑定设备:", connectId);
+		logger.info("bluetooth", "[BOOM] 连接模式直连绑定设备:", connectId);
 		const ok = await this.connectToDeviceWithTimeout(
 			connectId,
 			connectName,
@@ -491,7 +490,7 @@ export class DeviceConnection {
 		if (ok == true) {
 			return true;
 		}
-		console.warn("[BOOM] 连接模式直连失败，改为扫描绑定设备");
+		logger.warn("bluetooth", "[BOOM] 连接模式直连失败，改为扫描绑定设备");
 		return await this.waitForReconnectScan();
 		//#endif
 
@@ -511,7 +510,7 @@ export class DeviceConnection {
 					}
 				})
 				.catch((e) => {
-					console.warn("[BOOM] 连接模式扫描启动异常:", e);
+					logger.warn("bluetooth", "[BOOM] 连接模式扫描启动异常:", e);
 					this.resolveReconnectScan(false);
 				});
 		});
@@ -540,7 +539,7 @@ export class DeviceConnection {
 			this.device.touchState();
 			return ready;
 		} catch (e) {
-			console.error("[BOOM] 连接后初始化失败:", e);
+			logger.error("bluetooth", "[BOOM] 连接后初始化失败:", e);
 			this.device.isDeviceInitialized = false;
 			this.device.touchState();
 			return false;
@@ -616,7 +615,7 @@ export class DeviceConnection {
 		const start = Date.now();
 		while (Date.now() - start < timeoutMs) {
 			if (this.device.event.boomTimestampSeqValue > beforeSeq) {
-				console.log(
+				logger.info("bluetooth",
 					`[BOOM] 已收到读时戳响应: t=0x${this.device.event.boomTimestampLastT.toString(16)}, boomTimestamp=${this.device.event.boomTimestamp.value}`
 				);
 				return true;
@@ -630,10 +629,10 @@ export class DeviceConnection {
 	onBLEConnectionStateChange(): void {
 		//#ifndef H5
 		onConnectionStateChange((res) => {
-			console.log("蓝牙连接状态变化:", res);
+			logger.info("bluetooth", "蓝牙连接状态变化:", res);
 			if (res.connected) {
 				if (this.shouldIgnoreConnectedCallback(res.deviceId) == true) {
-					console.log("[BOOM] 广播模式忽略连接状态回调:", res.deviceId);
+					logger.info("bluetooth", "[BOOM] 广播模式忽略连接状态回调:", res.deviceId);
 					if (this.shouldDisconnectIgnoredConnectedCallback(res.deviceId) == true) {
 						this.disconnectIgnoredBroadcastConnection(res.deviceId);
 					}
@@ -644,7 +643,7 @@ export class DeviceConnection {
 					this.device.protocol.writeCharUuid != "" &&
 					this.device.protocol.notifyCharUuid != ""
 				) {
-					console.log("设备已初始化，跳过");
+					logger.info("bluetooth", "设备已初始化，跳过");
 					return;
 				}
 				logger.info("bluetooth", "连接状态回调: 已连接", res.deviceId);
@@ -657,7 +656,7 @@ export class DeviceConnection {
 						this._suppressNextReconnect == true ||
 						this._isSwitchingToBroadcastMode == true
 					) {
-						console.log("[BOOM] 本次断开由广播模式触发，跳过自动重连");
+						logger.info("bluetooth", "[BOOM] 本次断开由广播模式触发，跳过自动重连");
 						return;
 					}
 					this.device.status.value = "UNPAIRED";
@@ -694,7 +693,7 @@ export class DeviceConnection {
 		try {
 			await disconnect(deviceId);
 		} catch (e) {
-			console.warn("[BOOM] 广播模式断开残留连接失败:", e);
+			logger.warn("bluetooth", "[BOOM] 广播模式断开残留连接失败:", e);
 		}
 		//#endif
 	}
@@ -705,7 +704,7 @@ export class DeviceConnection {
 	public connectToFoundDevice(deviceId: string): void {
 		const found = this.device.findCachedDevice(deviceId);
 		if (found == null) {
-			console.warn("[SCAN] 设备列表中找不到 deviceId:", deviceId);
+			logger.warn("bluetooth", "[SCAN] 设备列表中找不到 deviceId:", deviceId);
 			return;
 		}
 		const displayName = found.name ?? found.localName ?? "";
@@ -745,17 +744,17 @@ export class DeviceConnection {
 
 	/** 内部：重连策略（指数退避，由 device.maxReconnectAttempts 控制次数） */
 	reconnect(): void {
-		console.log("开始重连设备");
+		logger.info("bluetooth", "开始重连设备");
 		if (this.device.isReconnecting) {
-			console.log("正在重连中，跳过");
+			logger.info("bluetooth", "正在重连中，跳过");
 			return;
 		}
 		if (this.device.reconnectAttempts >= this.device.maxReconnectAttempts) {
-			console.log("重连次数达到上限，停止重连");
+			logger.info("bluetooth", "重连次数达到上限，停止重连");
 			return;
 		}
 		if (this.device.boundDeviceId == "") {
-			console.log("没有绑定设备ID，无法重连");
+			logger.info("bluetooth", "没有绑定设备ID，无法重连");
 			return;
 		}
 
@@ -763,13 +762,13 @@ export class DeviceConnection {
 		this.device.reconnectAttempts++;
 
 		const currentInterval = this.device.reconnectInterval * this.device.reconnectAttempts;
-		console.log(`开始第 ${this.device.reconnectAttempts} 次重连，间隔 ${currentInterval}ms`);
+		logger.info("bluetooth", `开始第 ${this.device.reconnectAttempts} 次重连，间隔 ${currentInterval}ms`);
 
 		setTimeout(() => {
-			console.log("执行扫描重连操作");
+			logger.info("bluetooth", "执行扫描重连操作");
 			this._startPairingScan();
 			this.device.isReconnecting = false;
-			console.log("重连操作完成");
+			logger.info("bluetooth", "重连操作完成");
 		}, currentInterval);
 	}
 

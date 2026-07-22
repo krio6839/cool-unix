@@ -6,6 +6,7 @@ type UniError = any;
 //#ifndef H5
 //@ts-ignore
 import { useKuxBluetooth } from "@/uni_modules/kux-bluetooth";
+import { logger } from "../service/logger";
 
 import type {
 	IBluetooth,
@@ -40,7 +41,7 @@ const DEFAULT_CONFIG: InitConfig = {
 const kx = useKuxBluetooth(DEFAULT_CONFIG) as IBluetooth;
 
 export function handleBluetoothError(err: UniError): boolean {
-	console.log(`蓝牙错误 ${err.errCode}: ${err.errMsg}`);
+	logger.info("bluetooth", `蓝牙错误 ${err.errCode}: ${err.errMsg}`);
 
 	switch (err.errCode) {
 		case -1:
@@ -82,16 +83,16 @@ export function closeAdapter(): Promise<boolean> {
 // ====== 扫描 ======
 export function startDiscovery(): Promise<boolean> {
 	return new Promise((resolve) => {
-		console.log("[SCAN] startDiscovery 请求");
+		logger.info("bluetooth", "[SCAN] startDiscovery 请求");
 		kx.startBluetoothDevicesDiscovery({
 			allowDuplicatesKey: true,
 			powerLevel: "high",
 			success: (res: ApiCommonSuccessCallback) => {
-				console.log("[SCAN] startDiscovery 成功");
+				logger.info("bluetooth", "[SCAN] startDiscovery 成功");
 				resolve(true);
 			},
 			fail: (err: UniError) => {
-				console.warn("[SCAN] startDiscovery 失败:", err);
+				logger.warn("bluetooth", "[SCAN] startDiscovery 失败:", err);
 				const status = handleBluetoothError(err);
 				resolve(status);
 			}
@@ -178,17 +179,17 @@ export function readCharacteristic(
 	charId: string
 ): Promise<boolean> {
 	return new Promise((resolve) => {
-		console.log("[BLE] read 请求:", charId);
+		logger.info("bluetooth", "[BLE] read 请求:", charId);
 		kx.readBLECharacteristicValue({
 			deviceId,
 			serviceId,
 			characteristicId: charId,
 			success: (_res: ApiCommonSuccessCallback) => {
-				console.log("[BLE] read 成功:", charId);
+				logger.info("bluetooth", "[BLE] read 成功:", charId);
 				resolve(true);
 			},
 			fail: (_err: any) => {
-				console.warn("[BLE] read 失败:", charId, _err);
+				logger.warn("bluetooth", "[BLE] read 失败:", charId, _err);
 				resolve(false);
 			}
 		});
@@ -203,7 +204,7 @@ export function writeCharacteristic(
 	writeType: "write" | "writeNoResponse" = "write"
 ): Promise<boolean> {
 	return new Promise((resolve, reject) => {
-		console.log("写入特征值:", charId, value);
+		logger.info("bluetooth", "写入特征值", charId);
 		kx.writeBLECharacteristicValue({
 			deviceId,
 			serviceId,
@@ -211,11 +212,11 @@ export function writeCharacteristic(
 			value,
 			writeType,
 			success: (_res: ApiCommonSuccessCallback) => {
-				console.log("[BLE] write 成功:", charId);
+				logger.info("bluetooth", "[BLE] write 成功", charId);
 				resolve(true);
 			},
 			fail: (_err: any) => {
-				console.warn("[BLE] write 失败:", charId, _err);
+				logger.warn("bluetooth", "[BLE] write 失败", `${charId}, ${_err}`);
 				reject(false);
 			}
 		});
@@ -236,7 +237,7 @@ export function notifyCharacteristic(
 ): Promise<boolean> {
 	if (state == false) {
 		return new Promise((resolve) => {
-			console.log("[BLE] notify 关闭:", charId);
+			logger.info("bluetooth", "[BLE] notify 关闭:", charId);
 			kx.notifyBLECharacteristicValueChange({
 				deviceId,
 				serviceId,
@@ -244,18 +245,18 @@ export function notifyCharacteristic(
 				state: false,
 				type,
 				success: (_res: ApiCommonSuccessCallback) => {
-					console.log("[BLE] notify 关闭成功:", charId);
+					logger.info("bluetooth", "[BLE] notify 关闭成功:", charId);
 					resolve(true);
 				},
 				fail: (_err: any) => {
-					console.warn("[BLE] notify 关闭失败:", charId, _err);
+					logger.warn("bluetooth", "[BLE] notify 关闭失败:", charId, _err);
 					resolve(false);
 				}
 			});
 		});
 	}
 	return new Promise((resolve) => {
-		console.log("[BLE] notify 启用:", charId);
+		logger.info("bluetooth", "[BLE] notify 启用", charId);
 		kx.notifyBLECharacteristicValueChange({
 			deviceId,
 			serviceId,
@@ -263,11 +264,11 @@ export function notifyCharacteristic(
 			state: true,
 			type,
 			success: (_res: ApiCommonSuccessCallback) => {
-				console.log("[BLE] notify 启用成功:", charId);
+				logger.info("bluetooth", "[BLE] notify 启用成功", charId);
 				resolve(true);
 			},
 			fail: (_err: any) => {
-				console.warn("[BLE] notify 启用失败:", charId, _err);
+				logger.warn("bluetooth", "[BLE] notify 启用失败", `${charId}, ${_err}`);
 				resolve(false);
 			}
 		});

@@ -10,6 +10,7 @@
 import type { TlvcFrame } from "./boom-types";
 import { encodeU16LE, parseU16LE } from "./boom-bytes";
 import { MAX_MULTI_FRAME_COUNT, MAX_RECV_BUF_BYTES } from "./boom-constants";
+import { logger } from "../service/logger";
 
 /* DataIdentifier 字段位掩码（来自状态说明.txt 1.4.3） */
 const DI_START_BIT = 0x8000; // bit15: Start
@@ -144,7 +145,7 @@ export class DataIdentifierReassembler {
 		}
 
 		if (diFrameHex.length < 4) {
-			console.warn("[BOOM-CODEC] DI 帧长度不足 4 hex:", diFrameHex);
+			logger.warn("bluetooth", "[BOOM-CODEC] DI 帧长度不足 4 hex:", diFrameHex);
 			return null;
 		}
 
@@ -161,20 +162,20 @@ export class DataIdentifierReassembler {
 
 		// 不在接收状态 → 忽略
 		if (this.isReceiving != true) {
-			console.warn("[BOOM-CODEC] 收到非起始帧但未开始接收,忽略");
+			logger.warn("bluetooth", "[BOOM-CODEC] 收到非起始帧但未开始接收,忽略");
 			return null;
 		}
 
 		// 帧数上限检查
 		if (this.frameCount >= MAX_MULTI_FRAME_COUNT) {
-			console.warn(`[BOOM-CODEC] 超过最大帧数 ${MAX_MULTI_FRAME_COUNT},重置 buffer`);
+			logger.warn("bluetooth", `[BOOM-CODEC] 超过最大帧数 ${MAX_MULTI_FRAME_COUNT},重置 buffer`);
 			this.reset();
 			return null;
 		}
 
 		const expectedSeq = this.frameCount & 0x0f;
 		if (di.sequenceNumber != expectedSeq) {
-			console.warn(
+			logger.warn("bluetooth",
 				`[BOOM-CODEC] DI 序号不连续: expected=${expectedSeq}, actual=${di.sequenceNumber}`
 			);
 			this.reset();
@@ -185,7 +186,7 @@ export class DataIdentifierReassembler {
 
 		// 越界保护
 		if (this.recvBuf.length > MAX_RECV_BUF_BYTES) {
-			console.warn(`[BOOM-CODEC] buffer 超过 ${MAX_RECV_BUF_BYTES} 字节,重置`);
+			logger.warn("bluetooth", `[BOOM-CODEC] buffer 超过 ${MAX_RECV_BUF_BYTES} 字节,重置`);
 			this.reset();
 			return null;
 		}
@@ -194,7 +195,7 @@ export class DataIdentifierReassembler {
 		if (receivedBytes < di.validBytes) {
 			this.pendingFrameRemainingBytes = di.validBytes - receivedBytes;
 			this.pendingFrameIsEnd = di.isEnd;
-			console.log(
+			logger.info("bluetooth",
 				`[BOOM-CODEC] DI payload 分片: seq=${di.sequenceNumber}, 已收=${receivedBytes}, 剩余=${this.pendingFrameRemainingBytes}`
 			);
 			return null;
@@ -222,7 +223,7 @@ export class DataIdentifierReassembler {
 	): string | null {
 		const expectedSeq = (this.frameCount + 1) & 0x0f;
 		if (di.sequenceNumber != expectedSeq) {
-			console.warn(
+			logger.warn("bluetooth",
 				`[BOOM-CODEC] DI 序号不连续: expected=${expectedSeq}, actual=${di.sequenceNumber}`
 			);
 			this.reset();
@@ -243,13 +244,13 @@ export class DataIdentifierReassembler {
 		this.pendingFrameIsEnd = di.isEnd;
 
 		if (this.recvBuf.length > MAX_RECV_BUF_BYTES) {
-			console.warn(`[BOOM-CODEC] buffer 超过 ${MAX_RECV_BUF_BYTES} 字节,重置`);
+			logger.warn("bluetooth", `[BOOM-CODEC] buffer 超过 ${MAX_RECV_BUF_BYTES} 字节,重置`);
 			this.reset();
 			return null;
 		}
 
 		if (this.pendingFrameRemainingBytes > 0) {
-			console.log(
+			logger.info("bluetooth",
 				`[BOOM-CODEC] DI 累计分片: seq=${di.sequenceNumber}, 已收=${this.recvBuf.length}, 剩余=${this.pendingFrameRemainingBytes}`
 			);
 			return null;
@@ -266,13 +267,13 @@ export class DataIdentifierReassembler {
 		this.pendingFrameRemainingBytes -= takeBytes;
 
 		if (this.recvBuf.length > MAX_RECV_BUF_BYTES) {
-			console.warn(`[BOOM-CODEC] buffer 超过 ${MAX_RECV_BUF_BYTES} 字节,重置`);
+			logger.warn("bluetooth", `[BOOM-CODEC] buffer 超过 ${MAX_RECV_BUF_BYTES} 字节,重置`);
 			this.reset();
 			return null;
 		}
 
 		if (this.pendingFrameRemainingBytes > 0) {
-			console.log(
+			logger.info("bluetooth",
 				`[BOOM-CODEC] DI payload 续片: 已追加=${takeBytes}, 剩余=${this.pendingFrameRemainingBytes}`
 			);
 			return null;
@@ -300,7 +301,7 @@ export class DataIdentifierReassembler {
 			const b = this.recvBuf[i];
 			fullHex += ("00" + b.toString(16)).slice(-2);
 		}
-		console.log(
+		logger.info("bluetooth",
 			`[BOOM-CODEC] DI 重组完成: 帧数=${this.frameCount}, 总字节=${this.recvBuf.length}`
 		);
 		this.reset();

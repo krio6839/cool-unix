@@ -237,7 +237,7 @@ export class DeviceSync {
 				try {
 					await this.device.connection.switchToBroadcastMode(false);
 				} catch (e) {
-					console.warn("[BOOM-SYNC] 补缺后恢复广播失败:", e);
+					logger.warn("bluetooth", "[BOOM-SYNC] 补缺后恢复广播失败:", e);
 					logger.error("bluetooth", "[BOOM-SYNC] 补缺后恢复广播失败", `${e}`);
 				}
 			}
@@ -343,7 +343,7 @@ export class DeviceSync {
 			const upper = this.getVitalResultUpperBoundSec(result);
 			if (upper > 0 && upper < gap.fromSec) {
 				deviceHistoryUpperBoundSec = upper;
-				console.log(
+				logger.info("bluetooth",
 					`[BOOM-SYNC] 设备生命体征历史早于目标，收紧后续缺口: upper=${upper}, gapStart=${gap.fromSec}`
 				);
 			}

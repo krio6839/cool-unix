@@ -474,7 +474,7 @@ export class Device {
 	 */
 	showDevicePicker(options: ShowDevicePickerOptions): void {
 		if (this.actionSheetRef == null) {
-			console.warn("[ACTION-SHEET] actionSheetRef 未注入,无法弹窗");
+			logger.warn("bluetooth", "[ACTION-SHEET] actionSheetRef 未注入,无法弹窗");
 			return;
 		}
 		const { onSelect, onCancel, title, list } = options;
@@ -523,7 +523,7 @@ export class Device {
 	 * - 注意:wearLocation 保留(用户偏好,与设备无关)
 	 */
 	async deleteDevice(): Promise<void> {
-		console.log("[DEVICE] 用户删除设备");
+		logger.info("bluetooth", "[DEVICE] 用户删除设备");
 		let remoteUnbindOk = false;
 		let remoteUnbindAttempted = false;
 
@@ -531,21 +531,21 @@ export class Device {
 			remoteUnbindOk = await this.unbindRemoteDevice();
 			remoteUnbindAttempted = true;
 		} catch (e) {
-			console.warn("[DEVICE] deleteDevice: 设备解绑异常,继续清理本地:", e);
+			logger.warn("bluetooth", "[DEVICE] deleteDevice: 设备解绑异常,继续清理本地:", e);
 		}
 
 		// 1. 断开 BLE(在清数据前先断开,避免回调中读到空状态)
 		try {
 			await this.connection.disconnectDevice(false);
 		} catch (e) {
-			console.warn("[DEVICE] deleteDevice: disconnectDevice 异常,继续清理:", e);
+			logger.warn("bluetooth", "[DEVICE] deleteDevice: disconnectDevice 异常,继续清理:", e);
 		}
 
 		// 2. 清空历史 DB(心率/睡眠/PPI 记录)
 		try {
 			await bluetoothDataManager.clearAllData();
 		} catch (e) {
-			console.warn("[DEVICE] deleteDevice: clearAllData 异常,继续清理:", e);
+			logger.warn("bluetooth", "[DEVICE] deleteDevice: clearAllData 异常,继续清理:", e);
 		}
 
 		// 3. 清空本地 storage(boundDeviceId)
@@ -555,7 +555,7 @@ export class Device {
 		// 4. 补充:清错误信息(disconnectDevice 不清,这里兜底)
 		this.errorMessage.value = "";
 		if (remoteUnbindAttempted == true && remoteUnbindOk == false) {
-			console.warn("[DEVICE] 设备未确认解绑，本地已删除");
+			logger.warn("bluetooth", "[DEVICE] 设备未确认解绑，本地已删除");
 		}
 	}
 
@@ -565,23 +565,23 @@ export class Device {
 		if (this.currentDeviceId == "") {
 			const connected = await this.connection.switchToConnectMode();
 			if (connected == false) {
-				console.warn("[DEVICE] 解绑前连接设备失败，继续删除本地");
+				logger.warn("bluetooth", "[DEVICE] 解绑前连接设备失败，继续删除本地");
 				return false;
 			}
 		}
 		if (this.currentDeviceId == "") {
-			console.warn("[DEVICE] 解绑前连接设备失败，继续删除本地");
+			logger.warn("bluetooth", "[DEVICE] 解绑前连接设备失败，继续删除本地");
 			return false;
 		}
 		if (this.beginGattTask("unbind") == false) {
-			console.warn(`[DEVICE] GATT 通道忙(${this.getGattTaskName()})，跳过远端解绑`);
+			logger.warn("bluetooth", `[DEVICE] GATT 通道忙(${this.getGattTaskName()})，跳过远端解绑`);
 			return false;
 		}
 		const beforeSeq = this.event.deviceControlSeq.value;
 		try {
 			const ok = await this.protocol.controlDevice(1);
 			if (ok == false) {
-				console.warn("[DEVICE] 0x41 解绑发送失败，继续删除本地");
+				logger.warn("bluetooth", "[DEVICE] 0x41 解绑发送失败，继续删除本地");
 				return false;
 			}
 			return await this.waitForDeviceControlResult(beforeSeq, 1, 3000);
@@ -610,7 +610,7 @@ export class Device {
 				}, 120);
 			});
 		}
-		console.warn("[DEVICE] 等待 0x41 解绑响应超时，继续删除本地");
+		logger.warn("bluetooth", "[DEVICE] 等待 0x41 解绑响应超时，继续删除本地");
 		return false;
 	}
 	//#endif

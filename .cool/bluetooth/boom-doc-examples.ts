@@ -14,6 +14,7 @@
  */
 
 import { BOOM_CMD } from "./boom-constants";
+import { logger } from "../service/logger";
 
 export type DocExample = {
     /** 命令码（T 字段） */
@@ -198,14 +199,14 @@ for (let i = 0; i < DOC_EXAMPLES.length; i++) {
  */
 export function logDocExamplesLoaded(): void {
     //#ifdef APP
-    console.log(`[BOOM-DOC] 已加载 ${DOC_EXAMPLES.length} 组文档示例 (状态说明.txt 1.4.4.x)`);
+    logger.info("bluetooth", `[BOOM-DOC] 已加载 ${DOC_EXAMPLES.length} 组文档示例 (状态说明.txt 1.4.4.x)`);
     for (let i = 0; i < DOC_EXAMPLES.length; i++) {
         const e = DOC_EXAMPLES[i];
         const frameInfo = e.multiFrames == null ? "" : ` (多帧 ${e.multiFrames.length} 帧)`;
-        console.log(`[BOOM-DOC] ${e.name}: 响应 hex=${e.response}${frameInfo}`);
+        logger.info("bluetooth", `[BOOM-DOC] ${e.name}: 响应 hex=${e.response}${frameInfo}`);
     }
     if (DOC_EXAMPLE_3A_FRAMES.length > 0) {
-        console.log(
+        logger.info("bluetooth",
             `[BOOM-DOC] 0x3A 完整多帧: ${DOC_EXAMPLE_3A_FRAMES.length} 帧 (${DOC_EXAMPLE_3A_FRAMES[0].length} + ${DOC_EXAMPLE_3A_FRAMES[1].length} hex)`
         );
     }

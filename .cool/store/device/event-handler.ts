@@ -33,6 +33,7 @@ import { onCharacteristicValueChange } from "../../bluetooth/kux";
 
 import { ref } from "vue";
 import type { Device } from "./index";
+import { logger } from "../../service/logger";
 
 const DUPLICATE_NOTIFY_WINDOW_MS = 150;
 const RECENT_NOTIFY_CACHE_MAX = 16;
@@ -144,14 +145,14 @@ export class EventHandler {
 	private processNotifyHex(hexData: string): void {
 		const now = Date.now();
 		if (this.isDuplicateNotify(hexData, now) == true) {
-			console.log(`[BOOM] 忽略重复 notify: ${hexData.substring(0, 32)}`);
+			logger.info("bluetooth", `[BOOM] 忽略重复 notify: ${hexData.substring(0, 32)}`);
 			return;
 		}
 		this.rememberNotify(hexData, now);
 		let tlvcHex = hexData;
 		this.notifySeqValue = this.notifySeqValue + 1;
 		this.lastNotifyAtValue = now;
-		console.log(`[BOOM] notify hex=${hexData}`);
+		logger.info("bluetooth", `[BOOM] notify hex=${hexData}`);
 		this.device.addProtocolLog("RX", "notify", hexData, "");
 
 		let f = decodeTlvc(tlvcHex);
@@ -193,15 +194,16 @@ export class EventHandler {
 			f = decodeTlvc(tlvcHex);
 		}
 		if (f == null) {
-			console.warn("[BOOM] CRC 校验失败:", tlvcHex);
+			logger.warn("bluetooth", "[BOOM] CRC 校验失败:", tlvcHex);
 			this.device.addProtocolLog("ERR", "CRC 校验失败", tlvcHex, "");
 			return;
 		}
-		console.log(
+		logger.info(
+			"bluetooth",
 			`[BOOM] TLVC parsed: t=0x${f.t.toString(16)}, l=${f.l}, vlen=${f.v.length / 2}`
 		);
 		if (f.l == 0) {
-			console.warn(`[BOOM] 设备返回参数或格式错误: t=0x${f.t.toString(16)}`);
+			logger.warn("bluetooth", `[BOOM] 设备返回参数或格式错误: t=0x${f.t.toString(16)}`);
 			this.device.addProtocolLog("ERR", `0x${f.t.toString(16)} 空响应`, tlvcHex, "");
 			return;
 		}
@@ -213,7 +215,7 @@ export class EventHandler {
 		);
 
 		if (f.t == BOOM_CMD.READ_EVENT_DATA_START || f.t == BOOM_CMD.READ_EVENT_DATA_CONTINUE) {
-			console.log(`[BOOM] 分发事件响应: t=0x${f.t.toString(16)}`);
+			logger.info("bluetooth", `[BOOM] 分发事件响应: t=0x${f.t.toString(16)}`);
 			this.device.history.handleEventData(f.v, f.t);
 			return;
 		}
@@ -222,12 +224,12 @@ export class EventHandler {
 		switch (f.t) {
 			case BOOM_CMD.READ_FIRMWARE_VERSION:
 				this.firmwareVersion.value = parseFirmwareVersion(f.v);
-				console.log("[BOOM] 固件版本:", this.firmwareVersion.value);
+				logger.info("bluetooth", "[BOOM] 固件版本:", this.firmwareVersion.value);
 				break;
 			case BOOM_CMD.SET_DEVICE_NUMBER:
 			case BOOM_CMD.READ_DEVICE_NUMBER:
 				this.deviceNumber.value = parseDeviceNumber(f.v);
-				console.log("[BOOM] 设备编号:", this.deviceNumber.value);
+				logger.info("bluetooth", "[BOOM] 设备编号:", this.deviceNumber.value);
 				break;
 			case BOOM_CMD.SET_BOOM_TIMESTAMP:
 			case BOOM_CMD.READ_BOOM_TIMESTAMP:
@@ -235,24 +237,24 @@ export class EventHandler {
 				this.boomTimestampSeqValue = this.boomTimestampSeqValue + 1;
 				this.boomTimestampSeq.value = this.boomTimestampSeqValue;
 				this.boomTimestampLastT = f.t;
-				console.log("[BOOM] 时戳:", this.boomTimestamp.value);
+				logger.info("bluetooth", "[BOOM] 时戳:", this.boomTimestamp.value);
 				break;
 			case BOOM_CMD.SET_BIOMETRIC:
 			case BOOM_CMD.READ_BIOMETRIC:
 				this.biometricInfo.value = parseBiometric(f.v);
 				this.biometricInfoSeq.value = this.biometricInfoSeq.value + 1;
 				this.biometricInfoReceivedAt.value = Date.now();
-				console.log("[BOOM] 生物识别:", this.biometricInfo.value);
+				logger.info("bluetooth", "[BOOM] 生物识别:", this.biometricInfo.value);
 				break;
 			case BOOM_CMD.CONTROL_VIBRATION:
 				this.lastVibration.value = parseVibrationResult(f.v);
-				console.log("[BOOM] 震动结果:", this.lastVibration.value);
+				logger.info("bluetooth", "[BOOM] 震动结果:", this.lastVibration.value);
 				break;
 			case BOOM_CMD.CONTROL_DEVICE:
 				this.lastDeviceControl.value = parseDeviceControlResult(f.v);
 				this.deviceControlSeq.value = this.deviceControlSeq.value + 1;
 				this.deviceControlReceivedAt.value = Date.now();
-				console.log("[BOOM] 设备控制结果:", this.lastDeviceControl.value);
+				logger.info("bluetooth", "[BOOM] 设备控制结果:", this.lastDeviceControl.value);
 				break;
 			case BOOM_CMD.READ_BROADCAST_DATA:
 				this.device.broadcast.handleGattBroadcastData(f.v);
@@ -263,7 +265,7 @@ export class EventHandler {
 				this.device.history.handleVitalData(f.v, f.t);
 				break;
 			default:
-				console.log("[BOOM] 未知 T:", f.t, "数据:", hexData);
+				logger.info("bluetooth", "[BOOM] 未知 T:", f.t, "数据:", hexData);
 		}
 	}
 
