@@ -20,6 +20,14 @@
 				</cl-list-item>
 				<cl-list-item :label="t('隐私设置')" icon="lock-line" arrow hoverable>
 				</cl-list-item>
+				<cl-list-item
+					label="诊断日志"
+					icon="bug-line"
+					arrow
+					hoverable
+					@tap="router.to('/pages/set/diagnostics')"
+				>
+				</cl-list-item>
 			</cl-list>
 
 			<cl-list :pt="{ className: 'mb-3' }">

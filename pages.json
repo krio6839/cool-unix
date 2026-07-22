@@ -90,6 +90,15 @@
 					}
 				},
 				{
+					"path": "diagnostics",
+					"style": {
+						"navigationBarTitleText": "诊断日志"
+					},
+					"meta": {
+						"isAuth": false
+					}
+				},
+				{
 					"path": "about",
 					"style": {
 						"navigationBarTitleText": ""

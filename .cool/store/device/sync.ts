@@ -5,6 +5,7 @@ import { sleepTimeout } from "../../utils";
 import type { VitalAutoReadResult, HistoryReadStatus } from "./history-reader";
 import type { Device } from "./index";
 import type { DeviceTestMode } from "./types";
+import { logger } from "../../service/logger";
 
 export type DeviceSyncReason = "startup" | "timer" | "manual";
 
@@ -91,14 +92,14 @@ export class DeviceSync {
 		this.autoGeneration = this.autoGeneration + 1;
 		const generation = this.autoGeneration;
 		this.runAutoLoop(generation);
-		console.log("[BOOM-SYNC] 已启动生命体征历史缺口自动检查");
+		logger.info("bluetooth", "[BOOM-SYNC] 已启动生命体征历史缺口自动检查");
 	}
 
 	stopAutoRepair(): void {
 		if (this.autoEnabled == false) return;
 		this.autoEnabled = false;
 		this.autoGeneration = this.autoGeneration + 1;
-		console.log("[BOOM-SYNC] 已停止生命体征历史缺口自动检查");
+		logger.info("bluetooth", "[BOOM-SYNC] 已停止生命体征历史缺口自动检查");
 	}
 
 	stop(): void {
@@ -117,7 +118,7 @@ export class DeviceSync {
 			}
 		} catch (e) {
 			this.lastError.value = `${e}`;
-			console.warn("[BOOM-SYNC] 自动生命体征补缺循环异常:", e);
+			logger.error("bluetooth", "[BOOM-SYNC] 自动生命体征补缺循环异常", `${e}`);
 		}
 	}
 
@@ -173,7 +174,7 @@ export class DeviceSync {
 		}
 		if (reason != "manual" && this.device.currentDeviceId != "") {
 			this.lastError.value = "gatt busy";
-			console.log("[BOOM-SYNC] GATT 已在使用中，跳过本轮生命体征补缺");
+			logger.info("bluetooth", "[BOOM-SYNC] GATT 已在使用中，跳过本轮生命体征补缺");
 			return this.makeResult(false, this.lastError.value, this.emptyPlan(), []);
 		}
 
@@ -202,8 +203,10 @@ export class DeviceSync {
 				return this.makeResult(false, this.lastError.value, plan, []);
 			}
 
-			console.log(
-				`[BOOM-SYNC] 开始补生命体征历史: reason=${reason}, gaps=${plan.vital.gaps.length}`
+			logger.info(
+				"bluetooth",
+				"[BOOM-SYNC] 开始补生命体征历史",
+				`reason=${reason}, gaps=${plan.vital.gaps.length}`
 			);
 			const results = await this.runVitalGaps(plan.vital.gaps);
 			let ok = true;
@@ -235,6 +238,7 @@ export class DeviceSync {
 					await this.device.connection.switchToBroadcastMode(false);
 				} catch (e) {
 					console.warn("[BOOM-SYNC] 补缺后恢复广播失败:", e);
+					logger.error("bluetooth", "[BOOM-SYNC] 补缺后恢复广播失败", `${e}`);
 				}
 			}
 			this.state.value = "idle";

@@ -10,6 +10,7 @@ import { realtime } from "../realtime";
 import { TARGET_DEVICE_NAME_PREFIX } from "./types";
 import type { Device } from "./index";
 import type { BroadcastDebugInfo } from "./types";
+import { logger } from "../../service/logger";
 
 //#ifndef H5
 import type { DeviceInfo } from "../../bluetooth/kux";
@@ -589,7 +590,15 @@ export class DeviceBroadcast {
 		};
 		this.device.broadcastDebug.value = info;
 		if (source == "broadcast") {
-			console.log(`[BOOM-ADV] 收到广播 #${info.seq}: ${summary}, raw=${rawHex}, v=${vHex}`);
+			if (info.seq <= 5 || info.seq % 30 == 0 || r.hasNewEvent == true) {
+				logger.info(
+					"bluetooth",
+					`[BOOM-ADV] 收到广播 #${info.seq}`,
+					`${summary}\nraw=${rawHex}\nv=${vHex}`
+				);
+			} else {
+				console.log(`[BOOM-ADV] 收到广播 #${info.seq}: ${summary}, raw=${rawHex}, v=${vHex}`);
+			}
 		}
 	}
 

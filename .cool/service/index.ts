@@ -3,6 +3,7 @@ import { locale, t } from "../locale";
 import { isNull, isObject, parse, storage } from "../utils";
 import { useStore } from "../store";
 import { defaultErrorNotice, type ErrorNoticeShowType } from "./error-notice";
+import { diagnostics } from "./diagnostics";
 
 // 请求参数类型定义
 export type RequestOptions = {
@@ -46,6 +47,7 @@ const isIgnoreToken = (url: string) => {
  */
 export function request(options: RequestOptions): Promise<any | null> {
 	let { url, method = "GET", data, header = {}, timeout = 60000, showError } = options;
+	const startedAt = Date.now();
 
 	const { user } = useStore();
 
@@ -106,6 +108,13 @@ export function request(options: RequestOptions): Promise<any | null> {
 							res.statusCode,
 							res.data
 						);
+						diagnostics.captureRequest({
+							method,
+							url,
+							statusCode: res.statusCode,
+							duration: Date.now() - startedAt,
+							detail: res.data
+						});
 					}
 
 					// 401 无权限
@@ -161,6 +170,15 @@ export function request(options: RequestOptions): Promise<any | null> {
 										resolve(data);
 										break;
 									default:
+										diagnostics.captureRequest({
+											method,
+											url,
+											statusCode: res.statusCode,
+											code,
+											message,
+											duration: Date.now() - startedAt,
+											detail: res.data
+										});
 										rejectWithNotice({ message, code } as Response);
 										break;
 								}
@@ -180,6 +198,13 @@ export function request(options: RequestOptions): Promise<any | null> {
 				// 网络请求失败
 				fail(err) {
 					console.error("[request fail]", method, url, err);
+					diagnostics.captureRequest({
+						method,
+						url,
+						message: err.errMsg,
+						duration: Date.now() - startedAt,
+						detail: err
+					});
 					rejectWithNotice({ message: err.errMsg } as Response);
 				}
 			});

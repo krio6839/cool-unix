@@ -5,6 +5,8 @@ export * from "./hooks";
 export * from "./router";
 export * from "./scroller";
 export * from "./service";
+export * from "./service/diagnostics";
+export * from "./service/logger";
 export * from "./store";
 export * from "./theme";
 export * from "./upload";

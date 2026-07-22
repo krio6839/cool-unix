@@ -49,6 +49,7 @@ import type {
 //#endif
 
 import type { Device } from "./index";
+import { logger } from "../../service/logger";
 
 export class DeviceProtocol {
 	/** 设备引用（用于回写状态） */
@@ -97,11 +98,14 @@ export class DeviceProtocol {
 				if (services && services.length > 0) {
 					break;
 				}
-				console.warn(`[BOOM-PROTO] 获取 services 为空，第 ${retryCount + 1} 次重试`);
+				logger.warn("bluetooth",
+					"[BOOM-PROTO] 获取 services 为空",
+					`retry=${retryCount + 1}`
+				);
 			} catch (error) {
-				console.warn(
-					`[BOOM-PROTO] 获取 services 失败，第 ${retryCount + 1} 次重试:`,
-					error
+				logger.warn("bluetooth",
+					"[BOOM-PROTO] 获取 services 失败",
+					`retry=${retryCount + 1}, error=${error}`
 				);
 			}
 
@@ -115,7 +119,8 @@ export class DeviceProtocol {
 			}
 		}
 
-		if (!services || services.length === 0) {
+		if (!services || services.length == 0) {
+			logger.error("bluetooth", "[BOOM-PROTO] 获取 services 最终失败", deviceId);
 			throw new Error(`无法获取设备 ${deviceId} 的 services，已重试 ${maxRetries} 次`);
 		}
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-import { setTheme, useStore, router } from "./.cool";
+import { diagnostics, setTheme, useStore, router } from "./.cool";
 
 export default {
 	onLaunch: function () {
@@ -44,6 +44,9 @@ export default {
 	},
 	onExit: function () {
 		console.log("App Exit");
+	},
+	onError: function (error: any) {
+		diagnostics.captureException(error, "app");
 	}
 };
 </script>

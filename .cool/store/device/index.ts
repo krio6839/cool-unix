@@ -16,6 +16,8 @@
 import { ref } from "vue";
 import { storage } from "../../utils";
 import { t } from "../../locale";
+import type { DiagnosticLogLevel } from "../../service/diagnostics";
+import { logger } from "../../service/logger";
 import { realtime } from "../realtime";
 import type { ClActionSheetOptions, ClActionSheetItem } from "@/uni_modules/cool-ui";
 
@@ -431,6 +433,9 @@ export class Device {
 		};
 		const next = [item].concat(this.protocolLogs.value);
 		this.protocolLogs.value = next.slice(0, 80);
+		const level: DiagnosticLogLevel = direction == "ERR" ? "error" : "info";
+		const hexText = hex.length > 220 ? `${hex.substring(0, 220)}...` : hex;
+		logger.record(level, "bluetooth", `[${direction}] ${title}`, `${detail}\n${hexText}`);
 	}
 
 	/** 清空协议调试日志 */
