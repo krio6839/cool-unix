@@ -21,6 +21,8 @@ const BROADCAST_TIME_DRIFT_SEC = 10;
 const BROADCAST_TIME_SYNC_DRIFT_SEC = 60;
 const BROADCAST_TIME_SYNC_COOLDOWN_MS = 60 * 1000;
 const RECENT_GATT_TIME_SYNC_SUPPRESS_MS = 60 * 1000;
+const STALE_BROADCAST_REPEAT_THRESHOLD = 3;
+const STALE_BROADCAST_SCAN_RESTART_COOLDOWN_MS = 20 * 1000;
 const EVENT_SYNC_WINDOW_SECONDS = 24 * 60 * 60;
 const EVENT_SYNC_MAX_COUNT = 10;
 const EVENT_SYNC_MAX_PAGES = 20;
@@ -44,6 +46,11 @@ export class DeviceBroadcast {
 	private pendingEventSyncSeq: number = 0;
 	private pendingEventDrainBusy: boolean = false;
 	private lastTimeSyncOkAt: number = 0;
+	private lastBroadcastUtc: number = 0;
+	private lastBroadcastVHex: string = "";
+	private staleBroadcastRepeatCount: number = 0;
+	private lastBroadcastScanRestartAt: number = 0;
+	private broadcastScanRestartBusy: boolean = false;
 
 	constructor(device: Device) {
 		this.device = device;
@@ -56,7 +63,8 @@ export class DeviceBroadcast {
 			if (record == null || record.deviceId == "") return;
 			this.lastEventSeqByDevice.set(record.deviceId, record.eventSeq);
 			this.seenEventSeqByDevice.set(record.deviceId, true);
-			logger.info("bluetooth",
+			logger.info(
+				"bluetooth",
 				`[BOOM-EVENT] 已恢复最近事件序号: device=${record.deviceId}, eventSeq=${record.eventSeq}`
 			);
 		} catch (e) {
@@ -69,6 +77,7 @@ export class DeviceBroadcast {
 		if (scanning == true) {
 			this.lastBoundBroadcastHandledAt = 0;
 			this.lastBoundScanDebugAt = 0;
+			this.resetStaleBroadcastTracking();
 		}
 	}
 
@@ -76,6 +85,7 @@ export class DeviceBroadcast {
 		this.boundBroadcastScanning = false;
 		this.lastBoundBroadcastHandledAt = 0;
 		this.lastBoundScanDebugAt = 0;
+		this.resetStaleBroadcastTracking();
 	}
 
 	handleFoundDevice(d: DeviceInfo): void {
@@ -122,10 +132,7 @@ export class DeviceBroadcast {
 		if (this.handleInvalidBroadcastTime("gatt", deviceId, name, 0, vHex, vHex, r) == true) {
 			return;
 		}
-		this.markBroadcastEventNotice(deviceId, r);
-		this.device.realtime.value = r;
-		this.storeBroadcastRecordByDevice(deviceId, vHex, vHex, r);
-		this.publishDebugInfoByDevice("gatt", deviceId, name, 0, vHex, vHex, r);
+		this.acceptBroadcastRecord("gatt", deviceId, name, 0, vHex, vHex, r);
 	}
 
 	handleBoundDeviceList(devices: DeviceInfo[]): void {
@@ -161,7 +168,8 @@ export class DeviceBroadcast {
 			const ad = item.advertisData ?? [];
 			samples.push(`${item.deviceId}/${name}/rssi=${rssi}/ad=${ad.length}`);
 		}
-		logger.info("bluetooth",
+		logger.info(
+			"bluetooth",
 			`[BOOM-ADV] 广播扫描未匹配绑定设备: bound=${this.device.boundDeviceId}, count=${devices.length}, samples=${samples.join(" | ")}`
 		);
 	}
@@ -170,7 +178,10 @@ export class DeviceBroadcast {
 		const ad = d.advertisData ?? null;
 		if (ad == null || ad.length <= 0) {
 			if (this.boundBroadcastScanning == true) {
-				logger.info("bluetooth", `[BOOM-ADV] 绑定设备广播无 manufacturerData: ${d.deviceId}`);
+				logger.info(
+					"bluetooth",
+					`[BOOM-ADV] 绑定设备广播无 manufacturerData: ${d.deviceId}`
+				);
 			}
 			return;
 		}
@@ -178,7 +189,8 @@ export class DeviceBroadcast {
 		const vHex = this.extractCustomAdvVHex(hex);
 		if (vHex == "") {
 			if (this.boundBroadcastScanning == true) {
-				logger.info("bluetooth",
+				logger.info(
+					"bluetooth",
 					`[BOOM-ADV] 绑定设备 manufacturerData 长度不匹配: ${d.deviceId}, raw=${hex}`
 				);
 			}
@@ -189,6 +201,9 @@ export class DeviceBroadcast {
 			const r: RealtimeBroadcast = toRealtimeBroadcast(parsed);
 			const name = d.name ?? d.localName ?? "";
 			const rssi = d.RSSI ?? 0;
+			if (this.handleStaleScannerBroadcast(d.deviceId, name, rssi, hex, vHex, r) == true) {
+				return;
+			}
 			if (
 				this.handleInvalidBroadcastTime(
 					"broadcast",
@@ -202,13 +217,85 @@ export class DeviceBroadcast {
 			) {
 				return;
 			}
-			this.markBroadcastEventNotice(d.deviceId, r);
-			this.device.realtime.value = r;
-			this.storeBroadcastRecordByDevice(d.deviceId, hex, vHex, r);
-			this.publishDebugInfoByDevice("broadcast", d.deviceId, name, rssi, hex, vHex, r);
+			this.acceptBroadcastRecord("broadcast", d.deviceId, name, rssi, hex, vHex, r);
 		} else if (this.boundBroadcastScanning == true) {
-			logger.info("bluetooth", `[BOOM-ADV] 绑定设备广播解析失败: ${d.deviceId}, raw=${hex}, v=${vHex}`);
+			logger.info(
+				"bluetooth",
+				`[BOOM-ADV] 绑定设备广播解析失败: ${d.deviceId}, raw=${hex}, v=${vHex}`
+			);
 		}
+	}
+
+	private acceptBroadcastRecord(
+		source: "broadcast" | "gatt",
+		deviceId: string,
+		name: string,
+		rssi: number,
+		rawHex: string,
+		vHex: string,
+		r: RealtimeBroadcast
+	): void {
+		this.markBroadcastEventNotice(deviceId, r);
+		this.device.realtime.value = r;
+		this.storeBroadcastRecordByDevice(deviceId, rawHex, vHex, r);
+		this.publishDebugInfoByDevice(source, deviceId, name, rssi, rawHex, vHex, r);
+	}
+
+	private handleStaleScannerBroadcast(
+		deviceId: string,
+		name: string,
+		rssi: number,
+		rawHex: string,
+		vHex: string,
+		r: RealtimeBroadcast
+	): boolean {
+		if (this.isBroadcastUtcUsable(r) == true) {
+			this.lastBroadcastUtc = r.utc;
+			this.lastBroadcastVHex = vHex;
+			this.staleBroadcastRepeatCount = 0;
+			return false;
+		}
+		if (this.lastBroadcastUtc <= 0) return false;
+		if (r.utc > this.lastBroadcastUtc) return false;
+		if (vHex != this.lastBroadcastVHex) return false;
+		this.staleBroadcastRepeatCount = this.staleBroadcastRepeatCount + 1;
+		if (this.staleBroadcastRepeatCount < STALE_BROADCAST_REPEAT_THRESHOLD) return false;
+		this.publishDebugInfoByDevice("broadcast", deviceId, name, rssi, rawHex, vHex, r);
+		const diffSec = this.getBroadcastUtcDiffSec(r);
+		logger.warn(
+			"bluetooth",
+			`[BOOM-ADV] 检测到扫描缓存广播，丢弃并重启广播扫描: device=${deviceId}, repeat=${this.staleBroadcastRepeatCount}, lastUtc=${this.lastBroadcastUtc}, utc=${r.utc}, diff=${diffSec}s`
+		);
+		this.restartBoundBroadcastScanForStalePacket();
+		return true;
+	}
+
+	private restartBoundBroadcastScanForStalePacket(): void {
+		const now = Date.now();
+		if (now - this.lastBroadcastScanRestartAt < STALE_BROADCAST_SCAN_RESTART_COOLDOWN_MS) {
+			return;
+		}
+		if (this.broadcastScanRestartBusy == true) return;
+		this.lastBroadcastScanRestartAt = now;
+		this.broadcastScanRestartBusy = true;
+		this.restartBoundBroadcastScanForStalePacketAsync();
+	}
+
+	private async restartBoundBroadcastScanForStalePacketAsync(): Promise<void> {
+		try {
+			await this.device.connection.switchToBroadcastMode(false);
+		} catch (e) {
+			logger.warn("bluetooth", "[BOOM-ADV] 重启广播扫描失败:", e);
+		} finally {
+			this.resetStaleBroadcastTracking();
+			this.broadcastScanRestartBusy = false;
+		}
+	}
+
+	private resetStaleBroadcastTracking(): void {
+		this.lastBroadcastUtc = 0;
+		this.lastBroadcastVHex = "";
+		this.staleBroadcastRepeatCount = 0;
 	}
 
 	private handleInvalidBroadcastTime(
@@ -224,12 +311,14 @@ export class DeviceBroadcast {
 		this.publishDebugInfoByDevice(source, deviceId, name, rssi, rawHex, vHex, r);
 		const diffSec = this.getBroadcastUtcDiffSec(r);
 		if (diffSec >= BROADCAST_TIME_SYNC_DRIFT_SEC) {
-			logger.warn("bluetooth",
+			logger.warn(
+				"bluetooth",
 				`[BOOM-ADV] 广播 UTC 不可信，丢弃本条数据并尝试校时: device=${deviceId}, diff=${diffSec}s, utc=${r.utc}`
 			);
 			this.requestTimeSyncFromBroadcast(diffSec, r.utc);
 		} else {
-			logger.warn("bluetooth",
+			logger.warn(
+				"bluetooth",
 				`[BOOM-ADV] 广播 UTC 轻微滞后，丢弃本条缓存数据: device=${deviceId}, diff=${diffSec}s, utc=${r.utc}`
 			);
 		}
@@ -248,7 +337,8 @@ export class DeviceBroadcast {
 		this.lastEventSeqByDevice.set(deviceId, r.eventSeq);
 		this.seenEventSeqByDevice.set(deviceId, true);
 		if (r.hasNewEvent == true) {
-			logger.info("bluetooth",
+			logger.info(
+				"bluetooth",
 				`[BOOM-ADV] 事件序号变化: device=${deviceId}, eventSeq=${previousSeq}->${r.eventSeq}`
 			);
 			this.requestEventSync(deviceId, previousSeq, r.eventSeq);
@@ -256,7 +346,8 @@ export class DeviceBroadcast {
 	}
 
 	private requestEventSync(deviceId: string, previousSeq: number, eventSeq: number): void {
-		logger.info("bluetooth",
+		logger.info(
+			"bluetooth",
 			`[BOOM-EVENT] 广播提示有新事件，准备读取: device=${deviceId}, eventSeq=${previousSeq}->${eventSeq}`
 		);
 		if (this.eventSyncBusy == true) {
@@ -314,7 +405,8 @@ export class DeviceBroadcast {
 		this.pendingEventSyncDeviceId = "";
 		this.pendingEventSyncPreviousSeq = 0;
 		this.pendingEventSyncSeq = 0;
-		logger.info("bluetooth",
+		logger.info(
+			"bluetooth",
 			`[BOOM-EVENT] 处理暂存的新事件提示: device=${deviceId}, eventSeq=${previousSeq}->${eventSeq}`
 		);
 		this.readEventsFromBroadcastNotice(deviceId, eventSeq);
@@ -336,7 +428,8 @@ export class DeviceBroadcast {
 				connected = await this.device.connection.switchToConnectMode();
 			}
 			if (connected == false) {
-				logger.warn("bluetooth",
+				logger.warn(
+					"bluetooth",
 					`[BOOM-EVENT] 新事件读取连接失败: device=${deviceId}, eventSeq=${eventSeq}`
 				);
 				return;
@@ -347,7 +440,8 @@ export class DeviceBroadcast {
 			if (alreadyConnected == false) {
 				await sleepTimeout(EVENT_SYNC_AFTER_CONNECT_DELAY_MS);
 			}
-			logger.info("bluetooth",
+			logger.info(
+				"bluetooth",
 				`[BOOM-EVENT] 开始读取新事件: device=${deviceId}, eventSeq=${eventSeq}, window=${startSec}~${endSec}`
 			);
 			// 文档要求 status2 高 4 位事件序号变化后“读一次事件”。
@@ -362,11 +456,13 @@ export class DeviceBroadcast {
 				persistSleepData: true,
 				uploadAfterSave: true
 			});
-			logger.info("bluetooth",
+			logger.info(
+				"bluetooth",
 				`[BOOM-EVENT] 新事件读取完成: status=${result.status}, pages=${result.pages}, items=${result.items.length}, savedSleep=${result.savedSleepRecords}, upload=${result.uploadOk}`
 			);
 			if (result.items.length > 0) {
-				logger.info("bluetooth",
+				logger.info(
+					"bluetooth",
 					`[BOOM-EVENT] 新事件解析结果:\n${this.device.history.formatEventAutoBrief(result.items, 20)}`
 				);
 			}
@@ -392,7 +488,8 @@ export class DeviceBroadcast {
 		const nowMs = Date.now();
 		if (this.timeSyncBusy == true) return;
 		if (this.device.isGattTaskBusy() == true) {
-			logger.info("bluetooth",
+			logger.info(
+				"bluetooth",
 				`[BOOM-ADV] GATT 通道忙(${this.device.getGattTaskName()})，跳过本次自动校时`
 			);
 			return;
@@ -409,7 +506,8 @@ export class DeviceBroadcast {
 		const previousMode = this.device.testMode.value;
 		let ok = false;
 		try {
-			logger.warn("bluetooth",
+			logger.warn(
+				"bluetooth",
 				`[BOOM-ADV] 广播时间偏差过大，自动校时: diff=${diffSec}s, advUtc=${broadcastUtc}`
 			);
 			let connected =
@@ -459,7 +557,10 @@ export class DeviceBroadcast {
 	}
 
 	private markBoundDeviceUnavailable(): void {
-		logger.warn("bluetooth", "[BOOM-ADV] 绑定设备广播时间异常且校时失败，已停止自动使用并提示用户");
+		logger.warn(
+			"bluetooth",
+			"[BOOM-ADV] 绑定设备广播时间异常且校时失败，已停止自动使用并提示用户"
+		);
 		this.device.connection.stopBluetoothSearch();
 		this.device.sync.stopAutoRepair();
 		this.device.realtime.value = null;
