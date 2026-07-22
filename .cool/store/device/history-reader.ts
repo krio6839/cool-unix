@@ -132,7 +132,6 @@ export class DeviceHistoryReader {
 	lastEventBatchCountValue: number = 0;
 	eventDataListSeqValue: number = 0;
 	private displaySuspended: boolean = false;
-	private historyReadBusy: boolean = false;
 	private vitalPollingTimer: number = 0;
 	private vitalPollingEnabled: boolean = false;
 
@@ -232,10 +231,9 @@ export class DeviceHistoryReader {
 	}
 
 	async readVitalDataAuto(options: VitalAutoReadOptions): Promise<VitalAutoReadResult> {
-		if (this.historyReadBusy == true) {
-			return this.makeVitalResult("STOPPED", "history reader busy", 0, []);
+		if (this.device.beginGattTask("vitalAuto") == false) {
+			return this.makeVitalResult("STOPPED", "gatt busy", 0, []);
 		}
-		this.historyReadBusy = true;
 		this.setDisplaySuspended(true);
 		try {
 			const result = await this.readVitalDataAutoInner(options);
@@ -253,7 +251,7 @@ export class DeviceHistoryReader {
 			return result;
 		} finally {
 			this.setDisplaySuspended(false);
-			this.historyReadBusy = false;
+			this.device.endGattTask("vitalAuto");
 		}
 	}
 
@@ -286,8 +284,10 @@ export class DeviceHistoryReader {
 	private async runVitalHistoryPoll(): Promise<void> {
 		if (this.vitalPollingEnabled == false) return;
 		if (this.device.status.value != "CONNECTED") return;
-		if (this.historyReadBusy == true) {
-			console.log("[BOOM-HISTORY] 历史数据读取中，跳过本轮自动补拉");
+		if (this.device.isGattTaskBusy() == true) {
+			console.log(
+				`[BOOM-HISTORY] GATT 通道忙(${this.device.getGattTaskName()})，跳过本轮自动补拉`
+			);
 			return;
 		}
 		try {
@@ -298,10 +298,9 @@ export class DeviceHistoryReader {
 	}
 
 	async readRecentVitalWindow(): Promise<VitalAutoReadResult> {
-		if (this.historyReadBusy == true) {
-			return this.makeVitalResult("STOPPED", "history reader busy", 0, []);
+		if (this.device.beginGattTask("vitalRecent") == false) {
+			return this.makeVitalResult("STOPPED", "gatt busy", 0, []);
 		}
-		this.historyReadBusy = true;
 		this.setDisplaySuspended(true);
 		try {
 			const beforeVitalSeq = this.vitalDataResponseSeqValue;
@@ -367,7 +366,7 @@ export class DeviceHistoryReader {
 			return result;
 		} finally {
 			this.setDisplaySuspended(false);
-			this.historyReadBusy = false;
+			this.device.endGattTask("vitalRecent");
 		}
 	}
 
@@ -379,13 +378,13 @@ export class DeviceHistoryReader {
 	 * 入库仍使用 INSERT OR IGNORE，调用方可以放心传入带 overlap 的窗口。
 	 */
 	async readVitalWindow(startSec: number, endSec: number): Promise<VitalAutoReadResult> {
-		if (this.historyReadBusy == true) {
-			return this.makeVitalResult("STOPPED", "history reader busy", 0, []);
+		if (this.device.beginGattTask("vitalGap") == false) {
+			return this.makeVitalResult("STOPPED", "gatt busy", 0, []);
 		}
 		if (endSec <= startSec) {
+			this.device.endGattTask("vitalGap");
 			return this.makeVitalResult("STOPPED", "invalid vital window", 0, []);
 		}
-		this.historyReadBusy = true;
 		this.setDisplaySuspended(true);
 		try {
 			const windowSeconds = endSec - startSec;
@@ -427,7 +426,7 @@ export class DeviceHistoryReader {
 			return result;
 		} finally {
 			this.setDisplaySuspended(false);
-			this.historyReadBusy = false;
+			this.device.endGattTask("vitalGap");
 		}
 	}
 
@@ -513,16 +512,15 @@ export class DeviceHistoryReader {
 	}
 
 	async readEventDataAuto(options: EventAutoReadOptions): Promise<EventAutoReadResult> {
-		if (this.historyReadBusy == true) {
+		if (this.device.beginGattTask("event") == false) {
 			return this.makeEventResult(
 				"STOPPED",
-				"history reader busy",
+				"gatt busy",
 				null,
 				0,
 				this.eventDataListRaw.length
 			);
 		}
-		this.historyReadBusy = true;
 		this.setDisplaySuspended(true);
 		try {
 			const result = await this.readEventDataAutoInner(options);
@@ -544,7 +542,7 @@ export class DeviceHistoryReader {
 			return result;
 		} finally {
 			this.setDisplaySuspended(false);
-			this.historyReadBusy = false;
+			this.device.endGattTask("event");
 		}
 	}
 
@@ -1058,6 +1056,26 @@ export class DeviceHistoryReader {
 		}
 		if (items.length > MAX_FORMAT_DETAIL_LINES) {
 			lines.push("... 明细过长，已截断");
+		}
+		return lines.join("\n");
+	}
+
+	formatEventAutoBrief(items: LogDataItem[], maxLines: number): string {
+		if (items.length == 0) return "-";
+		let limit = maxLines;
+		if (limit <= 0) limit = 20;
+		const lines: string[] = [
+			`summary items=${items.length}, showing=${items.length < limit ? items.length : limit}`
+		];
+		for (let i = 0; i < items.length && i < limit; i++) {
+			const it = items[i];
+			const typeName = LOG_EVENT_NAMES[it.eventType] ?? "?";
+			lines.push(
+				`#${i} sn=${it.header.sn} globalSn=${it.header.globalSn} ts=${it.ts} ${this.formatMaybeTime(it.ts)} type=${it.eventType}(${typeName}) parsed=${this.formatEventParsedForDetail(it.eventType, it.parsedEvent)}`
+			);
+		}
+		if (items.length > limit) {
+			lines.push("... 还有更多事件，测试页可查看完整明细");
 		}
 		return lines.join("\n");
 	}

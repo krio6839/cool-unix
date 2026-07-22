@@ -34,7 +34,13 @@ import {
 	DEFAULT_WEAR_LOCATION,
 	normalizeWearLocation
 } from "./types";
-import type { BroadcastDebugInfo, DeviceOnlineInfo, DeviceTestMode, WearLocation } from "./types";
+import type {
+	BroadcastDebugInfo,
+	DeviceOnlineInfo,
+	DeviceTestMode,
+	GattTaskName,
+	WearLocation
+} from "./types";
 export type {
 	BroadcastDebugInfo,
 	DeviceOnlineInfo,
@@ -60,6 +66,7 @@ import { EventHandler } from "./event-handler";
 import { DeviceHistoryReader } from "./history-reader";
 import { DeviceBroadcast } from "./broadcast";
 import { DeviceSync } from "./sync";
+import { DeviceGattTaskLock } from "./gatt-lock";
 
 /* 设备选择 actionSheet 调用参数（对象参数，UTS 不支持内联对象字面量类型） */
 export type ShowDevicePickerOptions = {
@@ -118,6 +125,7 @@ export class Device {
 	/* ===== 协议调试日志 ===== */
 	protocolLogs = ref<ProtocolLogItem[]>([]);
 	private _protocolLogId = 0;
+	readonly gattLock = new DeviceGattTaskLock();
 
 	/* ===== 重连 ===== */
 	reconnectAttempts = 0;
@@ -162,6 +170,22 @@ export class Device {
 	}
 
 	/* ===== 持久化 ===== */
+
+	beginGattTask(name: GattTaskName): boolean {
+		return this.gattLock.begin(name);
+	}
+
+	endGattTask(name: GattTaskName): void {
+		this.gattLock.end(name);
+	}
+
+	isGattTaskBusy(): boolean {
+		return this.gattLock.isBusy();
+	}
+
+	getGattTaskName(): string {
+		return this.gattLock.getName();
+	}
 
 	/** 启动时从 storage 恢复佩戴位置 + 绑定设备 ID */
 	loadSavedData(): void {
@@ -544,13 +568,21 @@ export class Device {
 			console.warn("[DEVICE] 解绑前连接设备失败，继续删除本地");
 			return false;
 		}
-		const beforeSeq = this.event.deviceControlSeq.value;
-		const ok = await this.protocol.controlDevice(1);
-		if (ok == false) {
-			console.warn("[DEVICE] 0x41 解绑发送失败，继续删除本地");
+		if (this.beginGattTask("unbind") == false) {
+			console.warn(`[DEVICE] GATT 通道忙(${this.getGattTaskName()})，跳过远端解绑`);
 			return false;
 		}
-		return await this.waitForDeviceControlResult(beforeSeq, 1, 3000);
+		const beforeSeq = this.event.deviceControlSeq.value;
+		try {
+			const ok = await this.protocol.controlDevice(1);
+			if (ok == false) {
+				console.warn("[DEVICE] 0x41 解绑发送失败，继续删除本地");
+				return false;
+			}
+			return await this.waitForDeviceControlResult(beforeSeq, 1, 3000);
+		} finally {
+			this.endGattTask("unbind");
+		}
 	}
 
 	private async waitForDeviceControlResult(

@@ -1,23 +1,6 @@
 // ==================== 基础数据类型 ====================
 
 /**
- * 蓝牙数据类型枚举
- */
-export type BluetoothDataType = "heartRate" | "bloodOxygen" | "battery" | "ppi";
-
-/**
- * 蓝牙数据记录
- */
-export type BluetoothData = {
-	id: string;
-	timestamp: number;
-	type: BluetoothDataType;
-	value: number;
-	ppi: number | null;
-	uploaded: boolean;
-};
-
-/**
  * 睡眠数据（同时作为输入和记录类型）
  * detail 字段由 SleepResponseAssembler 装配时按 (signed_status + 2) 规则生成，
  * 数据库仅存 detail 字符串，不再有独立的 sleep_status 表。
@@ -55,7 +38,6 @@ export type RealtimeBroadcastRecord = {
 	receivedAt: number;
 	utc: number;
 	voltageMv: number;
-	status: number;
 	ppgAttached: boolean;
 	behavior: number;
 	activity: number;
@@ -63,6 +45,10 @@ export type RealtimeBroadcastRecord = {
 	ppi: number;
 	spo2: number;
 	bhr: number;
+	eventSeq: number;
+	hasNewEvent: boolean;
+	batteryStatus: number;
+	rmssd: number;
 	stepsEveryday: number;
 	calorieEveryday: number;
 	rawHex: string;

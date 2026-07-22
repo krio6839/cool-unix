@@ -38,6 +38,7 @@ export class DeviceConnection {
 	/* ===== 直连 / 扫描配置 ===== */
 	private static readonly DIRECT_CONNECT_TIMEOUT_MS = 8000; // 单次直连超时
 	private _isInitializingConnectedDevice: boolean = false;
+	private _initializeConnectedDevicePromise: Promise<boolean> | null = null;
 	private static readonly PAIRING_SCAN_TIMEOUT_MS = 30000; // 扫描总时长
 	private _scanPurpose: ScanPurpose = "none";
 	private _isSearching: boolean = false;
@@ -107,6 +108,7 @@ export class DeviceConnection {
 			return true;
 		}
 		this._isSwitchingToBroadcastMode = true;
+		this.device.testMode.value = "broadcast";
 		try {
 			await this.stopBluetoothSearch();
 			this.device.history.stopVitalHistoryPolling();
@@ -429,7 +431,7 @@ export class DeviceConnection {
 		console.log("连接设备成功:", deviceId);
 		//#endif
 		await this._markConnected(deviceId, deviceName);
-		if (this.device.isDeviceInitialized == false) {
+		if (this.isProtocolReady() == false) {
 			const initialized = await this._initializeConnectedDevice(deviceId);
 			if (initialized == false || this.isProtocolReady() == false) {
 				console.warn("[BOOM] 连接初始化未完成，断开并回到广播扫描");
@@ -505,12 +507,27 @@ export class DeviceConnection {
 	}
 
 	private async _initializeConnectedDevice(deviceId: string): Promise<boolean> {
-		if (this._isInitializingConnectedDevice == true) return this.isProtocolReady();
+		if (this._isInitializingConnectedDevice == true) {
+			if (this._initializeConnectedDevicePromise != null) {
+				return await this._initializeConnectedDevicePromise;
+			}
+			return this.isProtocolReady();
+		}
 		this._isInitializingConnectedDevice = true;
-		this.device.isDeviceInitialized = true;
+		this.device.isDeviceInitialized = false;
+		const promise = this.runConnectedDeviceInitialization(deviceId);
+		this._initializeConnectedDevicePromise = promise;
+		const result = await promise;
+		return result;
+	}
+
+	private async runConnectedDeviceInitialization(deviceId: string): Promise<boolean> {
 		try {
 			await this.afterConnected(deviceId);
-			return this.isProtocolReady();
+			const ready = this.isProtocolReady();
+			this.device.isDeviceInitialized = ready;
+			this.device.touchState();
+			return ready;
 		} catch (e) {
 			console.error("[BOOM] 连接后初始化失败:", e);
 			this.device.isDeviceInitialized = false;
@@ -518,6 +535,7 @@ export class DeviceConnection {
 			return false;
 		} finally {
 			this._isInitializingConnectedDevice = false;
+			this._initializeConnectedDevicePromise = null;
 		}
 	}
 
@@ -533,7 +551,6 @@ export class DeviceConnection {
 	 * 连接成功后的 BOOM GATT 流程：
 	 * 1. 获取 services + characteristics，校验是否含 BOOM GATT Service
 	 * 2. 启用 notify
-	 * 3. 读固件版本（0x30）→ 写时戳（0x33）→ 读回时戳（0x34）
 	 */
 	private async afterConnected(deviceId: string): Promise<void> {
 		try {
@@ -567,20 +584,7 @@ export class DeviceConnection {
 			}
 
 			await this.device.protocol.enableNotify();
-
-			// 读固件 → 写时戳 → 读回时戳
 			await sleepTimeout(200);
-			await this.device.protocol.readFirmwareVersion();
-			await sleepTimeout(300);
-			await this.device.protocol.setTimestamp(Math.floor(Date.now() / 1000));
-			await sleepTimeout(300);
-			const beforeTimestampSeq = this.device.event.boomTimestampSeqValue;
-			await this.device.protocol.readTimestamp();
-			const timestampOk = await this._waitForBoomTimestampResponse(beforeTimestampSeq, 3000);
-			if (timestampOk == false) {
-				console.warn("[BOOM] 等待读时戳响应超时，延迟后继续启动历史自动补拉");
-				await sleepTimeout(2500);
-			}
 
 			this.device.status.value = "CONNECTED";
 			this.device.touchState();
@@ -615,6 +619,9 @@ export class DeviceConnection {
 			if (res.connected) {
 				if (this.shouldIgnoreConnectedCallback(res.deviceId) == true) {
 					console.log("[BOOM] 广播模式忽略连接状态回调:", res.deviceId);
+					if (this.shouldDisconnectIgnoredConnectedCallback(res.deviceId) == true) {
+						this.disconnectIgnoredBroadcastConnection(res.deviceId);
+					}
 					return;
 				}
 				if (
@@ -654,10 +661,27 @@ export class DeviceConnection {
 		if (this._suppressNextReconnect == true) return true;
 		if (this._scanPurpose == "boundBroadcast") return true;
 		if (this.device.testMode.value == "broadcast") return true;
-		if (this.device.currentDeviceId == "" && this.device.boundDeviceId == deviceId) {
-			return true;
-		}
 		return false;
+	}
+
+	private shouldDisconnectIgnoredConnectedCallback(deviceId: string): boolean {
+		if (this._isSwitchingToBroadcastMode == true && this.device.currentDeviceId == deviceId) {
+			return false;
+		}
+		if (this._suppressNextReconnect == true && this.device.currentDeviceId == deviceId) {
+			return false;
+		}
+		return true;
+	}
+
+	private async disconnectIgnoredBroadcastConnection(deviceId: string): Promise<void> {
+		//#ifndef H5
+		try {
+			await disconnect(deviceId);
+		} catch (e) {
+			console.warn("[BOOM] 广播模式断开残留连接失败:", e);
+		}
+		//#endif
 	}
 
 	/**

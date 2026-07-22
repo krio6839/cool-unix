@@ -35,8 +35,14 @@ import { ref } from "vue";
 import type { Device } from "./index";
 
 const DUPLICATE_NOTIFY_WINDOW_MS = 150;
-let lastBoomNotifyHex = "";
-let lastBoomNotifyAt = 0;
+const RECENT_NOTIFY_CACHE_MAX = 16;
+
+type RecentBoomNotify = {
+	hex: string;
+	at: number;
+};
+
+let recentBoomNotifies: RecentBoomNotify[] = [];
 
 export class EventHandler {
 	/* ===== 响应字段（按 T 码分派，ref 响应式）===== */
@@ -76,6 +82,8 @@ export class EventHandler {
 	/** 0x3A/0x3B 多帧重组器（跨多帧 DI 拼成完整 V） */
 	private _vitalReassembler: DataIdentifierReassembler = new DataIdentifierReassembler();
 	private _notifyListening: boolean = false;
+	private _notifyQueue: string[] = [];
+	private _notifyProcessing: boolean = false;
 
 	constructor(device: Device) {
 		this.device = device;
@@ -100,8 +108,9 @@ export class EventHandler {
 
 	resetDataIdentifierReassembler(): void {
 		this._vitalReassembler.reset();
-		lastBoomNotifyHex = "";
-		lastBoomNotifyAt = 0;
+		this._notifyQueue = [];
+		this._notifyProcessing = false;
+		recentBoomNotifies = [];
 	}
 
 	/**
@@ -114,13 +123,31 @@ export class EventHandler {
 	 */
 	handleNotifyData(value: ArrayBuffer): void {
 		const hexData = arrayBufferToHexString(value);
+		this._notifyQueue.push(hexData);
+		this.drainNotifyQueue();
+	}
+
+	private drainNotifyQueue(): void {
+		if (this._notifyProcessing == true) return;
+		this._notifyProcessing = true;
+		try {
+			while (this._notifyQueue.length > 0) {
+				const hexData: string = this._notifyQueue[0];
+				this._notifyQueue.splice(0, 1);
+				this.processNotifyHex(hexData);
+			}
+		} finally {
+			this._notifyProcessing = false;
+		}
+	}
+
+	private processNotifyHex(hexData: string): void {
 		const now = Date.now();
-		if (hexData == lastBoomNotifyHex && now - lastBoomNotifyAt <= DUPLICATE_NOTIFY_WINDOW_MS) {
+		if (this.isDuplicateNotify(hexData, now) == true) {
 			console.log(`[BOOM] 忽略重复 notify: ${hexData.substring(0, 32)}`);
 			return;
 		}
-		lastBoomNotifyHex = hexData;
-		lastBoomNotifyAt = now;
+		this.rememberNotify(hexData, now);
 		let tlvcHex = hexData;
 		this.notifySeqValue = this.notifySeqValue + 1;
 		this.lastNotifyAtValue = now;
@@ -238,6 +265,30 @@ export class EventHandler {
 			default:
 				console.log("[BOOM] 未知 T:", f.t, "数据:", hexData);
 		}
+	}
+
+	private isDuplicateNotify(hexData: string, now: number): boolean {
+		for (let i = recentBoomNotifies.length - 1; i >= 0; i--) {
+			const item = recentBoomNotifies[i];
+			if (now - item.at > DUPLICATE_NOTIFY_WINDOW_MS) continue;
+			if (item.hex == hexData) return true;
+		}
+		return false;
+	}
+
+	private rememberNotify(hexData: string, now: number): void {
+		const fresh: RecentBoomNotify[] = [];
+		for (let i = 0; i < recentBoomNotifies.length; i++) {
+			const item = recentBoomNotifies[i];
+			if (now - item.at <= DUPLICATE_NOTIFY_WINDOW_MS) {
+				fresh.push(item);
+			}
+		}
+		fresh.push({ hex: hexData, at: now } as RecentBoomNotify);
+		while (fresh.length > RECENT_NOTIFY_CACHE_MAX) {
+			fresh.shift();
+		}
+		recentBoomNotifies = fresh;
 	}
 
 	private tryExtractSingleFrameDiPayload(hexData: string): string {

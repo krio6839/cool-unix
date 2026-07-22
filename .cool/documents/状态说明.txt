@@ -1,4 +1,10 @@
 	版本更改说明
+A1.2 2026-07-21
+更改内容：
+(1)修改1.1运行状态说明，增加解绑设备清除数据时指示灯的说明
+(2)修改2.12 custom_adv_data_t定义，增加字段
+(3)新增1.3.1 广播数据移除T L
+
 A1.1 2026-07-18
 更改内容：
 (1)修改1.1运行状态说明
@@ -14,6 +20,7 @@ BOOM状态说明
 电池异常：黄色闪烁，每1s闪1次。
 充电完成：白色闪烁，每1s闪1次。
 短按键，指示灯显示电量，亮5s。电量高：白色；电量中等：蓝色；电量低：品红(紫色)，电量极低：红色。
+解绑设备清除数据时：蓝灯快闪。
 
 1.2　开关机
 1.2.1　进入休眠
@@ -29,9 +36,7 @@ BOOM状态说明
 根据上面三类场景，定义下面两种通信协议，分别适用不同的通信场景。
 1.3.1　蓝牙自定义广播协议
 蓝牙自定义广播数据放在Manufacturer Specific Data（AD Type = 0xFF）中，内容包含如下数据结构，字节序：采用小端序（Little-Endian），刷新时间：每秒刷新。
-广播数据的格式如下：
-T	L	V	V说明
-0x50			见附录custom_adv_data_t
+广播数据的内容为custom_adv_data_t格式。
 
 1.3.2　蓝牙GATT协议和USB Custom HID协议
 蓝牙GATT协议和USB Custom HID的上下行通信协议格式如下，适合单帧/多帧传输，以组成最大512字节的payload：
@@ -363,79 +368,100 @@ typedef struct {
 自定义广播数据：
 typedef struct
 {
-    /**
-     * UTC timestamp [seconds].
-     * Unix epoch time (seconds since 1970-01-01 00:00:00 UTC)
-     * Range: 0 ... 0xFFFFFFFF
-     */
-    uint32_t utc; // 偏移 0~3，4字节，小端：低位在前
+    /**
+     * UTC timestamp [seconds].
+     * Unix epoch time (seconds since 1970-01-01 00:00:00 UTC)
+     * Range: 0 ... 0xFFFFFFFF
+     */
+    uint32_t utc; // 偏移 0~3，4字节，小端：低位在前
 
-    /**
-     * Battery voltage sampling value [mV].
-     * Example: 3870 → 3870 mV = 3.870 V
-     * Range: 0 ... 65535 (实际电池范围通常 300~420)
-     */
-    int16_t v; // 偏移 4~5，2字节，小端：低位在前
+    /**
+     * Battery voltage sampling value [mV].
+     * Example: 3870 → 3870 mV = 3.870 V
+     * Range: 0 ... 65535 (实际电池范围通常 3000~4200)
+     */
+    int16_t v; // 偏移 4~5，2字节，小端：低位在前
 
-    /**
-     * Status byte combining behavior type and activity status.
-     *
-     * Bit 7    : Reserved (must be 0)
-     * Bit 6    : PPG attachment status
-     *            - 0x0 = PPG detached
-     *            - 0x1 = PPG attached
-     * Bits 5-3 : Behavior type (3 bits, value 0-7)
-     *            0x0 = Rest (休息)
-     *            0x1 = Daily life (日常生活)
-     *            0x2 = Walking (步行)
-     *            0x3 = Running (跑步)
-     *            0x4 = Cycling (骑行)
-     *            0x5 = Aerobic exercise (有氧运动)
-     *            0x6 = Other sports (其他运动)
-     *            0x7 = Reserved
-     * Bits 2-0 : Activity status (3 bits, value 0-7)
-     *            0x0 = Deep sleep (深度睡眠)
-     *            0x1 = Light sleep (浅度睡眠)
-     *            0x2 = Other sleep (其他睡眠)
-     *            0x3 = Mental relaxation (精神放松状态)
-     *            0x4 = Low activity / ACT- (活动量低)
-     *            0x5 = High activity / ACT+ (活动量高)
-     *            0x6 = Mental excitement (精神兴奋状态)
-     *            0x7 = Physical stress (身体压力)
-     */
-    uint8_t status; // 偏移 6，1字节
+    /**
+     * Status byte combining behavior type and activity status.
+     *
+     * Bit 7    : Reserved (must be 0)
+     * Bit 6    : PPG attachment status
+     *            - 0x0 = PPG detached
+     *            - 0x1 = PPG attached
+     * Bits 5-3 : Behavior type (3 bits, value 0-7)
+     *            0x0 = Rest (休息)
+     *            0x1 = Daily life (日常生活)
+     *            0x2 = Walking (步行)
+     *            0x3 = Running (跑步)
+     *            0x4 = Cycling (骑行)
+     *            0x5 = Aerobic exercise (有氧运动)
+     *            0x6 = Other sports (其他运动)
+     *            0x7 = Reserved
+     * Bits 2-0 : Activity status (3 bits, value 0-7)
+     *            0x0 = Deep sleep (深度睡眠)
+     *            0x1 = Light sleep (浅度睡眠)
+     *            0x2 = Other sleep (其他睡眠)
+     *            0x3 = Mental relaxation (精神放松状态)
+     *            0x4 = Low activity / ACT- (活动量低)
+     *            0x5 = High activity / ACT+ (活动量高)
+     *            0x6 = Mental excitement (精神兴奋状态)
+     *            0x7 = Physical stress (身体压力)
+     */
+    uint8_t status; // 偏移 6，1字节
 
-    /**
-     * Heart rate [bpm].
-     * Range: 0 ... 255 (通常有效范围 30-240)
-     */
-    uint8_t hr; // 偏移 7，1字节
+    /**
+     * Heart rate [bpm].
+     * Range: 0 ... 255 (通常有效范围 30-240)
+     */
+    uint8_t hr; // 偏移 7，1字节
 
-    /**
-     * Pulse to pulse interval [ms].
-     * Range: 0 ... 65535
-     */
-    uint16_t ppi; // 偏移 8~9，2字节，小端：低位在前
+    /**
+     * Pulse to pulse interval [ms].
+     * Range: 0 ... 65535
+     */
+    uint16_t ppi; // 偏移 8~9，2字节，小端：低位在前
 
-    /**
-     * Blood oxygen saturation.
-     * Range: 700 ... 1000 (表示 70.0% ... 100.0%)
-     * Example: 950 → 95.0%
-     */
-    uint16_t spo2; // 偏移 10~11，2字节，小端：低位在前
+    /**
+     * Blood oxygen saturation.
+     * Range: 700 ... 1000 (表示 70.0% ... 100.0%)
+     * Example: 950 → 95.0%
+     */
+    uint16_t spo2; // 偏移 10~11，2字节，小端：低位在前
 
-    /**
-     * Basal heart rate [bpm].
-     * Range: 28 ... 240
-     */
-    uint8_t bhr; // 偏移 12，1字节
+    /**
+     * Basal heart rate [bpm].
+     * Range: 28 ... 240
+     */
+    uint8_t bhr; // 偏移 12，1字节
+
+    /**
+     * Status byte combining behavior type and activity status.
+     *
+     * Bit 7-4  : 事件递增序号，如果发送改变，需要读一次事件
+     * Bits 3-2 : 保留
+     * Bits 1-0 : battery status (2 bits, value 0-3)
+     *            0x0 = 正常
+     *            0x1 = 充电中
+     *            0x2 = 充电完成
+     *            0x3 = 电池异常
+     */
+    uint8_t status2; // 偏移 13，1字节
 
     /** Steps since the 00:00:00 every day. */
-    uint32_t steps_everyday;
+    uint32_t steps_everyday; // 偏移 14~17，4字节，小端：低位在前
 
     /** 100 times value of exercise calorie[kcal] since the 00:00:00 every day. */
-    uint32_t calorie_everyday;
+    uint16_t calorie_everyday; // 偏移 18~19，4字节，小端：低位在前
 
+    /**
+     * RMSSD -
+     * Root Mean Square of Successive Differences of
+     * [PPI] data [ms].
+     */
+    float rmssd; // 偏移 20~23，4字节，小端：低位在前
+
+    // 结构体总大小: 24 字节
 } __attribute__((packed)) custom_adv_data_t;
 
 2.1.3　VitalData_Per_Second

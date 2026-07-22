@@ -94,18 +94,7 @@ class BluetoothDatabase {
 
 	// 初始化表结构
 	private async initTables(): Promise<void> {
-		await this.execute(`CREATE TABLE IF NOT EXISTS bluetooth_data (
-        id TEXT PRIMARY KEY,
-        timestamp INTEGER NOT NULL,
-        type TEXT NOT NULL,
-        value REAL NOT NULL,
-        ppi INTEGER,
-        uploaded INTEGER DEFAULT 0
-      )`);
-
-		await this.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON bluetooth_data(timestamp)");
-		await this.execute("CREATE INDEX IF NOT EXISTS idx_uploaded ON bluetooth_data(uploaded)");
-		await this.execute("CREATE INDEX IF NOT EXISTS idx_type ON bluetooth_data(type)");
+		await this.execute("DROP TABLE IF EXISTS bluetooth_data");
 
 		await this.execute(`CREATE TABLE IF NOT EXISTS sleep_data (
         id TEXT PRIMARY KEY,
@@ -156,6 +145,11 @@ class BluetoothDatabase {
         ppi INTEGER NOT NULL,
         spo2 INTEGER NOT NULL,
         bhr INTEGER NOT NULL,
+        status2 INTEGER NOT NULL DEFAULT 0,
+        event_seq INTEGER NOT NULL DEFAULT 0,
+        has_new_event INTEGER NOT NULL DEFAULT 0,
+        battery_status INTEGER NOT NULL DEFAULT 0,
+        rmssd INTEGER NOT NULL DEFAULT 0,
         steps_everyday INTEGER NOT NULL DEFAULT 0,
         calorie_everyday INTEGER NOT NULL DEFAULT 0,
         raw_hex TEXT NOT NULL DEFAULT '',
@@ -172,6 +166,23 @@ class BluetoothDatabase {
 			"calorie_everyday",
 			"INTEGER NOT NULL DEFAULT 0"
 		);
+		await this.ensureColumn("realtime_broadcast_data", "status2", "INTEGER NOT NULL DEFAULT 0");
+		await this.ensureColumn(
+			"realtime_broadcast_data",
+			"event_seq",
+			"INTEGER NOT NULL DEFAULT 0"
+		);
+		await this.ensureColumn(
+			"realtime_broadcast_data",
+			"has_new_event",
+			"INTEGER NOT NULL DEFAULT 0"
+		);
+		await this.ensureColumn(
+			"realtime_broadcast_data",
+			"battery_status",
+			"INTEGER NOT NULL DEFAULT 0"
+		);
+		await this.ensureColumn("realtime_broadcast_data", "rmssd", "INTEGER NOT NULL DEFAULT 0");
 
 		await this.execute(
 			"CREATE INDEX IF NOT EXISTS idx_realtime_broadcast_timestamp ON realtime_broadcast_data(timestamp)"

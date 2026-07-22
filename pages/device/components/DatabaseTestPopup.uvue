@@ -91,17 +91,6 @@
 					>
 						{{ t("最近睡眠") }}
 					</cl-button>
-					<cl-button
-						type="primary"
-						color="#444"
-						rounded
-						size="small"
-						class="mr-2 mb-2"
-						:disabled="loading"
-						@tap="loadLegacyRows"
-					>
-						{{ t("旧表") }}
-					</cl-button>
 					<cl-button type="light" rounded size="small" class="mr-2 mb-2" @tap="clearRows">
 						{{ t("清空") }}
 					</cl-button>
@@ -131,13 +120,7 @@
 //#ifndef H5
 import { ref } from "vue";
 import { bluetoothDataManager, t } from "@/.cool";
-import type {
-	BluetoothData,
-	PpiData,
-	RealtimeBroadcastRecord,
-	SleepData,
-	UploadTableStats
-} from "@/.cool";
+import type { PpiData, RealtimeBroadcastRecord, SleepData, UploadTableStats } from "@/.cool";
 
 const show = defineModel("show", {
 	default: false
@@ -146,11 +129,6 @@ const show = defineModel("show", {
 const loading = ref<boolean>(false);
 const titleText = ref<string>("-");
 const rows = ref<string[]>([]);
-
-function toByteHex(value: number): string {
-	const item = (value & 0xff).toString(16);
-	return item.length == 1 ? "0" + item : item;
-}
 
 function formatSecTime(sec: number): string {
 	if (sec <= 0) return "0";
@@ -179,19 +157,22 @@ function clearRows(): void {
 	rows.value = [];
 }
 
+function getBatteryStatusLabel(value: number): string {
+	if (value == 1) return t("充电中");
+	if (value == 2) return t("充电完成");
+	if (value == 3) return t("电池异常");
+	return t("正常");
+}
+
 function formatBroadcast(item: RealtimeBroadcastRecord): string {
 	const spo2Pct = (item.spo2 / 10).toFixed(1);
 	const voltage = (item.voltageMv / 1000).toFixed(3);
 	const calories = (item.calorieEveryday / 100).toFixed(1);
-	return `received=${formatMsTime(item.receivedAt)}, utc=${formatSecTime(item.utc)}, hr=${item.hr}, bhr=${item.bhr}, spo2=${spo2Pct}%, ppi=${item.ppi}, steps=${item.stepsEveryday}, calories=${calories}kcal, v=${voltage}V, status=0x${toByteHex(item.status)}, ppg=${item.ppgAttached}, behavior=${item.behavior}, activity=${item.activity}, device=${item.deviceId}, raw=${item.rawHex}`;
+	return `received=${formatMsTime(item.receivedAt)}, utc=${formatSecTime(item.utc)}, hr=${item.hr}, bhr=${item.bhr}, spo2=${spo2Pct}%, ppi=${item.ppi}, rmssd=${item.rmssd}ms, steps=${item.stepsEveryday}, calories=${calories}kcal, v=${voltage}V, eventSeq=${item.eventSeq}, newEvent=${item.hasNewEvent}, battery=${getBatteryStatusLabel(item.batteryStatus)}, ppg=${item.ppgAttached}, behavior=${item.behavior}, activity=${item.activity}, device=${item.deviceId}, raw=${item.rawHex}`;
 }
 
 function formatPpi(item: PpiData): string {
 	return `time=${formatSecTime(item.timestamp)}, hr=${item.hr}, spo2=${item.spo2}, ppi=${item.ppi}, uploaded=${item.uploaded}, id=${item.id}`;
-}
-
-function formatLegacy(item: BluetoothData): string {
-	return `time=${formatSecTime(item.timestamp)}, type=${item.type}, value=${item.value}, ppi=${item.ppi}, uploaded=${item.uploaded}, id=${item.id}`;
 }
 
 function formatSleep(item: SleepData): string {
@@ -210,10 +191,8 @@ async function loadOverview(): Promise<void> {
 		const latestBroadcast = await bluetoothDataManager.getLatestRealtimeBroadcastRecord();
 		const ppiCount = await bluetoothDataManager.getPpiDataCount();
 		const sleepCount = await bluetoothDataManager.getSleepDataCount();
-		const legacyCount = await bluetoothDataManager.getBluetoothDataCount();
 		const latestPpi = await bluetoothDataManager.getLatestPpiData();
 		const unuploadedPpi = await bluetoothDataManager.getUnuploadedPpiData();
-		const unuploadedLegacy = await bluetoothDataManager.getUnuploadedData();
 		const unuploadedSleep = await bluetoothDataManager.getUnuploadedSleepData();
 		const result: string[] = [];
 		result.push(`realtime_broadcast_data count=${broadcastCount}`);
@@ -225,7 +204,6 @@ async function loadOverview(): Promise<void> {
 		result.push(`ppi_data count=${ppiCount}, unuploaded=${unuploadedPpi.length}`);
 		result.push(latestPpi == null ? "latest ppi=无" : `latest ppi: ${formatPpi(latestPpi)}`);
 		result.push(`sleep_data count=${sleepCount}, unuploaded=${unuploadedSleep.length}`);
-		result.push(`bluetooth_data count=${legacyCount}, unuploaded=${unuploadedLegacy.length}`);
 		rows.value = result;
 	} catch (e) {
 		rows.value = [`${t("查询失败")}: ${e}`];
@@ -297,7 +275,6 @@ async function loadUploadedRows(): Promise<void> {
 	try {
 		const ppi = await bluetoothDataManager.getRecentPpiDataByUploadStatus(10, true);
 		const sleep = await bluetoothDataManager.getRecentSleepData(10, true);
-		const legacy = await bluetoothDataManager.getRecentBluetoothData(10, true);
 		const result: string[] = [];
 		result.push(`ppi_data uploaded recent=${ppi.length}`);
 		for (let i = 0; i < ppi.length; i++) {
@@ -306,10 +283,6 @@ async function loadUploadedRows(): Promise<void> {
 		result.push(`sleep_data uploaded recent=${sleep.length}`);
 		for (let j = 0; j < sleep.length; j++) {
 			result.push(`sleep ${formatSleep(sleep[j])}`);
-		}
-		result.push(`bluetooth_data uploaded recent=${legacy.length}`);
-		for (let k = 0; k < legacy.length; k++) {
-			result.push(`legacy ${formatLegacy(legacy[k])}`);
 		}
 		rows.value = result;
 	} catch (e) {
@@ -324,7 +297,6 @@ async function loadUnuploadedRows(): Promise<void> {
 	try {
 		const ppi = await bluetoothDataManager.getRecentPpiDataByUploadStatus(10, false);
 		const sleep = await bluetoothDataManager.getRecentSleepData(10, false);
-		const legacy = await bluetoothDataManager.getRecentBluetoothData(10, false);
 		const result: string[] = [];
 		result.push(`ppi_data unuploaded recent=${ppi.length}`);
 		for (let i = 0; i < ppi.length; i++) {
@@ -333,10 +305,6 @@ async function loadUnuploadedRows(): Promise<void> {
 		result.push(`sleep_data unuploaded recent=${sleep.length}`);
 		for (let j = 0; j < sleep.length; j++) {
 			result.push(`sleep ${formatSleep(sleep[j])}`);
-		}
-		result.push(`bluetooth_data unuploaded recent=${legacy.length}`);
-		for (let k = 0; k < legacy.length; k++) {
-			result.push(`legacy ${formatLegacy(legacy[k])}`);
 		}
 		rows.value = result;
 	} catch (e) {
@@ -362,38 +330,16 @@ async function loadSleepRows(): Promise<void> {
 	}
 }
 
-async function loadLegacyRows(): Promise<void> {
-	if (setLoading(t("最近 10 条旧表 bluetooth_data")) == false) return;
-	try {
-		const data = await bluetoothDataManager.getRecentBluetoothData(10, null);
-		const result: string[] = [];
-		for (let i = 0; i < data.length; i++) {
-			result.push(formatLegacy(data[i]));
-		}
-		rows.value = result;
-	} catch (e) {
-		rows.value = [`${t("查询失败")}: ${e}`];
-	} finally {
-		finishLoading();
-	}
-}
-
 async function loadUploadQueues(): Promise<void> {
 	if (setLoading(t("待上传队列")) == false) return;
 	try {
 		const ppi = await bluetoothDataManager.getUnuploadedPpiData();
-		const legacy = await bluetoothDataManager.getUnuploadedData();
 		const sleep = await bluetoothDataManager.getUnuploadedSleepData();
 		const result: string[] = [];
 		result.push(`ppi_data unuploaded=${ppi.length}`);
 		for (let i = 0; i < ppi.length && i < 10; i++) {
 			const item = ppi[i];
 			result.push(`ppi ${formatPpi(item)}`);
-		}
-		result.push(`bluetooth_data unuploaded=${legacy.length}`);
-		for (let j = 0; j < legacy.length && j < 10; j++) {
-			const item = legacy[j];
-			result.push(`legacy ${formatLegacy(item)}`);
 		}
 		result.push(`sleep_data unuploaded=${sleep.length}`);
 		for (let k = 0; k < sleep.length && k < 10; k++) {

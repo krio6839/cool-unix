@@ -6,6 +6,15 @@ export type WearLocationOption = PpgPositionOption;
 export type DeviceTestMode = "connect" | "broadcast";
 export type DeviceOnlineSource = "gatt" | "broadcast" | "searching" | "offline";
 export type ScanPurpose = "none" | "pairing" | "boundBroadcast" | "reconnect";
+export type GattTaskName =
+	| "vitalAuto"
+	| "vitalRecent"
+	| "vitalGap"
+	| "event"
+	| "timeSync"
+	| "unbind"
+	| "manual"
+	| "unknown";
 
 export type DeviceOnlineInfo = {
 	online: boolean;

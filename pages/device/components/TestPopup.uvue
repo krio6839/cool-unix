@@ -109,7 +109,7 @@
 						<text class="metric-unit">bpm</text>
 					</view>
 					<view class="metric-large">
-						<text class="metric-label">{{ t("HRV/PPI") }}</text>
+						<text class="metric-label">{{ t("RMSSD") }}</text>
 						<text class="metric-value">{{ rtText.hrv }}</text>
 						<text class="metric-unit">ms</text>
 					</view>
@@ -135,8 +135,12 @@
 						<text class="cell-value">{{ rtText.ppgAttached }}</text>
 					</view>
 					<view class="broadcast-cell">
-						<text class="cell-label">Status</text>
-						<text class="cell-value">{{ rtText.status }}</text>
+						<text class="cell-label">{{ t("电池状态") }}</text>
+						<text class="cell-value">{{ rtText.battery }}</text>
+					</view>
+					<view class="broadcast-cell">
+						<text class="cell-label">{{ t("事件提示") }}</text>
+						<text class="cell-value">{{ rtText.eventNotice }}</text>
 					</view>
 					<view class="broadcast-cell">
 						<text class="cell-label">{{ t("行为 / 活动") }}</text>
@@ -511,6 +515,16 @@
 				>
 					{{ t("数据库查询") }}
 				</cl-button>
+				<cl-button
+					type="primary"
+					color="#256"
+					rounded
+					size="small"
+					class="mr-2 mb-2"
+					@tap="openDiagnosticsPage"
+				>
+					{{ t("诊断日志") }}
+				</cl-button>
 			</view>
 		</scroll-view>
 
@@ -820,6 +834,7 @@ import {
 	LOG_EVENT_TYPE,
 	PPG_POSITION_OPTIONS,
 	dayUts,
+	router,
 	t,
 	useStore
 } from "@/.cool";
@@ -846,7 +861,8 @@ type RtText = {
 	ppgAttached: string;
 	behavior: string;
 	activity: string;
-	status: string;
+	battery: string;
+	eventNotice: string;
 	bhr: string;
 	steps: string;
 	calories: string;
@@ -902,6 +918,11 @@ function openProtocolLog(): void {
 
 function openDatabasePopup(): void {
 	databasePopupVisible.value = true;
+}
+
+function openDiagnosticsPage(): void {
+	show.value = false;
+	router.to("/pages/set/diagnostics");
 }
 
 function clearManualRawHex(): void {
@@ -980,7 +1001,8 @@ const rtText = computed<RtText>(() => {
 			ppgAttached: "-",
 			behavior: "-",
 			activity: "-",
-			status: "-",
+			battery: "-",
+			eventNotice: "-",
 			bhr: "-",
 			steps: "-",
 			calories: "-",
@@ -994,11 +1016,12 @@ const rtText = computed<RtText>(() => {
 		voltage: r.voltageV.toFixed(3),
 		voltageMv: r.voltageMv.toString(),
 		ppi: r.ppiValid ? r.ppi.toString() : `${r.ppi}(${t("无效")})`,
-		hrv: r.ppiValid ? r.hrvMs.toString() : `${r.hrvMs}(${t("无效")})`,
+		hrv: r.rmssdValid ? r.hrvMs.toString() : `${r.hrvMs}(${t("无效")})`,
 		ppgAttached: r.ppgAttached ? t("已佩戴") : t("未佩戴"),
 		behavior: `${r.behavior} ${r.behaviorLabel}`,
 		activity: `${r.activity} ${r.activityLabel}`,
-		status: `0x${toByteHex(r.status)} bit7=${r.statusReserved}`,
+		battery: `${r.batteryStatus} ${r.batteryStatusLabel}`,
+		eventNotice: `seq=${r.eventSeq} ${r.hasNewEvent ? t("有新事件") : t("无新事件")}`,
 		bhr: r.bhrValid ? r.bhr.toString() : `${r.bhr}(${t("无效")})`,
 		steps: r.stepsEveryday.toString(),
 		calories: r.calorieKcal.toFixed(1),
@@ -1024,7 +1047,7 @@ const advText = computed<AdvText>(() => {
 	const r = deviceStore.realtime.value;
 	let parsed = "-";
 	if (r != null) {
-		parsed = `utc=${r.utc} ${rtText.value.utc} received=${rtText.value.receivedAt} status=0x${toByteHex(r.status)} bit7=${r.statusReserved} ppg=${r.ppgAttached} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr} valid=${r.hrValid} ppi=${r.ppi} valid=${r.ppiValid} hrv=${r.hrvMs}ms spo2=${r.spo2Pct.toFixed(1)} valid=${r.spo2Valid} bhr=${r.bhr} valid=${r.bhrValid} steps=${r.stepsEveryday} calories=${r.calorieKcal.toFixed(1)}kcal voltage=${r.voltageMv}mV/${r.voltageV.toFixed(3)}V`;
+		parsed = `utc=${r.utc} ${rtText.value.utc} received=${rtText.value.receivedAt} eventSeq=${r.eventSeq} newEvent=${r.hasNewEvent} battery=${r.batteryStatus}(${r.batteryStatusLabel}) ppg=${r.ppgAttached} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr} valid=${r.hrValid} ppi=${r.ppi} valid=${r.ppiValid} rmssd=${r.hrvMs}ms spo2=${r.spo2Pct.toFixed(1)} valid=${r.spo2Valid} bhr=${r.bhr} valid=${r.bhrValid} steps=${r.stepsEveryday} calories=${r.calorieKcal.toFixed(1)}kcal voltage=${r.voltageMv}mV/${r.voltageV.toFixed(3)}V`;
 	}
 	return {
 		seq: d.seq.toString(),

@@ -20,6 +20,9 @@
 				<cl-list-item :label="t('信号强度')">
 					<cl-text>{{ rssiText }}</cl-text>
 				</cl-list-item>
+				<cl-list-item :label="t('电池状态')">
+					<cl-text>{{ batteryStatusText }}</cl-text>
+				</cl-list-item>
 			</cl-list>
 
 			<!-- C. 佩戴位置:cl-select 弹窗触发 -->
@@ -152,6 +155,13 @@ const rssiText = computed((): string => {
 	// #ifdef H5
 	return "—";
 	// #endif
+});
+
+const batteryStatusText = computed((): string => {
+	deviceStore.stateVersion.value;
+	const r = deviceStore.realtime.value;
+	if (r == null) return "—";
+	return `${r.batteryStatusLabel} (${r.voltageV.toFixed(3)}V)`;
 });
 
 function openTest() {

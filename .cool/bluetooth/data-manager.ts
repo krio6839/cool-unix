@@ -2,14 +2,11 @@
  * 蓝牙数据管理类
  * 负责蓝牙数据的存储、管理和上传
  */
-import { parse, storage } from "../index";
 import { bluetoothDatabase } from "./database";
 import { request } from "../service";
 import { dayUts } from "../utils/day";
-import { UPLOAD_INTERVAL, MAX_DATA_AGE, UPLOAD_PPI_URL, UPLOAD_SLEEP_URL } from "./constants";
+import { UPLOAD_INTERVAL, UPLOAD_PPI_URL, UPLOAD_SLEEP_URL } from "./constants";
 import type {
-	BluetoothData,
-	BluetoothDataType,
 	SleepData,
 	PpiUploadRequest,
 	SleepUploadRequest,
@@ -75,51 +72,6 @@ export class BluetoothDataManager {
 	}
 
 	/**
-	 * 生成唯一ID
-	 * @returns 唯一ID字符串
-	 */
-	private generateId(): string {
-		return Date.now().toString();
-	}
-
-	/**
-	 * 存储蓝牙数据（实时数据）
-	 * @param type 数据类型（心率/血氧/电池/PPI）
-	 * @param value 测量值
-	 * @param ppi 心率变异性（可选，仅心率数据有）
-	 * @param timestamp 时间戳（可选，默认当前时间）
-	 */
-	async storeData(
-		type: BluetoothDataType,
-		value: number,
-		ppi: number | null = null,
-		timestamp?: number
-	): Promise<void> {
-		// 实时数据暂不存储，只记录日志
-		// TODO: 未来启用实时数据存储时取消此注释
-		// console.log("实时数据（暂不存储）:", { type, value, ppi });
-		// return;
-
-		const id = this.generateId();
-		const ts = timestamp ?? Date.now();
-
-		console.log("存储数据:", { id, ts, type, value, ppi });
-
-		let sql = `INSERT INTO bluetooth_data (id, timestamp, type, value, uploaded`;
-		let values = `VALUES ('${id}', ${ts}, '${type}', ${value}, 0`;
-
-		if (ppi != null) {
-			sql += `, ppi`;
-			values += `, ${ppi}`;
-		}
-
-		sql += `) ${values})`;
-		console.log("INSERT SQL:", sql);
-
-		await bluetoothDatabase.execute(sql);
-	}
-
-	/**
 	 * 批量存储历史心率血氧数据到 ppi_data 表
 	 * 将多条记录拼接为单条 INSERT OR IGNORE SQL，
 	 * 将 N 次 SQLite execute 减为 1 次，显著降低调度开销。
@@ -162,7 +114,6 @@ export class BluetoothDataManager {
 		receivedAt: number,
 		utc: number,
 		voltageMv: number,
-		status: number,
 		ppgAttachedValue: boolean,
 		behavior: number,
 		activity: number,
@@ -170,6 +121,10 @@ export class BluetoothDataManager {
 		ppi: number,
 		spo2: number,
 		bhr: number,
+		eventSeq: number,
+		hasNewEventValue: boolean,
+		batteryStatus: number,
+		rmssd: number,
 		stepsEveryday: number,
 		calorieEveryday: number,
 		rawHexValue: string,
@@ -180,10 +135,13 @@ export class BluetoothDataManager {
 		const vHex = this.escapeSqlText(vHexValue);
 		const deviceId = this.escapeSqlText(deviceIdValue);
 		const ppgAttached = ppgAttachedValue == true ? 1 : 0;
+		const hasNewEvent = hasNewEventValue == true ? 1 : 0;
+		const legacyStatus = 0;
+		const legacyStatus2 = 0;
 		const sql =
 			"INSERT OR REPLACE INTO realtime_broadcast_data " +
-			"(id, timestamp, received_at, utc, voltage_mv, status, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, steps_everyday, calorie_everyday, raw_hex, v_hex, device_id) VALUES " +
-			`('${id}', ${timestamp}, ${receivedAt}, ${utc}, ${voltageMv}, ${status}, ${ppgAttached}, ${behavior}, ${activity}, ${hr}, ${ppi}, ${spo2}, ${bhr}, ${stepsEveryday}, ${calorieEveryday}, '${rawHex}', '${vHex}', '${deviceId}')`;
+			"(id, timestamp, received_at, utc, voltage_mv, status, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, status2, event_seq, has_new_event, battery_status, rmssd, steps_everyday, calorie_everyday, raw_hex, v_hex, device_id) VALUES " +
+			`('${id}', ${timestamp}, ${receivedAt}, ${utc}, ${voltageMv}, ${legacyStatus}, ${ppgAttached}, ${behavior}, ${activity}, ${hr}, ${ppi}, ${spo2}, ${bhr}, ${legacyStatus2}, ${eventSeq}, ${hasNewEvent}, ${batteryStatus}, ${rmssd}, ${stepsEveryday}, ${calorieEveryday}, '${rawHex}', '${vHex}', '${deviceId}')`;
 		return bluetoothDatabase.execute(sql);
 	}
 
@@ -192,67 +150,16 @@ export class BluetoothDataManager {
 	 */
 	async getLatestRealtimeBroadcastRecord(): Promise<RealtimeBroadcastRecord | null> {
 		const sql =
-			"SELECT id, timestamp, received_at, utc, voltage_mv, status, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, steps_everyday, calorie_everyday, raw_hex, v_hex, device_id FROM realtime_broadcast_data ORDER BY received_at DESC LIMIT 1";
+			"SELECT id, timestamp, received_at, utc, voltage_mv, status, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, status2, event_seq, has_new_event, battery_status, rmssd, steps_everyday, calorie_everyday, raw_hex, v_hex, device_id FROM realtime_broadcast_data ORDER BY received_at DESC LIMIT 1";
 		const result = await bluetoothDatabase.query(sql);
 		if (result == null || result.rows.length == 0) {
 			return null;
 		}
-		const row = result.rows[0];
-		return {
-			id: row[0] as string,
-			timestamp: parseInt(row[1] as string),
-			receivedAt: parseInt(row[2] as string),
-			utc: parseInt(row[3] as string),
-			voltageMv: parseInt(row[4] as string),
-			status: parseInt(row[5] as string),
-			ppgAttached: parseInt(row[6] as string) == 1,
-			behavior: parseInt(row[7] as string),
-			activity: parseInt(row[8] as string),
-			hr: parseInt(row[9] as string),
-			ppi: parseInt(row[10] as string),
-			spo2: parseInt(row[11] as string),
-			bhr: parseInt(row[12] as string),
-			stepsEveryday: parseInt(row[13] as string),
-			calorieEveryday: parseInt(row[14] as string),
-			rawHex: row[15] as string,
-			vHex: row[16] as string,
-			deviceId: row[17] as string
-		} as RealtimeBroadcastRecord;
+		return this.parseRealtimeBroadcastRow(result.rows[0]);
 	}
 
 	private escapeSqlText(value: string): string {
 		return value.split("'").join("''");
-	}
-
-	/**
-	 * 获取所有蓝牙数据
-	 * @returns 蓝牙数据数组
-	 */
-	async getAllData(): Promise<BluetoothData[]> {
-		const sql =
-			"SELECT id, timestamp, type, value, ppi, uploaded FROM bluetooth_data ORDER BY timestamp DESC";
-		const result = await bluetoothDatabase.query(sql);
-
-		if (result == null) {
-			return [];
-		}
-
-		const dataList: BluetoothData[] = [];
-		for (let i = 0; i < result.rows.length; i++) {
-			dataList.push(this.parseBluetoothDataRow(result.rows[i]));
-		}
-		return dataList;
-	}
-
-	private parseBluetoothDataRow(row: Array<string>): BluetoothData {
-		return {
-			id: row[0] as string,
-			timestamp: parseInt(row[1] as string),
-			type: row[2] as BluetoothDataType,
-			value: parseFloat(row[3] as string),
-			ppi: row[4] != null ? parseInt(row[4] as string) : null,
-			uploaded: parseInt(row[5] as string) == 1
-		} as BluetoothData;
 	}
 
 	private parsePpiDataRow(row: Array<string>): PpiData {
@@ -264,6 +171,32 @@ export class BluetoothDataManager {
 			ppi: parseInt(row[4] as string),
 			uploaded: parseInt(row[5] as string) == 1
 		} as PpiData;
+	}
+
+	private parseRealtimeBroadcastRow(row: Array<string>): RealtimeBroadcastRecord {
+		return {
+			id: row[0] as string,
+			timestamp: parseInt(row[1] as string),
+			receivedAt: parseInt(row[2] as string),
+			utc: parseInt(row[3] as string),
+			voltageMv: parseInt(row[4] as string),
+			ppgAttached: parseInt(row[6] as string) == 1,
+			behavior: parseInt(row[7] as string),
+			activity: parseInt(row[8] as string),
+			hr: parseInt(row[9] as string),
+			ppi: parseInt(row[10] as string),
+			spo2: parseInt(row[11] as string),
+			bhr: parseInt(row[12] as string),
+			eventSeq: parseInt(row[14] as string),
+			hasNewEvent: parseInt(row[15] as string) == 1,
+			batteryStatus: parseInt(row[16] as string),
+			rmssd: parseInt(row[17] as string),
+			stepsEveryday: parseInt(row[18] as string),
+			calorieEveryday: parseInt(row[19] as string),
+			rawHex: row[20] as string,
+			vHex: row[21] as string,
+			deviceId: row[22] as string
+		} as RealtimeBroadcastRecord;
 	}
 
 	private parseSleepDataRow(row: Array<string>): SleepData {
@@ -296,58 +229,11 @@ export class BluetoothDataManager {
 		return parseInt(result.rows[0][0] as string);
 	}
 
-	/**
-	 * 获取未上传的蓝牙数据
-	 * @returns 未上传的蓝牙数据数组
-	 */
-	async getUnuploadedData(): Promise<BluetoothData[]> {
-		const sql =
-			"SELECT id, timestamp, type, value, ppi, uploaded FROM bluetooth_data WHERE uploaded = 0 ORDER BY timestamp ASC";
-		const result = await bluetoothDatabase.query(sql);
-
-		if (result == null) {
-			return [];
-		}
-
-		const dataList: BluetoothData[] = [];
-		for (let i = 0; i < result.rows.length; i++) {
-			dataList.push(this.parseBluetoothDataRow(result.rows[i]));
-		}
-		return dataList;
-	}
-
-	async getBluetoothDataCount(): Promise<number> {
-		return this.queryCount("SELECT COUNT(*) FROM bluetooth_data");
-	}
-
-	async getRecentBluetoothData(
-		limit: number,
-		uploaded: boolean | null
-	): Promise<BluetoothData[]> {
-		const safeLimit = limit <= 0 ? 10 : limit;
-		let sql = "SELECT id, timestamp, type, value, ppi, uploaded FROM bluetooth_data";
-		if (uploaded != null) {
-			sql += uploaded == true ? " WHERE uploaded = 1" : " WHERE uploaded = 0";
-		}
-		sql += " ORDER BY timestamp DESC LIMIT " + safeLimit.toString();
-		const result = await bluetoothDatabase.query(sql);
-		if (result == null) {
-			return [];
-		}
-
-		const dataList: BluetoothData[] = [];
-		for (let i = 0; i < result.rows.length; i++) {
-			dataList.push(this.parseBluetoothDataRow(result.rows[i]));
-		}
-		return dataList;
-	}
-
 	async getUploadTableStats(): Promise<UploadTableStats[]> {
 		const stats: UploadTableStats[] = [];
 		stats.push(
 			await this.getUploadStatsForTable("ppi_data", "timestamp"),
-			await this.getUploadStatsForTable("sleep_data", "report_timestamp"),
-			await this.getUploadStatsForTable("bluetooth_data", "timestamp")
+			await this.getUploadStatsForTable("sleep_data", "report_timestamp")
 		);
 		return stats;
 	}
@@ -408,7 +294,7 @@ export class BluetoothDataManager {
 	async getRecentRealtimeBroadcastRecords(limit: number): Promise<RealtimeBroadcastRecord[]> {
 		const safeLimit = limit <= 0 ? 10 : limit;
 		const sql =
-			"SELECT id, timestamp, received_at, utc, voltage_mv, status, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, steps_everyday, calorie_everyday, raw_hex, v_hex, device_id FROM realtime_broadcast_data ORDER BY received_at DESC LIMIT " +
+			"SELECT id, timestamp, received_at, utc, voltage_mv, status, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, status2, event_seq, has_new_event, battery_status, rmssd, steps_everyday, calorie_everyday, raw_hex, v_hex, device_id FROM realtime_broadcast_data ORDER BY received_at DESC LIMIT " +
 			safeLimit.toString();
 		const result = await bluetoothDatabase.query(sql);
 		if (result == null) {
@@ -417,27 +303,7 @@ export class BluetoothDataManager {
 
 		const records: RealtimeBroadcastRecord[] = [];
 		for (let i = 0; i < result.rows.length; i++) {
-			const row = result.rows[i];
-			records.push({
-				id: row[0] as string,
-				timestamp: parseInt(row[1] as string),
-				receivedAt: parseInt(row[2] as string),
-				utc: parseInt(row[3] as string),
-				voltageMv: parseInt(row[4] as string),
-				status: parseInt(row[5] as string),
-				ppgAttached: parseInt(row[6] as string) == 1,
-				behavior: parseInt(row[7] as string),
-				activity: parseInt(row[8] as string),
-				hr: parseInt(row[9] as string),
-				ppi: parseInt(row[10] as string),
-				spo2: parseInt(row[11] as string),
-				bhr: parseInt(row[12] as string),
-				stepsEveryday: parseInt(row[13] as string),
-				calorieEveryday: parseInt(row[14] as string),
-				rawHex: row[15] as string,
-				vHex: row[16] as string,
-				deviceId: row[17] as string
-			} as RealtimeBroadcastRecord);
+			records.push(this.parseRealtimeBroadcastRow(result.rows[i]));
 		}
 		return records;
 	}
@@ -560,36 +426,10 @@ export class BluetoothDataManager {
 	}
 
 	/**
-	 * 标记蓝牙数据为已上传
-	 * @param ids 数据ID数组
-	 */
-	async markAsUploaded(ids: string[]): Promise<void> {
-		if (ids.length == 0) {
-			return;
-		}
-
-		const idList = ids.map((id) => `'${id}'`).join(",");
-		const sql = `UPDATE bluetooth_data SET uploaded = 1 WHERE id IN (${idList})`;
-		await bluetoothDatabase.execute(sql);
-	}
-
-	/**
-	 * 清理过期的已上传数据
-	 */
-	async cleanupOldData(): Promise<void> {
-		const now = Date.now();
-		const cutoffTime = now - MAX_DATA_AGE;
-
-		const sql = `DELETE FROM bluetooth_data WHERE uploaded = 1 AND CAST(timestamp AS INTEGER) < ${cutoffTime}`;
-		await bluetoothDatabase.execute(sql);
-	}
-
-	/**
-	 * 清空所有数据（包括蓝牙数据、睡眠数据、PPI数据）
+	 * 清空所有数据（包括睡眠数据、PPI数据、广播数据）
 	 */
 	async clearAllData(): Promise<void> {
 		console.log("清空所有数据库数据");
-		await bluetoothDatabase.execute("DELETE FROM bluetooth_data");
 		await bluetoothDatabase.execute("DELETE FROM sleep_data");
 		await bluetoothDatabase.execute("DELETE FROM ppi_data");
 		await bluetoothDatabase.execute("DELETE FROM realtime_broadcast_data");
@@ -768,7 +608,6 @@ export class BluetoothDataManager {
 				uploadedIds.push(unuploadedData[i].id);
 			}
 			await this.markPpiDataAsUploaded(uploadedIds);
-			await this.cleanupOldData();
 
 			console.log("PPI上传成功");
 			return true;
@@ -909,7 +748,7 @@ export class BluetoothDataManager {
 	 * @returns 是否上传成功
 	 */
 	async uploadData(): Promise<boolean> {
-		await this.uploadPpiData();
+		await this.requestPpiUpload();
 		await this.uploadSleepData();
 		return true;
 	}

@@ -51,7 +51,7 @@ export type TlvcFrame = {
 	c: number; // 2B CRC-16（已校验）
 };
 
-/** 0x50 自定义广播数据 raw（21B packed LE）— 状态说明.txt 2.1.2 */
+/** 0x50 自定义广播数据 raw（24B packed LE）— 状态说明.txt 2.1.2 */
 export type CustomAdvData = {
 	utc: number; // 0~3   UINT32 LE  秒
 	voltage: number; // 4~5   INT16  LE  电池电压 mV
@@ -63,8 +63,10 @@ export type CustomAdvData = {
 	ppi: number; // 8~9   UINT16 LE  ms
 	spo2: number; // 10~11 UINT16 LE  ×10（950=95.0%）
 	bhr: number; // 12    UINT8  静息心率/Basal heart rate
-	stepsEveryday: number; // 13~16 UINT32 LE  当日步数
-	calorieEveryday: number; // 17~20 UINT32 LE  当日运动卡路里 ×100
+	status2: number; // 13    UINT8
+	stepsEveryday: number; // 14~17 UINT32 LE  当日步数
+	calorieEveryday: number; // 18~19 UINT16 LE  当日运动卡路里 ×100
+	rmssd: number; // 20~23 float32 LE  ms
 };
 
 /** 0x50 解析后用于 UI 展示的扁平实时数据 */
@@ -73,8 +75,6 @@ export type RealtimeBroadcast = {
 	utc: number;
 	voltageMv: number; // mV
 	voltageV: number;
-	status: number;
-	statusReserved: number;
 	ppgAttached: boolean;
 	behavior: number; // 0..6
 	behaviorLabel: string;
@@ -88,7 +88,13 @@ export type RealtimeBroadcast = {
 	spo2Valid: boolean;
 	bhr: number;
 	bhrValid: boolean;
+	eventSeq: number;
+	hasNewEvent: boolean;
+	batteryStatus: number;
+	batteryStatusLabel: string;
 	hrvMs: number;
+	rmssd: number;
+	rmssdValid: boolean;
 	stepsEveryday: number;
 	calorieEveryday: number;
 	calorieKcal: number;

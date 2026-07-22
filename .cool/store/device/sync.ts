@@ -47,14 +47,14 @@ export type HistoryRepairResult = {
 /** App 启动/绑定恢复后稍等一会儿，让广播先稳定入库，再检查缺口。 */
 const HISTORY_AUTO_INITIAL_DELAY_MS = 15000;
 /** 后台低频检查间隔。只做本地 gap scan；有缺口才临时连接 GATT。 */
-const HISTORY_AUTO_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+const HISTORY_AUTO_CHECK_INTERVAL_MS = 10 * 60 * 1000;
 
 /** 每次只扫描最近 24 小时的本地 PPI 时间点，避免全库 gap scan 太重。 */
 const VITAL_SCAN_WINDOW_SEC = 24 * 60 * 60;
 /** 本地完全没有 PPI 时，首次最多回补最近 6 小时，不盲读设备全部历史。 */
 const VITAL_INITIAL_WINDOW_SEC = 6 * 60 * 60;
-/** 相邻 PPI 时间点间隔超过 60 秒，就认为中间有缺口。 */
-const VITAL_GAP_THRESHOLD_SEC = 60;
+/** 相邻 PPI 时间点间隔超过 180 秒，就认为中间有缺口。 */
+const VITAL_GAP_THRESHOLD_SEC = 180;
 /** 补缺口时向前后各扩 2 分钟；入库 INSERT OR IGNORE，可安全重叠读取。 */
 const VITAL_GAP_OVERLAP_SEC = 2 * 60;
 /** 一次后台补拉最多补最近 4 个缺口，避免一次 GATT 任务占用连接太久。 */

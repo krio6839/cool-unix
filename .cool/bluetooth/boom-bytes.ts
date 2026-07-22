@@ -78,6 +78,25 @@ export function parseU32LE(h: string, off: number = 0): number {
 	return parseU16LE(h, off) + parseU16LE(h, off + 4) * 65536;
 }
 
+/** IEEE754 float32 小端解析，不依赖 DataView/Buffer。 */
+export function parseFloat32LE(h: string, off: number = 0): number {
+	const b0 = parseU8(h, off);
+	const b1 = parseU8(h, off + 2);
+	const b2 = parseU8(h, off + 4);
+	const b3 = parseU8(h, off + 6);
+	const sign = (b3 & 0x80) == 0 ? 1 : -1;
+	const exp = ((b3 & 0x7f) << 1) | ((b2 >> 7) & 0x01);
+	const frac = ((b2 & 0x7f) * 65536 + b1 * 256 + b0) as number;
+	if (exp == 255) {
+		return frac == 0 ? sign * Infinity : NaN;
+	}
+	if (exp == 0) {
+		if (frac == 0) return sign * 0;
+		return sign * Math.pow(2, -126) * (frac / 8388608);
+	}
+	return sign * Math.pow(2, exp - 127) * (1 + frac / 8388608);
+}
+
 /* ==================== ASCII 字符串编解码 ==================== */
 
 /**

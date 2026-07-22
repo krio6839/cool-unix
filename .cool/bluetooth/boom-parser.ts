@@ -158,15 +158,15 @@ export function serializeVibration(spec: VibrationSpec): string {
 	return h;
 }
 
-/* ==================== 0x50 自定义广播解析（21 字节） ==================== */
+/* ==================== 0x50 自定义广播解析（24 字节） ==================== */
 
 /**
- * 解析 0x50 自定义广播的 V 数据（21B packed LE）
- * @param vHex 21 字节的 hex 字符串（42 hex 字符）
+ * 解析 0x50 自定义广播的 V 数据（24B packed LE）
+ * @param vHex 24 字节的 hex 字符串（48 hex 字符）
  * @returns CustomAdvData；长度不足返回 null
  */
 export function parseCustomAdvData(vHex: string): CustomAdvData | null {
-	if (vHex.length < 42) return null; // 21B = 42 hex
+	if (vHex.length < 48) return null; // 24B = 48 hex
 	return {
 		utc: parseU32LE(vHex, 0),
 		voltage: parseI16LE(vHex, 8),
@@ -175,8 +175,10 @@ export function parseCustomAdvData(vHex: string): CustomAdvData | null {
 		ppi: parseU16LE(vHex, 16),
 		spo2: parseU16LE(vHex, 20),
 		bhr: parseU8(vHex, 24),
-		stepsEveryday: parseU32LE(vHex, 26),
-		calorieEveryday: parseU32LE(vHex, 34)
+		status2: parseU8(vHex, 26),
+		stepsEveryday: parseU32LE(vHex, 28),
+		calorieEveryday: parseU16LE(vHex, 36),
+		rmssd: parseFloat32LE(vHex, 40)
 	};
 }
 
@@ -200,13 +202,18 @@ export function decodeAdvStatus(status: number): AdvStatus {
 /** 扁平化为 RealtimeBroadcast（含 status 解码 + 接收时间戳） */
 export function toRealtimeBroadcast(d: CustomAdvData): RealtimeBroadcast {
 	const s = decodeAdvStatus(d.status);
+	const eventSeq = (d.status2 >> 4) & 0x0f;
+	const batteryStatus = d.status2 & 0x03;
+	let batteryStatusLabel = "正常";
+	if (batteryStatus == 1) batteryStatusLabel = "充电中";
+	if (batteryStatus == 2) batteryStatusLabel = "充电完成";
+	if (batteryStatus == 3) batteryStatusLabel = "电池异常";
+	const rmssdValid = d.rmssd == d.rmssd && d.rmssd > 0 && d.rmssd < 10000;
 	return {
 		receivedAt: Date.now(),
 		utc: d.utc,
 		voltageMv: d.voltage,
 		voltageV: d.voltage / 1000,
-		status: d.status,
-		statusReserved: s.reserved,
 		ppgAttached: s.ppgAttached,
 		behavior: s.behavior,
 		behaviorLabel: s.behaviorLabel,
@@ -220,7 +227,13 @@ export function toRealtimeBroadcast(d: CustomAdvData): RealtimeBroadcast {
 		spo2Valid: d.spo2 >= 700 && d.spo2 <= 1000,
 		bhr: d.bhr,
 		bhrValid: d.bhr >= 28 && d.bhr <= 240,
-		hrvMs: d.ppi,
+		eventSeq,
+		hasNewEvent: false,
+		batteryStatus,
+		batteryStatusLabel,
+		hrvMs: rmssdValid ? Math.round(d.rmssd) : 0,
+		rmssd: d.rmssd,
+		rmssdValid,
 		stepsEveryday: d.stepsEveryday,
 		calorieEveryday: d.calorieEveryday,
 		calorieKcal: d.calorieEveryday / 100,

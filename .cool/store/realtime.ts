@@ -30,7 +30,7 @@ export class Realtime {
 		hrv: null
 	});
 
-	/** 负荷页当前步数，来自新版 21B 广播 steps_everyday */
+	/** 负荷页当前步数，来自新版 24B 广播 steps_everyday */
 	steps = ref<number | null>(null);
 	/** 负荷页当前卡路里，单位 kcal，来自 calorie_everyday / 100 */
 	calories = ref<number | null>(null);
@@ -54,7 +54,7 @@ export class Realtime {
 		hr: number,
 		bhr: number,
 		spo2: number,
-		ppi: number,
+		rmssd: number,
 		steps: number,
 		calorieEveryday: number,
 		receivedAt: number = Date.now()
@@ -64,10 +64,9 @@ export class Realtime {
 		// 广播字段可能带无效占位值；保留最近有效值，直到广播整体过期。
 		this.healthCardValues.value = {
 			heartRate: hr >= 28 && hr <= 240 ? hr : (current.heartRate ?? null),
-			restingHeartRate:
-				bhr >= 28 && bhr <= 240 ? bhr : (current.restingHeartRate ?? null),
+			restingHeartRate: bhr >= 28 && bhr <= 240 ? bhr : (current.restingHeartRate ?? null),
 			oxygen: spo2 >= 700 && spo2 <= 1000 ? spo2 / 10 : (current.oxygen ?? null),
-			hrv: ppi > 0 ? ppi : (current.hrv ?? null)
+			hrv: rmssd > 0 ? rmssd : (current.hrv ?? null)
 		} as HealthCardValues;
 		this.steps.value = steps > 0 ? steps : this.steps.value;
 		this.calories.value = calorieEveryday > 0 ? calorieEveryday / 100 : this.calories.value;
@@ -84,7 +83,7 @@ export class Realtime {
 			record.hr,
 			record.bhr,
 			record.spo2,
-			record.ppi,
+			record.rmssd,
 			record.stepsEveryday,
 			record.calorieEveryday,
 			record.receivedAt
