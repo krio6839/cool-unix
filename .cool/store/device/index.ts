@@ -6,7 +6,6 @@
  * - 设备信息: currentDeviceName / devices / currentDeviceId / boundDeviceId
  * - 设备初始化: isDeviceInitialized / currentWearLocation
  * - 0x50 实时数据: realtime
- * - 重连: reconnectAttempts / maxReconnectAttempts / reconnectInterval / isReconnecting
  * - 子管理器: connection / protocol / event
  * - 共享 actionSheet: actionSheetRef
  *
@@ -129,12 +128,6 @@ export class Device {
 	protocolLogs = ref<ProtocolLogItem[]>([]);
 	private _protocolLogId = 0;
 	readonly gattLock = new DeviceGattTaskLock();
-
-	/* ===== 重连 ===== */
-	reconnectAttempts = 0;
-	maxReconnectAttempts = 5;
-	reconnectInterval = 2000;
-	isReconnecting = false;
 
 	/* ===== 子管理器 ===== */
 	//#ifndef H5
@@ -444,12 +437,6 @@ export class Device {
 	/** 清空协议调试日志 */
 	clearProtocolLogs(): void {
 		this.protocolLogs.value = [];
-	}
-
-	/** 重置重连状态（重连成功后 / 主动重置时调用） */
-	resetReconnectState(): void {
-		this.reconnectAttempts = 0;
-		this.isReconnecting = false;
 	}
 
 	/* ===== 资源管理 ===== */

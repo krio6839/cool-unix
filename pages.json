@@ -47,6 +47,15 @@
 			"meta": {
 				"isAuth": false
 			}
+		},
+		{
+			"path": "pages/device/test",
+			"style": {
+				"navigationStyle": "custom"
+			},
+			"meta": {
+				"isAuth": false
+			}
 		}
 	],
 	"subPackages": [

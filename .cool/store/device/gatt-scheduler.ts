@@ -17,6 +17,9 @@ export type GattQueueTask = {
 	kind: GattQueueTaskKind;
 	priority: GattQueuePriority;
 	deviceId: string;
+	manualName: string;
+	manualRunner: (() => Promise<boolean>) | null;
+	manualResolve: ((ok: boolean) => void) | null;
 	eventSeq: number;
 	diffSec: number;
 	broadcastUtc: number;
@@ -67,6 +70,17 @@ export class DeviceGattScheduler {
 		}
 	}
 
+	runManualGattTask(name: string, runner: () => Promise<boolean>): Promise<boolean> {
+		return new Promise<boolean>((resolve) => {
+			const task = this.makeTask("manualCommand", "urgent");
+			task.manualName = name;
+			task.manualRunner = runner;
+			task.manualResolve = resolve;
+			this.upsertTask(task);
+			this.requestFlush("manual");
+		});
+	}
+
 	requestFlush(reason: GattFlushReason): void {
 		if (this.flushing == true) {
 			if (reason == "urgent" || reason == "manual") this.pendingUrgentFlush = true;
@@ -80,6 +94,9 @@ export class DeviceGattScheduler {
 			kind,
 			priority,
 			deviceId: "",
+			manualName: "",
+			manualRunner: null,
+			manualResolve: null,
 			eventSeq: 0,
 			diffSec: 0,
 			broadcastUtc: 0,
@@ -122,11 +139,13 @@ export class DeviceGattScheduler {
 					"bluetooth",
 					`[BOOM-SCHED] GATT 通道忙(${this.device.getGattTaskName()})，任务保留到下轮`
 				);
+				this.failManualTasks();
 				return;
 			}
 			connected = await this.device.connection.switchToConnectMode("scheduler");
 			if (connected == false) {
 				logger.warn("bluetooth", "[BOOM-SCHED] 连接失败，任务保留到下轮");
+				this.failManualTasks();
 				return;
 			}
 			await sleepTimeout(EVENT_SYNC_AFTER_CONNECT_DELAY_MS);
@@ -221,6 +240,10 @@ export class DeviceGattScheduler {
 		}
 		if (task.kind == "historyRepair") {
 			await this.runHistoryRepair(task, startedAt);
+			return;
+		}
+		if (task.kind == "manualCommand") {
+			await this.runManualCommand(task);
 			return;
 		}
 		logger.info("bluetooth", `[BOOM-SCHED] 任务类型暂未接入执行器: ${task.kind}`);
@@ -328,6 +351,35 @@ export class DeviceGattScheduler {
 	private requeueTask(task: GattQueueTask): void {
 		this.tasks.push(task);
 		logger.info("bluetooth", `[BOOM-SCHED] 任务回队: kind=${task.kind}`);
+	}
+
+	private async runManualCommand(task: GattQueueTask): Promise<void> {
+		let ok = false;
+		try {
+			logger.info("bluetooth", `[BOOM-SCHED] 执行手动 GATT 任务: ${task.manualName}`);
+			const runner = task.manualRunner;
+			if (runner != null) ok = await runner();
+		} catch (e) {
+			logger.warn("bluetooth", `[BOOM-SCHED] 手动 GATT 任务异常: ${task.manualName}`, e);
+			ok = false;
+		} finally {
+			const resolve = task.manualResolve;
+			if (resolve != null) resolve(ok);
+		}
+	}
+
+	private failManualTasks(): void {
+		const kept: GattQueueTask[] = [];
+		for (let i = 0; i < this.tasks.length; i++) {
+			const task = this.tasks[i];
+			if (task.kind == "manualCommand") {
+				const resolve = task.manualResolve;
+				if (resolve != null) resolve(false);
+			} else {
+				kept.push(task);
+			}
+		}
+		this.tasks = kept;
 	}
 
 	private async waitForTimestampResponse(beforeSeq: number, timeoutMs: number): Promise<boolean> {

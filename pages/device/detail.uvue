@@ -36,10 +36,10 @@
 
 			<!-- D. 操作列表 -->
 			<!-- #ifndef H5 -->
-			<!-- D1. 常规操作:打开测试弹窗 -->
+			<!-- D1. 常规操作:进入测试页面 -->
 			<cl-list :pt="{ className: 'mb-3' }">
 				<cl-list-item
-					:label="t('打开测试弹窗')"
+					:label="t('设备测试')"
 					icon="settings-line"
 					arrow
 					hoverable
@@ -75,11 +75,6 @@
 			:show-trigger="false"
 		></cl-select>
 		<!-- #endif -->
-
-		<!-- 测试弹窗 -->
-		<!-- #ifndef H5 -->
-		<TestPopup v-model="showTest"></TestPopup>
-		<!-- #endif -->
 	</cl-page>
 </template>
 
@@ -91,13 +86,11 @@ import { getWearLocationLabel, getWearLocationOptions } from "@/.cool/store/devi
 import type { WearLocation, WearLocationOption } from "@/.cool/store/device";
 // #ifndef H5
 import type { BLEDeviceCharacteristic } from "@/.cool/bluetooth";
-import TestPopup from "./components/TestPopup.uvue";
 // #endif
 
 const { device: deviceStore } = useStore();
 const ui = useUi();
 
-const showTest = ref(false);
 const wearLocation = ref<WearLocation>(deviceStore.currentWearLocation);
 const wearLocationSelectRef = ref<ClSelectComponentPublicInstance | null>(null);
 
@@ -165,7 +158,7 @@ const batteryStatusText = computed((): string => {
 });
 
 function openTest() {
-	showTest.value = true;
+	router.to("/pages/device/test");
 }
 
 function openWearLocationPicker() {

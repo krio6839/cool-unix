@@ -5,7 +5,7 @@
  * - 蓝牙适配器初始化、状态监听
  * - 设备扫描：设备名前缀匹配 "BOOM-"
  * - 绑定设备广播解析 → realtime_broadcast_data，本轮状态同步到 device.realtime
- * - 静默直连（重连）+ 配对扫描（首次配对 / 直连失败后降级）
+ * - GATT 临时直连 + 配对扫描（首次配对）
  * - 连接成功后的 GATT 流程（services 发现 → notify 启用）
  */
 
@@ -17,6 +17,7 @@ import { BOOM_GATT_SERVICE_UUID, bluetoothDataManager } from "../../bluetooth";
 //#ifndef H5
 import {
 	openAdapter,
+	closeAdapter,
 	startDiscovery,
 	stopDiscovery,
 	onDeviceFound,
@@ -44,11 +45,9 @@ export class DeviceConnection {
 	private static readonly PAIRING_SCAN_TIMEOUT_MS = 30000; // 扫描总时长
 	private _scanPurpose: ScanPurpose = "none";
 	private _isSearching: boolean = false;
-	private _isConnectingFoundBoundDevice: boolean = false;
 	private _pairingScanTimer: number = 0;
-	private _suppressNextReconnect: boolean = false;
+	private _ignoreConnectionStateChange: boolean = false;
 	private _isSwitchingToBroadcastMode: boolean = false;
-	private _reconnectResolve: ((ok: boolean) => void) | null = null;
 
 	constructor(device: Device) {
 		this.device = device;
@@ -102,12 +101,6 @@ export class DeviceConnection {
 		//#endif
 	}
 
-	private _startPairingScan(): void {
-		this.device.status.value = "SEARCHING";
-		this.device.errorMessage.value = "";
-		this.startScan("reconnect");
-	}
-
 	async switchToBroadcastMode(readRecentVital: boolean = true): Promise<boolean> {
 		if (this._isSwitchingToBroadcastMode == true) {
 			logger.info("bluetooth", "[BOOM] 正在切换广播模式，跳过重复请求");
@@ -123,17 +116,17 @@ export class DeviceConnection {
 			}
 			//#ifndef H5
 			if (this.device.currentDeviceId != "") {
-				this._suppressNextReconnect = true;
+				this._ignoreConnectionStateChange = true;
 				await disconnect(this.device.currentDeviceId);
 				await sleepTimeout(350);
 			}
 			//#endif
-			this._suppressNextReconnect = false;
+			this._ignoreConnectionStateChange = false;
 			this._resetConnectionState();
 			await sleepTimeout(120);
 			return await this.startBoundBroadcastScan();
 		} finally {
-			this._suppressNextReconnect = false;
+			this._ignoreConnectionStateChange = false;
 			this._isSwitchingToBroadcastMode = false;
 		}
 	}
@@ -172,13 +165,32 @@ export class DeviceConnection {
 	async restartBoundBroadcastScan(reason: string): Promise<boolean> {
 		logger.warn("bluetooth", `[SCAN] 重启绑定广播扫描: ${reason}`);
 		await this.stopBluetoothSearch();
+		if (reason == "no scan callback") {
+			await this.resetAdapterBeforeBroadcastScan(reason);
+		}
 		await sleepTimeout(DeviceConnection.BOUND_BROADCAST_RESTART_DELAY_MS);
 		return await this.startBoundBroadcastScan();
 	}
 
+	private async resetAdapterBeforeBroadcastScan(reason: string): Promise<void> {
+		//#ifndef H5
+		try {
+			logger.warn("bluetooth", `[SCAN] 广播扫描无回调，重置 App 蓝牙适配器: ${reason}`);
+			await closeAdapter();
+			await sleepTimeout(500);
+			await openAdapter();
+			this.device.available = true;
+			this.device.discovering = false;
+			this.device.touchState();
+		} catch (e) {
+			logger.warn("bluetooth", "[SCAN] 重置 App 蓝牙适配器失败:", e);
+		}
+		//#endif
+	}
+
 	/** 标记已连接：刷新状态 + 持久化绑定 */
 	private async _markConnected(deviceId: string, deviceName: string): Promise<void> {
-		await this.stopBluetoothSearch(false);
+		await this.stopBluetoothSearch();
 		const boundName = this.device.boundDeviceName;
 		let displayName = deviceName == "" ? boundName : deviceName;
 		if (displayName == "") {
@@ -196,9 +208,8 @@ export class DeviceConnection {
 
 	/**
 	 * 启动扫描
-	 * - 设备名前缀匹配 "BOOM-"
-	 * - 0x50 广播数据从 Manufacturer Specific Data 字段解析 → 入库并同步本轮状态
-	 * @param mode pairing=配对 / reconnect=重连（仅连 boundDeviceId）
+	 * - pairing: 首次配对，展示所有 BOOM 设备
+	 * - boundBroadcast: 已绑定设备广播扫描，只解析绑定设备 0x50
 	 */
 	startPairingScan(): Promise<boolean> {
 		this.device.status.value = "SEARCHING";
@@ -218,7 +229,6 @@ export class DeviceConnection {
 			await this.stopBluetoothSearch();
 		}
 		this._isSearching = true;
-		this._isConnectingFoundBoundDevice = false;
 		this._scanPurpose = purpose;
 		this.device.broadcast.setBoundBroadcastScanning(purpose == "boundBroadcast");
 
@@ -227,6 +237,11 @@ export class DeviceConnection {
 				// 搜索前清空旧设备列表,避免残留
 				this.device.devices = [];
 			}
+
+			offDeviceFound();
+			onDeviceFound((devices) => {
+				this.handleScannedDevices(devices);
+			});
 
 			// 内部 1 次自动 retry,规避 kux 库的 `if (this.scanning)` 并发守护
 			let ok = await startDiscovery();
@@ -241,7 +256,7 @@ export class DeviceConnection {
 				this._isSearching = false;
 				this._scanPurpose = "none";
 				this.device.broadcast.markScanStopped();
-				this.resolveReconnectScan(false);
+				offDeviceFound();
 				logger.error("bluetooth", "[SCAN] 扫描启动失败", `purpose=${purpose}`);
 				return false;
 			}
@@ -250,15 +265,12 @@ export class DeviceConnection {
 				this._schedulePairingScanTimeout();
 			}
 
-			onDeviceFound((devices) => {
-				this.handleScannedDevices(devices);
-			});
 			return true;
 		} catch (e) {
 			this._isSearching = false;
 			this._scanPurpose = "none";
 			this.device.broadcast.markScanStopped();
-			this.resolveReconnectScan(false);
+			offDeviceFound();
 			logger.error("bluetooth", "[SCAN] 扫描异常", `${e}`);
 			throw e;
 		}
@@ -299,32 +311,6 @@ export class DeviceConnection {
 		);
 		this.device.cacheFoundDevice(found, name);
 		logger.info("bluetooth", "[SCAN] 当前 BOOM 设备列表长度:", this.device.devices.length);
-
-		if (this._scanPurpose == "reconnect" && found.deviceId == this.device.boundDeviceId) {
-			this.device.saveBoundDeviceName(name);
-			this._connectFoundBoundDevice(found.deviceId, name);
-		}
-	}
-
-	/** 重连扫描中一旦发现绑定设备,立即停止扫描并直连 */
-	private async _connectFoundBoundDevice(deviceId: string, deviceName: string): Promise<void> {
-		if (this._isConnectingFoundBoundDevice == true) return;
-		if (this.device.currentDeviceId != "") return;
-
-		this._isConnectingFoundBoundDevice = true;
-		logger.info("bluetooth", `[SCAN] 重连模式发现绑定设备,立即连接: ${deviceId}`);
-		await this.stopBluetoothSearch(false);
-		this.device.devices = [];
-		try {
-			const ok = await this.connectToDeviceWithTimeout(
-				deviceId,
-				deviceName,
-				DeviceConnection.DIRECT_CONNECT_TIMEOUT_MS
-			);
-			this.resolveReconnectScan(ok);
-		} finally {
-			this._isConnectingFoundBoundDevice = false;
-		}
 	}
 
 	/** 调度扫描超时定时器 */
@@ -346,35 +332,13 @@ export class DeviceConnection {
 
 	/**
 	 * 扫描超时处理
-	 * - reconnect mode:只连 boundDeviceId,绝不连其他设备;找不到 → 提示"未找到设备"
 	 * - pairing mode:0 个 → 提示"未找到设备";≥1 个 → 弹设备选择 actionSheet
 	 */
 	private async _handlePairingScanTimeout(): Promise<void> {
 		const mode = this._scanPurpose;
 		const count = this.device.devices.length;
 		logger.info("bluetooth", `[SCAN] 配对扫描结束,mode=${mode},共发现 ${count} 个目标设备`);
-		await this.stopBluetoothSearch(false);
-
-		// === 重连 mode:只连 boundDeviceId,绝不连其他设备 ===
-		if (mode == "reconnect") {
-			const bound = this.device.findCachedDevice(this.device.boundDeviceId);
-			if (bound == null) {
-				this.device.status.value = "UNPAIRED";
-				this.device.errorMessage.value = t("未找到设备,请确认设备已开机且在范围内");
-				this.resolveReconnectScan(false);
-				return;
-			}
-			const displayName = bound.name ?? bound.localName ?? "";
-			logger.info("bluetooth", `[SCAN] 重连模式,自动连接绑定设备: ${bound.deviceId}`);
-			this.device.devices = [];
-			const ok = await this.connectToDeviceWithTimeout(
-				bound.deviceId,
-				displayName,
-				DeviceConnection.DIRECT_CONNECT_TIMEOUT_MS
-			);
-			this.resolveReconnectScan(ok);
-			return;
-		}
+		await this.stopBluetoothSearch();
 
 		// === 配对 mode:0/1/2+ 标准流程 ===
 		if (count == 0) {
@@ -401,7 +365,7 @@ export class DeviceConnection {
 	}
 
 	/** 停止扫描 + 清理定时器 */
-	async stopBluetoothSearch(cancelReconnect: boolean = true): Promise<void> {
+	async stopBluetoothSearch(): Promise<void> {
 		//#ifndef H5
 		this._clearPairingScanTimeout();
 		await stopDiscovery();
@@ -409,17 +373,7 @@ export class DeviceConnection {
 		this._isSearching = false;
 		this._scanPurpose = "none";
 		this.device.broadcast.markScanStopped();
-		if (cancelReconnect == true) {
-			this.resolveReconnectScan(false);
-		}
 		//#endif
-	}
-
-	private resolveReconnectScan(ok: boolean): void {
-		if (this._reconnectResolve == null) return;
-		const resolve = this._reconnectResolve;
-		this._reconnectResolve = null;
-		resolve(ok);
 	}
 
 	/* ===== 连接 / 断开 ===== */
@@ -456,9 +410,9 @@ export class DeviceConnection {
 		if (initialized == false || this.isProtocolReady() == false) {
 			logger.error("bluetooth", "[BOOM] 连接初始化未完成", deviceId);
 			//#ifndef H5
-			this._suppressNextReconnect = true;
+			this._ignoreConnectionStateChange = true;
 			await disconnect(deviceId);
-			this._suppressNextReconnect = false;
+			this._ignoreConnectionStateChange = false;
 			//#endif
 			this._resetConnectionState();
 			return false;
@@ -467,7 +421,7 @@ export class DeviceConnection {
 		return true;
 	}
 
-	/** 从广播模式临时切到 GATT 连接模式：先直连绑定设备，失败再扫描重连 */
+	/** 从广播模式临时切到 GATT 连接模式：只直连绑定设备，失败后恢复广播 */
 	async switchToConnectMode(reason: ConnectModeReason = "manual"): Promise<boolean> {
 		const boundId = this.device.boundDeviceId;
 		this.device.testMode.value = "connect";
@@ -505,8 +459,10 @@ export class DeviceConnection {
 		if (ok == true) {
 			return true;
 		}
-		logger.warn("bluetooth", "[BOOM] 连接模式直连失败，改为扫描绑定设备");
-		return await this.waitForReconnectScan();
+		logger.warn("bluetooth", "[BOOM] 连接模式直连失败，任务本轮结束并恢复广播");
+		this._resetConnectionState();
+		await this.startBoundBroadcastScan();
+		return false;
 		//#endif
 
 		return false;
@@ -516,35 +472,16 @@ export class DeviceConnection {
 		//#ifndef H5
 		if (this.device.currentDeviceId != "") {
 			try {
-				this._suppressNextReconnect = true;
+				this._ignoreConnectionStateChange = true;
 				await disconnect(this.device.currentDeviceId);
 			} catch (e) {
 				logger.warn("bluetooth", "[BOOM] 断开失效 GATT 连接失败:", e);
 			} finally {
-				this._suppressNextReconnect = false;
+				this._ignoreConnectionStateChange = false;
 			}
 		}
 		//#endif
 		this._resetConnectionState();
-	}
-
-	private async waitForReconnectScan(): Promise<boolean> {
-		if (this._reconnectResolve != null) {
-			this.resolveReconnectScan(false);
-		}
-		return await new Promise<boolean>((resolve) => {
-			this._reconnectResolve = resolve;
-			this.startScan("reconnect")
-				.then((scanOk) => {
-					if (scanOk == false) {
-						this.resolveReconnectScan(false);
-					}
-				})
-				.catch((e) => {
-					logger.warn("bluetooth", "[BOOM] 连接模式扫描启动异常:", e);
-					this.resolveReconnectScan(false);
-				});
-		});
 	}
 
 	private async _initializeConnectedDevice(deviceId: string): Promise<boolean> {
@@ -663,21 +600,17 @@ export class DeviceConnection {
 				}
 				logger.info("bluetooth", "连接状态回调: 已连接", res.deviceId);
 				this._initializeConnectedDevice(res.deviceId);
-				this.device.resetReconnectState();
 			} else {
 				if (res.deviceId == this.device.currentDeviceId) {
 					logger.warn("bluetooth", "连接状态回调: 已断开", res.deviceId);
 					if (
-						this._suppressNextReconnect == true ||
+						this._ignoreConnectionStateChange == true ||
 						this._isSwitchingToBroadcastMode == true
 					) {
-						logger.info("bluetooth", "[BOOM] 本次断开由广播模式触发，跳过自动重连");
+						logger.info("bluetooth", "[BOOM] 本次断开由主动流程触发，等待恢复广播");
 						return;
 					}
-					this.device.status.value = "UNPAIRED";
-					this.device.currentDeviceId = "";
-					this.device.isDeviceInitialized = false;
-					this.device.touchState();
+					this._resetConnectionState();
 					this.startBoundBroadcastScan();
 				}
 			}
@@ -688,7 +621,7 @@ export class DeviceConnection {
 	private shouldIgnoreConnectedCallback(deviceId: string): boolean {
 		if (this.device.isGattTaskBusy() == true) return false;
 		if (this._isSwitchingToBroadcastMode == true) return true;
-		if (this._suppressNextReconnect == true) return true;
+		if (this._ignoreConnectionStateChange == true) return true;
 		if (this._scanPurpose == "boundBroadcast") return true;
 		if (this.device.testMode.value == "broadcast") return true;
 		return false;
@@ -698,7 +631,7 @@ export class DeviceConnection {
 		if (this._isSwitchingToBroadcastMode == true && this.device.currentDeviceId == deviceId) {
 			return false;
 		}
-		if (this._suppressNextReconnect == true && this.device.currentDeviceId == deviceId) {
+		if (this._ignoreConnectionStateChange == true && this.device.currentDeviceId == deviceId) {
 			return false;
 		}
 		return true;
@@ -729,16 +662,7 @@ export class DeviceConnection {
 
 	/** 主动断开当前设备 */
 	async disconnectDevice(readRecentVital: boolean = true): Promise<void> {
-		await this.stopBluetoothSearch();
-		if (readRecentVital == true) {
-			await this.readRecentVitalBeforeDisconnect();
-		}
-		//#ifndef H5
-		if (this.device.currentDeviceId != "") {
-			await disconnect(this.device.currentDeviceId);
-		}
-		//#endif
-		this._resetConnectionState();
+		await this.switchToBroadcastMode(readRecentVital);
 	}
 
 	/** 内部：清空连接相关字段 */
@@ -754,41 +678,7 @@ export class DeviceConnection {
 		this.device.protocol.notifyCharUuid = "";
 		this.device.realtime.value = null;
 		bluetoothDataManager.clearDeviceInfo();
-		this.device.resetReconnectState();
 		this.device.touchState();
-	}
-
-	/** 内部：重连策略（指数退避，由 device.maxReconnectAttempts 控制次数） */
-	reconnect(): void {
-		logger.info("bluetooth", "开始重连设备");
-		if (this.device.isReconnecting) {
-			logger.info("bluetooth", "正在重连中，跳过");
-			return;
-		}
-		if (this.device.reconnectAttempts >= this.device.maxReconnectAttempts) {
-			logger.info("bluetooth", "重连次数达到上限，停止重连");
-			return;
-		}
-		if (this.device.boundDeviceId == "") {
-			logger.info("bluetooth", "没有绑定设备ID，无法重连");
-			return;
-		}
-
-		this.device.isReconnecting = true;
-		this.device.reconnectAttempts++;
-
-		const currentInterval = this.device.reconnectInterval * this.device.reconnectAttempts;
-		logger.info(
-			"bluetooth",
-			`开始第 ${this.device.reconnectAttempts} 次重连，间隔 ${currentInterval}ms`
-		);
-
-		setTimeout(() => {
-			logger.info("bluetooth", "执行扫描重连操作");
-			this._startPairingScan();
-			this.device.isReconnecting = false;
-			logger.info("bluetooth", "重连操作完成");
-		}, currentInterval);
 	}
 
 	/** 弹设备选择 actionSheet（直接复用 Device 实例方法） */

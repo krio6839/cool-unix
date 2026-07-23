@@ -392,7 +392,7 @@ export class DeviceBroadcast {
 		this.device.realtime.value = null;
 		this.device.broadcastDebug.value = null;
 		realtime.clear();
-		this.device.setUnpairedError("设备时间异常且自动校时失败，请检查设备后手动重连");
+		this.device.setUnpairedError("设备时间异常且自动校时失败，请检查设备后恢复广播扫描");
 	}
 
 	private hasRecentGoodGattTimestamp(nowSec: number): boolean {

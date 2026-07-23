@@ -13,7 +13,7 @@ export type ConnectModeReason =
 	| "unbind"
 	| "scheduler";
 export type DeviceOnlineSource = "gatt" | "broadcast" | "searching" | "offline";
-export type ScanPurpose = "none" | "pairing" | "boundBroadcast" | "reconnect";
+export type ScanPurpose = "none" | "pairing" | "boundBroadcast";
 export type GattQueueTaskKind =
 	| "timeSync"
 	| "setDeviceNumber"

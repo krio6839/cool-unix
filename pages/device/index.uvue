@@ -52,20 +52,6 @@
 			></PairingState>
 		</view>
 
-		<!-- 重连状态 -->
-		<view
-			v-else-if="deviceStore.isReconnecting"
-			class="flex-1 flex flex-col items-center justify-center"
-		>
-			<cl-loading type="spinner" :size="48"></cl-loading>
-			<cl-text color="white" :size="16" class="mt-4">
-				{{ t("正在尝试重连...") }}
-			</cl-text>
-			<cl-text color="gray-400" :size="14" class="mt-2">
-				{{ t("第") }} {{ deviceStore.reconnectAttempts }} {{ t("次尝试") }}
-			</cl-text>
-		</view>
-
 		<!-- 错误提示 -->
 		<view
 			v-else-if="deviceStore.errorMessage.value != ''"
@@ -86,7 +72,7 @@
 
 		<!-- 测试弹窗组件 已迁移到详情页,设备页不再使用 -->
 
-		<!-- 共享 actionSheet(由 store 注入 ref 供 PairingState/TestPopup 等使用) -->
+		<!-- 共享 actionSheet(由 store 注入 ref 供 PairingState/测试页等使用) -->
 		<cl-action-sheet ref="actionSheetRef"></cl-action-sheet>
 
 		<!-- #endif -->
@@ -106,7 +92,7 @@ import ConnectedState from "./components/ConnectedState.uvue";
 const { device: deviceStore } = useStore();
 const ui = useUi();
 
-// 共享 cl-action-sheet 实例:通过 watch 同步到 store 供 PairingState/TestPopup 等使用
+// 共享 cl-action-sheet 实例:通过 watch 同步到 store 供 PairingState/测试页等使用
 const actionSheetRef = ref<ClActionSheetComponentPublicInstance | null>(null);
 watch(
 	actionSheetRef,
@@ -121,8 +107,6 @@ const connectedDeviceName = ref<string>("Cool Unix 设备");
 const titleText = computed(() => {
 	if (deviceStore.status.value == "CONNECTED") {
 		return t("设备详情");
-	} else if (deviceStore.isReconnecting == true) {
-		return t("重连中");
 	} else if (deviceStore.status.value == "PAIRING" || deviceStore.status.value == "SEARCHING") {
 		return t("产品配对");
 	} else {

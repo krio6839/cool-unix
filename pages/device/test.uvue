@@ -1,336 +1,298 @@
 <template>
-	<cl-popup v-model="show" :title="t('BOOM 设备测试')" direction="bottom" :size="620">
-		<scroll-view class="p-4 flex flex-col" scroll-y="true" style="height: 100%">
-			<!-- 测试模式 -->
-			<view class="mb-4 p-3 bg-gray-800 rounded test-mode-panel">
-				<view class="flex flex-row items-center justify-between mb-3">
+	<cl-page class="device-test-page">
+		<cl-topbar
+			safe-area-top
+			background-color="transparent"
+			:title="t('BOOM 设备测试')"
+		></cl-topbar>
+		<scroll-view class="test-popup-body" scroll-y="true">
+			<view class="panel status-panel">
+				<view class="panel-header" @tap="toggleStatusSection">
 					<view>
-						<cl-text color="white" :size="15" :pt="{ className: 'font-bold' }">
-							{{ t("测试模式") }}
+						<cl-text color="white" :size="16" :pt="{ className: 'font-bold' }">
+							{{ t("设备状态") }}
 						</cl-text>
-						<cl-text color="gray-400" :size="11">
+						<cl-text color="gray-400" :size="12">
 							{{ testModeText }}
 						</cl-text>
 					</view>
-					<view class="mode-pill">
-						<text class="mode-pill-text">{{
-							testMode == "broadcast" ? t("广播") : t("连接")
+					<view class="header-actions">
+						<view :class="'state-pill ' + runtimeStateClass">
+							<text class="state-pill-text">{{ runtimeStateText }}</text>
+						</view>
+						<text class="collapse-button">{{ collapseText(showStatusSection) }}</text>
+					</view>
+				</view>
+				<view v-if="showStatusSection">
+					<view class="state-overview">
+						<view :class="'state-card ' + runtimeStateClass">
+							<text class="state-card-label">{{ t("运行态") }}</text>
+							<text class="state-card-value">{{ runtimeStateText }}</text>
+						</view>
+						<view :class="'state-card ' + channelStateClass">
+							<text class="state-card-label">{{ t("通道态") }}</text>
+							<text class="state-card-value">{{ channelStateText }}</text>
+						</view>
+					</view>
+					<view class="status-grid">
+						<view class="status-cell">
+							<text class="cell-label">{{ t("固件版本") }}</text>
+							<text class="cell-value">{{ fwText }}</text>
+						</view>
+						<view class="status-cell">
+							<text class="cell-label">{{ t("设备编号") }}</text>
+							<text class="cell-value">{{ deviceStore.event.deviceNumber }}</text>
+						</view>
+						<view class="status-cell">
+							<text class="cell-label">{{ t("BOOM 时戳") }}</text>
+							<text class="cell-value">{{ deviceStore.event.boomTimestamp }}</text>
+						</view>
+						<view class="status-cell">
+							<text class="cell-label">{{ t("生物识别") }}</text>
+							<text class="cell-value cell-value-small">{{ bioText }}</text>
+						</view>
+					</view>
+					<view class="protocol-ready-line">
+						<cl-text :color="protocolReady ? 'success' : 'warning'" :size="12">
+							{{ protocolReadyText }}
+						</cl-text>
+					</view>
+				</view>
+			</view>
+
+			<view class="panel broadcast-panel">
+				<view class="panel-header" @tap="toggleBroadcastSection">
+					<view>
+						<cl-text color="white" :size="15" :pt="{ className: 'font-bold' }">
+							{{ t("0x50 实时广播") }}
+						</cl-text>
+						<cl-text color="gray-400" :size="12">
+							{{ broadcastSubtitleText }}
+						</cl-text>
+					</view>
+					<view class="header-actions">
+						<view :class="'state-pill ' + broadcastStateClass">
+							<text class="state-pill-text">{{ broadcastStateText }}</text>
+						</view>
+						<text class="collapse-button">{{
+							collapseText(showBroadcastSection)
 						}}</text>
 					</view>
 				</view>
-				<view class="mode-segment">
-					<view
-						:class="
-							testMode == 'connect'
-								? 'segment-option segment-option-active'
-								: 'segment-option'
-						"
-						@tap="switchTestMode('connect')"
-					>
-						<text class="segment-title">{{ t("连接模式") }}</text>
-						<text class="segment-desc">{{ t("GATT / 历史") }}</text>
+				<view v-if="showBroadcastSection">
+					<view class="broadcast-hero">
+						<view class="metric-large">
+							<text class="metric-label">{{ t("心率") }}</text>
+							<text class="metric-value">{{ rtText.hr }}</text>
+							<text class="metric-unit">bpm</text>
+						</view>
+						<view class="metric-large">
+							<text class="metric-label">{{ t("RMSSD") }}</text>
+							<text class="metric-value">{{ rtText.hrv }}</text>
+							<text class="metric-unit">ms</text>
+						</view>
+						<view class="metric-large">
+							<text class="metric-label">{{ t("血氧") }}</text>
+							<text class="metric-value">{{ rtText.spo2 }}</text>
+							<text class="metric-unit">%</text>
+						</view>
 					</view>
-					<view
-						:class="
-							testMode == 'broadcast'
-								? 'segment-option segment-option-active'
-								: 'segment-option'
-						"
-						@tap="switchTestMode('broadcast')"
-					>
-						<text class="segment-title">{{ t("广播模式") }}</text>
-						<text class="segment-desc">{{ t("0x50 实时") }}</text>
+					<view class="broadcast-grid">
+						<view class="broadcast-cell">
+							<text class="cell-label">{{ t("电池电压") }}</text>
+							<text class="cell-value"
+								>{{ rtText.voltage }} V / {{ rtText.voltageMv }} mV</text
+							>
+						</view>
+						<view class="broadcast-cell">
+							<text class="cell-label">PPI</text>
+							<text class="cell-value">{{ rtText.ppi }} ms</text>
+						</view>
+						<view class="broadcast-cell">
+							<text class="cell-label">{{ t("PPG 佩戴") }}</text>
+							<text class="cell-value">{{ rtText.ppgAttached }}</text>
+						</view>
+						<view class="broadcast-cell">
+							<text class="cell-label">{{ t("电池状态") }}</text>
+							<text class="cell-value">{{ rtText.battery }}</text>
+						</view>
+						<view class="broadcast-cell">
+							<text class="cell-label">{{ t("事件提示") }}</text>
+							<text class="cell-value">{{ rtText.eventNotice }}</text>
+						</view>
+						<view class="broadcast-cell">
+							<text class="cell-label">{{ t("行为 / 活动") }}</text>
+							<text class="cell-value"
+								>{{ rtText.behavior }} / {{ rtText.activity }}</text
+							>
+						</view>
+						<view class="broadcast-cell">
+							<text class="cell-label">{{ t("静息心率 BHR") }}</text>
+							<text class="cell-value">{{ rtText.bhr }} bpm</text>
+						</view>
+						<view class="broadcast-cell">
+							<text class="cell-label">{{ t("步数") }}</text>
+							<text class="cell-value">{{ rtText.steps }}</text>
+						</view>
+						<view class="broadcast-cell">
+							<text class="cell-label">{{ t("卡路里") }}</text>
+							<text class="cell-value">{{ rtText.calories }} kcal</text>
+						</view>
+						<view class="broadcast-cell">
+							<text class="cell-label">{{ t("上次接收") }}</text>
+							<text class="cell-value">{{ rtText.receivedAt }}</text>
+						</view>
+						<view class="broadcast-cell">
+							<text class="cell-label">UTC</text>
+							<text class="cell-value">{{ rtText.utc }}</text>
+						</view>
+						<view class="broadcast-cell">
+							<text class="cell-label">{{ t("时间偏差") }}</text>
+							<text class="cell-value">{{ advText.diff }}</text>
+						</view>
 					</view>
-				</view>
-				<view class="auto-restore-row mt-3">
-					<view class="auto-restore-copy">
-						<text class="auto-restore-title">{{ t("命令后回广播") }}</text>
-						<text class="auto-restore-desc">{{
-							autoRestoreBroadcastAfterGattTask
-								? t("连接只用于执行指令，完成后回到广播扫描")
-								: t("连接模式下保持连接，便于连续测试多个 GATT 命令")
-						}}</text>
-					</view>
-					<cl-switch v-model="autoRestoreBroadcastAfterGattTask"></cl-switch>
-				</view>
-			</view>
-
-			<!-- 设备状态 -->
-			<view v-if="testMode == 'connect'" class="mb-4 p-3 bg-gray-800 rounded">
-				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-					{{ t("BOOM 协议状态") }}
-				</cl-text>
-				<view class="flex flex-row flex-wrap">
-					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("固件版本") }}</cl-text>
-						<cl-text color="white" :size="14">{{ fwText }}</cl-text>
-					</view>
-					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("设备编号") }}</cl-text>
-						<cl-text color="white" :size="14">{{
-							deviceStore.event.deviceNumber
-						}}</cl-text>
-					</view>
-					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("BOOM 时戳") }}</cl-text>
-						<cl-text color="white" :size="14">{{
-							deviceStore.event.boomTimestamp
-						}}</cl-text>
-					</view>
-					<view class="w-1/2 mb-2">
-						<cl-text color="gray-400" :size="12">{{ t("生物识别") }}</cl-text>
-						<cl-text color="white" :size="12">{{ bioText }}</cl-text>
-					</view>
-				</view>
-				<view class="mt-2 p-2 bg-gray-700 rounded">
-					<cl-text :color="protocolReady ? 'success' : 'warning'" :size="12">
-						{{ protocolReadyText }}
-					</cl-text>
-				</view>
-			</view>
-
-			<!-- 0x50 实时广播 -->
-			<view
-				v-if="testMode == 'broadcast'"
-				class="mb-4 p-3 bg-gray-800 rounded broadcast-panel"
-			>
-				<view class="flex flex-row items-center justify-between mb-3">
-					<cl-text color="white" :size="15" :pt="{ className: 'font-bold' }">
-						{{ t("0x50 实时广播") }}
-					</cl-text>
-					<cl-text :color="advText.seq == '-' ? 'warning' : 'success'" :size="12">
-						{{ advText.seq == "-" ? t("等待广播") : `${t("已接收")} #${advText.seq}` }}
-					</cl-text>
-				</view>
-				<view class="broadcast-hero mb-3">
-					<view class="metric-large">
-						<text class="metric-label">{{ t("心率") }}</text>
-						<text class="metric-value">{{ rtText.hr }}</text>
-						<text class="metric-unit">bpm</text>
-					</view>
-					<view class="metric-large">
-						<text class="metric-label">{{ t("RMSSD") }}</text>
-						<text class="metric-value">{{ rtText.hrv }}</text>
-						<text class="metric-unit">ms</text>
-					</view>
-					<view class="metric-large">
-						<text class="metric-label">{{ t("血氧") }}</text>
-						<text class="metric-value">{{ rtText.spo2 }}</text>
-						<text class="metric-unit">%</text>
-					</view>
-				</view>
-				<view class="broadcast-grid">
-					<view class="broadcast-cell">
-						<text class="cell-label">{{ t("电池电压") }}</text>
-						<text class="cell-value"
-							>{{ rtText.voltage }} V / {{ rtText.voltageMv }} mV</text
+					<view class="broadcast-debug-compact">
+						<text class="debug-line"
+							>device={{ advText.deviceId }} RSSI={{ advText.rssi }}</text
 						>
+						<text class="debug-toggle" @tap="toggleBroadcastDebug">
+							{{ showBroadcastDebug ? t("收起调试数据") : t("展开调试数据") }}
+						</text>
 					</view>
-					<view class="broadcast-cell">
-						<text class="cell-label">PPI</text>
-						<text class="cell-value">{{ rtText.ppi }} ms</text>
+					<view v-if="showBroadcastDebug" class="broadcast-debug">
+						<text class="debug-line">{{ advText.parsed }}</text>
+						<text class="debug-line">raw={{ advText.rawHex }}</text>
+						<text class="debug-line">v={{ advText.vHex }}</text>
 					</view>
-					<view class="broadcast-cell">
-						<text class="cell-label">{{ t("PPG 佩戴") }}</text>
-						<text class="cell-value">{{ rtText.ppgAttached }}</text>
-					</view>
-					<view class="broadcast-cell">
-						<text class="cell-label">{{ t("电池状态") }}</text>
-						<text class="cell-value">{{ rtText.battery }}</text>
-					</view>
-					<view class="broadcast-cell">
-						<text class="cell-label">{{ t("事件提示") }}</text>
-						<text class="cell-value">{{ rtText.eventNotice }}</text>
-					</view>
-					<view class="broadcast-cell">
-						<text class="cell-label">{{ t("行为 / 活动") }}</text>
-						<text class="cell-value"
-							>{{ rtText.behavior }} / {{ rtText.activity }}</text
-						>
-					</view>
-					<view class="broadcast-cell">
-						<text class="cell-label">{{ t("静息心率 BHR") }}</text>
-						<text class="cell-value">{{ rtText.bhr }} bpm</text>
-					</view>
-					<view class="broadcast-cell">
-						<text class="cell-label">{{ t("步数") }}</text>
-						<text class="cell-value">{{ rtText.steps }}</text>
-					</view>
-					<view class="broadcast-cell">
-						<text class="cell-label">{{ t("卡路里") }}</text>
-						<text class="cell-value">{{ rtText.calories }} kcal</text>
-					</view>
-					<view class="broadcast-cell">
-						<text class="cell-label">{{ t("上次接收") }}</text>
-						<text class="cell-value">{{ rtText.receivedAt }}</text>
-					</view>
-					<view class="broadcast-cell">
-						<text class="cell-label">UTC</text>
-						<text class="cell-value">{{ rtText.utc }}</text>
-					</view>
-					<view class="broadcast-cell">
-						<text class="cell-label">{{ t("时间偏差") }}</text>
-						<text class="cell-value">{{ advText.diff }}</text>
-					</view>
-				</view>
-				<view class="broadcast-debug mt-3">
-					<text class="debug-line"
-						>device={{ advText.deviceId }} RSSI={{ advText.rssi }}</text
-					>
-					<text class="debug-line">{{ advText.parsed }}</text>
-					<text class="debug-line">raw={{ advText.rawHex }}</text>
-					<text class="debug-line">v={{ advText.vHex }}</text>
 				</view>
 			</view>
 
-			<template v-if="testMode == 'connect'">
-				<!-- BOOM GATT 协议测试（8 个按钮 + 上次响应行） -->
-				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-					{{ t("BOOM GATT 协议测试") }}
-				</cl-text>
-				<view class="mb-4">
-					<view class="flex flex-row flex-wrap items-center mb-1">
+			<view>
+				<view class="section-header" @tap="toggleGattCommandsSection">
+					<text class="section-title">{{ t("BOOM GATT 协议测试") }}</text>
+					<text class="collapse-button">{{ collapseText(showGattCommandsSection) }}</text>
+				</view>
+				<view v-if="showGattCommandsSection" class="panel command-grid">
+					<view class="command-item">
 						<cl-button
 							type="primary"
-							color="#444"
+							color="#334155"
 							rounded
 							size="small"
-							class="mr-2 mb-1"
+							class="command-button"
 							:disabled="isCommandDisabled('0x30')"
 							@tap="testReadFirmware"
 						>
 							{{ t("0x30 读固件") }}
 						</cl-button>
-						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-							[0x30] {{ fwResp }}
-						</cl-text>
 					</view>
-					<view class="flex flex-row flex-wrap items-center mb-1">
+					<view class="command-item">
 						<cl-button
 							type="primary"
-							color="#444"
+							color="#334155"
 							rounded
 							size="small"
-							class="mr-2 mb-1"
+							class="command-button"
 							:disabled="isCommandDisabled('0x32')"
 							@tap="testReadDeviceNumber"
 						>
 							{{ t("0x32 读设备编号") }}
 						</cl-button>
-						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-							[0x32] {{ devNumResp }}
-						</cl-text>
 					</view>
-					<view class="flex flex-row flex-wrap items-center mb-1">
+					<view class="command-item">
 						<cl-button
 							type="primary"
-							color="#444"
+							color="#334155"
 							rounded
 							size="small"
-							class="mr-2 mb-1"
+							class="command-button"
 							:disabled="isCommandDisabled('0x34')"
 							@tap="testReadTimestamp"
 						>
 							{{ t("0x34 读时戳") }}
 						</cl-button>
-						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-							[0x34] {{ tsResp }}
-						</cl-text>
 					</view>
-					<view class="flex flex-row flex-wrap items-center mb-1">
+					<view class="command-item">
 						<cl-button
 							type="primary"
-							color="#444"
+							color="#334155"
 							rounded
 							size="small"
-							class="mr-2 mb-1"
+							class="command-button"
 							:disabled="isCommandDisabled('0x36')"
 							@tap="testReadBiometric"
 						>
 							{{ t("0x36 读生物识别") }}
 						</cl-button>
-						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-							[0x36] {{ bioResp }}
-						</cl-text>
 					</view>
-					<view class="flex flex-row flex-wrap items-center mb-1">
+					<view class="command-item">
 						<cl-button
 							type="primary"
-							color="#666"
+							color="#475569"
 							rounded
 							size="small"
-							class="mr-2 mb-1"
+							class="command-button"
 							:disabled="isCommandDisabled('0x31')"
 							@tap="openForm('0x31')"
 						>
 							{{ t("0x31 写设备编号") }}
 						</cl-button>
-						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-							[0x31] {{ setDevNumResp }}
-						</cl-text>
 					</view>
-					<view class="flex flex-row flex-wrap items-center mb-1">
+					<view class="command-item">
 						<cl-button
 							type="primary"
-							color="#666"
+							color="#475569"
 							rounded
 							size="small"
-							class="mr-2 mb-1"
+							class="command-button"
 							:disabled="isCommandDisabled('0x33')"
 							@tap="testSetTimestamp"
 						>
 							{{ t("0x33 写时戳") }}
 						</cl-button>
-						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-							[0x33] {{ setTsResp }}
-						</cl-text>
 					</view>
-					<view class="flex flex-row flex-wrap items-center mb-1">
+					<view class="command-item">
 						<cl-button
 							type="primary"
-							color="#666"
+							color="#475569"
 							rounded
 							size="small"
-							class="mr-2 mb-1"
+							class="command-button"
 							:disabled="isCommandDisabled('0x35')"
 							@tap="openForm('0x35')"
 						>
 							{{ t("0x35 写生物识别") }}
 						</cl-button>
-						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-							[0x35] {{ setBioResp }}
-						</cl-text>
 					</view>
-					<view class="flex flex-row flex-wrap items-center mb-1">
+					<view class="command-item">
 						<cl-button
 							type="primary"
-							color="#888"
+							color="#64748b"
 							rounded
 							size="small"
-							class="mr-2 mb-1"
+							class="command-button"
 							:disabled="isCommandDisabled('0x40')"
 							@tap="testVibration"
 						>
 							{{ t("0x40 震动马达") }}
 						</cl-button>
-						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-							[0x40] {{ vibResp }}
-						</cl-text>
 					</view>
 				</view>
 
-				<!-- 历史数据（0x3A/0x3B/0x3C/0x3D） -->
-				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-					{{ t("历史数据（v5 新增）") }}
-				</cl-text>
-				<view class="mb-4">
-					<view class="flex flex-row flex-wrap items-center mb-1">
+				<view class="section-header" @tap="toggleHistoryCommandsSection">
+					<text class="section-title">{{ t("历史数据（v5 新增）") }}</text>
+					<text class="collapse-button">{{
+						collapseText(showHistoryCommandsSection)
+					}}</text>
+				</view>
+				<view v-if="showHistoryCommandsSection" class="panel command-grid">
+					<view class="command-item command-item-wide">
 						<cl-button
 							type="primary"
-							color="#0a0"
+							color="#047857"
 							rounded
 							size="small"
-							class="mr-2 mb-1"
+							class="command-button"
 							:disabled="isCommandDisabled('0x3A')"
 							@tap="openForm('0x3A')"
 						>
@@ -338,26 +300,23 @@
 						</cl-button>
 						<cl-button
 							type="primary"
-							color="#087"
+							color="#0f766e"
 							rounded
 							size="small"
-							class="mr-2 mb-1"
+							class="command-button-small"
 							:disabled="vitalAutoReading == false"
 							@tap="stopVitalAutoRead"
 						>
 							{{ t("停止生命体征") }}
 						</cl-button>
-						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-							[0x3A/0x3B] {{ vitalFlowResp }}
-						</cl-text>
 					</view>
-					<view class="flex flex-row flex-wrap items-center mb-1">
+					<view class="command-item command-item-wide">
 						<cl-button
 							type="primary"
-							color="#a00"
+							color="#991b1b"
 							rounded
 							size="small"
-							class="mr-2 mb-1"
+							class="command-button"
 							:disabled="isCommandDisabled('0x3C')"
 							@tap="openForm('0x3C')"
 						>
@@ -365,101 +324,110 @@
 						</cl-button>
 						<cl-button
 							type="primary"
-							color="#870"
+							color="#92400e"
 							rounded
 							size="small"
-							class="mr-2 mb-1"
+							class="command-button-small"
 							:disabled="eventAutoReading == false"
 							@tap="stopEventAutoRead"
 						>
 							{{ t("停止事件") }}
 						</cl-button>
-						<cl-text color="gray-400" :size="12" class="flex-1 mb-1">
-							[0x3C/0x3D] {{ eventFlowResp }}
-						</cl-text>
 					</view>
 				</view>
 
 				<!-- 0x3A 生命体征响应展示区 -->
-				<view v-if="hasVitalData" class="mb-4 p-3 bg-gray-800 rounded data-card">
-					<view class="data-card-header">
-						<cl-text color="white" :size="14" :pt="{ className: 'font-bold' }">
-							{{ t("0x3A 生命体征响应") }}
-						</cl-text>
-						<cl-text color="gray-400" :size="11">{{ vitalText.summary }}</cl-text>
-					</view>
-					<view class="data-grid">
-						<view class="data-cell">
-							<text class="cell-label">{{ t("起始时间") }}</text>
-							<text class="cell-value">{{ vitalText.start }}</text>
+				<view v-if="hasVitalData">
+					<view class="section-header" @tap="toggleVitalResultSection">
+						<view>
+							<text class="section-title">{{ t("0x3A 生命体征响应") }}</text>
+							<text class="section-summary">{{ vitalText.summary }}</text>
 						</view>
-						<view class="data-cell">
-							<text class="cell-label">{{ t("方向 / 分钟") }}</text>
-							<text class="cell-value">{{ vitalText.directionMinutes }}</text>
-						</view>
-						<view class="data-cell">
-							<text class="cell-label">{{ t("有效心率") }}</text>
-							<text class="cell-value">{{ vitalText.valid }}</text>
-						</view>
-						<view class="data-cell">
-							<text class="cell-label">PPI</text>
-							<text class="cell-value">{{ vitalText.ppi }}</text>
-						</view>
-					</view>
-					<view class="data-debug mt-3">
-						<text class="debug-line">{{ vitalText.status }}</text>
-						<text class="debug-line">RMSSD/SDNN: {{ vitalText.rmssdSdnn }}</text>
-						<text class="debug-line"
-							>{{ t("逐秒数据 (前 30 条)") }}: {{ vitalText.vital }}</text
-						>
-					</view>
-					<view class="mt-3">
-						<text class="protocol-log-line protocol-log-detail">{{
-							vitalAutoDetail
+						<text class="collapse-button">{{
+							collapseText(showVitalResultSection)
 						}}</text>
+					</view>
+					<view v-if="showVitalResultSection" class="panel data-card">
+						<view class="data-grid">
+							<view class="data-cell">
+								<text class="cell-label">{{ t("起始时间") }}</text>
+								<text class="cell-value">{{ vitalText.start }}</text>
+							</view>
+							<view class="data-cell">
+								<text class="cell-label">{{ t("方向 / 分钟") }}</text>
+								<text class="cell-value">{{ vitalText.directionMinutes }}</text>
+							</view>
+							<view class="data-cell">
+								<text class="cell-label">{{ t("有效心率") }}</text>
+								<text class="cell-value">{{ vitalText.valid }}</text>
+							</view>
+							<view class="data-cell">
+								<text class="cell-label">PPI</text>
+								<text class="cell-value">{{ vitalText.ppi }}</text>
+							</view>
+						</view>
+						<view class="data-debug">
+							<text class="debug-line">{{ vitalText.status }}</text>
+							<text class="debug-line">RMSSD/SDNN: {{ vitalText.rmssdSdnn }}</text>
+							<text class="debug-line"
+								>{{ t("逐秒数据 (前 30 条)") }}: {{ vitalText.vital }}</text
+							>
+						</view>
+						<view class="data-debug">
+							<text class="protocol-log-line protocol-log-detail">{{
+								vitalAutoDetail
+							}}</text>
+						</view>
 					</view>
 				</view>
 
 				<!-- 0x3C/0x3D 事件响应展示区 -->
-				<view v-if="hasEventData" class="mb-4 p-3 bg-gray-800 rounded data-card">
-					<view class="data-card-header">
-						<cl-text color="white" :size="14" :pt="{ className: 'font-bold' }">
-							{{ t("0x3C 事件响应") }}
-						</cl-text>
-						<cl-text color="gray-400" :size="11">{{ eventText.summary }}</cl-text>
-					</view>
-					<view class="data-grid">
-						<view class="data-cell">
-							<text class="cell-label">{{ t("事件头") }}</text>
-							<text class="cell-value">{{ eventText.header }}</text>
+				<view v-if="hasEventData">
+					<view class="section-header" @tap="toggleEventResultSection">
+						<view>
+							<text class="section-title">{{ t("0x3C 事件响应") }}</text>
+							<text class="section-summary">{{ eventText.summary }}</text>
 						</view>
-						<view class="data-cell">
-							<text class="cell-label">{{ t("事件数量") }}</text>
-							<text class="cell-value">{{ eventText.count }}</text>
-						</view>
-					</view>
-					<view class="data-debug mt-3">
-						<text class="debug-line">{{ t("事件列表 (前 10 条)") }}:</text>
-						<text class="debug-line">{{ eventText.items }}</text>
-					</view>
-					<view class="mt-3">
-						<text class="protocol-log-line protocol-log-detail">{{
-							eventAutoDetail
+						<text class="collapse-button">{{
+							collapseText(showEventResultSection)
 						}}</text>
+					</view>
+					<view v-if="showEventResultSection" class="panel data-card">
+						<view class="data-grid">
+							<view class="data-cell">
+								<text class="cell-label">{{ t("事件头") }}</text>
+								<text class="cell-value">{{ eventText.header }}</text>
+							</view>
+							<view class="data-cell">
+								<text class="cell-label">{{ t("事件数量") }}</text>
+								<text class="cell-value">{{ eventText.count }}</text>
+							</view>
+						</view>
+						<view class="data-debug">
+							<text class="debug-line">{{ t("事件列表 (前 10 条)") }}:</text>
+							<text class="debug-line">{{ eventText.items }}</text>
+						</view>
+						<view class="data-debug">
+							<text class="protocol-log-line protocol-log-detail">{{
+								eventAutoDetail
+							}}</text>
+						</view>
 					</view>
 				</view>
 
-				<!-- 设备控制 -->
-				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-					{{ t("设备控制") }}
-				</cl-text>
-				<view class="flex flex-row flex-wrap mb-4">
+				<view class="section-header" @tap="toggleDeviceControlSection">
+					<text class="section-title">{{ t("设备控制") }}</text>
+					<text class="collapse-button">{{
+						collapseText(showDeviceControlSection)
+					}}</text>
+				</view>
+				<view v-if="showDeviceControlSection" class="panel action-grid">
 					<cl-button
 						type="primary"
-						color="#333"
+						color="#334155"
 						rounded
 						size="small"
-						class="mr-2 mb-2"
+						class="action-button"
 						:disabled="activeCommand != ''"
 						@tap="testDisconnect"
 					>
@@ -467,21 +435,21 @@
 					</cl-button>
 					<cl-button
 						type="primary"
-						color="#333"
+						color="#334155"
 						rounded
 						size="small"
-						class="mr-2 mb-2"
+						class="action-button"
 						:disabled="activeCommand != ''"
-						@tap="testReconnect"
+						@tap="testRestoreBroadcast"
 					>
-						{{ t("测试重连") }}
+						{{ t("恢复广播") }}
 					</cl-button>
 					<cl-button
 						type="primary"
-						color="#555"
+						color="#475569"
 						rounded
 						size="small"
-						class="mr-2 mb-2"
+						class="action-button"
 						:disabled="activeCommand != ''"
 						@tap="testClearError"
 					>
@@ -489,28 +457,28 @@
 					</cl-button>
 					<cl-button
 						type="primary"
-						color="#555"
+						color="#475569"
 						rounded
 						size="small"
-						class="mr-2 mb-2"
+						class="action-button"
 						@tap="openProtocolLog"
 					>
 						{{ t("协议日志") }}
 					</cl-button>
 				</view>
-			</template>
+			</view>
 
-			<!-- 更多测试 -->
-			<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-				{{ t("更多测试") }}
-			</cl-text>
-			<view class="flex flex-row flex-wrap mb-4">
+			<view class="section-header" @tap="toggleMoreSection">
+				<text class="section-title">{{ t("更多测试") }}</text>
+				<text class="collapse-button">{{ collapseText(showMoreSection) }}</text>
+			</view>
+			<view v-if="showMoreSection" class="panel action-grid">
 				<cl-button
 					type="primary"
 					color="#256"
 					rounded
 					size="small"
-					class="mr-2 mb-2"
+					class="action-button"
 					@tap="openDatabasePopup"
 				>
 					{{ t("数据库查询") }}
@@ -520,7 +488,7 @@
 					color="#256"
 					rounded
 					size="small"
-					class="mr-2 mb-2"
+					class="action-button"
 					@tap="openDiagnosticsPage"
 				>
 					{{ t("诊断日志") }}
@@ -534,7 +502,7 @@
 		<cl-popup v-model="formVisible" direction="bottom" :size="700" :title="formTitle">
 			<scroll-view class="p-4" scroll-y="true" style="height: 100%">
 				<!-- 0x31 设备编号 -->
-				<template v-if="activeForm == '0x31'">
+				<view v-if="activeForm == '0x31'">
 					<view class="mb-3">
 						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
 							{{ t("设备编号（1~29 位，数字/字母）") }}
@@ -547,10 +515,10 @@
 							clearable
 						></cl-input>
 					</view>
-				</template>
+				</view>
 
 				<!-- 0x35 写生物识别 -->
-				<template v-else-if="activeForm == '0x35'">
+				<view v-else-if="activeForm == '0x35'">
 					<view class="mb-3">
 						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
 							{{ t("性别") }}
@@ -596,10 +564,10 @@
 						</cl-text>
 						<cl-input v-model="formBhr" type="number" placeholder="60"></cl-input>
 					</view>
-				</template>
+				</view>
 
 				<!-- 0x3A 读生命体征 -->
-				<template v-else-if="activeForm == '0x3A'">
+				<view v-else-if="activeForm == '0x3A'">
 					<view class="mb-3">
 						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
 							{{ t("起始时戳 (秒)") }}
@@ -625,10 +593,10 @@
 						</cl-text>
 						<cl-select v-model="formMinutes" :options="minutesOptions"></cl-select>
 					</view>
-				</template>
+				</view>
 
 				<!-- 0x3C 读事件 -->
-				<template v-else-if="activeForm == '0x3C'">
+				<view v-else-if="activeForm == '0x3C'">
 					<view class="event-window-shortcuts mb-3">
 						<view class="event-window-button" @tap="setEventWindowMinutes(15)">
 							<text class="event-window-button-text">{{ t("近15分钟") }}</text>
@@ -682,7 +650,7 @@
 							:placeholder="t('默认 10')"
 						></cl-input>
 					</view>
-				</template>
+				</view>
 
 				<!-- 快速发送示例（有文档示例时显示） -->
 				<view v-if="exampleList.length > 0" class="mt-4 p-3 bg-gray-700 rounded">
@@ -698,7 +666,7 @@
 							rounded
 							size="small"
 							class="mr-1 mb-1"
-							:disabled="activeCommand != '' || protocolReady == false"
+							:disabled="activeCommand != ''"
 							@tap="sendExample(ex)"
 						>
 							{{ ex.name }}
@@ -821,7 +789,7 @@
 				</scroll-view>
 			</view>
 		</cl-popup>
-	</cl-popup>
+	</cl-page>
 </template>
 
 <script lang="ts" setup>
@@ -830,10 +798,9 @@ import { computed, reactive, ref } from "vue";
 import {
 	DEVICE_NUMBER_MAX_LEN,
 	DOC_EXAMPLES_BY_T,
-	LOG_EVENT_NAMES,
-	LOG_EVENT_TYPE,
 	PPG_POSITION_OPTIONS,
 	dayUts,
+	decodeAdvStatus,
 	router,
 	t,
 	useStore
@@ -848,7 +815,7 @@ import type {
 } from "@/.cool";
 import type { PpgPositionOption } from "@/.cool";
 import { useUi, type ClSelectOption } from "@/uni_modules/cool-ui";
-import DatabaseTestPopup from "./DatabaseTestPopup.uvue";
+import DatabaseTestPopup from "./components/DatabaseTestPopup.uvue";
 
 /* 0x50 实时数据展示用 computed 类型（9 字段全部 string） */
 type RtText = {
@@ -884,33 +851,131 @@ type AdvText = {
 const ui = useUi();
 const { device: deviceStore } = useStore();
 
-const show = defineModel("show", {
-	default: false
-});
-
 const protocolLogVisible = ref(false);
 const databasePopupVisible = ref(false);
 const manualRawHex = ref("");
-const testMode = deviceStore.testMode;
-const testModeChanging = ref<boolean>(false);
-const autoRestoreBroadcastAfterGattTask = ref<boolean>(true);
-const restoringBroadcastAfterGattTask = ref<boolean>(false);
+const showStatusSection = ref<boolean>(true);
+const showBroadcastSection = ref<boolean>(true);
+const showBroadcastDebug = ref<boolean>(false);
+const showGattCommandsSection = ref<boolean>(false);
+const showHistoryCommandsSection = ref<boolean>(false);
+const showVitalResultSection = ref<boolean>(true);
+const showEventResultSection = ref<boolean>(true);
+const showDeviceControlSection = ref<boolean>(false);
+const showMoreSection = ref<boolean>(false);
 const protocolLogs = computed<ProtocolLogItem[]>((): ProtocolLogItem[] => {
 	if (protocolLogVisible.value == false) return [];
 	return deviceStore.protocolLogs.value.slice();
 });
 
+function hasBoundBroadcastDebug(): boolean {
+	deviceStore.stateVersion.value;
+	return deviceStore.broadcastDebug.value != null;
+}
+
 const testModeText = computed<string>(() => {
 	deviceStore.stateVersion.value;
-	if (testMode.value == "broadcast") {
-		const boundId = deviceStore.boundDeviceId;
-		if (boundId == "") return t("广播模式需要先连接并绑定设备");
-		return `${t("只解析绑定设备广播")}: ${boundId}`;
+	if (deviceStore.isGattTaskBusy() == true) {
+		return `${t("临时连接设备执行命令")}: ${deviceStore.getGattTaskName()}`;
 	}
-	return t("连接模式使用 GATT 命令和历史读取");
+	if (deviceStore.currentDeviceId != "") return t("GATT 已连接，命令会直接执行");
+	if (deviceStore.boundDeviceId == "") return t("未绑定设备，无法执行 GATT 命令");
+	if (hasBoundBroadcastDebug() == false) return t("已绑定设备，正在等待绑定广播");
+	return `${t("广播接收中，点击命令会自动临时连接")}: ${deviceStore.boundDeviceId}`;
+});
+
+const runtimeStateText = computed<string>(() => {
+	deviceStore.stateVersion.value;
+	if (deviceStore.isGattTaskBusy() == true) return t("执行中");
+	if (deviceStore.currentDeviceId != "") return t("GATT连接");
+	if (deviceStore.boundDeviceId == "") return t("未绑定");
+	return t("广播接收");
+});
+
+const runtimeStateClass = computed<string>(() => {
+	deviceStore.stateVersion.value;
+	if (deviceStore.isGattTaskBusy() == true) return "state-busy";
+	if (deviceStore.currentDeviceId != "") return "state-gatt";
+	if (deviceStore.boundDeviceId == "") return "state-warn";
+	return "state-broadcast";
+});
+
+const channelStateText = computed<string>(() => {
+	deviceStore.stateVersion.value;
+	if (deviceStore.currentDeviceId != "") return t("GATT 已连接");
+	if (hasBoundBroadcastDebug() == false) return t("等待广播");
+	return t("广播在线");
+});
+
+const channelStateClass = computed<string>(() => {
+	deviceStore.stateVersion.value;
+	if (deviceStore.currentDeviceId != "") return "state-gatt";
+	if (hasBoundBroadcastDebug() == false) return "state-warn";
+	return "state-broadcast";
+});
+
+const broadcastStateText = computed<string>(() => {
+	if (hasBoundBroadcastDebug() == false) return t("等待");
+	return t("在线");
+});
+
+const broadcastStateClass = computed<string>(() => {
+	if (hasBoundBroadcastDebug() == false) return "state-warn";
+	return "state-broadcast";
+});
+
+const broadcastSubtitleText = computed<string>(() => {
+	const d = deviceStore.broadcastDebug.value;
+	if (d == null) return t("还没有收到绑定设备广播");
+	const r = deviceStore.realtime.value;
+	const receivedAt =
+		r == null
+			? new Date(d.receivedAt).toLocaleTimeString()
+			: new Date(r.receivedAt).toLocaleTimeString();
+	return `${t("最近广播")} #${d.seq} · ${receivedAt}`;
 });
 
 /* ===== 展示用 computed ===== */
+
+function collapseText(open: boolean): string {
+	return open ? t("收起") : t("展开");
+}
+
+function toggleStatusSection(): void {
+	showStatusSection.value = !showStatusSection.value;
+}
+
+function toggleBroadcastSection(): void {
+	showBroadcastSection.value = !showBroadcastSection.value;
+}
+
+function toggleBroadcastDebug(): void {
+	showBroadcastDebug.value = !showBroadcastDebug.value;
+}
+
+function toggleGattCommandsSection(): void {
+	showGattCommandsSection.value = !showGattCommandsSection.value;
+}
+
+function toggleHistoryCommandsSection(): void {
+	showHistoryCommandsSection.value = !showHistoryCommandsSection.value;
+}
+
+function toggleVitalResultSection(): void {
+	showVitalResultSection.value = !showVitalResultSection.value;
+}
+
+function toggleEventResultSection(): void {
+	showEventResultSection.value = !showEventResultSection.value;
+}
+
+function toggleDeviceControlSection(): void {
+	showDeviceControlSection.value = !showDeviceControlSection.value;
+}
+
+function toggleMoreSection(): void {
+	showMoreSection.value = !showMoreSection.value;
+}
 
 function openProtocolLog(): void {
 	protocolLogVisible.value = true;
@@ -921,7 +986,6 @@ function openDatabasePopup(): void {
 }
 
 function openDiagnosticsPage(): void {
-	show.value = false;
 	router.to("/pages/set/diagnostics");
 }
 
@@ -1084,7 +1148,10 @@ const protocolReady = computed<boolean>(() => {
 
 const protocolReadyText = computed<string>(() => {
 	deviceStore.stateVersion.value;
-	if (testMode.value == "broadcast") return t("广播模式只解析绑定设备广播，不连接 GATT");
+	if (deviceStore.isGattTaskBusy() == true) {
+		return `${t("GATT 任务执行中")}: ${deviceStore.getGattTaskName()}`;
+	}
+	if (deviceStore.boundDeviceId == "") return t("未绑定设备，无法执行 GATT 命令");
 	if (deviceStore.status.value != "CONNECTED") return t("设备未连接，测试命令暂不可用");
 	if (deviceStore.protocol.writeCharUuid == "") return t("未发现写入特征，请重新连接设备");
 	if (deviceStore.protocol.notifyCharUuid == "") return t("未发现通知特征，请重新连接设备");
@@ -1092,9 +1159,7 @@ const protocolReadyText = computed<string>(() => {
 });
 
 function isCommandDisabled(cmd: string): boolean {
-	return (
-		testMode.value == "broadcast" || protocolReady.value == false || activeCommand.value != ""
-	);
+	return activeCommand.value != "";
 }
 
 function setCommandResponse(cmd: string, message: string): void {
@@ -1103,8 +1168,8 @@ function setCommandResponse(cmd: string, message: string): void {
 }
 
 function beginCommand(cmd: string): boolean {
-	if (protocolReady.value == false) {
-		ui.showToast({ message: protocolReadyText.value, type: "warn" });
+	if (deviceStore.boundDeviceId == "") {
+		ui.showToast({ message: t("请先连接/绑定设备"), type: "warn" });
 		return false;
 	}
 	if (activeCommand.value != "") {
@@ -1116,32 +1181,26 @@ function beginCommand(cmd: string): boolean {
 	return true;
 }
 
-async function restoreBroadcastAfterGattTask(cmd: string): Promise<void> {
-	if (autoRestoreBroadcastAfterGattTask.value == false) return;
-	if (testMode.value != "connect") return;
-	if (deviceStore.boundDeviceId == "") return;
-	if (restoringBroadcastAfterGattTask.value == true) return;
-	restoringBroadcastAfterGattTask.value = true;
-	try {
-		const delayMs = cmd == "VITAL" || cmd == "EVENT" ? 1200 : 350;
-		await new Promise<void>((resolve) => {
-			setTimeout(() => {
-				resolve();
-			}, delayMs);
-		});
-		await deviceStore.connection.switchToBroadcastMode();
-	} catch (e) {
-		console.warn("[TEST] GATT 命令结束后恢复广播模式失败:", e);
-	} finally {
-		restoringBroadcastAfterGattTask.value = false;
-	}
-}
-
 function endCommand(cmd: string): void {
 	if (activeCommand.value == cmd) {
 		activeCommand.value = "";
 	}
-	restoreBroadcastAfterGattTask(cmd);
+}
+
+async function runQueuedGattCommand(cmd: string, runner: () => Promise<boolean>): Promise<boolean> {
+	if (!beginCommand(cmd)) return false;
+	const queuedText = t("已入队，等待 GATT 执行");
+	setCommandResponse(cmd, queuedText);
+	const ok = await deviceStore.scheduler.runManualGattTask(cmd, runner);
+	if (ok == false) {
+		const latest = getResp(cmd);
+		if (latest.indexOf(queuedText) >= 0) {
+			setCommandResponse(cmd, t("连接失败或命令执行失败"));
+		}
+		ui.showToast({ message: t("命令执行失败"), type: "error" });
+	}
+	endCommand(cmd);
+	return ok;
 }
 
 async function sendManualRawHex(): Promise<void> {
@@ -1158,16 +1217,14 @@ async function sendManualRawHex(): Promise<void> {
 		ui.showToast({ message: t("hex 只能包含 0-9/a-f"), type: "error" });
 		return;
 	}
-	if (!beginCommand("RAW")) return;
-	try {
+	await runQueuedGattCommand("RAW", async (): Promise<boolean> => {
 		const ok = await deviceStore.protocol.sendRawFrame(hex);
 		ui.showToast({
 			message: ok ? t("已发送") : t("发送失败"),
 			type: ok ? "success" : "error"
 		});
-	} finally {
-		endCommand("RAW");
-	}
+		return ok;
+	});
 }
 
 function sleep(ms: number): Promise<void> {
@@ -1215,71 +1272,12 @@ async function waitForVibration(
 	return null;
 }
 
-const fwResp = computed<string>(() => getResp("0x30"));
-const devNumResp = computed<string>(() => getResp("0x32"));
-const tsResp = computed<string>(() => getResp("0x34"));
-const bioResp = computed<string>(() => getResp("0x36"));
-const setDevNumResp = computed<string>(() => getResp("0x31"));
-const setTsResp = computed<string>(() => getResp("0x33"));
-const setBioResp = computed<string>(() => getResp("0x35"));
-const vibResp = computed<string>(() => getResp("0x40"));
-const vitalFlowResp = computed<string>(() => getResp("VITAL"));
-const eventFlowResp = computed<string>(() => getResp("EVENT"));
 const vitalAutoReading = ref<boolean>(false);
 const eventAutoReading = ref<boolean>(false);
 const vitalAutoDetail = ref<string>("-");
 const eventAutoDetail = ref<string>("-");
 const MAX_AUTO_PAGES = 100;
 const VITAL_FORM_DEFAULT_OFFSET_SECONDS = 120;
-
-async function switchToBroadcastMode(): Promise<void> {
-	if (deviceStore.boundDeviceId == "") {
-		ui.showToast({ message: t("请先连接/绑定设备"), type: "warn" });
-		return;
-	}
-	vitalAutoReading.value = false;
-	eventAutoReading.value = false;
-	const ok = await deviceStore.connection.switchToBroadcastMode();
-	if (ok == true) {
-		ui.showToast({ message: t("已进入广播模式"), type: "success" });
-	} else {
-		ui.showToast({ message: t("广播扫描启动失败，请检查蓝牙和位置权限"), type: "warn" });
-	}
-}
-
-async function switchToConnectMode(): Promise<void> {
-	const boundId = deviceStore.boundDeviceId;
-	if (boundId == "") {
-		await deviceStore.connection.switchToConnectMode("testPopup");
-		ui.showToast({ message: t("请先连接/绑定设备"), type: "warn" });
-		return;
-	}
-	if (deviceStore.currentDeviceId != "") {
-		await deviceStore.connection.switchToConnectMode("testPopup");
-		ui.showToast({ message: t("已进入连接模式"), type: "success" });
-		return;
-	}
-	const ok = await deviceStore.connection.switchToConnectMode("testPopup");
-	if (ok == true) {
-		ui.showToast({ message: t("已进入连接模式"), type: "success" });
-	} else {
-		ui.showToast({ message: t("未找到设备，请确认设备已开机且在范围内"), type: "warn" });
-	}
-}
-
-async function switchTestMode(mode: "connect" | "broadcast"): Promise<void> {
-	if (testModeChanging.value == true) return;
-	testModeChanging.value = true;
-	try {
-		if (mode == "broadcast") {
-			await switchToBroadcastMode();
-		} else {
-			await switchToConnectMode();
-		}
-	} finally {
-		testModeChanging.value = false;
-	}
-}
 
 /* ===== 参数输入子弹窗状态 ===== */
 
@@ -1452,21 +1450,19 @@ function closeForm(): void {
 async function submitForm(): Promise<void> {
 	const cmd = activeForm.value;
 	if (cmd == "") return;
-	const commandKey = cmd == "0x3A" ? "VITAL" : cmd == "0x3C" ? "EVENT" : cmd;
-	if (!beginCommand(commandKey)) return;
 	let shouldClose = false;
-	try {
-		switch (cmd) {
-			case "0x31": {
-				const num = formDeviceNumber.value.trim();
-				if (num.length == 0 || num.length > DEVICE_NUMBER_MAX_LEN) {
-					ui.showToast({ message: t("编号长度需 1~29 位"), type: "error" });
-					return;
-				}
-				if (isAlphaNumeric(num) == false) {
-					ui.showToast({ message: t("设备编号只能包含数字和字母"), type: "error" });
-					return;
-				}
+	switch (cmd) {
+		case "0x31": {
+			const num = formDeviceNumber.value.trim();
+			if (num.length == 0 || num.length > DEVICE_NUMBER_MAX_LEN) {
+				ui.showToast({ message: t("编号长度需 1~29 位"), type: "error" });
+				return;
+			}
+			if (isAlphaNumeric(num) == false) {
+				ui.showToast({ message: t("设备编号只能包含数字和字母"), type: "error" });
+				return;
+			}
+			const ok = await runQueuedGattCommand(cmd, async (): Promise<boolean> => {
 				ui.showToast({ message: t("0x31 发送..."), type: "warn" });
 				const ok = await deviceStore.protocol.setDeviceNumber(num);
 				setCommandResponse(cmd, ok ? t("已发送，等待设备确认") : t("发送失败，请重试"));
@@ -1474,38 +1470,41 @@ async function submitForm(): Promise<void> {
 					message: ok ? t("0x31 已发送") : t("发送失败"),
 					type: ok ? "success" : "error"
 				});
-				shouldClose = true;
-				break;
+				return ok;
+			});
+			shouldClose = ok;
+			break;
+		}
+		case "0x35": {
+			const w = parseInt(formWeight.value, 10);
+			const h = parseInt(formHeight.value, 10);
+			const a = parseInt(formAge.value, 10);
+			const b = parseInt(formBhr.value, 10);
+			if (Number.isNaN(w) || w < 1000 || w > 65000) {
+				ui.showToast({ message: t("体重需 1000~65000"), type: "error" });
+				return;
 			}
-			case "0x35": {
-				const w = parseInt(formWeight.value, 10);
-				const h = parseInt(formHeight.value, 10);
-				const a = parseInt(formAge.value, 10);
-				const b = parseInt(formBhr.value, 10);
-				if (Number.isNaN(w) || w < 1000 || w > 65000) {
-					ui.showToast({ message: t("体重需 1000~65000"), type: "error" });
-					return;
-				}
-				if (Number.isNaN(h) || h < 10000 || h > 28000) {
-					ui.showToast({ message: t("身高需 10000~28000"), type: "error" });
-					return;
-				}
-				if (Number.isNaN(a) || a < 10 || a > 99) {
-					ui.showToast({ message: t("年龄需 10~99"), type: "error" });
-					return;
-				}
-				if (Number.isNaN(b) || b < 28 || b > 240) {
-					ui.showToast({ message: t("BHR 需 28~240"), type: "error" });
-					return;
-				}
-				const req: VitalBiometric = {
-					gender: formGender.value,
-					weight: w,
-					height: h,
-					age: a,
-					ppgPosition: formPpgPosition.value,
-					bhr: b
-				};
+			if (Number.isNaN(h) || h < 10000 || h > 28000) {
+				ui.showToast({ message: t("身高需 10000~28000"), type: "error" });
+				return;
+			}
+			if (Number.isNaN(a) || a < 10 || a > 99) {
+				ui.showToast({ message: t("年龄需 10~99"), type: "error" });
+				return;
+			}
+			if (Number.isNaN(b) || b < 28 || b > 240) {
+				ui.showToast({ message: t("BHR 需 28~240"), type: "error" });
+				return;
+			}
+			const req: VitalBiometric = {
+				gender: formGender.value,
+				weight: w,
+				height: h,
+				age: a,
+				ppgPosition: formPpgPosition.value,
+				bhr: b
+			};
+			const ok = await runQueuedGattCommand(cmd, async (): Promise<boolean> => {
 				const beforeSeq = deviceStore.event.biometricInfoSeq.value;
 				const sentAt = Date.now();
 				ui.showToast({ message: t("0x35 发送..."), type: "warn" });
@@ -1513,7 +1512,7 @@ async function submitForm(): Promise<void> {
 				if (!ok) {
 					setCommandResponse(cmd, t("发送失败，请重试"));
 					ui.showToast({ message: t("发送失败"), type: "error" });
-					return;
+					return false;
 				}
 				setCommandResponse(cmd, t("已发送，等待设备确认"));
 				const confirmed = await waitForBiometric(beforeSeq, sentAt, req, 2500);
@@ -1525,19 +1524,24 @@ async function submitForm(): Promise<void> {
 					ui.showToast({ message: t("未收到写入确认，可手动读回验证"), type: "warn" });
 				}
 				setCommandResponse("0x36", t("如需验证，请手动点击 0x36 读生物识别"));
-				shouldClose = true;
-				break;
+				return true;
+			});
+			shouldClose = ok;
+			break;
+		}
+		case "0x3A": {
+			const startSec = parseInt(formStartSec.value, 10);
+			if (Number.isNaN(startSec) || startSec <= 0) {
+				ui.showToast({ message: t("起始时戳必须是正数"), type: "error" });
+				return;
 			}
-			case "0x3A": {
-				const startSec = parseInt(formStartSec.value, 10);
-				if (Number.isNaN(startSec) || startSec <= 0) {
-					ui.showToast({ message: t("起始时戳必须是正数"), type: "error" });
-					return;
-				}
+			vitalAutoReading.value = true;
+			vitalAutoDetail.value = "-";
+			closeForm();
+			await runQueuedGattCommand("VITAL", async (): Promise<boolean> => {
 				vitalAutoReading.value = true;
 				vitalAutoDetail.value = "-";
 				setCommandResponse("VITAL", t("0x3A 已开始，自动续读中"));
-				closeForm();
 				const result = await deviceStore.history.readVitalDataAuto({
 					startSec,
 					direction: formDirection.value,
@@ -1572,44 +1576,44 @@ async function submitForm(): Promise<void> {
 							? `${t("达到上限")} ${result.pages} ${t("段")}`
 							: `${t("读取停止")} ${result.pages} ${t("段")}`
 				);
-				shouldClose = false;
-				break;
+				return true;
+			});
+			shouldClose = false;
+			break;
+		}
+		case "0x3C": {
+			let startSec = parseInt(formStartSec.value, 10);
+			let endSec = parseInt(formEndSec.value, 10);
+			if (formEventRange.value.length >= 2) {
+				const pickedStart = parseEventPickerSec(formEventRange.value[0]);
+				const pickedEnd = parseEventPickerSec(formEventRange.value[1]);
+				if (pickedStart > 0 && pickedEnd > 0) {
+					startSec = pickedStart;
+					endSec = pickedEnd;
+					formStartSec.value = startSec.toString();
+					formEndSec.value = endSec.toString();
+				}
 			}
-			case "0x3C": {
-				let startSec = parseInt(formStartSec.value, 10);
-				let endSec = parseInt(formEndSec.value, 10);
-				if (formEventRange.value.length >= 2) {
-					const pickedStart = parseEventPickerSec(formEventRange.value[0]);
-					const pickedEnd = parseEventPickerSec(formEventRange.value[1]);
-					if (pickedStart > 0 && pickedEnd > 0) {
-						startSec = pickedStart;
-						endSec = pickedEnd;
-						formStartSec.value = startSec.toString();
-						formEndSec.value = endSec.toString();
-					}
-				}
-				if (
-					Number.isNaN(startSec) ||
-					startSec <= 0 ||
-					Number.isNaN(endSec) ||
-					endSec <= 0
-				) {
-					ui.showToast({ message: t("起止时戳必须是正数"), type: "error" });
-					return;
-				}
-				if (endSec <= startSec) {
-					ui.showToast({ message: t("结束时戳必须大于起始时戳"), type: "error" });
-					return;
-				}
-				const maxCount = parseInt(formMaxCount.value, 10);
-				const finalMaxCount = Number.isNaN(maxCount) || maxCount <= 0 ? 10 : maxCount;
+			if (Number.isNaN(startSec) || startSec <= 0 || Number.isNaN(endSec) || endSec <= 0) {
+				ui.showToast({ message: t("起止时戳必须是正数"), type: "error" });
+				return;
+			}
+			if (endSec <= startSec) {
+				ui.showToast({ message: t("结束时戳必须大于起始时戳"), type: "error" });
+				return;
+			}
+			const maxCount = parseInt(formMaxCount.value, 10);
+			const finalMaxCount = Number.isNaN(maxCount) || maxCount <= 0 ? 10 : maxCount;
+			eventAutoReading.value = true;
+			eventAutoDetail.value = "-";
+			closeForm();
+			await runQueuedGattCommand("EVENT", async (): Promise<boolean> => {
 				eventAutoReading.value = true;
 				eventAutoDetail.value = "-";
 				setCommandResponse(
 					"EVENT",
 					`${t("0x3C 已开始")} ${formatEventWindowTime(startSec)} ~ ${formatEventWindowTime(endSec)}`
 				);
-				closeForm();
 				const result = await deviceStore.history.readEventDataAuto({
 					type: formType.value,
 					startSec,
@@ -1655,12 +1659,11 @@ async function submitForm(): Promise<void> {
 							? `${t("达到上限")} ${result.items.length} ${t("条")}${sleepSaveText}`
 							: `${t("读取停止")} ${result.items.length} ${t("条")}${sleepSaveText}`
 				);
-				shouldClose = false;
-				break;
-			}
+				return true;
+			});
+			shouldClose = false;
+			break;
 		}
-	} finally {
-		endCommand(commandKey);
 	}
 	if (shouldClose) closeForm();
 }
@@ -1679,8 +1682,7 @@ function stopEventAutoRead(): void {
 
 async function testReadFirmware(): Promise<void> {
 	const cmd = "0x30";
-	if (!beginCommand(cmd)) return;
-	try {
+	await runQueuedGattCommand(cmd, async (): Promise<boolean> => {
 		ui.showToast({ message: t("0x30 发送..."), type: "warn" });
 		const ok = await deviceStore.protocol.readFirmwareVersion();
 		const f = deviceStore.event.firmwareVersion.value;
@@ -1690,15 +1692,13 @@ async function testReadFirmware(): Promise<void> {
 			setCommandResponse(cmd, ok ? t("已发送，等待设备响应") : t("发送失败，请重试"));
 		}
 		ui.showToast({ message: ok ? t("已发送") : t("发送失败"), type: ok ? "success" : "error" });
-	} finally {
-		endCommand(cmd);
-	}
+		return ok;
+	});
 }
 
 async function testReadDeviceNumber(): Promise<void> {
 	const cmd = "0x32";
-	if (!beginCommand(cmd)) return;
-	try {
+	await runQueuedGattCommand(cmd, async (): Promise<boolean> => {
 		ui.showToast({ message: t("0x32 发送..."), type: "warn" });
 		const ok = await deviceStore.protocol.readDeviceNumber();
 		const num = deviceStore.event.deviceNumber.value;
@@ -1708,15 +1708,13 @@ async function testReadDeviceNumber(): Promise<void> {
 			setCommandResponse(cmd, ok ? t("已发送，等待设备响应") : t("发送失败，请重试"));
 		}
 		ui.showToast({ message: ok ? t("已发送") : t("发送失败"), type: ok ? "success" : "error" });
-	} finally {
-		endCommand(cmd);
-	}
+		return ok;
+	});
 }
 
 async function testReadTimestamp(): Promise<void> {
 	const cmd = "0x34";
-	if (!beginCommand(cmd)) return;
-	try {
+	await runQueuedGattCommand(cmd, async (): Promise<boolean> => {
 		ui.showToast({ message: t("0x34 发送..."), type: "warn" });
 		const ok = await deviceStore.protocol.readTimestamp();
 		const sec = deviceStore.event.boomTimestamp.value;
@@ -1726,15 +1724,13 @@ async function testReadTimestamp(): Promise<void> {
 			setCommandResponse(cmd, ok ? t("已发送，等待设备响应") : t("发送失败，请重试"));
 		}
 		ui.showToast({ message: ok ? t("已发送") : t("发送失败"), type: ok ? "success" : "error" });
-	} finally {
-		endCommand(cmd);
-	}
+		return ok;
+	});
 }
 
 async function testReadBiometric(): Promise<void> {
 	const cmd = "0x36";
-	if (!beginCommand(cmd)) return;
-	try {
+	await runQueuedGattCommand(cmd, async (): Promise<boolean> => {
 		const beforeSeq = deviceStore.event.biometricInfoSeq.value;
 		const sentAt = Date.now();
 		ui.showToast({ message: t("0x36 发送..."), type: "warn" });
@@ -1742,7 +1738,7 @@ async function testReadBiometric(): Promise<void> {
 		if (!ok) {
 			setCommandResponse(cmd, t("发送失败，请重试"));
 			ui.showToast({ message: t("发送失败"), type: "error" });
-			return;
+			return false;
 		}
 		setCommandResponse(cmd, t("已发送，等待设备响应"));
 		const b = await waitForBiometric(beforeSeq, sentAt, null, 2500);
@@ -1753,24 +1749,21 @@ async function testReadBiometric(): Promise<void> {
 			setCommandResponse(cmd, t("已发送，但未收到设备响应"));
 			ui.showToast({ message: t("未收到设备响应"), type: "warn" });
 		}
-	} finally {
-		endCommand(cmd);
-	}
+		return true;
+	});
 }
 
 async function testSetTimestamp(): Promise<void> {
 	const cmd = "0x33";
-	if (!beginCommand(cmd)) return;
-	try {
+	await runQueuedGattCommand(cmd, async (): Promise<boolean> => {
 		const ok = await deviceStore.protocol.setTimestamp(Math.floor(Date.now() / 1000));
 		setCommandResponse(cmd, ok ? t("已发送，等待设备确认") : t("发送失败，请重试"));
 		ui.showToast({
 			message: ok ? t("0x33 已发送") : t("发送失败"),
 			type: ok ? "success" : "error"
 		});
-	} finally {
-		endCommand(cmd);
-	}
+		return ok;
+	});
 }
 
 /** 快速发送文档示例（不填表单，直接发 raw 帧） */
@@ -1778,8 +1771,7 @@ async function sendExample(ex: DocExample): Promise<void> {
 	const cmd = activeForm.value;
 	if (cmd == "") return;
 	const commandKey = cmd == "0x3A" ? "VITAL" : cmd == "0x3C" ? "EVENT" : cmd;
-	if (!beginCommand(commandKey)) return;
-	try {
+	await runQueuedGattCommand(commandKey, async (): Promise<boolean> => {
 		ui.showToast({ message: `${t("发送示例")} ${ex.name}`, type: "warn" });
 		const ok = await deviceStore.protocol.sendRawFrame(ex.request);
 		setCommandResponse(commandKey, ok ? t("示例已发送，等待设备响应") : t("发送失败，请重试"));
@@ -1788,15 +1780,13 @@ async function sendExample(ex: DocExample): Promise<void> {
 			type: ok ? "success" : "error"
 		});
 		if (ok) closeForm();
-	} finally {
-		endCommand(commandKey);
-	}
+		return ok;
+	});
 }
 
 async function testVibration(): Promise<void> {
 	const cmd = "0x40";
-	if (!beginCommand(cmd)) return;
-	try {
+	await runQueuedGattCommand(cmd, async (): Promise<boolean> => {
 		const before = deviceStore.event.lastVibration.value;
 		// 对齐状态说明 1.4.4.12 示例: loops=1, count=2, 500ms震,1000ms静,800ms震
 		const spec: VibrationSpec = {
@@ -1809,7 +1799,7 @@ async function testVibration(): Promise<void> {
 		if (!ok) {
 			setCommandResponse(cmd, t("发送失败，请重试"));
 			ui.showToast({ message: t("发送失败"), type: "error" });
-			return;
+			return false;
 		}
 		setCommandResponse(cmd, t("已发送，等待 0x40 响应"));
 		const v = await waitForVibration(before, 2500);
@@ -1823,9 +1813,8 @@ async function testVibration(): Promise<void> {
 			setCommandResponse(cmd, t("已发送，但未收到 0x40 响应"));
 			ui.showToast({ message: t("未收到震动响应"), type: "warn" });
 		}
-	} finally {
-		endCommand(cmd);
-	}
+		return true;
+	});
 }
 
 /* ===== v5 历史数据展示用 computed ===== */
@@ -1847,105 +1836,10 @@ type EventText = {
 	items: string;
 };
 
-function getBehaviorLabel(value: number): string {
-	if (value == 0) return t("休息");
-	if (value == 1) return t("日常生活");
-	if (value == 2) return t("步行");
-	if (value == 3) return t("跑步");
-	if (value == 4) return t("骑行");
-	if (value == 5) return t("有氧运动");
-	if (value == 6) return t("其他运动");
-	if (value == 7) return t("保留");
-	return t("未知");
-}
-
-function getActivityLabel(value: number): string {
-	if (value == 0) return t("深度睡眠");
-	if (value == 1) return t("浅度睡眠");
-	if (value == 2) return t("其他睡眠");
-	if (value == 3) return t("精神放松");
-	if (value == 4) return t("活动量低");
-	if (value == 5) return t("活动量高");
-	if (value == 6) return t("精神兴奋");
-	if (value == 7) return t("身体压力");
-	return t("未知");
-}
-
 function formatStatusByte(status: number): string {
+	const s = decodeAdvStatus(status);
 	const reserved = (status >> 6) & 0x03;
-	const behavior = (status >> 3) & 0x07;
-	const activity = status & 0x07;
-	return `0x${toByteHex(status)} rsv=${reserved} b${behavior}(${getBehaviorLabel(behavior)}) a${activity}(${getActivityLabel(activity)})`;
-}
-
-function formatEventParsed(value: UTSJSONObject): string {
-	const text = JSON.stringify(value);
-	if (text == null || text == "") return "{}";
-	return text;
-}
-
-function getJsonNumber(value: UTSJSONObject, key: string): number {
-	const raw = value[key];
-	if (raw == null) return 0;
-	return raw as number;
-}
-
-function getJsonString(value: UTSJSONObject, key: string): string {
-	const raw = value[key];
-	if (raw == null) return "";
-	return raw as string;
-}
-
-function formatDurationSeconds(sec: number): string {
-	if (sec <= 0) return "0s";
-	const h = Math.floor(sec / 3600);
-	const m = Math.floor((sec % 3600) / 60);
-	const s = sec % 60;
-	if (h > 0) return `${h}h${m}m${s}s`;
-	if (m > 0) return `${m}m${s}s`;
-	return `${s}s`;
-}
-
-function formatEventParsedByType(eventType: number, parsed: UTSJSONObject): string {
-	if (
-		eventType == LOG_EVENT_TYPE.Text ||
-		eventType == LOG_EVENT_TYPE.RemoteCmd ||
-		eventType == LOG_EVENT_TYPE.SetDeviceSn
-	) {
-		return `text="${getJsonString(parsed, "text")}"`;
-	}
-	if (eventType == LOG_EVENT_TYPE.Reset) {
-		return `reason=${getJsonNumber(parsed, "value")}`;
-	}
-	if (eventType == LOG_EVENT_TYPE.SetTime) {
-		const oldSec = getJsonNumber(parsed, "oldSec");
-		const newSec = getJsonNumber(parsed, "newSec");
-		return `old=${oldSec} ${new Date(oldSec * 1000).toLocaleString()} -> new=${newSec} ${new Date(newSec * 1000).toLocaleString()}`;
-	}
-	if (eventType == LOG_EVENT_TYPE.FormatDS || eventType == LOG_EVENT_TYPE.SflashErase) {
-		return `address=${getJsonNumber(parsed, "address")}`;
-	}
-	if (eventType == LOG_EVENT_TYPE.Wear) {
-		const before = getJsonNumber(parsed, "before");
-		const after = getJsonNumber(parsed, "after");
-		return `wear ${before == 1 ? t("佩戴") : t("未佩戴")} -> ${after == 1 ? t("佩戴") : t("未佩戴")}`;
-	}
-	if (eventType == LOG_EVENT_TYPE.SleepResult) {
-		const onset = getJsonNumber(parsed, "sleepOnsetSec");
-		const awake = getJsonNumber(parsed, "awakeSec");
-		const light = getJsonNumber(parsed, "lightSleepSec");
-		const deep = getJsonNumber(parsed, "deepSleepSec");
-		const other = getJsonNumber(parsed, "otherSleepSec");
-		const restHr = getJsonNumber(parsed, "restHr");
-		return `sleep onset=${onset} awake=${awake} light=${formatDurationSeconds(light)} deep=${formatDurationSeconds(deep)} other=${formatDurationSeconds(other)} restHr=${restHr}`;
-	}
-	if (eventType == LOG_EVENT_TYPE.Sedentary) {
-		return `threshold=${formatDurationSeconds(getJsonNumber(parsed, "thresholdSec"))}`;
-	}
-	if (eventType == LOG_EVENT_TYPE.SetBiometricInfo) {
-		return `gender=${getJsonNumber(parsed, "gender")} weight=${(getJsonNumber(parsed, "weight") / 100).toFixed(1)}kg height=${(getJsonNumber(parsed, "height") / 100).toFixed(1)}cm age=${getJsonNumber(parsed, "age")} ppg=${getJsonNumber(parsed, "ppgPosition")} bhr=${getJsonNumber(parsed, "bhr")}`;
-	}
-	return formatEventParsed(parsed);
+	return `0x${toByteHex(status)} high=${reserved} behavior=${s.behaviorLabel} activity=${s.activityLabel}`;
 }
 
 const vitalText = computed<VitalText>(() => {
@@ -2004,10 +1898,8 @@ const vitalText = computed<VitalText>(() => {
 		.slice(0, 30)
 		.map((d, i) => {
 			if (d.valid == false) return `${i}s:FF`;
-			const behavior = (d.status >> 3) & 0x07;
-			const activity = d.status & 0x07;
 			const ppi = d.ppi > 0 ? `${d.ppi}ms` : "PPI-";
-			return `${i}s hr=${d.hr} ppi=${ppi} pitch=${d.pitch} acc=${d.acc} ${formatStatusByte(d.status)} b=${getBehaviorLabel(behavior)} a=${getActivityLabel(activity)}`;
+			return `${i}s hr=${d.hr} ppi=${ppi} pitch=${d.pitch} acc=${d.acc} ${formatStatusByte(d.status)}`;
 		})
 		.join(" ");
 	return { summary, start, directionMinutes, valid, ppi, status, rmssdSdnn, vital };
@@ -2029,13 +1921,7 @@ const eventText = computed<EventText>(() => {
 			: `type=${h.type} sn[${h.earliestSn}~${h.latestSn}] ts[${h.earliestSec}~${h.latestSec}] ${new Date(h.earliestSec * 1000).toLocaleString()} ~ ${new Date(h.latestSec * 1000).toLocaleString()}`;
 	const count = list.length.toString();
 	const summary = `${list.length} ${t("条事件")}`;
-	const items = list
-		.slice(0, 10)
-		.map((it) => {
-			const typeName = LOG_EVENT_NAMES[it.eventType] ?? "?";
-			return `sn=${it.header.sn} global=${it.header.globalSn} ts=${it.ts} ${new Date(it.ts * 1000).toLocaleString()} tick=${it.tick} type=${it.eventType}(${typeName}) len=${it.dataLen} data=${it.eventDataHex} parsed=${formatEventParsedByType(it.eventType, it.parsedEvent)}`;
-		})
-		.join("\n");
+	const items = deviceStore.history.formatEventAutoBrief(list, 10);
 	return { summary, header, count, items };
 });
 
@@ -2051,9 +1937,13 @@ function testDisconnect(): void {
 	deviceStore.connection.disconnectDevice();
 }
 
-function testReconnect(): void {
-	ui.showToast({ message: t("测试重连..."), type: "warn" });
-	deviceStore.connection.reconnect();
+async function testRestoreBroadcast(): Promise<void> {
+	ui.showToast({ message: t("正在恢复广播扫描..."), type: "warn" });
+	const ok = await deviceStore.connection.switchToBroadcastMode(false);
+	ui.showToast({
+		message: ok ? t("已切回广播扫描") : t("恢复广播失败"),
+		type: ok ? "success" : "error"
+	});
 }
 
 function testClearError(): void {
@@ -2064,111 +1954,194 @@ function testClearError(): void {
 </script>
 
 <style lang="scss" scoped>
-.test-mode-panel,
-.broadcast-panel {
+.device-test-page {
+	background-color: #1f2320;
+}
+
+.test-popup-body {
+	height: 100%;
+	padding: 14px;
+	background-color: #1f2320;
+}
+
+.panel {
+	margin-bottom: 12px;
+	padding: 12px;
+	border-radius: 8px;
+	background-color: #292f2c;
 	border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.mode-pill {
-	min-width: 54px;
-	height: 26px;
-	padding: 0 10px;
-	border-radius: 14px;
-	background-color: rgba(0, 170, 119, 0.16);
-	border: 1px solid rgba(0, 170, 119, 0.35);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-}
-
-.mode-pill-text {
-	color: #7ee2bd;
-	font-size: 12px;
-	font-weight: 600;
-}
-
-.mode-switch {
-	display: flex;
-	flex-direction: row;
-	gap: 8px;
-}
-
-.mode-button {
-	flex: 1;
-	min-width: 0;
-}
-
-.mode-segment {
-	display: flex;
-	flex-direction: row;
-	gap: 8px;
-	padding: 4px;
-	border-radius: 8px;
-	background-color: rgba(0, 0, 0, 0.18);
-}
-
-.auto-restore-row {
+.panel-header,
+.section-header {
 	display: flex;
 	flex-direction: row;
 	align-items: center;
 	justify-content: space-between;
 	gap: 12px;
-	padding: 10px 8px;
+	min-height: 30px;
+}
+
+.panel-header {
+	margin-bottom: 10px;
+}
+
+.section-header {
+	margin: 12px 0 8px;
+	padding: 11px 12px;
 	border-radius: 8px;
-	background-color: rgba(255, 255, 255, 0.04);
+	background-color: rgba(255, 255, 255, 0.055);
+	border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.auto-restore-copy {
-	flex: 1;
-	min-width: 0;
-}
-
-.auto-restore-title {
+.section-title {
 	color: #ffffff;
-	font-size: 13px;
+	font-size: 15px;
 	font-weight: 700;
-	line-height: 18px;
+	line-height: 20px;
 }
 
-.auto-restore-desc {
+.section-summary {
 	color: #9ca3af;
 	font-size: 11px;
 	line-height: 16px;
 }
 
-.segment-option {
+.header-actions {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: 8px;
+}
+
+.collapse-button {
+	min-width: 42px;
+	height: 24px;
+	padding: 0 10px;
+	border-radius: 12px;
+	color: #cbd5e1;
+	font-size: 11px;
+	line-height: 24px;
+	text-align: center;
+	background-color: rgba(255, 255, 255, 0.06);
+	border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.state-pill {
+	min-width: 58px;
+	height: 26px;
+	padding: 0 10px;
+	border-radius: 14px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.state-pill-text {
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 16px;
+}
+
+.state-overview {
+	display: flex;
+	flex-direction: row;
+	gap: 8px;
+	margin-bottom: 10px;
+}
+
+.state-card {
 	flex: 1;
 	min-width: 0;
-	padding: 9px 8px;
-	border-radius: 6px;
-	border: 1px solid rgba(255, 255, 255, 0.06);
+	padding: 9px 10px;
+	border-radius: 8px;
+	border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.state-card-label {
+	font-size: 11px;
+	line-height: 15px;
+	color: #cbd5e1;
+}
+
+.state-card-value {
+	font-size: 15px;
+	font-weight: 700;
+	line-height: 21px;
+	color: #ffffff;
+}
+
+.state-broadcast {
+	background-color: rgba(4, 120, 87, 0.18);
+	border-color: rgba(52, 211, 153, 0.36);
+}
+
+.state-broadcast .state-pill-text,
+.state-broadcast.state-pill .state-pill-text {
+	color: #86efac;
+}
+
+.state-gatt {
+	background-color: rgba(37, 99, 235, 0.18);
+	border-color: rgba(96, 165, 250, 0.36);
+}
+
+.state-gatt .state-pill-text,
+.state-gatt.state-pill .state-pill-text {
+	color: #93c5fd;
+}
+
+.state-busy {
+	background-color: rgba(217, 119, 6, 0.2);
+	border-color: rgba(251, 191, 36, 0.38);
+}
+
+.state-busy .state-pill-text,
+.state-busy.state-pill .state-pill-text {
+	color: #fcd34d;
+}
+
+.state-warn {
+	background-color: rgba(100, 116, 139, 0.22);
+	border-color: rgba(148, 163, 184, 0.35);
+}
+
+.state-warn .state-pill-text,
+.state-warn.state-pill .state-pill-text {
+	color: #cbd5e1;
+}
+
+.status-grid {
+	display: flex;
+	flex-direction: row;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.status-cell {
+	width: 48%;
+	min-height: 46px;
+	padding: 8px;
+	border-radius: 8px;
 	background-color: rgba(255, 255, 255, 0.04);
 }
 
-.segment-option-active {
-	background-color: rgba(0, 170, 119, 0.18);
-	border-color: rgba(0, 170, 119, 0.52);
+.protocol-ready-line {
+	margin-top: 10px;
+	padding: 8px;
+	border-radius: 8px;
+	background-color: rgba(0, 0, 0, 0.18);
 }
 
-.segment-title {
-	color: #ffffff;
-	font-size: 13px;
-	font-weight: 700;
-	line-height: 18px;
-	text-align: center;
-}
-
-.segment-desc {
-	color: #9ca3af;
-	font-size: 10px;
-	line-height: 14px;
-	text-align: center;
+.broadcast-panel .panel-header {
+	margin-bottom: 12px;
 }
 
 .broadcast-hero {
 	display: flex;
 	flex-direction: row;
 	gap: 8px;
+	margin-bottom: 10px;
 }
 
 .metric-large {
@@ -2218,10 +2191,71 @@ function testClearError(): void {
 }
 
 .broadcast-debug {
+	margin-top: 8px;
 	padding: 8px;
 	border-radius: 8px;
 	background-color: rgba(0, 0, 0, 0.18);
 	border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.broadcast-debug-compact {
+	margin-top: 8px;
+	padding: 8px;
+	border-radius: 8px;
+	background-color: rgba(0, 0, 0, 0.12);
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.debug-toggle {
+	min-width: 86px;
+	color: #7ee2bd;
+	font-size: 11px;
+	line-height: 16px;
+	text-align: right;
+}
+
+.command-grid {
+	display: flex;
+	flex-direction: row;
+	flex-wrap: wrap;
+	gap: 8px;
+	padding: 10px;
+}
+
+.command-item {
+	width: 48%;
+	min-height: 34px;
+}
+
+.command-item-wide {
+	width: 100%;
+	display: flex;
+	flex-direction: row;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.command-button {
+	width: 100%;
+}
+
+.command-button-small {
+	width: 96px;
+}
+
+.action-grid {
+	display: flex;
+	flex-direction: row;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.action-button {
+	min-width: 92px;
 }
 
 .event-window-shortcuts {
@@ -2292,6 +2326,7 @@ function testClearError(): void {
 }
 
 .data-debug {
+	margin-top: 8px;
 	padding: 8px;
 	border-radius: 8px;
 	background-color: rgba(0, 0, 0, 0.18);
