@@ -1,12 +1,16 @@
 import type { GattTaskName } from "./types";
 import { logger } from "../../service/logger";
 
+/** GATT 命令通道锁：只保护一条连接内的命令收发，不负责连接/断开调度。 */
 export class DeviceGattTaskLock {
 	private taskName: string = "";
 
 	begin(name: GattTaskName): boolean {
 		if (this.taskName != "") {
-			logger.warn("bluetooth", `[BOOM-GATT] 通道忙: current=${this.taskName}, request=${name}`);
+			logger.warn(
+				"bluetooth",
+				`[BOOM-GATT] 通道忙: current=${this.taskName}, request=${name}`
+			);
 			return false;
 		}
 		this.taskName = name;

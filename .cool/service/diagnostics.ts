@@ -15,7 +15,7 @@ export type DiagnosticRequestContext = {
 };
 
 const LOG_STORAGE_KEY = "boom_diagnostic_logs";
-const MAX_LOGS = 500;
+const MAX_LOGS = 1000;
 
 function stringify(value: any | null): string {
 	if (value == null) return "";
@@ -115,7 +115,8 @@ class Diagnostics {
 	toText(limit: number = 0): string {
 		const lines: string[] = [];
 		const logs = this.getLogs();
-		const pickedLogs = limit > 0 && logs.length > limit ? logs.slice(logs.length - limit) : logs;
+		const pickedLogs =
+			limit > 0 && logs.length > limit ? logs.slice(logs.length - limit) : logs;
 
 		lines.push(`${config.name} diagnostics`);
 		lines.push(this.getDeviceSummary());

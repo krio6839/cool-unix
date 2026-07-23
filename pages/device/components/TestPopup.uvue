@@ -1047,7 +1047,7 @@ const advText = computed<AdvText>(() => {
 	const r = deviceStore.realtime.value;
 	let parsed = "-";
 	if (r != null) {
-		parsed = `utc=${r.utc} ${rtText.value.utc} received=${rtText.value.receivedAt} eventSeq=${r.eventSeq} newEvent=${r.hasNewEvent} battery=${r.batteryStatus}(${r.batteryStatusLabel}) ppg=${r.ppgAttached} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr} valid=${r.hrValid} ppi=${r.ppi} valid=${r.ppiValid} rmssd=${r.hrvMs}ms spo2=${r.spo2Pct.toFixed(1)} valid=${r.spo2Valid} bhr=${r.bhr} valid=${r.bhrValid} steps=${r.stepsEveryday} calories=${r.calorieKcal.toFixed(1)}kcal voltage=${r.voltageMv}mV/${r.voltageV.toFixed(3)}V`;
+		parsed = `utc=${r.utc} ${rtText.value.utc} received=${rtText.value.receivedAt} eventSeq=${r.eventSeq} newEvent=${r.hasNewEvent} battery=${r.batteryStatus}(${r.batteryStatusLabel}) ppg=${r.ppgAttached} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr} valid=${r.hrValid} ppi=${r.ppi} valid=${r.ppiValid} rmssd=${r.rmssd.toFixed(2)}ms hrv=${r.hrvMs} valid=${r.rmssdValid} spo2=${r.spo2Pct.toFixed(1)} valid=${r.spo2Valid} bhr=${r.bhr} valid=${r.bhrValid} steps=${r.stepsEveryday} calories=${r.calorieKcal.toFixed(1)}kcal voltage=${r.voltageMv}mV/${r.voltageV.toFixed(3)}V`;
 	}
 	return {
 		seq: d.seq.toString(),
@@ -1250,16 +1250,16 @@ async function switchToBroadcastMode(): Promise<void> {
 async function switchToConnectMode(): Promise<void> {
 	const boundId = deviceStore.boundDeviceId;
 	if (boundId == "") {
-		await deviceStore.connection.switchToConnectMode();
+		await deviceStore.connection.switchToConnectMode("testPopup");
 		ui.showToast({ message: t("请先连接/绑定设备"), type: "warn" });
 		return;
 	}
 	if (deviceStore.currentDeviceId != "") {
-		await deviceStore.connection.switchToConnectMode();
+		await deviceStore.connection.switchToConnectMode("testPopup");
 		ui.showToast({ message: t("已进入连接模式"), type: "success" });
 		return;
 	}
-	const ok = await deviceStore.connection.switchToConnectMode();
+	const ok = await deviceStore.connection.switchToConnectMode("testPopup");
 	if (ok == true) {
 		ui.showToast({ message: t("已进入连接模式"), type: "success" });
 	} else {

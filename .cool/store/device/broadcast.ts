@@ -1,9 +1,4 @@
-import {
-	bluetoothDataManager,
-	EVENT_QUERY_TYPE_BY_TIME,
-	parseCustomAdvData,
-	toRealtimeBroadcast
-} from "../../bluetooth";
+import { bluetoothDataManager, parseCustomAdvData, toRealtimeBroadcast } from "../../bluetooth";
 import type { RealtimeBroadcast } from "../../bluetooth";
 import { sleepTimeout } from "../../utils";
 import { realtime } from "../realtime";
@@ -24,12 +19,6 @@ const RECENT_GATT_TIME_SYNC_SUPPRESS_MS = 60 * 1000;
 const STALE_BROADCAST_REPEAT_THRESHOLD = 3;
 const STALE_BROADCAST_SCAN_RESTART_COOLDOWN_MS = 20 * 1000;
 const BOUND_BROADCAST_SCAN_NO_CALLBACK_MS = 12 * 1000;
-const EVENT_SYNC_WINDOW_SECONDS = 24 * 60 * 60;
-const EVENT_SYNC_MAX_COUNT = 10;
-const EVENT_SYNC_MAX_PAGES = 20;
-const EVENT_SYNC_TIMEOUT_MS = 10000;
-const EVENT_SYNC_AFTER_CONNECT_DELAY_MS = 800;
-const EVENT_SYNC_AFTER_TIME_SYNC_DELAY_MS = 5000;
 
 export class DeviceBroadcast {
 	private device: Device;
@@ -38,15 +27,9 @@ export class DeviceBroadcast {
 	private lastBoundBroadcastHandledAt: number = 0;
 	private lastBoundScanCallbackAt: number = 0;
 	private lastBoundScanDebugAt: number = 0;
-	private timeSyncBusy: boolean = false;
 	private lastTimeSyncAttemptAt: number = 0;
 	private lastEventSeqByDevice = new Map<string, number>();
 	private seenEventSeqByDevice = new Map<string, boolean>();
-	private eventSyncBusy: boolean = false;
-	private pendingEventSyncDeviceId: string = "";
-	private pendingEventSyncPreviousSeq: number = 0;
-	private pendingEventSyncSeq: number = 0;
-	private pendingEventDrainBusy: boolean = false;
 	private lastTimeSyncOkAt: number = 0;
 	private lastBroadcastUtc: number = 0;
 	private lastBroadcastVHex: string = "";
@@ -382,135 +365,7 @@ export class DeviceBroadcast {
 			"bluetooth",
 			`[BOOM-EVENT] 广播提示有新事件，准备读取: device=${deviceId}, eventSeq=${previousSeq}->${eventSeq}`
 		);
-		if (this.eventSyncBusy == true) {
-			this.rememberPendingEventSync(deviceId, previousSeq, eventSeq);
-			logger.info("bluetooth", "[BOOM-EVENT] 事件读取进行中，本次广播提示已暂存");
-			return;
-		}
-		const waitMs = this.getEventSyncTimeSyncWaitMs();
-		if (waitMs > 0) {
-			this.rememberPendingEventSync(deviceId, previousSeq, eventSeq);
-			logger.info("bluetooth", `[BOOM-EVENT] 刚完成自动校时，延迟 ${waitMs}ms 后读取事件`);
-			this.drainPendingEventSyncLater();
-			return;
-		}
-		this.readEventsFromBroadcastNotice(deviceId, eventSeq);
-	}
-
-	private rememberPendingEventSync(
-		deviceId: string,
-		previousSeq: number,
-		eventSeq: number
-	): void {
-		this.pendingEventSyncDeviceId = deviceId;
-		this.pendingEventSyncPreviousSeq = previousSeq;
-		this.pendingEventSyncSeq = eventSeq;
-	}
-
-	private getEventSyncTimeSyncWaitMs(): number {
-		if (this.lastTimeSyncOkAt <= 0) return 0;
-		const elapsed = Date.now() - this.lastTimeSyncOkAt;
-		if (elapsed >= EVENT_SYNC_AFTER_TIME_SYNC_DELAY_MS) return 0;
-		return EVENT_SYNC_AFTER_TIME_SYNC_DELAY_MS - elapsed;
-	}
-
-	private async drainPendingEventSyncLater(): Promise<void> {
-		if (this.pendingEventDrainBusy == true) return;
-		this.pendingEventDrainBusy = true;
-		try {
-			const waitMs = this.getEventSyncTimeSyncWaitMs();
-			if (waitMs > 0) {
-				await sleepTimeout(waitMs);
-			}
-			this.drainPendingEventSyncNow();
-		} finally {
-			this.pendingEventDrainBusy = false;
-		}
-	}
-
-	private drainPendingEventSyncNow(): void {
-		if (this.eventSyncBusy == true) return;
-		if (this.pendingEventSyncDeviceId == "") return;
-		const deviceId = this.pendingEventSyncDeviceId;
-		const previousSeq = this.pendingEventSyncPreviousSeq;
-		const eventSeq = this.pendingEventSyncSeq;
-		this.pendingEventSyncDeviceId = "";
-		this.pendingEventSyncPreviousSeq = 0;
-		this.pendingEventSyncSeq = 0;
-		logger.info(
-			"bluetooth",
-			`[BOOM-EVENT] 处理暂存的新事件提示: device=${deviceId}, eventSeq=${previousSeq}->${eventSeq}`
-		);
-		this.readEventsFromBroadcastNotice(deviceId, eventSeq);
-	}
-
-	private async readEventsFromBroadcastNotice(deviceId: string, eventSeq: number): Promise<void> {
-		if (this.eventSyncBusy == true) {
-			return;
-		}
-		this.eventSyncBusy = true;
-		const previousMode = this.device.testMode.value;
-		const endSec = Math.floor(Date.now() / 1000) + 60;
-		const startSec = endSec - EVENT_SYNC_WINDOW_SECONDS;
-		try {
-			const alreadyConnected =
-				this.device.currentDeviceId != "" && this.device.status.value == "CONNECTED";
-			let connected = alreadyConnected;
-			if (connected == false) {
-				connected = await this.device.connection.switchToConnectMode();
-			}
-			if (connected == false) {
-				logger.warn(
-					"bluetooth",
-					`[BOOM-EVENT] 新事件读取连接失败: device=${deviceId}, eventSeq=${eventSeq}`
-				);
-				return;
-			}
-			if (previousMode == "broadcast") {
-				this.device.testMode.value = "broadcast";
-			}
-			if (alreadyConnected == false) {
-				await sleepTimeout(EVENT_SYNC_AFTER_CONNECT_DELAY_MS);
-			}
-			logger.info(
-				"bluetooth",
-				`[BOOM-EVENT] 开始读取新事件: device=${deviceId}, eventSeq=${eventSeq}, window=${startSec}~${endSec}`
-			);
-			// 文档要求 status2 高 4 位事件序号变化后“读一次事件”。
-			// 这里按时间窗口读取最近事件；readEventDataAuto 内部会自动 0x3C + 0x3D 续读并保存睡眠事件。
-			const result = await this.device.history.readEventDataAuto({
-				type: EVENT_QUERY_TYPE_BY_TIME,
-				startSec,
-				endSec,
-				maxCount: EVENT_SYNC_MAX_COUNT,
-				maxPages: EVENT_SYNC_MAX_PAGES,
-				timeoutMs: EVENT_SYNC_TIMEOUT_MS,
-				persistSleepData: true,
-				uploadAfterSave: true
-			});
-			logger.info(
-				"bluetooth",
-				`[BOOM-EVENT] 新事件读取完成: status=${result.status}, pages=${result.pages}, items=${result.items.length}, savedSleep=${result.savedSleepRecords}, upload=${result.uploadOk}`
-			);
-			if (result.items.length > 0) {
-				logger.info(
-					"bluetooth",
-					`[BOOM-EVENT] 新事件解析结果:\n${this.device.history.formatEventAutoBrief(result.items, 20)}`
-				);
-			}
-		} catch (e) {
-			logger.warn("bluetooth", "[BOOM-EVENT] 新事件读取异常:", e);
-		} finally {
-			if (previousMode == "broadcast") {
-				try {
-					await this.device.connection.switchToBroadcastMode(true);
-				} catch (e) {
-					logger.warn("bluetooth", "[BOOM-EVENT] 新事件读取后恢复广播失败:", e);
-				}
-			}
-			this.eventSyncBusy = false;
-			this.drainPendingEventSyncNow();
-		}
+		this.device.scheduler.enqueueReadEvent(deviceId, eventSeq);
 	}
 
 	private requestTimeSyncFromBroadcast(diffSec: number, broadcastUtc: number): void {
@@ -518,77 +373,16 @@ export class DeviceBroadcast {
 		const nowSec = Math.floor(Date.now() / 1000);
 		if (this.hasRecentGoodGattTimestamp(nowSec) == true) return;
 		const nowMs = Date.now();
-		if (this.timeSyncBusy == true) return;
-		if (this.device.isGattTaskBusy() == true) {
-			logger.info(
-				"bluetooth",
-				`[BOOM-ADV] GATT 通道忙(${this.device.getGattTaskName()})，跳过本次自动校时`
-			);
-			return;
-		}
 		if (nowMs - this.lastTimeSyncAttemptAt < BROADCAST_TIME_SYNC_COOLDOWN_MS) return;
 		this.lastTimeSyncAttemptAt = nowMs;
-		this.syncTimeFromBroadcast(diffSec, broadcastUtc);
+		this.device.scheduler.enqueueTimeSync(diffSec, broadcastUtc);
 	}
 
-	private async syncTimeFromBroadcast(diffSec: number, broadcastUtc: number): Promise<boolean> {
-		if (this.timeSyncBusy == true) return false;
-		if (this.device.beginGattTask("timeSync") == false) return false;
-		this.timeSyncBusy = true;
-		const previousMode = this.device.testMode.value;
-		let ok = false;
-		try {
-			logger.warn(
-				"bluetooth",
-				`[BOOM-ADV] 广播时间偏差过大，自动校时: diff=${diffSec}s, advUtc=${broadcastUtc}`
-			);
-			let connected =
-				this.device.currentDeviceId != "" && this.device.status.value == "CONNECTED";
-			if (connected == false) {
-				connected = await this.device.connection.switchToConnectMode();
-			}
-			if (connected == false) {
-				logger.warn("bluetooth", "[BOOM-ADV] 自动校时连接失败，设备标记为不可用");
-				return false;
-			}
-			const nowSec = Math.floor(Date.now() / 1000);
-			const beforeSeq = this.device.event.boomTimestampSeqValue;
-			const sent = await this.device.protocol.setTimestamp(nowSec);
-			if (sent == false) {
-				logger.warn("bluetooth", "[BOOM-ADV] 自动校时发送 0x33 失败，设备标记为不可用");
-				return false;
-			}
-			await sleepTimeout(300);
-			await this.device.protocol.readTimestamp();
-			const verified = await this.waitForTimestampResponse(beforeSeq, 3000);
-			if (verified == true) {
-				logger.info("bluetooth", `[BOOM-ADV] 自动校时完成: utc=${nowSec}`);
-				ok = true;
-				this.lastTimeSyncOkAt = Date.now();
-			} else {
-				logger.warn("bluetooth", "[BOOM-ADV] 自动校时读回超时，设备标记为不可用");
-			}
-			return ok;
-		} catch (e) {
-			logger.warn("bluetooth", "[BOOM-ADV] 自动校时异常:", e);
-			return false;
-		} finally {
-			if (previousMode == "broadcast") {
-				try {
-					await this.device.connection.switchToBroadcastMode(false);
-				} catch (e) {
-					logger.warn("bluetooth", "[BOOM-ADV] 自动校时后恢复广播失败:", e);
-				}
-			}
-			this.timeSyncBusy = false;
-			this.device.endGattTask("timeSync");
-			if (ok == false) {
-				this.markBoundDeviceUnavailable();
-			}
-		}
+	markTimeSyncOk(): void {
+		this.lastTimeSyncOkAt = Date.now();
 	}
 
-	private markBoundDeviceUnavailable(): void {
+	markBoundDeviceUnavailable(): void {
 		logger.warn(
 			"bluetooth",
 			"[BOOM-ADV] 绑定设备广播时间异常且校时失败，已停止自动使用并提示用户"
@@ -610,17 +404,6 @@ export class DeviceBroadcast {
 		const lastNotifyAt = this.device.event.lastNotifyAtValue;
 		if (lastNotifyAt <= 0) return false;
 		return Date.now() - lastNotifyAt < RECENT_GATT_TIME_SYNC_SUPPRESS_MS;
-	}
-
-	private async waitForTimestampResponse(beforeSeq: number, timeoutMs: number): Promise<boolean> {
-		const start = Date.now();
-		while (Date.now() - start < timeoutMs) {
-			if (this.device.event.boomTimestampSeqValue > beforeSeq) {
-				return true;
-			}
-			await sleepTimeout(120);
-		}
-		return false;
 	}
 
 	private async storeBroadcastRecordByDevice(
@@ -707,7 +490,10 @@ export class DeviceBroadcast {
 		const nowSec = Math.floor(Date.now() / 1000);
 		let diff = nowSec - r.utc;
 		if (diff < 0) diff = 0 - diff;
-		const summary = `phone=${nowSec} utc=${r.utc} diff=${diff}s timeValid=${this.isBroadcastUtcUsable(r)} eventSeq=${r.eventSeq} newEvent=${r.hasNewEvent} battery=${r.batteryStatus}(${r.batteryStatusLabel}) ppg=${r.ppgAttached ? "attached" : "detached"} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr}${r.hrValid ? "" : "!"} ppi=${r.ppi}${r.ppiValid ? "" : "!"} rmssd=${r.hrvMs}${r.rmssdValid ? "ms" : "!"} spo2=${r.spo2Pct.toFixed(1)}${r.spo2Valid ? "" : "!"} bhr=${r.bhr}${r.bhrValid ? "" : "!"} steps=${r.stepsEveryday} kcal=${r.calorieKcal.toFixed(1)} v=${r.voltageMv}mV/${r.voltageV.toFixed(3)}V`;
+		const rmssdText = r.rmssdValid
+			? `${r.rmssd.toFixed(2)}ms(hrv=${r.hrvMs})`
+			: `${r.rmssd.toFixed(2)}!`;
+		const summary = `phone=${nowSec} utc=${r.utc} diff=${diff}s timeValid=${this.isBroadcastUtcUsable(r)} eventSeq=${r.eventSeq} newEvent=${r.hasNewEvent} battery=${r.batteryStatus}(${r.batteryStatusLabel}) ppg=${r.ppgAttached ? "attached" : "detached"} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr}${r.hrValid ? "" : "!"} ppi=${r.ppi}${r.ppiValid ? "" : "!"} rmssd=${rmssdText} spo2=${r.spo2Pct.toFixed(1)}${r.spo2Valid ? "" : "!"} bhr=${r.bhr}${r.bhrValid ? "" : "!"} steps=${r.stepsEveryday} kcal=${r.calorieKcal.toFixed(1)} v=${r.voltageMv}mV/${r.voltageV.toFixed(3)}V`;
 		const info: BroadcastDebugInfo = {
 			seq: this.broadcastSeq,
 			source,

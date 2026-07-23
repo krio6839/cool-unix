@@ -11,7 +11,7 @@
 
 import { t } from "../../locale";
 import { TARGET_DEVICE_NAME_PREFIX } from "./types";
-import type { ScanPurpose } from "./types";
+import type { ConnectModeReason, ScanPurpose } from "./types";
 import { BOOM_GATT_SERVICE_UUID, bluetoothDataManager } from "../../bluetooth";
 
 //#ifndef H5
@@ -452,33 +452,37 @@ export class DeviceConnection {
 		logger.info("bluetooth", "连接设备成功", deviceId);
 		//#endif
 		await this._markConnected(deviceId, deviceName);
-		if (this.isProtocolReady() == false) {
-			const initialized = await this._initializeConnectedDevice(deviceId);
-			if (initialized == false || this.isProtocolReady() == false) {
-				logger.error("bluetooth", "[BOOM] 连接初始化未完成", deviceId);
-				//#ifndef H5
-				this._suppressNextReconnect = true;
-				await disconnect(deviceId);
-				this._suppressNextReconnect = false;
-				//#endif
-				this._resetConnectionState();
-				return false;
-			}
+		const initialized = await this._initializeConnectedDevice(deviceId);
+		if (initialized == false || this.isProtocolReady() == false) {
+			logger.error("bluetooth", "[BOOM] 连接初始化未完成", deviceId);
+			//#ifndef H5
+			this._suppressNextReconnect = true;
+			await disconnect(deviceId);
+			this._suppressNextReconnect = false;
+			//#endif
+			this._resetConnectionState();
+			return false;
 		}
 		logger.info("bluetooth", "设备连接状态", this.device.status.value);
 		return true;
 	}
 
 	/** 从广播模式临时切到 GATT 连接模式：先直连绑定设备，失败再扫描重连 */
-	async switchToConnectMode(): Promise<boolean> {
+	async switchToConnectMode(reason: ConnectModeReason = "manual"): Promise<boolean> {
 		const boundId = this.device.boundDeviceId;
 		this.device.testMode.value = "connect";
+		logger.info("bluetooth", `[BOOM] 切换连接模式: reason=${reason}, bound=${boundId}`);
 		if (boundId == "") return false;
 		await this.stopBluetoothSearch();
 		if (this.device.currentDeviceId != "") {
-			if (this.isProtocolReady() == true) return true;
+			logger.info(
+				"bluetooth",
+				`[BOOM] 已有连接，重新校验 GATT 通道: ${this.device.currentDeviceId}`
+			);
 			const initialized = await this._initializeConnectedDevice(this.device.currentDeviceId);
-			return initialized == true && this.isProtocolReady() == true;
+			if (initialized == true && this.isProtocolReady() == true) return true;
+			logger.warn("bluetooth", "[BOOM] 现有连接 GATT 不可用，断开后重新连接");
+			await this.disconnectStaleConnection();
 		}
 
 		this.device.status.value = "SEARCHING";
@@ -506,6 +510,22 @@ export class DeviceConnection {
 		//#endif
 
 		return false;
+	}
+
+	private async disconnectStaleConnection(): Promise<void> {
+		//#ifndef H5
+		if (this.device.currentDeviceId != "") {
+			try {
+				this._suppressNextReconnect = true;
+				await disconnect(this.device.currentDeviceId);
+			} catch (e) {
+				logger.warn("bluetooth", "[BOOM] 断开失效 GATT 连接失败:", e);
+			} finally {
+				this._suppressNextReconnect = false;
+			}
+		}
+		//#endif
+		this._resetConnectionState();
 	}
 
 	private async waitForReconnectScan(): Promise<boolean> {
@@ -620,24 +640,6 @@ export class DeviceConnection {
 		}
 	}
 
-	private async _waitForBoomTimestampResponse(
-		beforeSeq: number,
-		timeoutMs: number
-	): Promise<boolean> {
-		const start = Date.now();
-		while (Date.now() - start < timeoutMs) {
-			if (this.device.event.boomTimestampSeqValue > beforeSeq) {
-				logger.info(
-					"bluetooth",
-					`[BOOM] 已收到读时戳响应: t=0x${this.device.event.boomTimestampLastT.toString(16)}, boomTimestamp=${this.device.event.boomTimestamp.value}`
-				);
-				return true;
-			}
-			await sleepTimeout(120);
-		}
-		return false;
-	}
-
 	/** 订阅 GATT 连接状态变化 */
 	onBLEConnectionStateChange(): void {
 		//#ifndef H5
@@ -684,6 +686,7 @@ export class DeviceConnection {
 	}
 
 	private shouldIgnoreConnectedCallback(deviceId: string): boolean {
+		if (this.device.isGattTaskBusy() == true) return false;
 		if (this._isSwitchingToBroadcastMode == true) return true;
 		if (this._suppressNextReconnect == true) return true;
 		if (this._scanPurpose == "boundBroadcast") return true;

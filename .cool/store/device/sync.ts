@@ -4,7 +4,6 @@ import type { VitalDataQueryResponse } from "../../bluetooth";
 import { sleepTimeout } from "../../utils";
 import type { VitalAutoReadResult, HistoryReadStatus } from "./history-reader";
 import type { Device } from "./index";
-import type { DeviceTestMode } from "./types";
 import { logger } from "../../service/logger";
 
 export type DeviceSyncReason = "startup" | "timer" | "manual";
@@ -47,7 +46,7 @@ export type HistoryRepairResult = {
 
 /** App 启动/绑定恢复后稍等一会儿，让广播先稳定入库，再检查缺口。 */
 const HISTORY_AUTO_INITIAL_DELAY_MS = 15000;
-/** 后台低频检查间隔。只做本地 gap scan；有缺口才临时连接 GATT。 */
+/** 后台低频检查间隔。只做本地 gap scan；有缺口就投递 scheduler 队列。 */
 const HISTORY_AUTO_CHECK_INTERVAL_MS = 10 * 60 * 1000;
 
 /** 每次只扫描最近 24 小时的本地 PPI 时间点，避免全库 gap scan 太重。 */
@@ -58,8 +57,6 @@ const VITAL_INITIAL_WINDOW_SEC = 6 * 60 * 60;
 const VITAL_GAP_THRESHOLD_SEC = 180;
 /** 补缺口时向前后各扩 2 分钟；入库 INSERT OR IGNORE，可安全重叠读取。 */
 const VITAL_GAP_OVERLAP_SEC = 2 * 60;
-/** 一次后台补拉最多补最近 4 个缺口，避免一次 GATT 任务占用连接太久。 */
-const VITAL_MAX_GAPS_PER_RUN = 4;
 
 /**
  * 设备后台历史同步。
@@ -67,7 +64,7 @@ const VITAL_MAX_GAPS_PER_RUN = 4;
  * 这里只负责生命体征 0x3A/0x3B：
  * - 启动后延迟检查一次；
  * - 之后低频扫描 ppi_data 缺口；
- * - 有缺口才临时连接 GATT 补拉；
+ * - 有缺口只投递 historyRepair，实际连接和执行由 DeviceGattScheduler 统一负责；
  * - 不读取事件 0x3C/0x3D。
  */
 export class DeviceSync {
@@ -159,11 +156,31 @@ export class DeviceSync {
 	}
 
 	async requestHistorySync(reason: DeviceSyncReason): Promise<boolean> {
-		const result = await this.repairVitalHistoryGaps(reason);
-		return result.ok;
+		if (this.autoEnabled == false && reason != "manual") return false;
+		const plan = await this.planHistorySync();
+		if (plan.vital.needed == false) {
+			logger.info("bluetooth", `[BOOM-SYNC] 无生命体征历史缺口: reason=${reason}`);
+			return true;
+		}
+		logger.info(
+			"bluetooth",
+			`[BOOM-SYNC] 已规划生命体征历史缺口: reason=${reason}, gaps=${plan.vital.gaps.length}`
+		);
+		this.device.scheduler.enqueueHistoryRepair(reason);
+		if (reason == "startup") {
+			this.device.scheduler.requestFlush("startup");
+		} else if (reason == "manual") {
+			this.device.scheduler.requestFlush("manual");
+		} else {
+			this.device.scheduler.requestFlush("timer");
+		}
+		return true;
 	}
 
-	async repairVitalHistoryGaps(reason: DeviceSyncReason): Promise<HistoryRepairResult> {
+	async repairVitalHistoryGapsInCurrentConnection(
+		reason: DeviceSyncReason,
+		deadlineAt: number
+	): Promise<HistoryRepairResult> {
 		if (this.busy == true) {
 			this.lastError.value = "history repair busy";
 			return this.makeResult(false, this.lastError.value, this.emptyPlan(), []);
@@ -172,17 +189,10 @@ export class DeviceSync {
 			this.lastError.value = "no bound device";
 			return this.makeResult(false, this.lastError.value, this.emptyPlan(), []);
 		}
-		if (reason != "manual" && this.device.currentDeviceId != "") {
-			this.lastError.value = "gatt busy";
-			logger.info("bluetooth", "[BOOM-SYNC] GATT 已在使用中，跳过本轮生命体征补缺");
-			return this.makeResult(false, this.lastError.value, this.emptyPlan(), []);
-		}
 
 		this.busy = true;
 		this.state.value = "repairing";
 		this.lastError.value = "";
-		const previousMode: DeviceTestMode = this.device.testMode.value;
-		let touchedGatt = false;
 		try {
 			const plan = await this.planHistorySync();
 			this.state.value = "repairing";
@@ -192,13 +202,7 @@ export class DeviceSync {
 				return this.makeResult(true, "no history gaps", plan, []);
 			}
 
-			let connected =
-				this.device.currentDeviceId != "" && this.device.status.value == "CONNECTED";
-			if (connected == false) {
-				connected = await this.device.connection.switchToConnectMode();
-				touchedGatt = connected;
-			}
-			if (connected == false) {
+			if (this.device.currentDeviceId == "" || this.device.status.value != "CONNECTED") {
 				this.lastError.value = "connect failed";
 				return this.makeResult(false, this.lastError.value, plan, []);
 			}
@@ -208,10 +212,15 @@ export class DeviceSync {
 				"[BOOM-SYNC] 开始补生命体征历史",
 				`reason=${reason}, gaps=${plan.vital.gaps.length}`
 			);
-			const results = await this.runVitalGaps(plan.vital.gaps);
+			const results = await this.runVitalGaps(plan.vital.gaps, deadlineAt);
 			let ok = true;
 			for (let i = 0; i < results.length; i++) {
 				const item = results[i];
+				if (item.message == "history repair budget reached") {
+					this.lastError.value = "history repair budget reached";
+					ok = false;
+					continue;
+				}
 				if (
 					item.skipped == false &&
 					(item.status == "TIMEOUT" || item.status == "SEND_FAILED")
@@ -220,7 +229,7 @@ export class DeviceSync {
 				}
 			}
 			this.lastHistorySyncAt.value = Date.now();
-			if (ok == false) {
+			if (ok == false && this.lastError.value == "") {
 				this.lastError.value = "history partial failed";
 			}
 			return this.makeResult(
@@ -233,14 +242,6 @@ export class DeviceSync {
 			this.lastError.value = `${e}`;
 			return this.makeResult(false, `${e}`, this.lastPlan.value ?? this.emptyPlan(), []);
 		} finally {
-			if (previousMode == "broadcast" && touchedGatt == true) {
-				try {
-					await this.device.connection.switchToBroadcastMode(false);
-				} catch (e) {
-					logger.warn("bluetooth", "[BOOM-SYNC] 补缺后恢复广播失败:", e);
-					logger.error("bluetooth", "[BOOM-SYNC] 补缺后恢复广播失败", `${e}`);
-				}
-			}
 			this.state.value = "idle";
 			this.busy = false;
 		}
@@ -294,13 +295,9 @@ export class DeviceSync {
 			normalized.push({ fromSec, toSec } as HistoryGap);
 		}
 
-		const limited =
-			normalized.length <= VITAL_MAX_GAPS_PER_RUN
-				? normalized
-				: normalized.slice(normalized.length - VITAL_MAX_GAPS_PER_RUN);
 		const recentFirst: HistoryGap[] = [];
-		for (let i = limited.length - 1; i >= 0; i--) {
-			recentFirst.push(limited[i]);
+		for (let i = normalized.length - 1; i >= 0; i--) {
+			recentFirst.push(normalized[i]);
 		}
 		return recentFirst;
 	}
@@ -312,10 +309,17 @@ export class DeviceSync {
 		} as HistoryGap;
 	}
 
-	private async runVitalGaps(gaps: HistoryGap[]): Promise<HistoryGapRepairResult[]> {
+	private async runVitalGaps(
+		gaps: HistoryGap[],
+		deadlineAt: number
+	): Promise<HistoryGapRepairResult[]> {
 		const results: HistoryGapRepairResult[] = [];
 		let deviceHistoryUpperBoundSec = 0;
 		for (let i = 0; i < gaps.length; i++) {
+			if (Date.now() >= deadlineAt) {
+				results.push(this.makeGapBudgetReached(gaps[i]));
+				break;
+			}
 			let gap = gaps[i];
 			if (deviceHistoryUpperBoundSec > 0) {
 				if (gap.fromSec >= deviceHistoryUpperBoundSec) {
@@ -343,7 +347,8 @@ export class DeviceSync {
 			const upper = this.getVitalResultUpperBoundSec(result);
 			if (upper > 0 && upper < gap.fromSec) {
 				deviceHistoryUpperBoundSec = upper;
-				logger.info("bluetooth",
+				logger.info(
+					"bluetooth",
 					`[BOOM-SYNC] 设备生命体征历史早于目标，收紧后续缺口: upper=${upper}, gapStart=${gap.fromSec}`
 				);
 			}
@@ -383,6 +388,19 @@ export class DeviceSync {
 			gap,
 			status: "STOPPED",
 			message: "skip newer gap by device history upper bound " + upper.toString(),
+			pages: 0,
+			savedRecords: 0,
+			uploadAttempted: false,
+			uploadOk: false,
+			skipped: true
+		} as HistoryGapRepairResult;
+	}
+
+	private makeGapBudgetReached(gap: HistoryGap): HistoryGapRepairResult {
+		return {
+			gap,
+			status: "STOPPED",
+			message: "history repair budget reached",
 			pages: 0,
 			savedRecords: 0,
 			uploadAttempted: false,

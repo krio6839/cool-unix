@@ -30,7 +30,7 @@
 				</view>
 				<view class="action-item">
 					<cl-button type="primary" size="small" @tap="copyRecentLogs">
-						复制最近50条
+						复制最近200条
 					</cl-button>
 				</view>
 				<view class="action-item">
@@ -82,9 +82,9 @@ function copyAllLogs(): void {
 
 function copyRecentLogs(): void {
 	logs.value = diagnostics.getLogs();
-	text.value = diagnostics.toText(50);
-	copyModeText.value = "最近50条";
-	copyText(text.value, "已复制最近50条");
+	text.value = diagnostics.toText(200);
+	copyModeText.value = "最近200条";
+	copyText(text.value, "已复制最近200条");
 }
 
 function clearLogs(): void {

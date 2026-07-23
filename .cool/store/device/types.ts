@@ -4,8 +4,26 @@ import type { PpgPositionOption, PpgPositionValue } from "../../bluetooth/boom-t
 export type WearLocation = PpgPositionValue;
 export type WearLocationOption = PpgPositionOption;
 export type DeviceTestMode = "connect" | "broadcast";
+export type ConnectModeReason =
+	| "manual"
+	| "testPopup"
+	| "historyGap"
+	| "event"
+	| "timeSync"
+	| "unbind"
+	| "scheduler";
 export type DeviceOnlineSource = "gatt" | "broadcast" | "searching" | "offline";
 export type ScanPurpose = "none" | "pairing" | "boundBroadcast" | "reconnect";
+export type GattQueueTaskKind =
+	| "timeSync"
+	| "setDeviceNumber"
+	| "setBiometric"
+	| "readEvent"
+	| "unbind"
+	| "historyRepair"
+	| "manualCommand";
+export type GattQueuePriority = "urgent" | "normal" | "tail";
+export type GattFlushReason = "urgent" | "timer" | "startup" | "manual";
 export type GattTaskName =
 	| "vitalAuto"
 	| "vitalRecent"

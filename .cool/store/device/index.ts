@@ -69,6 +69,7 @@ import { DeviceHistoryReader } from "./history-reader";
 import { DeviceBroadcast } from "./broadcast";
 import { DeviceSync } from "./sync";
 import { DeviceGattTaskLock } from "./gatt-lock";
+import { DeviceGattScheduler } from "./gatt-scheduler";
 
 /* 设备选择 actionSheet 调用参数（对象参数，UTS 不支持内联对象字面量类型） */
 export type ShowDevicePickerOptions = {
@@ -143,6 +144,7 @@ export class Device {
 	readonly history: DeviceHistoryReader;
 	readonly sync: DeviceSync;
 	readonly broadcast: DeviceBroadcast;
+	readonly scheduler: DeviceGattScheduler;
 	//#endif
 
 	/* ===== 共享 actionSheet 引用（由 pages/device/index.uvue 在 onMounted 注入）===== */
@@ -160,6 +162,7 @@ export class Device {
 		this.history = new DeviceHistoryReader(this);
 		this.sync = new DeviceSync(this);
 		this.broadcast = new DeviceBroadcast(this);
+		this.scheduler = new DeviceGattScheduler(this);
 
 		this.connection.onBluetoothAdapterStateChange();
 		this.connection.onBLEConnectionStateChange();
@@ -517,9 +520,10 @@ export class Device {
 	//#ifndef H5
 	/**
 	 * 用户主动删除设备(从设备页底部按钮触发)
-	 * - 1. 断开 BLE(disconnectDevice 内部会重置状态:status=UNPAIRED, realtime=null, currentDeviceId="")
-	 * - 2. 清空历史 DB(心率/睡眠/PPI)
-	 * - 3. 清空本地存储(boundDeviceId)
+	 * - 1. 尽量通过 0x41 通知设备解绑
+	 * - 2. 断开 BLE
+	 * - 3. 清空历史 DB(心率/睡眠/PPI)
+	 * - 4. 清空本地存储(boundDeviceId)
 	 * - 注意:wearLocation 保留(用户偏好,与设备无关)
 	 */
 	async deleteDevice(): Promise<void> {
@@ -563,7 +567,7 @@ export class Device {
 		const boundId = this.boundDeviceId;
 		if (boundId == "") return true;
 		if (this.currentDeviceId == "") {
-			const connected = await this.connection.switchToConnectMode();
+			const connected = await this.connection.switchToConnectMode("unbind");
 			if (connected == false) {
 				logger.warn("bluetooth", "[DEVICE] 解绑前连接设备失败，继续删除本地");
 				return false;
@@ -574,7 +578,10 @@ export class Device {
 			return false;
 		}
 		if (this.beginGattTask("unbind") == false) {
-			logger.warn("bluetooth", `[DEVICE] GATT 通道忙(${this.getGattTaskName()})，跳过远端解绑`);
+			logger.warn(
+				"bluetooth",
+				`[DEVICE] GATT 通道忙(${this.getGattTaskName()})，跳过远端解绑`
+			);
 			return false;
 		}
 		const beforeSeq = this.event.deviceControlSeq.value;

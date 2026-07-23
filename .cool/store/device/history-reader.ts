@@ -135,6 +135,8 @@ export class DeviceHistoryReader {
 	private displaySuspended: boolean = false;
 	private vitalPollingTimer: number = 0;
 	private vitalPollingEnabled: boolean = false;
+	private eventGlobalSnSeen = new Map<number, boolean>();
+	private eventReadActive: boolean = false;
 
 	private device: Device;
 
@@ -191,7 +193,15 @@ export class DeviceHistoryReader {
 	 */
 	handleEventData(vHex: string, t: number): void {
 		try {
-			logger.info("bluetooth",
+			if (this.eventReadActive == false) {
+				logger.warn(
+					"bluetooth",
+					`[BOOM] 忽略非活跃事件响应: t=0x${t.toString(16)}, vBytes=${vHex.length / 2}`
+				);
+				return;
+			}
+			logger.info(
+				"bluetooth",
 				`[BOOM] handleEventData enter: t=0x${t.toString(16)}, vBytes=${vHex.length / 2}`
 			);
 			// 文档表格把续读响应写成 0x3C，示例则是 0x3D；17B 头长度可用于兼容判断。
@@ -203,23 +213,27 @@ export class DeviceHistoryReader {
 					this.eventDataHeader.value = header;
 					this.eventDataHeaderSeq.value = this.eventDataHeaderSeqValue;
 				}
-				logger.info("bluetooth",
+				logger.info(
+					"bluetooth",
 					`[BOOM] 事件头: type=${header.type}, earliestSn=${header.earliestSn}, latestSn=${header.latestSn}`
 				);
 			} else {
 				const r = parseLogDataList(vHex, 2);
-				this.lastEventBatchCountValue = r.items.length;
+				const items = this.filterDuplicateEventItems(r.items);
+				this.lastEventBatchCountValue = items.length;
 				this.eventDataListSeqValue = this.eventDataListSeqValue + 1;
-				logger.info("bluetooth",
-					`[BOOM] 事件批次解析: t=0x${t.toString(16)}, vBytes=${vHex.length / 2}, count=${r.items.length}, nextOff=${r.nextOff}`
+				logger.info(
+					"bluetooth",
+					`[BOOM] 事件批次解析: t=0x${t.toString(16)}, vBytes=${vHex.length / 2}, count=${r.items.length}, unique=${items.length}, nextOff=${r.nextOff}`
 				);
-				if (r.items.length > 0) {
-					this.eventDataListRaw = this.eventDataListRaw.concat(r.items);
+				if (items.length > 0) {
+					this.eventDataListRaw = this.eventDataListRaw.concat(items);
 					if (this.displaySuspended == false) {
 						this.eventDataList.value = this.eventDataListRaw.slice();
 					}
-					logger.info("bluetooth",
-						`[BOOM] 事件追加: count=${r.items.length}, total=${this.eventDataListRaw.length}`
+					logger.info(
+						"bluetooth",
+						`[BOOM] 事件追加: count=${items.length}, total=${this.eventDataListRaw.length}`
 					);
 				}
 				if (this.displaySuspended == false) {
@@ -230,6 +244,20 @@ export class DeviceHistoryReader {
 		} catch (e) {
 			logger.error("bluetooth", "[BOOM] 事件响应解析异常:", e);
 		}
+	}
+
+	private filterDuplicateEventItems(items: LogDataItem[]): LogDataItem[] {
+		const result: LogDataItem[] = [];
+		for (let i = 0; i < items.length; i++) {
+			const globalSn = items[i].header.globalSn;
+			if (globalSn > 0 && this.eventGlobalSnSeen.get(globalSn) == true) continue;
+			if (globalSn > 0) this.eventGlobalSnSeen.set(globalSn, true);
+			result.push(items[i]);
+		}
+		if (result.length != items.length) {
+			logger.warn("bluetooth", `[BOOM] 事件去重: ${items.length} -> ${result.length}`);
+		}
+		return result;
 	}
 
 	async readVitalDataAuto(options: VitalAutoReadOptions): Promise<VitalAutoReadResult> {
@@ -287,7 +315,8 @@ export class DeviceHistoryReader {
 		if (this.vitalPollingEnabled == false) return;
 		if (this.device.status.value != "CONNECTED") return;
 		if (this.device.isGattTaskBusy() == true) {
-			logger.info("bluetooth",
+			logger.info(
+				"bluetooth",
 				`[BOOM-HISTORY] GATT 通道忙(${this.device.getGattTaskName()})，跳过本轮自动补拉`
 			);
 			return;
@@ -309,7 +338,8 @@ export class DeviceHistoryReader {
 			const beforeNotifySeq = this.device.event.notifySeqValue;
 			const nowSec = Math.floor(Date.now() / 1000);
 			const startSec = nowSec - VITAL_POLL_WINDOW_SECONDS;
-			logger.info("bluetooth",
+			logger.info(
+				"bluetooth",
 				`[BOOM-HISTORY] 自动补拉窗口: nowSec=${nowSec} ${this.formatMaybeTime(nowSec)}, startSec=${startSec} ${this.formatMaybeTime(startSec)}, boomTimestamp=${this.device.event.boomTimestamp.value}, direction=${VITAL_POLL_DIRECTION}, minutes=${VITAL_POLL_MINUTES}, vitalSeq=${beforeVitalSeq}, notifySeq=${beforeNotifySeq}`
 			);
 			const targetEndSec = nowSec;
@@ -327,7 +357,8 @@ export class DeviceHistoryReader {
 					for (let i = 0; i < response.vitalData.length; i++) {
 						if (response.vitalData[i].valid == true) validCount++;
 					}
-					logger.info("bluetooth",
+					logger.info(
+						"bluetooth",
 						`[BOOM-HISTORY] 自动补拉段: page=${page}, responseStart=${response.startSec} ${this.formatMaybeTime(response.startSec)}, responseEnd=${this.getVitalWindowEndSec(response)}, n=${response.n}, valid=${validCount}/${response.vitalData.length}`
 					);
 					const stopReason = this.getRecentVitalStopReason(
@@ -337,7 +368,8 @@ export class DeviceHistoryReader {
 					);
 					if (stopReason != null) {
 						stopRecentRead = true;
-						logger.warn("bluetooth",
+						logger.warn(
+							"bluetooth",
 							`[BOOM-HISTORY] 自动补拉停止续读: ${stopReason}, page=${page}, target=${startSec} ${this.formatMaybeTime(startSec)} ~ ${targetEndSec} ${this.formatMaybeTime(targetEndSec)}, response=${response.startSec} ${this.formatMaybeTime(response.startSec)} ~ ${this.getVitalWindowEndSec(response)} ${this.formatMaybeTime(this.getVitalWindowEndSec(response))}`
 						);
 					}
@@ -346,7 +378,8 @@ export class DeviceHistoryReader {
 			if (result.status == "TIMEOUT") {
 				const afterVitalSeq = this.vitalDataResponseSeqValue;
 				const afterNotifySeq = this.device.event.notifySeqValue;
-				logger.warn("bluetooth",
+				logger.warn(
+					"bluetooth",
 					`[BOOM-HISTORY] 自动补拉超时诊断: hadNotify=${afterNotifySeq > beforeNotifySeq}, beforeNotifySeq=${beforeNotifySeq}, afterNotifySeq=${afterNotifySeq}, lastNotifyAt=${this.device.event.lastNotifyAtValue}, beforeVitalSeq=${beforeVitalSeq}, afterVitalSeq=${afterVitalSeq}`
 				);
 			}
@@ -362,7 +395,8 @@ export class DeviceHistoryReader {
 				result.uploadAttempted = true;
 				result.uploadOk = await bluetoothDataManager.uploadData();
 			}
-			logger.info("bluetooth",
+			logger.info(
+				"bluetooth",
 				`[BOOM-HISTORY] 自动补拉完成: status=${result.status}, pages=${result.pages}, saved=${result.savedRecords}, upload=${result.uploadOk}`
 			);
 			return result;
@@ -529,8 +563,10 @@ export class DeviceHistoryReader {
 			);
 		}
 		this.setDisplaySuspended(true);
+		this.eventReadActive = true;
 		try {
 			const result = await this.readEventDataAutoInner(options);
+			this.eventReadActive = false;
 			if (options.persistSleepData == false) {
 				return result;
 			}
@@ -548,6 +584,7 @@ export class DeviceHistoryReader {
 			}
 			return result;
 		} finally {
+			this.eventReadActive = false;
 			this.setDisplaySuspended(false);
 			this.device.endGattTask("event");
 		}
@@ -932,7 +969,8 @@ export class DeviceHistoryReader {
 				this.eventDataList.value = this.eventDataListRaw.slice();
 				this.lastEventBatchCount.value = this.lastEventBatchCountValue;
 			}
-			logger.info("bluetooth",
+			logger.info(
+				"bluetooth",
 				`[BOOM] 事件按 globalSn 范围过滤: ${batch.length} -> ${filteredBatch.length}, range=${header.earliestSn}~${header.latestSn}`
 			);
 		}
