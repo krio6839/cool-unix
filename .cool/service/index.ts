@@ -1,6 +1,6 @@
 import { isDev, ignoreTokens, config } from "@/config";
 import { locale, t } from "../locale";
-import { isNull, isObject, parse, storage } from "../utils";
+import { getErrorMessage, isNull, isObject, parse, storage } from "../utils";
 import { useStore } from "../store";
 import { defaultErrorNotice, type ErrorNoticeShowType } from "./error-notice";
 import { logger } from "./logger";
@@ -190,14 +190,15 @@ export function request(options: RequestOptions): Promise<any | null> {
 
 				// 网络请求失败
 				fail(err) {
+					const message = getErrorMessage(err, t("请求失败"));
 					logger.requestError({
 						method,
 						url,
-						message: err.errMsg,
+						message,
 						duration: Date.now() - startedAt,
 						detail: err
 					});
-					rejectWithNotice({ message: err.errMsg } as Response);
+					rejectWithNotice({ message } as Response);
 				}
 			});
 		};
@@ -225,7 +226,7 @@ export function request(options: RequestOptions): Promise<any | null> {
 								isRefreshing = false;
 							})
 							.catch((err) => {
-								const message = (err as Response)?.message ?? "刷新token失败";
+								const message = getErrorMessage(err, "刷新token失败");
 								rejectWithNotice({ message } as Response);
 								user.logout();
 							});

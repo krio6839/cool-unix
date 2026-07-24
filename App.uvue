@@ -1,10 +1,13 @@
 <script lang="ts">
 import { diagnostics, setTheme, useStore, router } from "./.cool";
+import { startKeepAliveService, runKeepAliveTick } from "./.cool/service/keepalive";
 
 export default {
 	onLaunch: function () {
 		console.log("App Launch");
 		setTheme("dark");
+		startKeepAliveService();
+		runKeepAliveTick("launch");
 
 		// #ifdef APP
 		if (process.env.NODE_ENV !== "development") {
@@ -38,9 +41,11 @@ export default {
 
 		// 获取用户信息，未登录不执行
 		user.get();
+		runKeepAliveTick("show");
 	},
 	onHide: function () {
 		console.log("App Hide");
+		runKeepAliveTick("hide");
 	},
 	onExit: function () {
 		console.log("App Exit");

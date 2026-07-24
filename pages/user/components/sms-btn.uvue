@@ -58,7 +58,7 @@
 <script lang="ts" setup>
 import { computed, reactive, ref } from "vue";
 import { useUi } from "@/uni_modules/cool-ui";
-import { request, type Response, isDark, t, $t, parse } from "@/.cool";
+import { getErrorMessage, request, isDark, t, $t, parse } from "@/.cool";
 
 const props = defineProps({
 	phone: String
@@ -162,7 +162,7 @@ async function getCaptcha() {
 		})
 		.catch((err) => {
 			ui.showToast({
-				message: (err as Response).message!
+				message: getErrorMessage(err, t("请求失败"))
 			});
 		});
 
@@ -196,7 +196,7 @@ async function send() {
 
 			.catch((err) => {
 				ui.showToast({
-					message: (err as Response).message!
+					message: getErrorMessage(err, t("请求失败"))
 				});
 
 				getCaptcha();

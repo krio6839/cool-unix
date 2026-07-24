@@ -145,7 +145,6 @@ export class EventHandler {
 	private processNotifyHex(hexData: string): void {
 		const now = Date.now();
 		if (this.isDuplicateNotify(hexData, now) == true) {
-			logger.info("bluetooth", `[BOOM] 忽略重复 notify: ${hexData.substring(0, 32)}`);
 			return;
 		}
 		this.rememberNotify(hexData, now);

@@ -1,16 +1,11 @@
 import { ref } from "vue";
 import { request } from "../service";
-import { isArray, isNull, isObject, parse } from "../utils";
+import { getErrorMessage, isArray, isNull, parse } from "../utils";
 import type { EnergyStatusApiResponse } from "../types/energy";
 import type { TimeValuePair, DateValuePair } from "../types/common";
 
 function isNoDataResponse(err?: any | null): boolean {
-	if (err == null || !isObject(err)) {
-		return false;
-	}
-
-	const message = (err as UTSJSONObject)["message"];
-	return typeof message == "string" && message.indexOf("No data found for device") >= 0;
+	return getErrorMessage(err).indexOf("No data found for device") >= 0;
 }
 
 export class Energy {

@@ -217,6 +217,7 @@ export class DeviceHistoryReader {
 					"bluetooth",
 					`[BOOM] 事件头(0x3C): type=${header.type}, snRange=${header.earliestSn}~${header.latestSn}, timeRange=${header.earliestSec} ${this.formatMaybeTime(header.earliestSec)} ~ ${header.latestSec} ${this.formatMaybeTime(header.latestSec)}`
 				);
+				this.logEventHeaderParse(vHex, header);
 			} else {
 				const r = parseLogDataList(vHex, 2);
 				const items = this.filterDuplicateEventItems(r.items);
@@ -226,6 +227,7 @@ export class DeviceHistoryReader {
 					"bluetooth",
 					`[BOOM] 事件批次解析: t=0x${t.toString(16)}, vBytes=${vHex.length / 2}, count=${r.items.length}, unique=${items.length}, nextOff=${r.nextOff}`
 				);
+				this.logEventDataSegments(vHex, r.items, r.nextOff, 12);
 				this.logEventItems("[BOOM] 事件批次明细(0x3D)", items, 12);
 				if (items.length > 0) {
 					this.eventDataListRaw = this.eventDataListRaw.concat(items);
@@ -1144,6 +1146,70 @@ export class DeviceHistoryReader {
 			`[BOOM] 事件读取结果: status=${status}, message=${message}, pages=${pages}, items=${items.length}, ${headerText}`
 		);
 		this.logEventItems("[BOOM] 事件最终明细", items, 20);
+	}
+
+	private logEventHeaderParse(vHex: string, header: EventDataHeaderResponse): void {
+		const lines: string[] = [
+			`[BOOM] 0x3C V解析: bytes=${vHex.length / 2}, raw=${vHex}`,
+			`  Byte0 type=${header.type}`,
+			`  Byte1~4 earliestSn=${header.earliestSn}`,
+			`  Byte5~8 earliestTs=${header.earliestSec} ${this.formatMaybeTime(header.earliestSec)}`,
+			`  Byte9~12 latestSn=${header.latestSn}`,
+			`  Byte13~16 latestTs=${header.latestSec} ${this.formatMaybeTime(header.latestSec)}`
+		];
+		logger.info("bluetooth", lines.join("\n"));
+	}
+
+	private logEventDataSegments(
+		vHex: string,
+		items: LogDataItem[],
+		nextOff: number,
+		maxLines: number
+	): void {
+		let limit = maxLines;
+		if (limit <= 0) limit = 10;
+		const lines: string[] = [
+			`[BOOM] 0x3D V分段: bytes=${vHex.length / 2}, byte0=${this.getHexByte(vHex, 0)}, logDataStartByte=1, count=${items.length}, nextOffByte=${Math.floor(nextOff / 2)}`
+		];
+		let cur = 2;
+		for (let i = 0; i < items.length && i < limit; i++) {
+			const item = items[i];
+			const startByte = Math.floor(cur / 2);
+			const fixedBytes = 20;
+			const segmentBytes = fixedBytes + item.dataLen;
+			const endByte = startByte + segmentBytes;
+			const headerHex = vHex.substring(cur, cur + 20);
+			const fixedHex = vHex.substring(cur + 20, cur + 40);
+			const eventDataHex = vHex.substring(cur + 40, cur + 40 + item.dataLen * 2);
+			lines.push(
+				`  #${i} bytes[${startByte},${endByte}) total=${segmentBytes} header10=${headerHex} fixed10=${fixedHex} eventData=${eventDataHex}`
+			);
+			lines.push(
+				`     header flag=0x${this.toByteHex(item.header.flag)}, payloadLen=${item.header.payloadLen}, sn=${item.header.sn}, globalSn=${item.header.globalSn}; fixed ts=${item.ts} ${this.formatMaybeTime(item.ts)}, tick=${item.tick}, type=${item.eventType}(${LOG_EVENT_NAMES[item.eventType] ?? "?"}), dataLen=${item.dataLen}`
+			);
+			cur = cur + segmentBytes * 2;
+		}
+		if (items.length > limit) {
+			lines.push(`  ... truncated ${items.length - limit}`);
+		}
+		if (nextOff < vHex.length) {
+			lines.push(
+				`  tail bytes[${Math.floor(nextOff / 2)},${vHex.length / 2})=${vHex.substring(nextOff)}`
+			);
+		}
+		logger.info("bluetooth", lines.join("\n"));
+	}
+
+	private getHexByte(hex: string, byteOffset: number): string {
+		const start = byteOffset * 2;
+		if (hex.length < start + 2) return "--";
+		return "0x" + hex.substring(start, start + 2);
+	}
+
+	private toByteHex(value: number): string {
+		const v = value & 0xff;
+		const h = v.toString(16);
+		return h.length == 1 ? "0" + h : h;
 	}
 
 	private logEventItems(title: string, items: LogDataItem[], maxLines: number): void {

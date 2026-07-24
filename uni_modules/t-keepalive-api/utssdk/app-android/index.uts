@@ -1,12 +1,12 @@
 import Intent from 'android.content.Intent'
-import AppCompatActivity from 'androidx.appcompat.app.AppCompatActivity';
+import Activity from 'android.app.Activity';
 import Bundle from 'android.os.Bundle';
 
 import { TKeepAliasCallback } from "../interface.uts"
 
 const context = UTSAndroid.getAppContext()!
 
-export class KeepAliveActivity extends AppCompatActivity {
+export class KeepAliveActivity extends Activity {
 	constructor() {
 		super()
 	}

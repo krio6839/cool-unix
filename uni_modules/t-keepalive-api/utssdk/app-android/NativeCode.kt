@@ -12,7 +12,6 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
-import androidx.core.app.NotificationCompat
 import io.dcloud.uts.console
 
 interface PermissionCallback {
@@ -171,13 +170,19 @@ object KeepAliveManager {
 				PendingIntent.FLAG_IMMUTABLE,
 			)
 
-		return NotificationCompat
-			.Builder(context, CHANNEL_ID)
-			.setContentTitle(context.getString(R.string.app_name))
-			.setContentText(context.getString(R.string.notification_content))
-			.setSmallIcon(R.drawable.ic_launcher)
+		val builder =
+			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+				Notification.Builder(context, CHANNEL_ID)
+			} else {
+				Notification.Builder(context)
+			}
+
+		return builder
+			.setContentTitle("BOOM")
+			.setContentText("BOOM 正在后台同步设备数据")
+			.setSmallIcon(android.R.drawable.stat_notify_sync)
 			.setContentIntent(pendingIntent)
-			.setPriority(NotificationCompat.PRIORITY_LOW)
+			.setPriority(Notification.PRIORITY_LOW)
 			.setColor(Color.BLUE)
 			.setOngoing(true)
 			.build()

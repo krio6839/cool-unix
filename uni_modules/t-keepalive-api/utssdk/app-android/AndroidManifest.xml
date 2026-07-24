@@ -67,12 +67,6 @@
 		<activity android:name="uts.sdk.modules.tKeepaliveApi.KeepAliveActivity" android:exported="true"></activity>
 
 		<!-- 1像素保活Activity -->
-<!-- 		<activity android:name="uts.sdk.modules.tKeepaliveApi.OnePixelActivity" android:excludeFromRecents="true" android:exported="false"
-			android:finishOnTaskLaunch="false" android:launchMode="singleInstance"
-			android:theme="@android:style/Theme.Translucent.NoTitleBar" /> -->
-<!-- 		<activity android:name="uts.sdk.modules.tKeepaliveApi.OnePixelActivity" android:excludeFromRecents="true" android:exported="false"
-			android:finishOnTaskLaunch="false" android:launchMode="singleInstance"
-			android:theme="@style/Theme.AppCompat.Translucent.NoTitleBar" /> -->
 			<activity android:name="uts.sdk.modules.tKeepaliveApi.OnePixelActivity" android:excludeFromRecents="true" android:exported="false"
 				android:finishOnTaskLaunch="false" android:launchMode="singleInstance"
 				android:theme="@style/TransparentTheme" />
