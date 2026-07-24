@@ -42,7 +42,6 @@ export class Home {
 				})
 				.catch((err) => {
 					console.error("获取首页数据失败:", err);
-					this.clear();
 					reject(getErrorMessage(err, "请求失败"));
 				});
 		});

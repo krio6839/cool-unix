@@ -48,7 +48,6 @@ export class Sleep {
 				})
 				.catch((err) => {
 					console.error("获取睡眠状态失败:", err);
-					this.clearStatus();
 					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
@@ -69,7 +68,6 @@ export class Sleep {
 				})
 				.catch((err) => {
 					console.error("获取睡眠指标失败:", err);
-					this.clearMetric();
 					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
@@ -90,7 +88,6 @@ export class Sleep {
 				})
 				.catch((err) => {
 					console.error("获取睡眠趋势失败:", err);
-					this.clearTrend();
 					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
@@ -111,7 +108,6 @@ export class Sleep {
 				})
 				.catch((err) => {
 					console.error("获取睡眠模式失败:", err);
-					this.clearSleepMode();
 					reject(getErrorMessage(err, "请求失败"));
 				});
 		});

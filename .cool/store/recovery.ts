@@ -27,7 +27,6 @@ export class Recovery {
 				})
 				.catch((err) => {
 					console.error("获取超量恢复状态失败:", err);
-					this.clear();
 					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
@@ -48,7 +47,6 @@ export class Recovery {
 				})
 				.catch((err) => {
 					console.error("获取超量恢复趋势失败:", err);
-					this.clear();
 					reject(getErrorMessage(err, "请求失败"));
 				});
 		});

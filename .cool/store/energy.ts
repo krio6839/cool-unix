@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { request } from "../service";
-import { getErrorMessage, isArray, isNull, parse } from "../utils";
+import { getErrorMessage, isArray, isNull, isObject, parse } from "../utils";
 import type { EnergyStatusApiResponse } from "../types/energy";
 import type { TimeValuePair, DateValuePair } from "../types/common";
 
@@ -41,7 +41,6 @@ export class Energy {
 				})
 				.catch((err) => {
 					console.error("获取储能状态失败:", err);
-					this.clearStatus();
 					if (isNoDataResponse(err)) {
 						resolve();
 						return;
@@ -73,7 +72,6 @@ export class Energy {
 				})
 				.catch((err) => {
 					console.error("获取储能趋势失败:", err);
-					this.clearTrend();
 					if (isNoDataResponse(err)) {
 						resolve();
 						return;

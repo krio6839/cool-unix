@@ -34,7 +34,6 @@ export class Status {
 				})
 				.catch((err) => {
 					console.error("获取状态数据失败:", err);
-					this.clear();
 					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
@@ -61,7 +60,6 @@ export class Status {
 				})
 				.catch((err) => {
 					console.error("获取准备度数据失败:", err);
-					this.readinessData.value = [];
 					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
@@ -89,8 +87,6 @@ export class Status {
 		const parsed = parse<DateValuePair[]>(data);
 		if (parsed != null) {
 			this.readinessData.value = parsed;
-		} else {
-			this.readinessData.value = [];
 		}
 	}
 

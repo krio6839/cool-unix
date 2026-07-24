@@ -35,7 +35,6 @@ export class Metrics {
 				})
 				.catch((err) => {
 					console.error("获取身体指标失败:", err);
-					this.clear();
 					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
