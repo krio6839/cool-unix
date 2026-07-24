@@ -37,9 +37,15 @@ const DEFAULT_CONFIG: InitConfig = {
 	accessBackgroundLocation: false
 };
 
-// 模块级单例:整个项目共用一个 IBluetooth 实例
+// 模块级单例:整个项目共用一个 IBluetooth 实例；扫描栈异常时允许重建 native manager。
 //@ts-ignore
-const kx = useKuxBluetooth(DEFAULT_CONFIG) as IBluetooth;
+let kx = useKuxBluetooth(DEFAULT_CONFIG) as IBluetooth;
+
+export function recreateKuxBluetooth(reason: string = ""): void {
+	//@ts-ignore
+	kx = useKuxBluetooth(DEFAULT_CONFIG) as IBluetooth;
+	logger.warn("bluetooth", `[BLE] kux 实例已重建${reason == "" ? "" : ": " + reason}`);
+}
 
 export function handleBluetoothError(err: UniError): boolean {
 	logger.info("bluetooth", `蓝牙错误 ${err.errCode}: ${err.errMsg}`);

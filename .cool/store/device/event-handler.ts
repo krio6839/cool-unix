@@ -94,9 +94,9 @@ export class EventHandler {
 	 * 订阅 BOOM GATT Service 的 notify characteristic
 	 * 收到 arrayBuffer → 转给 handleNotifyData 统一处理
 	 */
-	onCharacteristicValueChange(): void {
+	onCharacteristicValueChange(force: boolean = false): void {
 		//#ifndef H5
-		if (this._notifyListening == true) return;
+		if (this._notifyListening == true && force == false) return;
 		this._notifyListening = true;
 		onCharacteristicValueChange((res) => {
 			// 过滤：只处理 BOOM GATT Service
@@ -105,6 +105,10 @@ export class EventHandler {
 			this.handleNotifyData(res.value);
 		});
 		//#endif
+	}
+
+	resetKuxListener(): void {
+		this._notifyListening = false;
 	}
 
 	resetDataIdentifierReassembler(): void {

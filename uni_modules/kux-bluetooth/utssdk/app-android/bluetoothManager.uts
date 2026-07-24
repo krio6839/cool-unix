@@ -207,6 +207,23 @@ export class BluetoothManager implements IBluetooth {
 		}
 	}
 
+	private _clearScanReportCaches() {
+		this.mOnfoundDevices.clear();
+		this.mOnFundDeviceList.clear();
+		this.lastDeviceScanTime = null;
+	}
+
+	/**
+	 * BOOM 补丁：扫描启动/关闭时同步清理扫描缓存。
+	 * kux 原逻辑用 mOnFundDeviceList.indexOf(device) 更新 mOnfoundDevices[index]，
+	 * 两个列表一旦不同步会抛 IndexOutOfBounds，表现为 startDiscovery 10008 系统异常。
+	 */
+	private _clearScanCaches() {
+		this._clearScanReportCaches();
+		this.discoveredDevices.clear();
+		this.mDiscoveredDevices.clear();
+	}
+
 	/**
 	 * 检查蓝牙设备是否存在
 	 */
@@ -379,8 +396,7 @@ export class BluetoothManager implements IBluetooth {
 			// 断开所有的连接
 			this.mBluetoothAdapter!.cancelDiscovery();
 			// 清空本地列表
-			this.mOnfoundDevices.clear();
-			this.discoveredDevices.clear();
+			this._clearScanCaches();
 			this.mBLEDiscoveredServices.clear();
 			this.connectedDevices.clear();
 			this.mConnectedDevices.clear();
@@ -578,6 +594,7 @@ export class BluetoothManager implements IBluetooth {
 		}
 
 		this._checkBluetoothAdapter(options?.fail, options?.complete);
+		this._clearScanCaches();
 
 		this.scanning = true;
 		/**
@@ -656,8 +673,11 @@ export class BluetoothManager implements IBluetooth {
 										RSSI,
 										scanRecord
 									);
-									this.mDiscoveredDevices.set(updatedDevice.deviceId, updatedDevice);
-									if (index < 0) {
+									this.mDiscoveredDevices.set(
+										updatedDevice.deviceId,
+										updatedDevice
+									);
+									if (index < 0 || index >= this.mOnfoundDevices.size) {
 										this.mOnfoundDevices.add(updatedDevice);
 										this.mOnFundDeviceList.add(device);
 										this.mOnBluetoothDeviceFoundCallback?.(
@@ -802,6 +822,30 @@ export class BluetoothManager implements IBluetooth {
 							if (this.mOnBluetoothDeviceFoundCallback != null) {
 								try {
 									const index = this.mOnFundDeviceList.indexOf(device);
+									if (index < 0 || index >= this.mOnfoundDevices.size) {
+										const name = device.getName();
+										const deviceId = device.getAddress();
+										const deviceInfo: DeviceInfo = {
+											name: name ?? "",
+											deviceId: deviceId,
+											RSSI: RSSI,
+											advertisData: [],
+											advertisServiceUUIDs: [],
+											localName: name ?? "",
+											serviceData: {} as UTSJSONObject,
+											connectable: null
+										};
+										this.mDiscoveredDevices.set(
+											deviceInfo.deviceId,
+											deviceInfo
+										);
+										this.mOnfoundDevices.add(deviceInfo);
+										this.mOnFundDeviceList.add(device);
+										this.mOnBluetoothDeviceFoundCallback?.(
+											Array.fromNative(this.mOnfoundDevices)
+										);
+										return;
+									}
 									// 获取已存在的设备
 									let existingDevice: DeviceInfo =
 										this.mOnfoundDevices.get(index);
@@ -891,8 +935,7 @@ export class BluetoothManager implements IBluetooth {
 				this.mLeScanCallback = null;
 			}
 			this.scanning = false;
-			// 清空已发现的设备列表
-			// this.discoveredDevices.clear();
+			this._clearScanReportCaches();
 			const res: ApiCommonSuccessCallback = {
 				errCode: 0,
 				errMsg: "stopBluetoothDevicesDiscovery:ok"

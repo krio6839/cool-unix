@@ -22,6 +22,7 @@ import {
 	stopDiscovery,
 	onDeviceFound,
 	offDeviceFound,
+	recreateKuxBluetooth,
 	connect,
 	disconnect,
 	onConnectionStateChange,
@@ -40,11 +41,19 @@ export class DeviceConnection {
 	/* ===== 直连 / 扫描配置 ===== */
 	private static readonly DIRECT_CONNECT_TIMEOUT_MS = 8000; // 单次直连超时
 	private static readonly BOUND_BROADCAST_RESTART_DELAY_MS = 600;
+	private static readonly SCAN_HARD_RECOVERY_COOLDOWN_MS = 15000;
+	private _isInitializingBluetooth: boolean = false;
+	private _initBluetoothPromise: Promise<void> | null = null;
 	private _isInitializingConnectedDevice: boolean = false;
 	private _initializeConnectedDevicePromise: Promise<boolean> | null = null;
 	private static readonly PAIRING_SCAN_TIMEOUT_MS = 30000; // 扫描总时长
 	private _scanPurpose: ScanPurpose = "none";
 	private _isSearching: boolean = false;
+	private _adapterStateListening: boolean = false;
+	private _connectionStateListening: boolean = false;
+	private _adapterResetting: boolean = false;
+	private _scanHardRecovering: boolean = false;
+	private _lastScanHardRecoverAt: number = 0;
 	private _pairingScanTimer: number = 0;
 	private _ignoreConnectionStateChange: boolean = false;
 	private _isSwitchingToBroadcastMode: boolean = false;
@@ -57,6 +66,24 @@ export class DeviceConnection {
 
 	/** 打开蓝牙适配器 */
 	async initBluetooth(): Promise<void> {
+		if (this._isInitializingBluetooth == true) {
+			if (this._initBluetoothPromise != null) {
+				return await this._initBluetoothPromise;
+			}
+			return;
+		}
+		this._isInitializingBluetooth = true;
+		const promise = this.runInitBluetooth();
+		this._initBluetoothPromise = promise;
+		try {
+			await promise;
+		} finally {
+			this._isInitializingBluetooth = false;
+			this._initBluetoothPromise = null;
+		}
+	}
+
+	private async runInitBluetooth(): Promise<void> {
 		logger.info("bluetooth", "开始初始化蓝牙");
 		this.device.clearError();
 		//#ifndef H5
@@ -74,8 +101,10 @@ export class DeviceConnection {
 	}
 
 	/** 订阅蓝牙适配器开关变化 */
-	onBluetoothAdapterStateChange(): void {
+	onBluetoothAdapterStateChange(force: boolean = false): void {
 		//#ifndef H5
+		if (this._adapterStateListening == true && force == false) return;
+		this._adapterStateListening = true;
 		logger.info("bluetooth", "开始监听蓝牙适配器状态变化");
 		onAdapterStateChange((res) => {
 			logger.info(
@@ -95,6 +124,11 @@ export class DeviceConnection {
 			} else {
 				// 蓝牙开启：自动恢复（已绑定→广播扫描，未绑定→配对扫描）
 				logger.info("bluetooth", "蓝牙已开启");
+				if (this._adapterResetting == true) {
+					logger.info("bluetooth", "[SCAN] 适配器重置中，跳过状态回调自动扫描");
+					this.device.errorMessage.value = "";
+					return;
+				}
 				if (this.device.boundDeviceId == "") {
 					this.device.status.value = "PAIRING";
 					this.startPairingScan();
@@ -153,6 +187,10 @@ export class DeviceConnection {
 	}
 
 	private async startBoundBroadcastScan(): Promise<boolean> {
+		if (this._isSearching == true && this._scanPurpose == "boundBroadcast") {
+			logger.info("bluetooth", "[SCAN] 绑定广播扫描已在进行,跳过重复启动");
+			return true;
+		}
 		await this.stopBluetoothSearch();
 		this.device.history.stopVitalHistoryPolling();
 		if (this.device.boundDeviceId == "") return false;
@@ -187,15 +225,25 @@ export class DeviceConnection {
 	private async resetAdapterBeforeBroadcastScan(reason: string): Promise<void> {
 		//#ifndef H5
 		try {
-			logger.warn("bluetooth", `[SCAN] 广播扫描无回调，重置 App 蓝牙适配器: ${reason}`);
+			this._adapterResetting = true;
+			logger.warn("bluetooth", `[SCAN] 重建蓝牙扫描栈: ${reason}`);
 			await closeAdapter();
+			recreateKuxBluetooth(reason);
+			this._adapterStateListening = false;
+			this._connectionStateListening = false;
+			this.device.event.resetKuxListener();
+			this.onBluetoothAdapterStateChange(true);
+			this.onBLEConnectionStateChange(true);
+			this.device.event.onCharacteristicValueChange(true);
 			await sleepTimeout(500);
 			await openAdapter();
 			this.device.available = true;
 			this.device.discovering = false;
 			this.device.touchState();
 		} catch (e) {
-			logger.warn("bluetooth", "[SCAN] 重置 App 蓝牙适配器失败:", e);
+			logger.warn("bluetooth", "[SCAN] 重建蓝牙扫描栈失败:", e);
+		} finally {
+			this._adapterResetting = false;
 		}
 		//#endif
 	}
@@ -263,6 +311,9 @@ export class DeviceConnection {
 				ok = await startDiscovery();
 			}
 			if (ok == false) {
+				ok = await this.hardRecoverAndStartScan(purpose, "startDiscovery failed");
+			}
+			if (ok == false) {
 				this.device.status.value = "UNPAIRED";
 				this.device.errorMessage.value = t("搜索设备失败,请检查蓝牙和位置权限");
 				this._isSearching = false;
@@ -285,6 +336,54 @@ export class DeviceConnection {
 			offDeviceFound();
 			logger.error("bluetooth", "[SCAN] 扫描异常", `${e}`);
 			throw e;
+		}
+		//#endif
+		return false;
+	}
+
+	private async hardRecoverAndStartScan(purpose: ScanPurpose, reason: string): Promise<boolean> {
+		//#ifndef H5
+		if (this._scanHardRecovering == true) return false;
+		const now = Date.now();
+		if (
+			this._lastScanHardRecoverAt > 0 &&
+			now - this._lastScanHardRecoverAt < DeviceConnection.SCAN_HARD_RECOVERY_COOLDOWN_MS
+		) {
+			logger.warn("bluetooth", `[SCAN] 硬恢复冷却中，跳过: purpose=${purpose}`);
+			return false;
+		}
+		this._scanHardRecovering = true;
+		this._lastScanHardRecoverAt = now;
+		try {
+			logger.warn("bluetooth", `[SCAN] 扫描启动失败，执行硬恢复: ${reason}`);
+			this._clearPairingScanTimeout();
+			await stopDiscovery();
+			offDeviceFound();
+			this._isSearching = false;
+			this._scanPurpose = "none";
+			this.device.broadcast.markScanStopped();
+			await this.resetAdapterBeforeBroadcastScan(reason);
+			await sleepTimeout(DeviceConnection.BOUND_BROADCAST_RESTART_DELAY_MS);
+
+			this._isSearching = true;
+			this._scanPurpose = purpose;
+			this.device.broadcast.setBoundBroadcastScanning(purpose == "boundBroadcast");
+			offDeviceFound();
+			onDeviceFound((devices) => {
+				this.handleScannedDevices(devices);
+			});
+			const ok = await startDiscovery();
+			if (ok == true) {
+				logger.info("bluetooth", `[SCAN] 硬恢复后扫描已启动,purpose=${purpose}`);
+				return true;
+			}
+			this._isSearching = false;
+			this._scanPurpose = "none";
+			this.device.broadcast.markScanStopped();
+			offDeviceFound();
+			return false;
+		} finally {
+			this._scanHardRecovering = false;
 		}
 		//#endif
 		return false;
@@ -590,8 +689,10 @@ export class DeviceConnection {
 	}
 
 	/** 订阅 GATT 连接状态变化 */
-	onBLEConnectionStateChange(): void {
+	onBLEConnectionStateChange(force: boolean = false): void {
 		//#ifndef H5
+		if (this._connectionStateListening == true && force == false) return;
+		this._connectionStateListening = true;
 		onConnectionStateChange((res) => {
 			logger.info("bluetooth", "蓝牙连接状态变化:", res);
 			if (res.connected) {

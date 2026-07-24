@@ -50,9 +50,8 @@ async function runKeepAliveTickAsync(reason: KeepAliveTickReason): Promise<void>
 		const { device } = useStore();
 		if (device.boundDeviceId != "") {
 			bluetoothDataManager.setDeviceInfo(device.getDisplayDeviceName(), device.boundDeviceId);
+			// 保活 tick 不直接初始化蓝牙/GATT，避免和前台扫描、任务队列抢 BLE 通道。
 			device.sync.startAutoRepair();
-			await device.connection.initBluetooth();
-			await device.sync.requestHistorySync(reason == "show" ? "manual" : "timer");
 		}
 		await bluetoothDataManager.uploadData();
 		logger.info("keepalive", "保活任务完成", reason);
