@@ -72,11 +72,12 @@ export function request(options: RequestOptions): Promise<any | null> {
 	return new Promise((resolve, reject) => {
 		// 带提示的拒绝函数
 		const rejectWithNotice = (res: Response) => {
+			const message = res.message ?? t("请求失败");
 			defaultErrorNotice.show({
-				message: res.message ?? t("请求失败"),
+				message,
 				showType: showError
 			});
-			reject(res);
+			reject(message);
 		};
 
 		// 发起请求的实际函数
@@ -196,7 +197,7 @@ export function request(options: RequestOptions): Promise<any | null> {
 						url,
 						message,
 						duration: Date.now() - startedAt,
-						detail: err
+						detail: message
 					});
 					rejectWithNotice({ message } as Response);
 				}

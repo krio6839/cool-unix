@@ -41,11 +41,11 @@
 						</view>
 						<view class="status-cell">
 							<text class="cell-label">{{ t("设备编号") }}</text>
-							<text class="cell-value">{{ deviceStore.event.deviceNumber }}</text>
+							<text class="cell-value">{{ deviceNumberText }}</text>
 						</view>
 						<view class="status-cell">
 							<text class="cell-label">{{ t("BOOM 时戳") }}</text>
-							<text class="cell-value">{{ deviceStore.event.boomTimestamp }}</text>
+							<text class="cell-value">{{ boomTimestampText }}</text>
 						</view>
 						<view class="status-cell">
 							<text class="cell-label">{{ t("生物识别") }}</text>
@@ -1027,6 +1027,16 @@ const bioText = computed<string>(() => {
 	const b = deviceStore.event.biometricInfo.value;
 	if (b == null) return "-";
 	return formatBiometric(b);
+});
+
+const deviceNumberText = computed<string>(() => {
+	const value = deviceStore.event.deviceNumber.value;
+	return value == "" ? "-" : value;
+});
+
+const boomTimestampText = computed<string>(() => {
+	const value = deviceStore.event.boomTimestamp.value;
+	return value <= 0 ? "-" : value.toString();
 });
 
 function sameBiometric(a: VitalBiometric | null, b: VitalBiometric): boolean {

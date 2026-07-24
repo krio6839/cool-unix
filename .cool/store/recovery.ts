@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { request } from "../service";
-import { isArray, isNull, isObject, parse } from "../utils";
+import { getErrorMessage, isArray, isNull, isObject, parse } from "../utils";
 import type { SuperRecoveryApiResponse, AtlCtlTrendData } from "../types/recovery";
 
 export class Recovery {
@@ -28,7 +28,7 @@ export class Recovery {
 				.catch((err) => {
 					console.error("获取超量恢复状态失败:", err);
 					this.clear();
-					reject(err);
+					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
 	}
@@ -49,7 +49,7 @@ export class Recovery {
 				.catch((err) => {
 					console.error("获取超量恢复趋势失败:", err);
 					this.clear();
-					reject(err);
+					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
 	}

@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { request } from "../service";
-import { isNull, isObject, parse } from "../utils";
+import { getErrorMessage, isNull, isObject, parse } from "../utils";
 import type { StatusApiResponse } from "../types/status";
 import type { TimeValuePair, DateValuePair } from "../types/common";
 
@@ -35,7 +35,7 @@ export class Status {
 				.catch((err) => {
 					console.error("获取状态数据失败:", err);
 					this.clear();
-					reject(err);
+					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
 	}
@@ -62,7 +62,7 @@ export class Status {
 				.catch((err) => {
 					console.error("获取准备度数据失败:", err);
 					this.readinessData.value = [];
-					reject(err);
+					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
 	}

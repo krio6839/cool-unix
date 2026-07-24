@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { request } from "../service";
-import { isArray, isNull, isObject, parse } from "../utils";
+import { getErrorMessage, isArray, isNull, isObject, parse } from "../utils";
 import type { LoadStatusApiResponse, LoadZones, HeartRateZoneItems } from "../types/load";
 import type { TimeValuePair, DateValuePair } from "../types/common";
 
@@ -41,7 +41,7 @@ export class Load {
 				})
 				.catch((err) => {
 					console.error("获取负荷状态失败:", err);
-					reject(err);
+					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
 	}
@@ -63,7 +63,7 @@ export class Load {
 				})
 				.catch((err) => {
 					console.error("获取负荷趋势失败:", err);
-					reject(err);
+					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
 	}
@@ -84,7 +84,7 @@ export class Load {
 				})
 				.catch((err) => {
 					console.error("获取运动负荷失败:", err);
-					reject(err);
+					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
 	}
@@ -105,7 +105,7 @@ export class Load {
 				})
 				.catch((err) => {
 					console.error("获取睡眠压力失败:", err);
-					reject(err);
+					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
 	}

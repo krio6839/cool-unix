@@ -1,6 +1,15 @@
 import { config } from "@/config";
 import { request } from "../service";
-import { basename, extname, filename, parse, parseObject, pathJoin, uuid } from "../utils";
+import {
+	basename,
+	extname,
+	filename,
+	getErrorMessage,
+	parse,
+	parseObject,
+	pathJoin,
+	uuid
+} from "../utils";
 import { useStore } from "../store";
 
 // 上传进度回调结果类型
@@ -150,7 +159,7 @@ export async function uploadFile(
 						if (code == 1000) {
 							resolve(data);
 						} else {
-							reject(message);
+							reject(message ?? "upload failed");
 						}
 					} else {
 						// 云上传直接拼接url
@@ -159,7 +168,7 @@ export async function uploadFile(
 				},
 				fail(err) {
 					console.error(err);
-					reject(err);
+					reject(getErrorMessage(err, "uploadFile failed"));
 				}
 			});
 

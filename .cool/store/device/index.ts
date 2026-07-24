@@ -160,7 +160,7 @@ export class Device {
 		this.connection.onBluetoothAdapterStateChange();
 		this.connection.onBLEConnectionStateChange();
 		this.event.onCharacteristicValueChange();
-		this.connection.initBluetooth();
+		this.connection.initBluetoothSafely();
 		if (this.boundDeviceId != "") {
 			this.sync.startAutoRepair();
 		}

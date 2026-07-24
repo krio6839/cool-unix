@@ -25,11 +25,6 @@ export function isString(value: any): boolean {
 	return typeof value == "string";
 }
 
-type ErrorMessageLike = {
-	message?: string | null;
-	errMsg?: string | null;
-};
-
 /**
  * 安全获取错误消息，兼容后端和平台返回的不同错误对象。
  */
@@ -40,17 +35,6 @@ export function getErrorMessage(err?: any | null, fallback: string = ""): string
 
 	if (err == null || !isObject(err)) {
 		return fallback;
-	}
-
-	const error = err as ErrorMessageLike;
-	const message = error.message;
-	if (typeof message == "string") {
-		return `${message}`;
-	}
-
-	const errMsg = error.errMsg;
-	if (typeof errMsg == "string") {
-		return `${errMsg}`;
 	}
 
 	return fallback;

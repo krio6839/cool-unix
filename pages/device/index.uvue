@@ -32,7 +32,7 @@
 
 		<!-- 已连接状态 -->
 		<!-- #ifndef H5 -->
-		<view v-if="deviceStore.status.value == 'CONNECTED'" class="flex-1">
+		<view v-show="isConnected" class="flex-1">
 			<ConnectedState
 				:connectedDeviceName="connectedDeviceName"
 				@click="handleConfirmClick"
@@ -40,23 +40,15 @@
 		</view>
 
 		<!-- 配对状态和搜索状态 -->
-		<view
-			v-else-if="
-				deviceStore.status.value == 'PAIRING' || deviceStore.status.value == 'SEARCHING'
-			"
-			class="flex-1"
-		>
+		<view v-show="isPairingOrSearching" class="flex-1">
 			<PairingState
-				:searching="deviceStore.status.value == 'SEARCHING'"
+				:searching="isSearching"
 				@select="onSelect"
 			></PairingState>
 		</view>
 
 		<!-- 错误提示 -->
-		<view
-			v-else-if="deviceStore.errorMessage.value != ''"
-			class="flex-1 flex flex-col items-center justify-center px-8"
-		>
+		<view v-show="hasDeviceError" class="flex-1 flex flex-col items-center justify-center px-8">
 			<cl-text color="red" :size="16" class="mb-4">
 				{{ deviceStore.errorMessage.value }}
 			</cl-text>
@@ -66,7 +58,7 @@
 		</view>
 
 		<!-- 未配对状态 -->
-		<view v-else class="flex-1">
+		<view v-show="showUnpairedState" class="flex-1">
 			<UnpairedState @click="enterPairingMode"></UnpairedState>
 		</view>
 
@@ -104,10 +96,30 @@ watch(
 
 const connectedDeviceName = ref<string>("Cool Unix 设备");
 
+const isConnected = computed<boolean>(() => {
+	return deviceStore.status.value == "CONNECTED";
+});
+
+const isSearching = computed<boolean>(() => {
+	return deviceStore.status.value == "SEARCHING";
+});
+
+const isPairingOrSearching = computed<boolean>(() => {
+	return deviceStore.status.value == "PAIRING" || deviceStore.status.value == "SEARCHING";
+});
+
+const hasDeviceError = computed<boolean>(() => {
+	return deviceStore.errorMessage.value != "";
+});
+
+const showUnpairedState = computed<boolean>(() => {
+	return isConnected.value == false && isPairingOrSearching.value == false && hasDeviceError.value == false;
+});
+
 const titleText = computed(() => {
-	if (deviceStore.status.value == "CONNECTED") {
+	if (isConnected.value == true) {
 		return t("设备详情");
-	} else if (deviceStore.status.value == "PAIRING" || deviceStore.status.value == "SEARCHING") {
+	} else if (isPairingOrSearching.value == true) {
 		return t("产品配对");
 	} else {
 		return t("未配对");
@@ -156,7 +168,7 @@ function goDetail() {
 }
 
 function retry() {
-	deviceStore.connection.initBluetooth();
+	deviceStore.connection.initBluetoothSafely();
 }
 </script>
 

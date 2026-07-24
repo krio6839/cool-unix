@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { request } from "../service";
-import { isNull, isObject, parse } from "../utils";
+import { getErrorMessage, isNull, isObject, parse } from "../utils";
 import type { BodyMetricsApiResponse } from "../types/metrics";
 import type { DateValuePair } from "../types/common";
 
@@ -36,7 +36,7 @@ export class Metrics {
 				.catch((err) => {
 					console.error("获取身体指标失败:", err);
 					this.clear();
-					reject(err);
+					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
 	}

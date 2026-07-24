@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { request } from "../service";
-import { isNull, isObject, parse } from "../utils";
+import { getErrorMessage, isNull, isObject, parse } from "../utils";
 import type {
 	SleepStatusApiResponse,
 	SleepMetricApiResponse,
@@ -49,7 +49,7 @@ export class Sleep {
 				.catch((err) => {
 					console.error("获取睡眠状态失败:", err);
 					this.clearStatus();
-					reject(err);
+					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
 	}
@@ -70,7 +70,7 @@ export class Sleep {
 				.catch((err) => {
 					console.error("获取睡眠指标失败:", err);
 					this.clearMetric();
-					reject(err);
+					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
 	}
@@ -91,7 +91,7 @@ export class Sleep {
 				.catch((err) => {
 					console.error("获取睡眠趋势失败:", err);
 					this.clearTrend();
-					reject(err);
+					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
 	}
@@ -112,7 +112,7 @@ export class Sleep {
 				.catch((err) => {
 					console.error("获取睡眠模式失败:", err);
 					this.clearSleepMode();
-					reject(err);
+					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
 	}

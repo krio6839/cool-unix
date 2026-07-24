@@ -67,6 +67,12 @@ export class DeviceConnection {
 		//#endif
 	}
 
+	initBluetoothSafely(): void {
+		this.initBluetooth().catch((e) => {
+			logger.error("bluetooth", "[BOOM] 初始化蓝牙失败:", e);
+		});
+	}
+
 	/** 订阅蓝牙适配器开关变化 */
 	onBluetoothAdapterStateChange(): void {
 		//#ifndef H5
@@ -93,7 +99,7 @@ export class DeviceConnection {
 					this.device.status.value = "PAIRING";
 					this.startPairingScan();
 				} else if (this.device.currentDeviceId == "") {
-					this.startBoundBroadcastScan();
+					this.startBoundBroadcastScanSafely("adapter available");
 				}
 				this.device.errorMessage.value = "";
 			}
@@ -160,6 +166,12 @@ export class DeviceConnection {
 			this.device.touchState();
 		}
 		return ok;
+	}
+
+	private startBoundBroadcastScanSafely(reason: string): void {
+		this.startBoundBroadcastScan().catch((e) => {
+			logger.error("bluetooth", `[SCAN] 恢复绑定广播扫描失败: ${reason}`, e);
+		});
 	}
 
 	async restartBoundBroadcastScan(reason: string): Promise<boolean> {
@@ -599,7 +611,7 @@ export class DeviceConnection {
 					return;
 				}
 				logger.info("bluetooth", "连接状态回调: 已连接", res.deviceId);
-				this._initializeConnectedDevice(res.deviceId);
+				this.initializeConnectedDeviceSafely(res.deviceId);
 			} else {
 				if (res.deviceId == this.device.currentDeviceId) {
 					logger.warn("bluetooth", "连接状态回调: 已断开", res.deviceId);
@@ -611,11 +623,17 @@ export class DeviceConnection {
 						return;
 					}
 					this._resetConnectionState();
-					this.startBoundBroadcastScan();
+					this.startBoundBroadcastScanSafely("connection disconnected");
 				}
 			}
 		});
 		//#endif
+	}
+
+	private initializeConnectedDeviceSafely(deviceId: string): void {
+		this._initializeConnectedDevice(deviceId).catch((e) => {
+			logger.error("bluetooth", "[BOOM] 连接状态回调初始化设备失败:", e);
+		});
 	}
 
 	private shouldIgnoreConnectedCallback(deviceId: string): boolean {

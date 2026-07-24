@@ -46,7 +46,7 @@ export class Energy {
 						resolve();
 						return;
 					}
-					reject(err);
+					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
 	}
@@ -78,7 +78,7 @@ export class Energy {
 						resolve();
 						return;
 					}
-					reject(err);
+					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
 	}

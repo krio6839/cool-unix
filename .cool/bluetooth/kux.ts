@@ -7,6 +7,7 @@ type UniError = any;
 //@ts-ignore
 import { useKuxBluetooth } from "@/uni_modules/kux-bluetooth";
 import { logger } from "../service/logger";
+import { getErrorMessage } from "../utils";
 
 import type {
 	IBluetooth,
@@ -65,7 +66,7 @@ export function openAdapter(): Promise<OpenBluetoothAdapterSuccess> {
 					} as OpenBluetoothAdapterSuccess);
 					return;
 				}
-				reject(err);
+				reject(getErrorMessage(err, "openBluetoothAdapter failed"));
 			}
 		});
 	});
@@ -152,7 +153,7 @@ export function getServices(deviceId: string): Promise<GetBLEDeviceServicesSucce
 		kx.getBLEDeviceServices({
 			deviceId,
 			success: (res: GetBLEDeviceServicesSuccess) => resolve(res.services ?? []),
-			fail: (err: any) => reject(err)
+			fail: (err: any) => reject(getErrorMessage(err, "getBLEDeviceServices failed"))
 		});
 	});
 }
@@ -217,7 +218,7 @@ export function writeCharacteristic(
 			},
 			fail: (_err: any) => {
 				logger.warn("bluetooth", "[BLE] write 失败", `${charId}, ${_err}`);
-				reject(false);
+				reject(getErrorMessage(_err, "writeBLECharacteristicValue failed"));
 			}
 		});
 	});

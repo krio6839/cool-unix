@@ -1,5 +1,5 @@
 import { ref } from "vue";
-import { isNull, isObject, parse } from "../utils";
+import { getErrorMessage, isNull, isObject, parse } from "../utils";
 import type { HomeData, HealthStatus, HealthCardValues, TrainingDetails } from "../types/home";
 import { request } from "../service";
 
@@ -43,7 +43,7 @@ export class Home {
 				.catch((err) => {
 					console.error("获取首页数据失败:", err);
 					this.clear();
-					reject(err);
+					reject(getErrorMessage(err, "请求失败"));
 				});
 		});
 	}
