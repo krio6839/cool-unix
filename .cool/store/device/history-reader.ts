@@ -196,7 +196,7 @@ export class DeviceHistoryReader {
 			if (this.eventReadActive == false) {
 				logger.warn(
 					"bluetooth",
-					`[BOOM] 忽略非活跃事件响应: t=0x${t.toString(16)}, vBytes=${vHex.length / 2}`
+					`[BOOM] 忽略迟到/重复事件响应: t=0x${t.toString(16)}, vBytes=${vHex.length / 2}, 当前没有活跃事件读取`
 				);
 				return;
 			}
@@ -215,7 +215,7 @@ export class DeviceHistoryReader {
 				}
 				logger.info(
 					"bluetooth",
-					`[BOOM] 事件头: type=${header.type}, earliestSn=${header.earliestSn}, latestSn=${header.latestSn}`
+					`[BOOM] 事件头(0x3C): type=${header.type}, snRange=${header.earliestSn}~${header.latestSn}, timeRange=${header.earliestSec} ${this.formatMaybeTime(header.earliestSec)} ~ ${header.latestSec} ${this.formatMaybeTime(header.latestSec)}`
 				);
 			} else {
 				const r = parseLogDataList(vHex, 2);
@@ -226,6 +226,7 @@ export class DeviceHistoryReader {
 					"bluetooth",
 					`[BOOM] 事件批次解析: t=0x${t.toString(16)}, vBytes=${vHex.length / 2}, count=${r.items.length}, unique=${items.length}, nextOff=${r.nextOff}`
 				);
+				this.logEventItems("[BOOM] 事件批次明细(0x3D)", items, 12);
 				if (items.length > 0) {
 					this.eventDataListRaw = this.eventDataListRaw.concat(items);
 					if (this.displaySuspended == false) {
@@ -853,6 +854,7 @@ export class DeviceHistoryReader {
 		if (header != null) {
 			items = this.filterEventItemsByHeaderRange(items, header);
 		}
+		this.logEventReadResult(status, message, header, pages, items);
 		return {
 			status,
 			message,
@@ -973,6 +975,7 @@ export class DeviceHistoryReader {
 				"bluetooth",
 				`[BOOM] 事件按 globalSn 范围过滤: ${batch.length} -> ${filteredBatch.length}, range=${header.earliestSn}~${header.latestSn}`
 			);
+			this.logEventItems("[BOOM] 事件过滤后明细", filteredBatch, 12);
 		}
 		return filteredBatch;
 	}
@@ -1123,6 +1126,48 @@ export class DeviceHistoryReader {
 			lines.push("... 还有更多事件，测试页可查看完整明细");
 		}
 		return lines.join("\n");
+	}
+
+	private logEventReadResult(
+		status: HistoryReadStatus,
+		message: string,
+		header: EventDataHeaderResponse | null,
+		pages: number,
+		items: LogDataItem[]
+	): void {
+		let headerText = "header=null";
+		if (header != null) {
+			headerText = `header type=${header.type}, snRange=${header.earliestSn}~${header.latestSn}, timeRange=${this.formatMaybeTime(header.earliestSec)}~${this.formatMaybeTime(header.latestSec)}`;
+		}
+		logger.info(
+			"bluetooth",
+			`[BOOM] 事件读取结果: status=${status}, message=${message}, pages=${pages}, items=${items.length}, ${headerText}`
+		);
+		this.logEventItems("[BOOM] 事件最终明细", items, 20);
+	}
+
+	private logEventItems(title: string, items: LogDataItem[], maxLines: number): void {
+		if (items.length == 0) {
+			logger.info("bluetooth", `${title}: empty`);
+			return;
+		}
+		let limit = maxLines;
+		if (limit <= 0) limit = 10;
+		const lines: string[] = [
+			`${title}: count=${items.length}, showing=${items.length < limit ? items.length : limit}`
+		];
+		for (let i = 0; i < items.length && i < limit; i++) {
+			lines.push(this.formatEventItemForLog(items[i], i));
+		}
+		if (items.length > limit) {
+			lines.push(`... truncated ${items.length - limit}`);
+		}
+		logger.info("bluetooth", lines.join("\n"));
+	}
+
+	private formatEventItemForLog(item: LogDataItem, index: number): string {
+		const typeName = LOG_EVENT_NAMES[item.eventType] ?? "?";
+		return `#${index} globalSn=${item.header.globalSn}, sn=${item.header.sn}, ts=${item.ts} ${this.formatMaybeTime(item.ts)}, tick=${item.tick}, type=${item.eventType}(${typeName}), len=${item.dataLen}, data=${item.eventDataHex}, parsed=${this.formatEventParsedForDetail(item.eventType, item.parsedEvent)}`;
 	}
 
 	private formatEventParsedForDetail(eventType: number, parsed: UTSJSONObject): string {

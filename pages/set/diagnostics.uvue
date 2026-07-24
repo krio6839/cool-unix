@@ -5,14 +5,14 @@
 				<cl-text :size="18" :pt="{ className: 'font-bold mb-1' }">诊断日志</cl-text>
 				<cl-text :size="12" :pt="{ className: 'opacity-60 leading-5' }">
 					本机保留最近 {{ maxLogs }} 条，当前
-					{{ logs.length }} 条。超过上限自动覆盖最旧日志。
+					{{ totalLogs }} 条。超过上限自动覆盖最旧日志。
 				</cl-text>
 			</view>
 
 			<view class="summary-grid">
 				<view class="summary-cell">
 					<text class="summary-label">当前条数</text>
-					<text class="summary-value">{{ logs.length }}</text>
+					<text class="summary-value">{{ totalLogs }}</text>
 				</view>
 				<view class="summary-cell">
 					<text class="summary-label">保留上限</text>
@@ -54,13 +54,15 @@ import { useUi } from "@/uni_modules/cool-ui";
 const ui = useUi();
 const logs = ref<string[]>([]);
 const text = ref("");
+const totalLogs = ref(0);
 const maxLogs = diagnostics.getMaxLogs();
-const copyModeText = ref("全部");
+const copyModeText = ref("最近200条");
 
-function refreshLogs(): void {
-	logs.value = diagnostics.getLogs();
-	text.value = diagnostics.toText();
-	copyModeText.value = "全部";
+async function refreshLogs(): Promise<void> {
+	logs.value = await diagnostics.getLogsAsync(200);
+	totalLogs.value = await diagnostics.getLogCountAsync();
+	text.value = await diagnostics.toTextAsync(200);
+	copyModeText.value = "最近200条";
 }
 
 function copyText(value: string, message: string): void {
@@ -75,21 +77,25 @@ function copyText(value: string, message: string): void {
 	});
 }
 
-function copyAllLogs(): void {
-	refreshLogs();
+async function copyAllLogs(): Promise<void> {
+	logs.value = await diagnostics.getLogsAsync();
+	totalLogs.value = logs.value.length;
+	text.value = await diagnostics.toTextAsync();
+	copyModeText.value = "全部";
 	copyText(text.value, "已复制全部日志");
 }
 
-function copyRecentLogs(): void {
-	logs.value = diagnostics.getLogs();
-	text.value = diagnostics.toText(200);
+async function copyRecentLogs(): Promise<void> {
+	logs.value = await diagnostics.getLogsAsync(200);
+	totalLogs.value = await diagnostics.getLogCountAsync();
+	text.value = await diagnostics.toTextAsync(200);
 	copyModeText.value = "最近200条";
 	copyText(text.value, "已复制最近200条");
 }
 
-function clearLogs(): void {
-	diagnostics.clear();
-	refreshLogs();
+async function clearLogs(): Promise<void> {
+	await diagnostics.clear();
+	await refreshLogs();
 	ui.showToast({
 		message: "诊断日志已清空",
 		icon: "success"
@@ -97,7 +103,7 @@ function clearLogs(): void {
 }
 
 onShow(() => {
-	refreshLogs();
+	void refreshLogs();
 });
 </script>
 
