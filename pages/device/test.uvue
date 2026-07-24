@@ -610,6 +610,18 @@
 						<view class="event-window-button" @tap="setEventWindowMinutes(1440)">
 							<text class="event-window-button-text">{{ t("近24小时") }}</text>
 						</view>
+						<view class="event-window-button" @tap="setEventWindowMinutes(10080)">
+							<text class="event-window-button-text">{{ t("近一周") }}</text>
+						</view>
+						<view class="event-window-button" @tap="setEventWindowMinutes(43200)">
+							<text class="event-window-button-text">{{ t("近一月") }}</text>
+						</view>
+						<view
+							class="event-window-button event-window-button-danger"
+							@tap="setEventWindowAll"
+						>
+							<text class="event-window-button-text">{{ t("全部") }}</text>
+						</view>
 					</view>
 					<view class="mb-3">
 						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
@@ -641,7 +653,7 @@
 					</view>
 					<view class="mb-3">
 						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("续读最大条数") }}
+							{{ t("每批条数") }}
 							<cl-text color="error">*</cl-text>
 						</cl-text>
 						<cl-input
@@ -798,6 +810,8 @@ import { computed, reactive, ref } from "vue";
 import {
 	DEVICE_NUMBER_MAX_LEN,
 	DOC_EXAMPLES_BY_T,
+	EVENT_QUERY_TYPE_ALL,
+	EVENT_QUERY_TYPE_BY_TIME,
 	PPG_POSITION_OPTIONS,
 	dayUts,
 	decodeAdvStatus,
@@ -1340,8 +1354,11 @@ const minutesOptions: ClSelectOption[] = [
 	{ label: t("5 分钟"), value: 5 }
 ];
 
-/** 事件查询类型：文档 1.4.4.10 示例固定 Byte1=1，按时间窗口读取全部事件类型 */
-const eventTypeOptions: ClSelectOption[] = [{ label: t("按时间读取全部事件 (1)"), value: 1 }];
+/** 事件查询类型：Byte1=0 全部，Byte1=1 按时间窗口 */
+const eventTypeOptions: ClSelectOption[] = [
+	{ label: t("按时间读取全部事件 (1)"), value: EVENT_QUERY_TYPE_BY_TIME },
+	{ label: t("读取全部事件 (0)"), value: EVENT_QUERY_TYPE_ALL }
+];
 
 /** 性别选项（0=男 1=女） */
 const genderOptions: ClSelectOption[] = [
@@ -1394,7 +1411,15 @@ function syncEventWindowSec(startSec: number, endSec: number): void {
 function setEventWindowMinutes(minutes: number): void {
 	const now = getNowSec();
 	const start = now - minutes * 60;
+	formType.value = EVENT_QUERY_TYPE_BY_TIME;
 	syncEventWindowSec(start, now);
+}
+
+function setEventWindowAll(): void {
+	formType.value = EVENT_QUERY_TYPE_ALL;
+	formStartSec.value = "0";
+	formEndSec.value = "0";
+	formEventRange.value = [];
 }
 
 function parseEventPickerSec(value: string): number {
@@ -1405,6 +1430,9 @@ function parseEventPickerSec(value: string): number {
 }
 
 const eventWindowPreviewText = computed<string>(() => {
+	if (formType.value == EVENT_QUERY_TYPE_ALL) {
+		return t("读取全部事件，不使用时间范围");
+	}
 	let startSec = parseInt(formStartSec.value, 10);
 	let endSec = parseInt(formEndSec.value, 10);
 	if (formEventRange.value.length >= 2) {
@@ -1440,9 +1468,9 @@ function openForm(cmd: "0x31" | "0x35" | "0x3A" | "0x3C"): void {
 			break;
 		case "0x3C": {
 			const now = getNowSec();
-			formType.value = 1;
-			syncEventWindowSec(now - 3600, now);
-			formMaxCount.value = "10";
+			formType.value = EVENT_QUERY_TYPE_BY_TIME;
+			syncEventWindowSec(now - 24 * 60 * 60, now);
+			formMaxCount.value = "30";
 			break;
 		}
 	}
@@ -1594,7 +1622,7 @@ async function submitForm(): Promise<void> {
 		case "0x3C": {
 			let startSec = parseInt(formStartSec.value, 10);
 			let endSec = parseInt(formEndSec.value, 10);
-			if (formEventRange.value.length >= 2) {
+			if (formType.value == EVENT_QUERY_TYPE_BY_TIME && formEventRange.value.length >= 2) {
 				const pickedStart = parseEventPickerSec(formEventRange.value[0]);
 				const pickedEnd = parseEventPickerSec(formEventRange.value[1]);
 				if (pickedStart > 0 && pickedEnd > 0) {
@@ -1604,13 +1632,23 @@ async function submitForm(): Promise<void> {
 					formEndSec.value = endSec.toString();
 				}
 			}
-			if (Number.isNaN(startSec) || startSec <= 0 || Number.isNaN(endSec) || endSec <= 0) {
-				ui.showToast({ message: t("起止时戳必须是正数"), type: "error" });
-				return;
-			}
-			if (endSec <= startSec) {
-				ui.showToast({ message: t("结束时戳必须大于起始时戳"), type: "error" });
-				return;
+			if (formType.value == EVENT_QUERY_TYPE_BY_TIME) {
+				if (
+					Number.isNaN(startSec) ||
+					startSec <= 0 ||
+					Number.isNaN(endSec) ||
+					endSec <= 0
+				) {
+					ui.showToast({ message: t("起止时戳必须是正数"), type: "error" });
+					return;
+				}
+				if (endSec <= startSec) {
+					ui.showToast({ message: t("结束时戳必须大于起始时戳"), type: "error" });
+					return;
+				}
+			} else {
+				startSec = 0;
+				endSec = 0;
 			}
 			const maxCount = parseInt(formMaxCount.value, 10);
 			const finalMaxCount = Number.isNaN(maxCount) || maxCount <= 0 ? 10 : maxCount;
@@ -1622,7 +1660,9 @@ async function submitForm(): Promise<void> {
 				eventAutoDetail.value = "-";
 				setCommandResponse(
 					"EVENT",
-					`${t("0x3C 已开始")} ${formatEventWindowTime(startSec)} ~ ${formatEventWindowTime(endSec)}`
+					formType.value == EVENT_QUERY_TYPE_ALL
+						? t("0x3C 已开始，读取全部事件")
+						: `${t("0x3C 已开始")} ${formatEventWindowTime(startSec)} ~ ${formatEventWindowTime(endSec)}`
 				);
 				const result = await deviceStore.history.readEventDataAuto({
 					type: formType.value,
@@ -2284,6 +2324,11 @@ function testClearError(): void {
 	display: flex;
 	align-items: center;
 	justify-content: center;
+}
+
+.event-window-button-danger {
+	background-color: rgba(255, 180, 80, 0.14);
+	border-color: rgba(255, 180, 80, 0.28);
 }
 
 .event-window-button-text {

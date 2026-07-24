@@ -88,10 +88,15 @@ export function closeAdapter(): Promise<boolean> {
 }
 
 // ====== 扫描 ======
-export function startDiscovery(): Promise<boolean> {
+export function startDiscovery(deviceId: string = ""): Promise<boolean> {
 	return new Promise((resolve) => {
-		logger.info("bluetooth", "[SCAN] startDiscovery 请求");
+		logger.info(
+			"bluetooth",
+			"[SCAN] startDiscovery 请求",
+			deviceId == "" ? "" : `deviceId=${deviceId}`
+		);
 		kx.startBluetoothDevicesDiscovery({
+			deviceId,
 			allowDuplicatesKey: true,
 			powerLevel: "high",
 			success: (res: ApiCommonSuccessCallback) => {

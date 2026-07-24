@@ -733,6 +733,14 @@ export class BluetoothManager implements IBluetooth {
 			// 设置过滤器
 			const filters: ArrayList<ScanFilter> = new ArrayList<ScanFilter>();
 			const uuids: string[] = options.services ?? [];
+			const filterDeviceId = options.deviceId ?? "";
+
+			if (filterDeviceId.length > 0) {
+				const filter: ScanFilter = new ScanFilter.Builder()
+					.setDeviceAddress(filterDeviceId)
+					.build();
+				filters.add(filter);
+			}
 
 			if (uuids.length > 0) {
 				uuids.forEach((item) => {

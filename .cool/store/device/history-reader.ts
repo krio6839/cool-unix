@@ -90,22 +90,24 @@ const DEFAULT_TIMEOUT_MS = 8000;
 const DEFAULT_MAX_PAGES = 100;
 /** 连续发送 0x3B/0x3D 前的短暂停顿，给设备一点处理时间。 */
 const DEFAULT_PAGE_DELAY_MS = 250;
+/** 0x3D 一次续读可能连续吐多个 TLVC，收到首批后等待短暂静默再认为本次响应结束。 */
+const EVENT_BATCH_SETTLE_MS = 600;
 
-/* ===== 连接态近实时历史轮询 ===== */
-/** 连接模式下每 2 分钟自动补一次最近生命体征窗口。 */
-const VITAL_POLL_INTERVAL_MS = 120000;
-/** 近实时轮询只关心最近 120 秒。更大的缺口后续由明确的 GATT 任务按需补。 */
-const VITAL_POLL_WINDOW_SECONDS = 120;
+/* ===== 最近窗口生命体征补拉 ===== */
+/** GATT 任务结束前后补最近 120 秒，填补连接期间漏掉的广播数据。 */
+const RECENT_VITAL_WINDOW_SECONDS = 120;
 /** 0x3A 查询方向：0=向前读，1=向后读。这里按时间向后续页推进。 */
-const VITAL_POLL_DIRECTION = 0;
-/** 近实时轮询每页读 2 分钟，减少单次连接态轮询的响应体积。 */
-const VITAL_POLL_MINUTES = 2;
+const RECENT_VITAL_DIRECTION = 0;
+/** 最近窗口每页读 2 分钟，响应体积较小。 */
+const RECENT_VITAL_MINUTES = 2;
 /** 历史缺口补拉每页读 5 分钟，符合设备限制，同时减少大缺口页数。 */
 const VITAL_GAP_READ_MINUTES = 5;
-/** 近实时轮询最多续读 10 页，避免设备时间异常时追太远。 */
-const VITAL_POLL_MAX_PAGES = 10;
+/** 历史缺口补拉方向：0=向前读。 */
+const VITAL_GAP_READ_DIRECTION = 0;
+/** 最近窗口补拉最多续读 10 页，避免设备时间异常时追太远。 */
+const RECENT_VITAL_MAX_PAGES = 10;
 /** 如果设备返回窗口明显晚于目标窗口，用这个上限判断“别再追了”。 */
-const VITAL_POLL_MAX_FUTURE_DRIFT_SECONDS = VITAL_POLL_MINUTES * VITAL_POLL_MAX_PAGES * 60;
+const RECENT_VITAL_MAX_FUTURE_DRIFT_SECONDS = RECENT_VITAL_MINUTES * RECENT_VITAL_MAX_PAGES * 60;
 /** 调试弹窗展示历史明细时最多输出的行数。 */
 const MAX_FORMAT_DETAIL_LINES = 260;
 
@@ -133,8 +135,6 @@ export class DeviceHistoryReader {
 	lastEventBatchCountValue: number = 0;
 	eventDataListSeqValue: number = 0;
 	private displaySuspended: boolean = false;
-	private vitalPollingTimer: number = 0;
-	private vitalPollingEnabled: boolean = false;
 	private eventGlobalSnSeen = new Map<number, boolean>();
 	private eventReadActive: boolean = false;
 
@@ -263,6 +263,10 @@ export class DeviceHistoryReader {
 		return result;
 	}
 
+	private resetEventReadDeduplication(): void {
+		this.eventGlobalSnSeen.clear();
+	}
+
 	async readVitalDataAuto(options: VitalAutoReadOptions): Promise<VitalAutoReadResult> {
 		if (this.device.beginGattTask("vitalAuto") == false) {
 			return this.makeVitalResult("STOPPED", "gatt busy", 0, []);
@@ -288,49 +292,6 @@ export class DeviceHistoryReader {
 		}
 	}
 
-	startVitalHistoryPolling(): void {
-		if (this.vitalPollingEnabled == true) return;
-		this.vitalPollingEnabled = true;
-		this.stopVitalHistoryPollingTimer();
-		this.runVitalHistoryPoll();
-		// @ts-ignore setInterval 在 UTS 不同平台返回类型不一，这里统一收敛为 number
-		this.vitalPollingTimer = setInterval(() => {
-			this.runVitalHistoryPoll();
-		}, VITAL_POLL_INTERVAL_MS);
-		logger.info("bluetooth", "[BOOM-HISTORY] 已启动生命体征历史自动补拉");
-	}
-
-	stopVitalHistoryPolling(): void {
-		if (this.vitalPollingEnabled == false && this.vitalPollingTimer == 0) return;
-		this.vitalPollingEnabled = false;
-		this.stopVitalHistoryPollingTimer();
-		logger.info("bluetooth", "[BOOM-HISTORY] 已停止生命体征历史自动补拉");
-	}
-
-	private stopVitalHistoryPollingTimer(): void {
-		if (this.vitalPollingTimer != 0) {
-			clearInterval(this.vitalPollingTimer);
-			this.vitalPollingTimer = 0;
-		}
-	}
-
-	private async runVitalHistoryPoll(): Promise<void> {
-		if (this.vitalPollingEnabled == false) return;
-		if (this.device.status.value != "CONNECTED") return;
-		if (this.device.isGattTaskBusy() == true) {
-			logger.info(
-				"bluetooth",
-				`[BOOM-HISTORY] GATT 通道忙(${this.device.getGattTaskName()})，跳过本轮自动补拉`
-			);
-			return;
-		}
-		try {
-			await this.readRecentVitalWindow();
-		} catch (e) {
-			logger.error("bluetooth", "[BOOM-HISTORY] 自动补拉异常:", e);
-		}
-	}
-
 	async readRecentVitalWindow(): Promise<VitalAutoReadResult> {
 		if (this.device.beginGattTask("vitalRecent") == false) {
 			return this.makeVitalResult("STOPPED", "gatt busy", 0, []);
@@ -340,19 +301,19 @@ export class DeviceHistoryReader {
 			const beforeVitalSeq = this.vitalDataResponseSeqValue;
 			const beforeNotifySeq = this.device.event.notifySeqValue;
 			const nowSec = Math.floor(Date.now() / 1000);
-			const startSec = nowSec - VITAL_POLL_WINDOW_SECONDS;
+			const startSec = nowSec - RECENT_VITAL_WINDOW_SECONDS;
 			logger.info(
 				"bluetooth",
-				`[BOOM-HISTORY] 自动补拉窗口: nowSec=${nowSec} ${this.formatMaybeTime(nowSec)}, startSec=${startSec} ${this.formatMaybeTime(startSec)}, boomTimestamp=${this.device.event.boomTimestamp.value}, direction=${VITAL_POLL_DIRECTION}, minutes=${VITAL_POLL_MINUTES}, vitalSeq=${beforeVitalSeq}, notifySeq=${beforeNotifySeq}`
+				`[BOOM-HISTORY] 最近窗口补拉: nowSec=${nowSec} ${this.formatMaybeTime(nowSec)}, startSec=${startSec} ${this.formatMaybeTime(startSec)}, boomTimestamp=${this.device.event.boomTimestamp.value}, direction=${RECENT_VITAL_DIRECTION}, minutes=${RECENT_VITAL_MINUTES}, vitalSeq=${beforeVitalSeq}, notifySeq=${beforeNotifySeq}`
 			);
 			const targetEndSec = nowSec;
 			let stopRecentRead = false;
 			const result = await this.readVitalDataAutoInner({
 				startSec,
-				direction: VITAL_POLL_DIRECTION,
-				minutes: VITAL_POLL_MINUTES,
+				direction: RECENT_VITAL_DIRECTION,
+				minutes: RECENT_VITAL_MINUTES,
 				timeoutMs: DEFAULT_TIMEOUT_MS,
-				maxPages: VITAL_POLL_MAX_PAGES,
+				maxPages: RECENT_VITAL_MAX_PAGES,
 				pageDelayMs: DEFAULT_PAGE_DELAY_MS,
 				shouldStop: () => stopRecentRead,
 				onPage: (response, page) => {
@@ -362,7 +323,7 @@ export class DeviceHistoryReader {
 					}
 					logger.info(
 						"bluetooth",
-						`[BOOM-HISTORY] 自动补拉段: page=${page}, responseStart=${response.startSec} ${this.formatMaybeTime(response.startSec)}, responseEnd=${this.getVitalWindowEndSec(response)}, n=${response.n}, valid=${validCount}/${response.vitalData.length}`
+						`[BOOM-HISTORY] 最近窗口补拉段: page=${page}, responseStart=${response.startSec} ${this.formatMaybeTime(response.startSec)}, responseEnd=${this.getVitalWindowEndSec(response)}, n=${response.n}, valid=${validCount}/${response.vitalData.length}`
 					);
 					const stopReason = this.getRecentVitalStopReason(
 						response,
@@ -373,7 +334,7 @@ export class DeviceHistoryReader {
 						stopRecentRead = true;
 						logger.warn(
 							"bluetooth",
-							`[BOOM-HISTORY] 自动补拉停止续读: ${stopReason}, page=${page}, target=${startSec} ${this.formatMaybeTime(startSec)} ~ ${targetEndSec} ${this.formatMaybeTime(targetEndSec)}, response=${response.startSec} ${this.formatMaybeTime(response.startSec)} ~ ${this.getVitalWindowEndSec(response)} ${this.formatMaybeTime(this.getVitalWindowEndSec(response))}`
+							`[BOOM-HISTORY] 最近窗口补拉停止续读: ${stopReason}, page=${page}, target=${startSec} ${this.formatMaybeTime(startSec)} ~ ${targetEndSec} ${this.formatMaybeTime(targetEndSec)}, response=${response.startSec} ${this.formatMaybeTime(response.startSec)} ~ ${this.getVitalWindowEndSec(response)} ${this.formatMaybeTime(this.getVitalWindowEndSec(response))}`
 						);
 					}
 				}
@@ -383,7 +344,7 @@ export class DeviceHistoryReader {
 				const afterNotifySeq = this.device.event.notifySeqValue;
 				logger.warn(
 					"bluetooth",
-					`[BOOM-HISTORY] 自动补拉超时诊断: hadNotify=${afterNotifySeq > beforeNotifySeq}, beforeNotifySeq=${beforeNotifySeq}, afterNotifySeq=${afterNotifySeq}, lastNotifyAt=${this.device.event.lastNotifyAtValue}, beforeVitalSeq=${beforeVitalSeq}, afterVitalSeq=${afterVitalSeq}`
+					`[BOOM-HISTORY] 最近窗口补拉超时诊断: hadNotify=${afterNotifySeq > beforeNotifySeq}, beforeNotifySeq=${beforeNotifySeq}, afterNotifySeq=${afterNotifySeq}, lastNotifyAt=${this.device.event.lastNotifyAtValue}, beforeVitalSeq=${beforeVitalSeq}, afterVitalSeq=${afterVitalSeq}`
 				);
 			}
 			const records = this.toHeartRateRecordsInWindow(
@@ -400,7 +361,7 @@ export class DeviceHistoryReader {
 			}
 			logger.info(
 				"bluetooth",
-				`[BOOM-HISTORY] 自动补拉完成: status=${result.status}, pages=${result.pages}, saved=${result.savedRecords}, upload=${result.uploadOk}`
+				`[BOOM-HISTORY] 最近窗口补拉完成: status=${result.status}, pages=${result.pages}, saved=${result.savedRecords}, upload=${result.uploadOk}`
 			);
 			return result;
 		} finally {
@@ -412,8 +373,8 @@ export class DeviceHistoryReader {
 	/**
 	 * 按指定窗口补拉生命体征历史。
 	 *
-	 * readRecentVitalWindow() 面向“连接状态下定期补最近两分钟”；而设备同步调度层
-	 * 需要按本地数据库 gap 精确补某一段，所以这里提供一个更通用的窗口入口。
+	 * readRecentVitalWindow() 面向“GATT 任务结束前后补最近两分钟”；而设备同步调度层
+	 * 需要按本地数据库 gap 精确补某一段，所以这里提供更通用的窗口入口。
 	 * 入库仍使用 INSERT OR IGNORE，调用方可以放心传入带 overlap 的窗口。
 	 */
 	async readVitalWindow(startSec: number, endSec: number): Promise<VitalAutoReadResult> {
@@ -438,7 +399,7 @@ export class DeviceHistoryReader {
 			);
 			const result = await this.readVitalDataAutoInner({
 				startSec,
-				direction: VITAL_POLL_DIRECTION,
+				direction: VITAL_GAP_READ_DIRECTION,
 				minutes: VITAL_GAP_READ_MINUTES,
 				timeoutMs: DEFAULT_TIMEOUT_MS,
 				maxPages,
@@ -568,6 +529,7 @@ export class DeviceHistoryReader {
 		this.setDisplaySuspended(true);
 		this.eventReadActive = true;
 		try {
+			this.resetEventReadDeduplication();
 			const result = await this.readEventDataAutoInner(options);
 			this.eventReadActive = false;
 			if (options.persistSleepData == false) {
@@ -702,7 +664,11 @@ export class DeviceHistoryReader {
 				);
 			}
 
-			const batchCount = await this.waitForEventBatch(beforeListSeq, timeoutMs);
+			const batchCount = await this.waitForEventBatch(
+				beforeListSeq,
+				beforeListCount,
+				timeoutMs
+			);
 			if (batchCount == null) {
 				return this.makeEventResult(
 					"TIMEOUT",
@@ -716,9 +682,8 @@ export class DeviceHistoryReader {
 			page++;
 			const list = this.eventDataListRaw;
 			const batch = list.slice(beforeListCount);
-			const filteredBatch = this.trimEventBatchToHeaderRange(header, beforeListCount, batch);
 			if (options.onBatch != null) {
-				options.onBatch!(filteredBatch, page);
+				options.onBatch!(batch, page);
 			}
 
 			if (options.shouldStop != null && options.shouldStop!() == true) {
@@ -731,11 +696,7 @@ export class DeviceHistoryReader {
 				);
 			}
 
-			if (
-				batchCount <= 0 ||
-				batchCount < options.maxCount ||
-				this.batchReachedEventLowerBound(header, batch) == true
-			) {
+			if (batchCount <= 0 || batchCount < options.maxCount) {
 				if (options.onProgress != null) {
 					options.onProgress!({ phase: "done", page, message: "no-more-data" });
 				}
@@ -818,7 +779,7 @@ export class DeviceHistoryReader {
 
 	private getVitalWindowEndSec(response: VitalDataQueryResponse): number {
 		if (response.startSec <= 0) return 0;
-		const minutes = response.n > 0 ? response.n : VITAL_POLL_MINUTES;
+		const minutes = response.n > 0 ? response.n : RECENT_VITAL_MINUTES;
 		return response.startSec + minutes * 60;
 	}
 
@@ -838,7 +799,7 @@ export class DeviceHistoryReader {
 		}
 		if (
 			response.startSec > targetEndSec &&
-			response.startSec - targetEndSec > VITAL_POLL_MAX_FUTURE_DRIFT_SECONDS
+			response.startSec - targetEndSec > RECENT_VITAL_MAX_FUTURE_DRIFT_SECONDS
 		) {
 			return "返回段明显晚于目标窗口，停止追读";
 		}
@@ -852,10 +813,7 @@ export class DeviceHistoryReader {
 		pages: number,
 		startListCount: number
 	): EventAutoReadResult {
-		let items = this.eventDataListRaw.slice(startListCount);
-		if (header != null) {
-			items = this.filterEventItemsByHeaderRange(items, header);
-		}
+		const items = this.eventDataListRaw.slice(startListCount);
 		this.logEventReadResult(status, message, header, pages, items);
 		return {
 			status,
@@ -874,19 +832,32 @@ export class DeviceHistoryReader {
 
 	private async persistSleepResultsFromEvents(items: LogDataItem[]): Promise<number> {
 		let saved = 0;
+		let found = 0;
+		let skipped = 0;
 		const seen = new Map<number, boolean>();
 		for (let i = 0; i < items.length; i++) {
 			const item = items[i];
 			if (item.eventType != LOG_EVENT_TYPE.SleepResult) continue;
+			found++;
 			if (seen.get(item.ts) == true) continue;
 			seen.set(item.ts, true);
 			const sleepData = this.toSleepData(item);
-			if (sleepData == null) continue;
+			if (sleepData == null) {
+				skipped++;
+				logger.warn(
+					"bluetooth",
+					`[BOOM] 睡眠事件跳过: ts=${item.ts} ${this.formatMaybeTime(item.ts)}, data=${item.eventDataHex}, parsed=${this.formatEventParsedForDetail(item.eventType, item.parsedEvent)}`
+				);
+				continue;
+			}
 			await bluetoothDataManager.storeSleepData(sleepData);
 			saved++;
 		}
-		if (saved > 0) {
-			logger.info("bluetooth", `[BOOM] 睡眠事件已保存: ${saved}`);
+		if (found > 0 || saved > 0 || skipped > 0) {
+			logger.info(
+				"bluetooth",
+				`[BOOM] 睡眠事件处理完成: found=${found}, saved=${saved}, skipped=${skipped}`
+			);
 		}
 		return saved;
 	}
@@ -959,53 +930,6 @@ export class DeviceHistoryReader {
 		}
 	}
 
-	private trimEventBatchToHeaderRange(
-		header: EventDataHeaderResponse,
-		beforeListCount: number,
-		batch: LogDataItem[]
-	): LogDataItem[] {
-		const filteredBatch = this.filterEventItemsByHeaderRange(batch, header);
-		if (filteredBatch.length != batch.length) {
-			const prefix = this.eventDataListRaw.slice(0, beforeListCount);
-			this.eventDataListRaw = prefix.concat(filteredBatch);
-			this.lastEventBatchCountValue = filteredBatch.length;
-			if (this.displaySuspended == false) {
-				this.eventDataList.value = this.eventDataListRaw.slice();
-				this.lastEventBatchCount.value = this.lastEventBatchCountValue;
-			}
-			logger.info(
-				"bluetooth",
-				`[BOOM] 事件按 globalSn 范围过滤: ${batch.length} -> ${filteredBatch.length}, range=${header.earliestSn}~${header.latestSn}`
-			);
-			this.logEventItems("[BOOM] 事件过滤后明细", filteredBatch, 12);
-		}
-		return filteredBatch;
-	}
-
-	private filterEventItemsByHeaderRange(
-		items: LogDataItem[],
-		header: EventDataHeaderResponse
-	): LogDataItem[] {
-		const result: LogDataItem[] = [];
-		for (let i = 0; i < items.length; i++) {
-			const globalSn = items[i].header.globalSn;
-			if (globalSn >= header.earliestSn && globalSn <= header.latestSn) {
-				result.push(items[i]);
-			}
-		}
-		return result;
-	}
-
-	private batchReachedEventLowerBound(
-		header: EventDataHeaderResponse,
-		batch: LogDataItem[]
-	): boolean {
-		for (let i = 0; i < batch.length; i++) {
-			if (batch[i].header.globalSn <= header.earliestSn) return true;
-		}
-		return false;
-	}
-
 	private async waitForVitalResponse(
 		beforeSeq: number,
 		timeoutMs: number
@@ -1034,11 +958,23 @@ export class DeviceHistoryReader {
 		return null;
 	}
 
-	private async waitForEventBatch(beforeSeq: number, timeoutMs: number): Promise<number | null> {
+	private async waitForEventBatch(
+		beforeSeq: number,
+		beforeListCount: number,
+		timeoutMs: number
+	): Promise<number | null> {
 		const start = Date.now();
+		let seenFirstBatch = false;
+		let lastSeq = beforeSeq;
+		let lastChangedAt = start;
 		while (Date.now() - start < timeoutMs) {
-			if (this.eventDataListSeqValue > beforeSeq) {
-				return this.lastEventBatchCountValue;
+			if (this.eventDataListSeqValue > lastSeq) {
+				seenFirstBatch = true;
+				lastSeq = this.eventDataListSeqValue;
+				lastChangedAt = Date.now();
+			}
+			if (seenFirstBatch == true && Date.now() - lastChangedAt >= EVENT_BATCH_SETTLE_MS) {
+				return this.eventDataListRaw.length - beforeListCount;
 			}
 			await this.sleep(120);
 		}

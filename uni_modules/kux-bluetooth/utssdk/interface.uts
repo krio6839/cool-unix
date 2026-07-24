@@ -99,6 +99,7 @@ export type EnableBluetoothOptions = {
 
 export type StartBluetoothDevicesDiscoveryOptions = {
 	services?: string[],
+	deviceId?: string,
 	allowDuplicatesKey?: boolean,
 	interval?: number,
 	powerLevel?: 'low' | 'medium' | 'high',

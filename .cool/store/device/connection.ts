@@ -150,7 +150,6 @@ export class DeviceConnection {
 		this.device.testMode.value = "broadcast";
 		try {
 			await this.stopBluetoothSearch();
-			this.device.history.stopVitalHistoryPolling();
 			if (readRecentVital == true) {
 				await this.readRecentVitalBeforeDisconnect();
 			}
@@ -192,7 +191,6 @@ export class DeviceConnection {
 			return true;
 		}
 		await this.stopBluetoothSearch();
-		this.device.history.stopVitalHistoryPolling();
 		if (this.device.boundDeviceId == "") return false;
 		this.device.testMode.value = "broadcast";
 		this.device.status.value = "SEARCHING";
@@ -303,12 +301,13 @@ export class DeviceConnection {
 				this.handleScannedDevices(devices);
 			});
 
+			const scanDeviceId = this.getScanFilterDeviceId(purpose);
 			// 内部 1 次自动 retry,规避 kux 库的 `if (this.scanning)` 并发守护
-			let ok = await startDiscovery();
+			let ok = await startDiscovery(scanDeviceId);
 			if (ok == false) {
 				logger.warn("bluetooth", "[SCAN] startDiscovery 返回 false,500ms 后重试一次");
 				await sleepTimeout(500);
-				ok = await startDiscovery();
+				ok = await startDiscovery(scanDeviceId);
 			}
 			if (ok == false) {
 				ok = await this.hardRecoverAndStartScan(purpose, "startDiscovery failed");
@@ -372,7 +371,7 @@ export class DeviceConnection {
 			onDeviceFound((devices) => {
 				this.handleScannedDevices(devices);
 			});
-			const ok = await startDiscovery();
+			const ok = await startDiscovery(this.getScanFilterDeviceId(purpose));
 			if (ok == true) {
 				logger.info("bluetooth", `[SCAN] 硬恢复后扫描已启动,purpose=${purpose}`);
 				return true;
@@ -387,6 +386,11 @@ export class DeviceConnection {
 		}
 		//#endif
 		return false;
+	}
+
+	private getScanFilterDeviceId(purpose: ScanPurpose): string {
+		if (purpose != "boundBroadcast") return "";
+		return this.device.boundDeviceId;
 	}
 
 	private handleScannedDevices(devices: DeviceInfo[]): void {
@@ -786,7 +790,6 @@ export class DeviceConnection {
 
 	/** 内部：清空连接相关字段 */
 	_resetConnectionState(): void {
-		this.device.history.stopVitalHistoryPolling();
 		this.device.status.value = "UNPAIRED";
 		this.device.currentDeviceId = "";
 		this.device.currentDeviceName = "";

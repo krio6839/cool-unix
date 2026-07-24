@@ -179,14 +179,15 @@ App 启动后，如果已有绑定设备：
 日志示例：
 
 ```text
-[BOOM-HISTORY] 自动补拉窗口: startSec=...
-[BOOM-HISTORY] 自动补拉段: page=1, responseStart=...
-[BOOM-HISTORY] 自动补拉停止续读: 返回段已早于目标窗口
+[BOOM-HISTORY] 最近窗口补拉: startSec=...
+[BOOM-HISTORY] 最近窗口补拉段: page=1, responseStart=...
+[BOOM-HISTORY] 最近窗口补拉停止续读: 返回段已早于目标窗口
 ```
 
 ## 8. 历史缺口自动补拉
 
 后台只自动补生命体征，不自动读事件。
+不存在连接态常驻轮询；缺口检查发现需要补数据时，才通过 GATT 任务队列临时连接执行。
 
 触发策略：
 
@@ -333,9 +334,9 @@ eventSeq=...
 历史补拉成功或安全停止：
 
 ```text
-自动补拉段
-自动补拉完成
-自动补拉停止续读
+最近窗口补拉段
+最近窗口补拉完成
+最近窗口补拉停止续读
 ```
 
 上传正常：

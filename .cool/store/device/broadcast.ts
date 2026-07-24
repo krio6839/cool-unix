@@ -19,6 +19,7 @@ const RECENT_GATT_TIME_SYNC_SUPPRESS_MS = 60 * 1000;
 const STALE_BROADCAST_REPEAT_THRESHOLD = 3;
 const STALE_BROADCAST_SCAN_RESTART_COOLDOWN_MS = 20 * 1000;
 const BOUND_BROADCAST_SCAN_NO_CALLBACK_MS = 12 * 1000;
+const BOUND_BROADCAST_SCAN_STALE_MS = 18 * 1000;
 
 export class DeviceBroadcast {
 	private device: Device;
@@ -159,13 +160,28 @@ export class DeviceBroadcast {
 		await sleepTimeout(BOUND_BROADCAST_SCAN_NO_CALLBACK_MS);
 		if (this.boundBroadcastScanning == false) return;
 		if (generation != this.boundBroadcastScanGeneration) return;
-		if (this.lastBoundScanCallbackAt > 0) return;
-		if (this.lastBoundBroadcastHandledAt > 0) return;
-		logger.warn(
-			"bluetooth",
-			`[BOOM-ADV] 绑定广播扫描 ${BOUND_BROADCAST_SCAN_NO_CALLBACK_MS}ms 内无任何回调，重启扫描`
-		);
-		this.restartBoundBroadcastScan("no scan callback");
+		const latestAt =
+			this.lastBoundScanCallbackAt > this.lastBoundBroadcastHandledAt
+				? this.lastBoundScanCallbackAt
+				: this.lastBoundBroadcastHandledAt;
+		const now = Date.now();
+		if (latestAt == 0) {
+			logger.warn(
+				"bluetooth",
+				`[BOOM-ADV] 绑定广播扫描 ${BOUND_BROADCAST_SCAN_NO_CALLBACK_MS}ms 内无任何回调，重启扫描`
+			);
+			this.restartBoundBroadcastScan("no scan callback");
+			return;
+		}
+		if (now - latestAt >= BOUND_BROADCAST_SCAN_STALE_MS) {
+			logger.warn(
+				"bluetooth",
+				`[BOOM-ADV] 绑定广播扫描 ${BOUND_BROADCAST_SCAN_STALE_MS}ms 未收到绑定设备回调，自动恢复广播`
+			);
+			this.restartBoundBroadcastScan("bound scan stale");
+			return;
+		}
+		this.watchBoundBroadcastScan(generation);
 	}
 
 	private logBoundScanMiss(devices: DeviceInfo[]): void {
