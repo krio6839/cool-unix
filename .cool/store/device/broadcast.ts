@@ -23,7 +23,8 @@ const BROADCAST_HARD_RECOVERY_RESTART_THRESHOLD = 3;
 const BROADCAST_HARD_RECOVERY_COOLDOWN_MS = 60 * 1000;
 const BOUND_BROADCAST_SCAN_NO_CALLBACK_MS = 12 * 1000;
 const BOUND_BROADCAST_SCAN_STALE_MS = 18 * 1000;
-const BROADCAST_RECOVERY_ERROR_TEXT = "未收到设备广播，请确认设备在附近、电量充足且系统蓝牙权限正常";
+const BROADCAST_RECOVERY_ERROR_TEXT =
+	"未收到设备广播，请确认设备在附近、电量充足且系统蓝牙权限正常";
 
 export class DeviceBroadcast {
 	private device: Device;
@@ -317,7 +318,10 @@ export class DeviceBroadcast {
 
 	/* ===== 缓存广播识别 / 扫描恢复 ===== */
 
-	private handleStaleScannerBroadcast(ctx: BroadcastPacketContext, r: RealtimeBroadcast): boolean {
+	private handleStaleScannerBroadcast(
+		ctx: BroadcastPacketContext,
+		r: RealtimeBroadcast
+	): boolean {
 		if (this.isBroadcastUtcUsable(r) == true) {
 			this.lastBroadcastUtc = r.utc;
 			this.lastBroadcastVHex = ctx.vHex;
@@ -341,10 +345,20 @@ export class DeviceBroadcast {
 
 	private restartBoundBroadcastScan(reason: string): void {
 		const now = Date.now();
-		if (now - this.lastBroadcastScanRestartAt < STALE_BROADCAST_SCAN_RESTART_COOLDOWN_MS) {
+		// 缓存包可能高频重复，保留冷却；扫描无回调/绑定设备无回调本身已有 12s/18s 监控间隔，不再节流，
+		// 否则第二轮恢复会被 20s 冷却吞掉，watcher 也不会继续挂上。
+		const shouldThrottle = reason == "stale packet";
+		if (
+			shouldThrottle == true &&
+			now - this.lastBroadcastScanRestartAt < STALE_BROADCAST_SCAN_RESTART_COOLDOWN_MS
+		) {
+			this.watchBoundBroadcastScan(this.boundBroadcastScanGeneration);
 			return;
 		}
-		if (this.broadcastScanRestartBusy == true) return;
+		if (this.broadcastScanRestartBusy == true) {
+			this.watchBoundBroadcastScan(this.boundBroadcastScanGeneration);
+			return;
+		}
 		this.lastBroadcastScanRestartAt = now;
 		this.broadcastScanRestartBusy = true;
 		this.restartBoundBroadcastScanAsync(reason);
@@ -404,7 +418,10 @@ export class DeviceBroadcast {
 	}
 
 	private markBroadcastRecoveryOk(): void {
-		if (this.consecutiveBroadcastRestartCount > 0 || this.hardRecoveryPendingValidation == true) {
+		if (
+			this.consecutiveBroadcastRestartCount > 0 ||
+			this.hardRecoveryPendingValidation == true
+		) {
 			logger.info("bluetooth", "[BOOM-ADV] 已重新收到有效绑定广播，清除广播恢复状态");
 		}
 		this.consecutiveBroadcastRestartCount = 0;
