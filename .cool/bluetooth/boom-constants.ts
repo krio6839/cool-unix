@@ -114,8 +114,6 @@ export const LOG_EVENT_TYPE: LogEventTypeMap = {
 	NUMS: 11 // 枚举数量
 };
 
-export type LogEventTypeValue = number;
-
 /** LogEventType UI 中文名（与 LOG_EVENT_TYPE 数值顺序一一对应） */
 export const LOG_EVENT_NAMES: string[] = [
 	"重要日志", // 0 Text
