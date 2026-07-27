@@ -35,24 +35,17 @@ import {
 	normalizeWearLocation
 } from "./types/wear-location";
 import { DeviceStatusEnum } from "./types/device-state-types";
-import type {
-	DeviceOnlineInfo,
-	DeviceTestMode
-} from "./types/device-state-types";
+import type { DeviceOnlineInfo } from "./types/device-state-types";
 import type { BroadcastDebugInfo } from "./types/broadcast-types";
 import type { GattTaskName } from "./types/gatt-types";
 import type { WearLocation } from "./types/wear-location";
 export type {
 	DeviceOnlineInfo,
 	DeviceOnlineSource,
-	DeviceTestMode,
 	DeviceStatus
 } from "./types/device-state-types";
 export type { BroadcastDebugInfo } from "./types/broadcast-types";
-export type {
-	WearLocation,
-	WearLocationOption
-} from "./types/wear-location";
+export type { WearLocation, WearLocationOption } from "./types/wear-location";
 export {
 	DEFAULT_WEAR_LOCATION,
 	getWearLocationLabel,
@@ -98,7 +91,6 @@ export class Device {
 	/* ===== 基本状态 ===== */
 	status = ref<keyof typeof DeviceStatusEnum>("UNPAIRED");
 	stateVersion = ref<number>(0);
-	testMode = ref<DeviceTestMode>("broadcast");
 	available: boolean = false;
 	discovering: boolean = false;
 	errorMessage = ref<string>("");

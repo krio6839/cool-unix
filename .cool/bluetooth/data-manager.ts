@@ -110,7 +110,9 @@ export class BluetoothDataManager {
 	/**
 	 * 存储 0x50 广播实时数据（本地首页展示使用，不上传）
 	 */
-	async storeRealtimeBroadcast(input: StoreRealtimeBroadcastInput): Promise<RealtimeBroadcastRecord | null> {
+	async storeRealtimeBroadcast(
+		input: StoreRealtimeBroadcastInput
+	): Promise<RealtimeBroadcastRecord | null> {
 		const record = this.makeRealtimeBroadcastRecord(input);
 		const ok = await this.storeRealtimeBroadcastRecord(record);
 		if (ok == true) return record;
@@ -152,12 +154,10 @@ export class BluetoothDataManager {
 		const deviceId = this.escapeSqlText(record.deviceId);
 		const ppgAttached = record.ppgAttached == true ? 1 : 0;
 		const hasNewEvent = record.hasNewEvent == true ? 1 : 0;
-		const unusedStatus = 0;
-		const unusedStatus2 = 0;
 		const sql =
 			"INSERT OR REPLACE INTO realtime_broadcast_data " +
-			"(id, timestamp, received_at, utc, voltage_mv, status, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, status2, event_seq, has_new_event, battery_status, rmssd, steps_everyday, calorie_everyday, raw_hex, v_hex, device_id) VALUES " +
-			`('${record.id}', ${record.timestamp}, ${record.receivedAt}, ${record.utc}, ${record.voltageMv}, ${unusedStatus}, ${ppgAttached}, ${record.behavior}, ${record.activity}, ${record.hr}, ${record.ppi}, ${record.spo2}, ${record.bhr}, ${unusedStatus2}, ${record.eventSeq}, ${hasNewEvent}, ${record.batteryStatus}, ${record.rmssd}, ${record.stepsEveryday}, ${record.calorieEveryday}, '${rawHex}', '${vHex}', '${deviceId}')`;
+			"(id, timestamp, received_at, utc, voltage_mv, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, event_seq, has_new_event, battery_status, rmssd, steps_everyday, calorie_everyday, raw_hex, v_hex, device_id) VALUES " +
+			`('${record.id}', ${record.timestamp}, ${record.receivedAt}, ${record.utc}, ${record.voltageMv}, ${ppgAttached}, ${record.behavior}, ${record.activity}, ${record.hr}, ${record.ppi}, ${record.spo2}, ${record.bhr}, ${record.eventSeq}, ${hasNewEvent}, ${record.batteryStatus}, ${record.rmssd}, ${record.stepsEveryday}, ${record.calorieEveryday}, '${rawHex}', '${vHex}', '${deviceId}')`;
 		return bluetoothDatabase.execute(sql);
 	}
 
@@ -166,7 +166,7 @@ export class BluetoothDataManager {
 	 */
 	async getLatestRealtimeBroadcastRecord(): Promise<RealtimeBroadcastRecord | null> {
 		const sql =
-			"SELECT id, timestamp, received_at, utc, voltage_mv, status, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, status2, event_seq, has_new_event, battery_status, rmssd, steps_everyday, calorie_everyday, raw_hex, v_hex, device_id FROM realtime_broadcast_data ORDER BY received_at DESC LIMIT 1";
+			"SELECT id, timestamp, received_at, utc, voltage_mv, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, event_seq, has_new_event, battery_status, rmssd, steps_everyday, calorie_everyday, raw_hex, v_hex, device_id FROM realtime_broadcast_data ORDER BY received_at DESC LIMIT 1";
 		const result = await bluetoothDatabase.query(sql);
 		if (result == null || result.rows.length == 0) {
 			return null;
@@ -196,22 +196,22 @@ export class BluetoothDataManager {
 			receivedAt: parseInt(row[2] as string),
 			utc: parseInt(row[3] as string),
 			voltageMv: parseInt(row[4] as string),
-			ppgAttached: parseInt(row[6] as string) == 1,
-			behavior: parseInt(row[7] as string),
-			activity: parseInt(row[8] as string),
-			hr: parseInt(row[9] as string),
-			ppi: parseInt(row[10] as string),
-			spo2: parseInt(row[11] as string),
-			bhr: parseInt(row[12] as string),
-			eventSeq: parseInt(row[14] as string),
-			hasNewEvent: parseInt(row[15] as string) == 1,
-			batteryStatus: parseInt(row[16] as string),
-			rmssd: parseInt(row[17] as string),
-			stepsEveryday: parseInt(row[18] as string),
-			calorieEveryday: parseInt(row[19] as string),
-			rawHex: row[20] as string,
-			vHex: row[21] as string,
-			deviceId: row[22] as string
+			ppgAttached: parseInt(row[5] as string) == 1,
+			behavior: parseInt(row[6] as string),
+			activity: parseInt(row[7] as string),
+			hr: parseInt(row[8] as string),
+			ppi: parseInt(row[9] as string),
+			spo2: parseInt(row[10] as string),
+			bhr: parseInt(row[11] as string),
+			eventSeq: parseInt(row[12] as string),
+			hasNewEvent: parseInt(row[13] as string) == 1,
+			batteryStatus: parseInt(row[14] as string),
+			rmssd: parseInt(row[15] as string),
+			stepsEveryday: parseInt(row[16] as string),
+			calorieEveryday: parseInt(row[17] as string),
+			rawHex: row[18] as string,
+			vHex: row[19] as string,
+			deviceId: row[20] as string
 		} as RealtimeBroadcastRecord;
 	}
 
@@ -310,7 +310,7 @@ export class BluetoothDataManager {
 	async getRecentRealtimeBroadcastRecords(limit: number): Promise<RealtimeBroadcastRecord[]> {
 		const safeLimit = limit <= 0 ? 10 : limit;
 		const sql =
-			"SELECT id, timestamp, received_at, utc, voltage_mv, status, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, status2, event_seq, has_new_event, battery_status, rmssd, steps_everyday, calorie_everyday, raw_hex, v_hex, device_id FROM realtime_broadcast_data ORDER BY received_at DESC LIMIT " +
+			"SELECT id, timestamp, received_at, utc, voltage_mv, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, event_seq, has_new_event, battery_status, rmssd, steps_everyday, calorie_everyday, raw_hex, v_hex, device_id FROM realtime_broadcast_data ORDER BY received_at DESC LIMIT " +
 			safeLimit.toString();
 		const result = await bluetoothDatabase.query(sql);
 		if (result == null) {
@@ -572,12 +572,21 @@ export class BluetoothDataManager {
 		}
 
 		const unuploadedData = await this.getUnuploadedPpiData();
-		logger.info("bluetooth", "未上传的PPI数据数量:", unuploadedData.length, "全部数据:", unuploadedData);
+		logger.info(
+			"bluetooth",
+			"未上传的PPI数据数量:",
+			unuploadedData.length,
+			"全部数据:",
+			unuploadedData
+		);
 		if (unuploadedData.length == 0) {
 			return true;
 		}
 
-		logger.info("bluetooth", "当前设备信息:", { deviceName: this.deviceName, address: this.deviceAddress });
+		logger.info("bluetooth", "当前设备信息:", {
+			deviceName: this.deviceName,
+			address: this.deviceAddress
+		});
 		if (this.deviceAddress == "") {
 			logger.info("bluetooth", "设备未连接，跳过PPI上传");
 			return false;
@@ -684,7 +693,10 @@ export class BluetoothDataManager {
 			return true;
 		}
 
-		logger.info("bluetooth", "当前设备信息:", { deviceName: this.deviceName, address: this.deviceAddress });
+		logger.info("bluetooth", "当前设备信息:", {
+			deviceName: this.deviceName,
+			address: this.deviceAddress
+		});
 		if (this.deviceAddress == "") {
 			logger.info("bluetooth", "设备未连接，跳过睡眠数据上传");
 			return false;

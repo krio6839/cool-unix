@@ -155,7 +155,6 @@ export class DeviceConnection {
 			return true;
 		}
 		this._isSwitchingToBroadcastMode = true;
-		this.device.testMode.value = "broadcast";
 		try {
 			await this.disconnectCurrentGatt(readRecentVital, 350);
 			await sleepTimeout(120);
@@ -223,7 +222,6 @@ export class DeviceConnection {
 		}
 		await this.stopBluetoothSearch();
 		if (this.device.boundDeviceId == "") return false;
-		this.device.testMode.value = "broadcast";
 		this.device.status.value = "SEARCHING";
 		this.device.errorMessage.value = "";
 		const deviceName = this.device.getDisplayDeviceName();
@@ -616,9 +614,8 @@ export class DeviceConnection {
 	}
 
 	/** 从广播模式临时切到 GATT 连接模式：只直连绑定设备，失败后恢复广播 */
-	async switchToConnectMode(reason: ConnectModeReason = "manual"): Promise<boolean> {
+	async switchToConnectMode(reason: ConnectModeReason): Promise<boolean> {
 		const boundId = this.device.boundDeviceId;
-		this.device.testMode.value = "connect";
 		logger.info("bluetooth", `[BOOM] 切换连接模式: reason=${reason}, bound=${boundId}`);
 		if (boundId == "") return false;
 		await this.stopBluetoothSearch();
@@ -827,8 +824,7 @@ export class DeviceConnection {
 		return (
 			this._isSwitchingToBroadcastMode == true ||
 			this._ignoreConnectionStateChange == true ||
-			this._scanPurpose == "boundBroadcast" ||
-			this.device.testMode.value == "broadcast"
+			this._scanPurpose == "boundBroadcast"
 		);
 	}
 

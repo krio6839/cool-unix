@@ -109,12 +109,6 @@ class BluetoothDatabase {
         uploaded INTEGER DEFAULT 0
       )`);
 
-		// // 兼容老库：旧表若无 detail 列则补上
-		// this.execute(`ALTER TABLE sleep_data ADD COLUMN detail TEXT NOT NULL DEFAULT ''`);
-
-		// // 删除 sleep_status 表（已合并到 sleep_data.detail 字段）
-		// this.execute(`DROP TABLE IF EXISTS sleep_status`);
-
 		await this.execute(
 			"CREATE INDEX IF NOT EXISTS idx_sleep_report ON sleep_data(report_timestamp)"
 		);
@@ -132,13 +126,24 @@ class BluetoothDatabase {
 		await this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_timestamp ON ppi_data(timestamp)");
 		await this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_uploaded ON ppi_data(uploaded)");
 
-		await this.execute(`CREATE TABLE IF NOT EXISTS realtime_broadcast_data (
+		await this.recreateRealtimeBroadcastTableIfLegacy();
+		await this.createRealtimeBroadcastTable();
+
+		await this.execute(
+			"CREATE INDEX IF NOT EXISTS idx_realtime_broadcast_timestamp ON realtime_broadcast_data(timestamp)"
+		);
+		await this.execute(
+			"CREATE INDEX IF NOT EXISTS idx_realtime_broadcast_received ON realtime_broadcast_data(received_at)"
+		);
+	}
+
+	private async createRealtimeBroadcastTable(): Promise<boolean> {
+		return await this.execute(`CREATE TABLE IF NOT EXISTS realtime_broadcast_data (
         id TEXT PRIMARY KEY,
         timestamp INTEGER NOT NULL,
         received_at INTEGER NOT NULL,
         utc INTEGER NOT NULL,
         voltage_mv INTEGER NOT NULL,
-        status INTEGER NOT NULL,
         ppg_attached INTEGER NOT NULL,
         behavior INTEGER NOT NULL,
         activity INTEGER NOT NULL,
@@ -146,7 +151,6 @@ class BluetoothDatabase {
         ppi INTEGER NOT NULL,
         spo2 INTEGER NOT NULL,
         bhr INTEGER NOT NULL,
-        status2 INTEGER NOT NULL DEFAULT 0,
         event_seq INTEGER NOT NULL DEFAULT 0,
         has_new_event INTEGER NOT NULL DEFAULT 0,
         battery_status INTEGER NOT NULL DEFAULT 0,
@@ -157,57 +161,27 @@ class BluetoothDatabase {
         v_hex TEXT NOT NULL DEFAULT '',
         device_id TEXT NOT NULL DEFAULT ''
       )`);
-		await this.ensureColumn(
-			"realtime_broadcast_data",
-			"steps_everyday",
-			"INTEGER NOT NULL DEFAULT 0"
-		);
-		await this.ensureColumn(
-			"realtime_broadcast_data",
-			"calorie_everyday",
-			"INTEGER NOT NULL DEFAULT 0"
-		);
-		await this.ensureColumn("realtime_broadcast_data", "status2", "INTEGER NOT NULL DEFAULT 0");
-		await this.ensureColumn(
-			"realtime_broadcast_data",
-			"event_seq",
-			"INTEGER NOT NULL DEFAULT 0"
-		);
-		await this.ensureColumn(
-			"realtime_broadcast_data",
-			"has_new_event",
-			"INTEGER NOT NULL DEFAULT 0"
-		);
-		await this.ensureColumn(
-			"realtime_broadcast_data",
-			"battery_status",
-			"INTEGER NOT NULL DEFAULT 0"
-		);
-		await this.ensureColumn("realtime_broadcast_data", "rmssd", "INTEGER NOT NULL DEFAULT 0");
-
-		await this.execute(
-			"CREATE INDEX IF NOT EXISTS idx_realtime_broadcast_timestamp ON realtime_broadcast_data(timestamp)"
-		);
-		await this.execute(
-			"CREATE INDEX IF NOT EXISTS idx_realtime_broadcast_received ON realtime_broadcast_data(received_at)"
-		);
 	}
 
-	private async ensureColumn(
-		tableName: string,
-		columnName: string,
-		definition: string
-	): Promise<void> {
+	private async hasColumn(tableName: string, columnName: string): Promise<boolean> {
 		const result = await this.query("PRAGMA table_info(" + tableName + ")");
-		if (result == null) return;
+		if (result == null) return false;
 		for (let i = 0; i < result.rows.length; i++) {
 			const row = result.rows[i];
 			const name = row[1] as string;
-			if (name == columnName) return;
+			if (name == columnName) return true;
 		}
-		await this.execute(
-			"ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + definition
-		);
+		return false;
+	}
+
+	/** realtime_broadcast_data 只是实时缓存；旧结构直接丢弃重建，避免无意义迁移。 */
+	private async recreateRealtimeBroadcastTableIfLegacy(): Promise<void> {
+		const hasStatus = await this.hasColumn("realtime_broadcast_data", "status");
+		const hasStatus2 = await this.hasColumn("realtime_broadcast_data", "status2");
+		if (hasStatus == false && hasStatus2 == false) return;
+
+		logger.info("bluetooth", "[DB] 旧 realtime_broadcast_data 结构已丢弃并重建");
+		await this.execute("DROP TABLE IF EXISTS realtime_broadcast_data");
 	}
 
 	// 执行 SQL 语句

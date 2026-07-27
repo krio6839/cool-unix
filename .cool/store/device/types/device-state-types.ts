@@ -1,13 +1,4 @@
-export type DeviceTestMode = "connect" | "broadcast";
-
-export type ConnectModeReason =
-	| "manual"
-	| "testPopup"
-	| "historyGap"
-	| "event"
-	| "timeSync"
-	| "unbind"
-	| "scheduler";
+export type ConnectModeReason = "scheduler" | "unbind";
 
 export type DeviceOnlineSource = "gatt" | "broadcast" | "searching" | "offline";
 export type ScanPurpose = "none" | "pairing" | "boundBroadcast";
