@@ -82,8 +82,12 @@ export class DeviceBroadcast {
 
 	handleFoundDevice(d: DeviceInfo): void {
 		//#ifndef H5
+		const boundId = this.device.boundDeviceId;
+		const currentId = this.device.currentDeviceId;
+		if (boundId == "" && currentId == "") return;
+		if (boundId != "" && d.deviceId != boundId && d.deviceId != currentId) return;
 		const name = d.name ?? d.localName ?? "";
-		const isCurrentDevice = d.deviceId == this.device.currentDeviceId;
+		const isCurrentDevice = d.deviceId == currentId;
 		const isBoomDevice = name.startsWith(TARGET_DEVICE_NAME_PREFIX);
 		if (isCurrentDevice == false && isBoomDevice == false) {
 			return;

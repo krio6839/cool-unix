@@ -55,6 +55,8 @@ export class DeviceConnection {
 	private _scanHardRecovering: boolean = false;
 	private _lastScanHardRecoverAt: number = 0;
 	private _pairingScanTimer: number = 0;
+	private _pairingPickerVisible: boolean = false;
+	private _pairingPickerDeviceCount: number = 0;
 	private _ignoreConnectionStateChange: boolean = false;
 	private _isSwitchingToBroadcastMode: boolean = false;
 
@@ -122,7 +124,7 @@ export class DeviceConnection {
 				this.device.status.value = "UNPAIRED";
 				this.device.errorMessage.value = t("蓝牙未开启");
 			} else {
-				// 蓝牙开启：自动恢复（已绑定→广播扫描，未绑定→配对扫描）
+				// 蓝牙开启：只自动恢复已绑定设备的广播扫描；未绑定时等待用户主动开始配对
 				logger.info("bluetooth", "蓝牙已开启");
 				if (this._adapterResetting == true) {
 					logger.info("bluetooth", "[SCAN] 适配器重置中，跳过状态回调自动扫描");
@@ -130,8 +132,10 @@ export class DeviceConnection {
 					return;
 				}
 				if (this.device.boundDeviceId == "") {
-					this.device.status.value = "PAIRING";
-					this.startPairingScan();
+					this.device.status.value = "UNPAIRED";
+					this.device.touchState();
+				} else if (this.device.isDeletingDevice == true) {
+					logger.info("bluetooth", "[DEVICE] 删除设备中，跳过蓝牙开启后的自动扫描");
 				} else if (this.device.currentDeviceId == "") {
 					this.startBoundBroadcastScanSafely("adapter available");
 				}
@@ -170,6 +174,25 @@ export class DeviceConnection {
 		}
 	}
 
+	async disconnectGattOnly(readRecentVital: boolean = true): Promise<void> {
+		try {
+			await this.stopBluetoothSearch();
+			if (readRecentVital == true) {
+				await this.readRecentVitalBeforeDisconnect();
+			}
+			//#ifndef H5
+			if (this.device.currentDeviceId != "") {
+				this._ignoreConnectionStateChange = true;
+				await disconnect(this.device.currentDeviceId);
+				await sleepTimeout(350);
+			}
+			//#endif
+			this._resetConnectionState();
+		} finally {
+			this._ignoreConnectionStateChange = false;
+		}
+	}
+
 	private async readRecentVitalBeforeDisconnect(): Promise<void> {
 		if (this.device.currentDeviceId == "") return;
 		if (this.device.status.value != "CONNECTED") return;
@@ -186,6 +209,10 @@ export class DeviceConnection {
 	}
 
 	private async startBoundBroadcastScan(): Promise<boolean> {
+		if (this.device.isDeletingDevice == true) {
+			logger.info("bluetooth", "[SCAN] 删除设备中，跳过绑定广播扫描");
+			return false;
+		}
 		if (this._isSearching == true && this._scanPurpose == "boundBroadcast") {
 			logger.info("bluetooth", "[SCAN] 绑定广播扫描已在进行,跳过重复启动");
 			return true;
@@ -294,6 +321,8 @@ export class DeviceConnection {
 			if (purpose != "boundBroadcast") {
 				// 搜索前清空旧设备列表,避免残留
 				this.device.devices = [];
+				this._pairingPickerVisible = false;
+				this._pairingPickerDeviceCount = 0;
 			}
 
 			offDeviceFound();
@@ -405,7 +434,6 @@ export class DeviceConnection {
 			// Nordic 设备的广播包经常只设 localName,不设 GAP name
 			// 优先用 name,fallback 到 localName
 			const name = d.name ?? d.localName ?? "";
-			this.device.broadcast.handleFoundDevice(d);
 			if (name.startsWith(TARGET_DEVICE_NAME_PREFIX)) {
 				this._handleFoundDevice(d, name);
 			}
@@ -415,8 +443,7 @@ export class DeviceConnection {
 
 	/**
 	 * 处理已发现的目标 BOOM 设备:入列表 + 按 RSSI 排序(信号最强在最前)
-	 * 找到 N 个都入列表,等扫描周期结束后统一处理
-	 * 连接由 _handlePairingScanTimeout 根据 _scanMode + devices.length 决定
+	 * 配对扫描首次发现目标设备就弹列表，之后继续扫描并在新增设备时刷新弹窗快照
 	 */
 	private _handleFoundDevice(found: DeviceInfo, name: string): void {
 		logger.info(
@@ -424,8 +451,49 @@ export class DeviceConnection {
 			"[SCAN] 发现目标设备",
 			`${name}/${found.deviceId}/RSSI=${found.RSSI}`
 		);
+		const beforeCount = this.device.devices.length;
 		this.device.cacheFoundDevice(found, name);
 		logger.info("bluetooth", "[SCAN] 当前 BOOM 设备列表长度:", this.device.devices.length);
+		if (this._scanPurpose == "pairing" && this.device.devices.length > 0) {
+			this.showPairingPickerDuringScan();
+		}
+		if (this._pairingPickerVisible == true && beforeCount != this.device.devices.length) {
+			this.refreshPairingPicker();
+		}
+	}
+
+	private showPairingPickerDuringScan(): void {
+		if (this._pairingPickerVisible == true) return;
+		logger.info("bluetooth", "[SCAN] 首次发现目标设备,立即弹窗并继续扫描");
+		this._pairingPickerVisible = true;
+		this._pairingPickerDeviceCount = this.device.devices.length;
+		this.openPairingDevicePicker();
+	}
+
+	private refreshPairingPicker(): void {
+		const count = this.device.devices.length;
+		if (count == this._pairingPickerDeviceCount) return;
+		logger.info(
+			"bluetooth",
+			`[SCAN] 配对设备列表更新,刷新弹窗: ${this._pairingPickerDeviceCount} -> ${count}`
+		);
+		this._pairingPickerDeviceCount = count;
+		this.openPairingDevicePicker();
+	}
+
+	private openPairingDevicePicker(): void {
+		const pickerOptions: ShowDevicePickerOptions = {
+			description: t("搜索仍在继续，发现新设备会自动更新列表；连接或取消会停止搜索"),
+			onSelect: (deviceId: string, _device: DeviceInfo) => {
+				logger.info("bluetooth", `[SCAN] 用户选择连接: ${deviceId}`);
+				this.connectToFoundDevice(deviceId);
+			},
+			onCancel: () => {
+				logger.info("bluetooth", "[SCAN] 用户取消,停止配对扫描并降级为未配对");
+				this.cancelPairingScan();
+			}
+		};
+		this.device.showDevicePicker(pickerOptions);
 	}
 
 	/** 调度扫描超时定时器 */
@@ -462,21 +530,13 @@ export class DeviceConnection {
 			return;
 		}
 
-		// 直接弹 actionSheet 让用户选择
-		logger.info("bluetooth", `[SCAN] 发现 ${count} 个设备,直接弹窗让用户选择`);
-		const pickerOptions: ShowDevicePickerOptions = {
-			onSelect: (deviceId: string, _device: DeviceInfo) => {
-				logger.info("bluetooth", `[SCAN] 用户选择连接: ${deviceId}`);
-				this.connectToFoundDevice(deviceId);
-			},
-			onCancel: () => {
-				logger.info("bluetooth", `[SCAN] 用户取消,降级为未配对`);
-				this.device.devices = [];
-				this.device.status.value = "UNPAIRED";
-				this.device.errorMessage.value = t("已取消,请重新配对");
-			}
-		};
-		this.device.showDevicePicker(pickerOptions);
+		this.device.status.value = "PAIRING";
+		this.device.touchState();
+		if (this._pairingPickerVisible == true) return;
+		logger.info("bluetooth", `[SCAN] 扫描超时发现 ${count} 个设备,补弹窗让用户选择`);
+		this._pairingPickerVisible = true;
+		this._pairingPickerDeviceCount = count;
+		this.openPairingDevicePicker();
 	}
 
 	/** 停止扫描 + 清理定时器 */
@@ -489,6 +549,18 @@ export class DeviceConnection {
 		this._scanPurpose = "none";
 		this.device.broadcast.markScanStopped();
 		//#endif
+	}
+
+	private cancelPairingScan(): void {
+		this.stopBluetoothSearch().catch((e) => {
+			logger.warn("bluetooth", "[SCAN] 用户取消时停止扫描失败:", e);
+		});
+		this._pairingPickerVisible = false;
+		this._pairingPickerDeviceCount = 0;
+		this.device.devices = [];
+		this.device.status.value = "UNPAIRED";
+		this.device.errorMessage.value = t("已取消,请重新配对");
+		this.device.touchState();
 	}
 
 	/* ===== 连接 / 断开 ===== */
@@ -722,9 +794,17 @@ export class DeviceConnection {
 					logger.warn("bluetooth", "连接状态回调: 已断开", res.deviceId);
 					if (
 						this._ignoreConnectionStateChange == true ||
-						this._isSwitchingToBroadcastMode == true
+						this._isSwitchingToBroadcastMode == true ||
+						this.device.isDeletingDevice == true
 					) {
-						logger.info("bluetooth", "[BOOM] 本次断开由主动流程触发，等待恢复广播");
+						if (this.device.isDeletingDevice == true) {
+							logger.info(
+								"bluetooth",
+								"[DEVICE] 删除设备中，跳过断开后的自动恢复扫描"
+							);
+						} else {
+							logger.info("bluetooth", "[BOOM] 本次断开由主动流程触发，等待恢复广播");
+						}
 						return;
 					}
 					this._resetConnectionState();
@@ -780,7 +860,15 @@ export class DeviceConnection {
 			return;
 		}
 		const displayName = found.name ?? found.localName ?? "";
-		this.connectToDevice(deviceId, displayName);
+		this._pairingPickerVisible = false;
+		this._pairingPickerDeviceCount = 0;
+		this.stopBluetoothSearch()
+			.catch((e) => {
+				logger.warn("bluetooth", "[SCAN] 用户选择连接时停止扫描失败:", e);
+			})
+			.finally(() => {
+				this.connectToDevice(deviceId, displayName);
+			});
 	}
 
 	/** 主动断开当前设备 */

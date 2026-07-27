@@ -177,14 +177,25 @@ function openWearLocationPicker() {
  * 删除设备:confirm 二次确认 → 调 deviceStore.deleteDevice()
  * - 不跳转,清完数据后由详情页 onShow 保持可见
  */
+function confirmDeleteDevice() {
+	deviceStore
+		.deleteDevice()
+		.then(() => {
+			router.back();
+		})
+		.catch((err) => {
+			console.warn("[DEVICE] 删除设备失败:", err);
+			ui.showToast({ message: t("删除设备失败，请重试"), type: "error" });
+		});
+}
+
 function onDelete() {
 	ui.showConfirm({
 		title: t("删除设备"),
 		message: t("此操作将清空本地存储的所有数据(心率/睡眠/PPI等),且不可恢复。确定继续吗?"),
 		callback(action) {
 			if (action == "confirm") {
-				deviceStore.deleteDevice();
-				router.back();
+				confirmDeleteDevice();
 			}
 		}
 	});

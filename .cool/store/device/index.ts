@@ -75,6 +75,7 @@ export type ShowDevicePickerOptions = {
 	onSelect: (deviceId: string, device: DeviceInfo) => void;
 	onCancel?: () => void;
 	title?: string;
+	description?: string;
 	list?: DeviceInfo[];
 };
 
@@ -99,6 +100,7 @@ export class Device {
 	available: boolean = false;
 	discovering: boolean = false;
 	errorMessage = ref<string>("");
+	isDeletingDevice: boolean = false;
 
 	/* ===== 设备信息 ===== */
 	currentDeviceName: string = "";
@@ -467,7 +469,7 @@ export class Device {
 			logger.warn("bluetooth", "[ACTION-SHEET] actionSheetRef 未注入,无法弹窗");
 			return;
 		}
-		const { onSelect, onCancel, title, list } = options;
+		const { onSelect, onCancel, title, description, list } = options;
 		const finalTitle: string = title ?? t("选择要连接的设备");
 		const snapshot = (list ?? this.devices).slice();
 		// UTS:强类型对象字面量,先抽成具名 const
@@ -487,6 +489,7 @@ export class Device {
 		};
 		const sheetOptions: ClActionSheetOptions = {
 			title: finalTitle,
+			description: description ?? "",
 			showCancel: false,
 			list: [...snapshot.map(deviceItem), cancelItem]
 		};
@@ -515,38 +518,48 @@ export class Device {
 	 */
 	async deleteDevice(): Promise<void> {
 		logger.info("bluetooth", "[DEVICE] 用户删除设备");
+		this.isDeletingDevice = true;
 		let remoteUnbindOk = false;
 		let remoteUnbindAttempted = false;
 
 		try {
-			remoteUnbindOk = await this.unbindRemoteDevice();
-			remoteUnbindAttempted = true;
-		} catch (e) {
-			logger.warn("bluetooth", "[DEVICE] deleteDevice: 设备解绑异常,继续清理本地:", e);
-		}
+			try {
+				remoteUnbindOk = await this.unbindRemoteDevice();
+				remoteUnbindAttempted = true;
+			} catch (e) {
+				logger.warn("bluetooth", "[DEVICE] deleteDevice: 设备解绑异常,继续清理本地:", e);
+			}
 
-		// 1. 断开 BLE(在清数据前先断开,避免回调中读到空状态)
-		try {
-			await this.connection.disconnectDevice(false);
-		} catch (e) {
-			logger.warn("bluetooth", "[DEVICE] deleteDevice: disconnectDevice 异常,继续清理:", e);
-		}
+			// 1. 断开 BLE(删除场景不恢复绑定广播扫描)
+			try {
+				await this.connection.disconnectGattOnly(false);
+			} catch (e) {
+				logger.warn(
+					"bluetooth",
+					"[DEVICE] deleteDevice: disconnectGattOnly 异常,继续清理:",
+					e
+				);
+			}
 
-		// 2. 清空历史 DB(心率/睡眠/PPI 记录)
-		try {
-			await bluetoothDataManager.clearAllData();
-		} catch (e) {
-			logger.warn("bluetooth", "[DEVICE] deleteDevice: clearAllData 异常,继续清理:", e);
-		}
+			// 2. 先清空本地绑定,避免清库期间页面/定时器继续按旧设备发请求
+			this.clearAllSavedData();
+			realtime.clear();
 
-		// 3. 清空本地 storage(boundDeviceId)
-		this.clearAllSavedData();
-		realtime.clear();
+			// 3. 清空历史 DB(心率/睡眠/PPI 记录)
+			try {
+				await bluetoothDataManager.clearAllData();
+			} catch (e) {
+				logger.warn("bluetooth", "[DEVICE] deleteDevice: clearAllData 异常,继续清理:", e);
+			}
 
-		// 4. 补充:清错误信息(disconnectDevice 不清,这里兜底)
-		this.errorMessage.value = "";
-		if (remoteUnbindAttempted == true && remoteUnbindOk == false) {
-			logger.warn("bluetooth", "[DEVICE] 设备未确认解绑，本地已删除");
+			// 4. 补充:清错误信息(disconnectDevice 不清,这里兜底)
+			this.errorMessage.value = "";
+			if (remoteUnbindAttempted == true && remoteUnbindOk == false) {
+				logger.warn("bluetooth", "[DEVICE] 设备未确认解绑，本地已删除");
+			}
+		} finally {
+			this.isDeletingDevice = false;
+			this.touchState();
 		}
 	}
 

@@ -179,14 +179,22 @@ function stopRefreshTimer() {
 	}
 }
 
+function refreshHomeData() {
+	const deviceId = device.boundDeviceId;
+	if (deviceId == "") return;
+	home.fetch(deviceId).catch((err) => {
+		console.warn("首页数据刷新失败:", err);
+	});
+}
+
 function startRefreshTimer() {
 	stopRefreshTimer();
 	onlineTick.value = Date.now();
-	home.fetch(device.boundDeviceId);
+	refreshHomeData();
 	// @ts-ignore
 	refreshTimer = setInterval(() => {
 		onlineTick.value = Date.now();
-		home.fetch(device.boundDeviceId);
+		refreshHomeData();
 	}, REFRESH_INTERVAL);
 }
 
