@@ -2,7 +2,7 @@ import { EVENT_QUERY_TYPE_BY_TIME } from "../../bluetooth";
 import { sleepTimeout } from "../../utils";
 import type { Device } from "./index";
 import type { DeviceSyncReason, HistoryRepairResult } from "./sync";
-import type { GattFlushReason, GattQueuePriority, GattQueueTaskKind } from "./types";
+import type { GattFlushReason, GattQueuePriority, GattQueueTaskKind } from "./types/gatt-types";
 import { logger } from "../../service/logger";
 
 const EVENT_SYNC_WINDOW_SECONDS = 24 * 60 * 60;
@@ -72,6 +72,7 @@ export class DeviceGattScheduler {
 
 	runManualGattTask(name: string, runner: () => Promise<boolean>): Promise<boolean> {
 		return new Promise<boolean>((resolve) => {
+			// 测试页/表单类命令统一走 manualCommand，避免为每个 0x31/0x35 等命令扩散队列类型。
 			const task = this.makeTask("manualCommand", "urgent");
 			task.manualName = name;
 			task.manualRunner = runner;
@@ -210,10 +211,7 @@ export class DeviceGattScheduler {
 		if (task.priority == "normal") priorityScore = 100;
 		if (task.priority == "tail") priorityScore = 200;
 		let kindScore = 50;
-		if (task.kind == "unbind") kindScore = 0;
 		if (task.kind == "timeSync") kindScore = 10;
-		if (task.kind == "setDeviceNumber") kindScore = 20;
-		if (task.kind == "setBiometric") kindScore = 30;
 		if (task.kind == "manualCommand") kindScore = 40;
 		if (task.kind == "readEvent") kindScore = 60;
 		if (task.kind == "historyRepair") kindScore = 90;

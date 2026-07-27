@@ -15,14 +15,9 @@ export type HistoryGap = {
 	toSec: number;
 };
 
-export type HistorySyncGroupPlan = {
+export type HistorySyncPlan = {
 	needed: boolean;
 	gaps: HistoryGap[];
-};
-
-export type HistorySyncPlan = {
-	vital: HistorySyncGroupPlan;
-	sleep: HistorySyncGroupPlan;
 };
 
 export type HistoryGapRepairResult = {
@@ -134,14 +129,8 @@ export class DeviceSync {
 			const nowSec = Math.floor(Date.now() / 1000);
 			const vitalGaps = await this.planVitalGaps(nowSec);
 			const plan: HistorySyncPlan = {
-				vital: {
-					needed: vitalGaps.length > 0,
-					gaps: vitalGaps
-				} as HistorySyncGroupPlan,
-				sleep: {
-					needed: false,
-					gaps: []
-				} as HistorySyncGroupPlan
+				needed: vitalGaps.length > 0,
+				gaps: vitalGaps
 			} as HistorySyncPlan;
 			this.lastPlan.value = plan;
 			this.lastCheckAt.value = Date.now();
@@ -158,13 +147,13 @@ export class DeviceSync {
 	async requestHistorySync(reason: DeviceSyncReason): Promise<boolean> {
 		if (this.autoEnabled == false && reason != "manual") return false;
 		const plan = await this.planHistorySync();
-		if (plan.vital.needed == false) {
+		if (plan.needed == false) {
 			logger.info("bluetooth", `[BOOM-SYNC] 无生命体征历史缺口: reason=${reason}`);
 			return true;
 		}
 		logger.info(
 			"bluetooth",
-			`[BOOM-SYNC] 已规划生命体征历史缺口: reason=${reason}, gaps=${plan.vital.gaps.length}`
+			`[BOOM-SYNC] 已规划生命体征历史缺口: reason=${reason}, gaps=${plan.gaps.length}`
 		);
 		this.device.scheduler.enqueueHistoryRepair(reason);
 		if (reason == "startup") {
@@ -197,7 +186,7 @@ export class DeviceSync {
 			const plan = await this.planHistorySync();
 			this.state.value = "repairing";
 			this.lastPlan.value = plan;
-			if (plan.vital.needed == false) {
+			if (plan.needed == false) {
 				this.lastError.value = "no history gaps";
 				return this.makeResult(true, "no history gaps", plan, []);
 			}
@@ -210,9 +199,9 @@ export class DeviceSync {
 			logger.info(
 				"bluetooth",
 				"[BOOM-SYNC] 开始补生命体征历史",
-				`reason=${reason}, gaps=${plan.vital.gaps.length}`
+				`reason=${reason}, gaps=${plan.gaps.length}`
 			);
-			const results = await this.runVitalGaps(plan.vital.gaps, deadlineAt);
+			const results = await this.runVitalGaps(plan.gaps, deadlineAt);
 			let ok = true;
 			for (let i = 0; i < results.length; i++) {
 				const item = results[i];
@@ -411,14 +400,8 @@ export class DeviceSync {
 
 	private emptyPlan(): HistorySyncPlan {
 		return {
-			vital: {
-				needed: false,
-				gaps: []
-			} as HistorySyncGroupPlan,
-			sleep: {
-				needed: false,
-				gaps: []
-			} as HistorySyncGroupPlan
+			needed: false,
+			gaps: []
 		} as HistorySyncPlan;
 	}
 

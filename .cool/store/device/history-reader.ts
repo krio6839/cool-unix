@@ -308,6 +308,7 @@ export class DeviceHistoryReader {
 			);
 			const targetEndSec = nowSec;
 			let stopRecentRead = false;
+			let lastResponseStartSec = -1;
 			const result = await this.readVitalDataAutoInner({
 				startSec,
 				direction: RECENT_VITAL_DIRECTION,
@@ -325,11 +326,20 @@ export class DeviceHistoryReader {
 						"bluetooth",
 						`[BOOM-HISTORY] 最近窗口补拉段: page=${page}, responseStart=${response.startSec} ${this.formatMaybeTime(response.startSec)}, responseEnd=${this.getVitalWindowEndSec(response)}, n=${response.n}, valid=${validCount}/${response.vitalData.length}`
 					);
-					const stopReason = this.getRecentVitalStopReason(
+					let stopReason = this.getRecentVitalStopReason(
 						response,
 						startSec,
 						targetEndSec
 					);
+					if (
+						stopReason == null &&
+						page > 1 &&
+						response.startSec > 0 &&
+						response.startSec == lastResponseStartSec
+					) {
+						stopReason = "返回段与上一页重复，停止续读";
+					}
+					lastResponseStartSec = response.startSec;
 					if (stopReason != null) {
 						stopRecentRead = true;
 						logger.warn(

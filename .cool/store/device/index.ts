@@ -28,37 +28,39 @@ import { disconnect, closeAdapter } from "../../bluetooth/kux";
 //#endif
 
 import {
-	DeviceStatusEnum,
 	KEY_WEAR_LOCATION,
 	KEY_BOUND_DEVICE_ID,
 	KEY_BOUND_DEVICE_NAME,
 	DEFAULT_WEAR_LOCATION,
 	normalizeWearLocation
-} from "./types";
+} from "./types/wear-location";
+import { DeviceStatusEnum } from "./types/device-state-types";
 import type {
-	BroadcastDebugInfo,
 	DeviceOnlineInfo,
-	DeviceTestMode,
-	GattTaskName,
-	WearLocation
-} from "./types";
+	DeviceTestMode
+} from "./types/device-state-types";
+import type { BroadcastDebugInfo } from "./types/broadcast-types";
+import type { GattTaskName } from "./types/gatt-types";
+import type { WearLocation } from "./types/wear-location";
 export type {
-	BroadcastDebugInfo,
 	DeviceOnlineInfo,
 	DeviceOnlineSource,
 	DeviceTestMode,
-	WearLocation,
-	WearLocationOption,
 	DeviceStatus
-} from "./types";
+} from "./types/device-state-types";
+export type { BroadcastDebugInfo } from "./types/broadcast-types";
+export type {
+	WearLocation,
+	WearLocationOption
+} from "./types/wear-location";
 export {
-	DeviceStatusEnum,
 	DEFAULT_WEAR_LOCATION,
 	getWearLocationLabel,
 	getWearLocationOptions,
 	isValidWearLocation,
 	normalizeWearLocation
-} from "./types";
+} from "./types/wear-location";
+export { DeviceStatusEnum } from "./types/device-state-types";
 
 import type { RealtimeBroadcast } from "../../bluetooth";
 import { DeviceConnection } from "./connection";
@@ -641,6 +643,5 @@ export type {
 	HistoryGap,
 	HistoryGapRepairResult,
 	HistoryRepairResult,
-	HistorySyncGroupPlan,
 	HistorySyncPlan
 } from "./sync";

@@ -1,3 +1,5 @@
+import type { RealtimeBroadcast } from "./boom-types";
+
 // ==================== 基础数据类型 ====================
 
 /**
@@ -57,6 +59,17 @@ export type RealtimeBroadcastRecord = {
 };
 
 /**
+ * 0x50 广播入库输入。
+ * 调用方只提供解析结果和原始上下文，数据库字段映射统一由 BluetoothDataManager 维护。
+ */
+export type StoreRealtimeBroadcastInput = {
+	broadcast: RealtimeBroadcast;
+	rawHex: string;
+	vHex: string;
+	deviceId: string;
+};
+
+/**
  * 本地上传状态统计
  */
 export type UploadTableStats = {
@@ -78,14 +91,6 @@ export type HeartRateRecord = {
 	heartRate: number;
 	bloodOxygen: number;
 	ppi: number;
-};
-
-/**
- * 数据准备状态
- */
-export type DataReadyStatus = {
-	heartRateCount: number;
-	sleepCount: number;
 };
 
 // ==================== 上传数据类型 ====================

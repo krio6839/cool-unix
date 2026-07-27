@@ -16,6 +16,7 @@ import type {
 	PpiData,
 	HeartRateRecord,
 	RealtimeBroadcastRecord,
+	StoreRealtimeBroadcastInput,
 	UploadTableStats
 } from "./types";
 
@@ -109,40 +110,54 @@ export class BluetoothDataManager {
 	/**
 	 * 存储 0x50 广播实时数据（本地首页展示使用，不上传）
 	 */
-	async storeRealtimeBroadcastRecord(
-		id: string,
-		timestamp: number,
-		receivedAt: number,
-		utc: number,
-		voltageMv: number,
-		ppgAttachedValue: boolean,
-		behavior: number,
-		activity: number,
-		hr: number,
-		ppi: number,
-		spo2: number,
-		bhr: number,
-		eventSeq: number,
-		hasNewEventValue: boolean,
-		batteryStatus: number,
-		rmssd: number,
-		stepsEveryday: number,
-		calorieEveryday: number,
-		rawHexValue: string,
-		vHexValue: string,
-		deviceIdValue: string
-	): Promise<boolean> {
-		const rawHex = this.escapeSqlText(rawHexValue);
-		const vHex = this.escapeSqlText(vHexValue);
-		const deviceId = this.escapeSqlText(deviceIdValue);
-		const ppgAttached = ppgAttachedValue == true ? 1 : 0;
-		const hasNewEvent = hasNewEventValue == true ? 1 : 0;
-		const legacyStatus = 0;
-		const legacyStatus2 = 0;
+	async storeRealtimeBroadcast(input: StoreRealtimeBroadcastInput): Promise<RealtimeBroadcastRecord | null> {
+		const record = this.makeRealtimeBroadcastRecord(input);
+		const ok = await this.storeRealtimeBroadcastRecord(record);
+		if (ok == true) return record;
+		return null;
+	}
+
+	private makeRealtimeBroadcastRecord(
+		input: StoreRealtimeBroadcastInput
+	): RealtimeBroadcastRecord {
+		const r = input.broadcast;
+		return {
+			id: `${r.receivedAt}-${r.utc}`,
+			timestamp: r.utc,
+			receivedAt: r.receivedAt,
+			utc: r.utc,
+			voltageMv: r.voltageMv,
+			ppgAttached: r.ppgAttached,
+			behavior: r.behavior,
+			activity: r.activity,
+			hr: r.hr,
+			ppi: r.ppi,
+			spo2: Math.round(r.spo2Pct * 10),
+			bhr: r.bhr,
+			eventSeq: r.eventSeq,
+			hasNewEvent: r.hasNewEvent,
+			batteryStatus: r.batteryStatus,
+			rmssd: r.hrvMs,
+			stepsEveryday: r.stepsEveryday,
+			calorieEveryday: r.calorieEveryday,
+			rawHex: input.rawHex,
+			vHex: input.vHex,
+			deviceId: input.deviceId
+		} as RealtimeBroadcastRecord;
+	}
+
+	private async storeRealtimeBroadcastRecord(record: RealtimeBroadcastRecord): Promise<boolean> {
+		const rawHex = this.escapeSqlText(record.rawHex);
+		const vHex = this.escapeSqlText(record.vHex);
+		const deviceId = this.escapeSqlText(record.deviceId);
+		const ppgAttached = record.ppgAttached == true ? 1 : 0;
+		const hasNewEvent = record.hasNewEvent == true ? 1 : 0;
+		const unusedStatus = 0;
+		const unusedStatus2 = 0;
 		const sql =
 			"INSERT OR REPLACE INTO realtime_broadcast_data " +
 			"(id, timestamp, received_at, utc, voltage_mv, status, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, status2, event_seq, has_new_event, battery_status, rmssd, steps_everyday, calorie_everyday, raw_hex, v_hex, device_id) VALUES " +
-			`('${id}', ${timestamp}, ${receivedAt}, ${utc}, ${voltageMv}, ${legacyStatus}, ${ppgAttached}, ${behavior}, ${activity}, ${hr}, ${ppi}, ${spo2}, ${bhr}, ${legacyStatus2}, ${eventSeq}, ${hasNewEvent}, ${batteryStatus}, ${rmssd}, ${stepsEveryday}, ${calorieEveryday}, '${rawHex}', '${vHex}', '${deviceId}')`;
+			`('${record.id}', ${record.timestamp}, ${record.receivedAt}, ${record.utc}, ${record.voltageMv}, ${unusedStatus}, ${ppgAttached}, ${record.behavior}, ${record.activity}, ${record.hr}, ${record.ppi}, ${record.spo2}, ${record.bhr}, ${unusedStatus2}, ${record.eventSeq}, ${hasNewEvent}, ${record.batteryStatus}, ${record.rmssd}, ${record.stepsEveryday}, ${record.calorieEveryday}, '${rawHex}', '${vHex}', '${deviceId}')`;
 		return bluetoothDatabase.execute(sql);
 	}
 

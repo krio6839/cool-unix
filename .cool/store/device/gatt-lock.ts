@@ -1,4 +1,4 @@
-import type { GattTaskName } from "./types";
+import type { GattTaskName } from "./types/gatt-types";
 import { logger } from "../../service/logger";
 
 /** GATT 命令通道锁：只保护一条连接内的命令收发，不负责连接/断开调度。 */

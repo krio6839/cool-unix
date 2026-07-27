@@ -50,44 +50,28 @@ export class Realtime {
 		this.lastBroadcastReceivedAt.value = null;
 	}
 
-	setBroadcastValues(
-		hr: number,
-		bhr: number,
-		spo2: number,
-		rmssd: number,
-		steps: number,
-		calorieEveryday: number,
-		receivedAt: number = Date.now()
-	): void {
-		const current = this.healthCardValues.value as HealthCardValues;
-		this.lastBroadcastReceivedAt.value = receivedAt;
-		// 广播字段可能带无效占位值；保留最近有效值，直到广播整体过期。
-		this.healthCardValues.value = {
-			heartRate: hr >= 28 && hr <= 240 ? hr : (current.heartRate ?? null),
-			restingHeartRate: bhr >= 28 && bhr <= 240 ? bhr : (current.restingHeartRate ?? null),
-			oxygen: spo2 >= 700 && spo2 <= 1000 ? spo2 / 10 : (current.oxygen ?? null),
-			hrv: rmssd > 0 ? rmssd : (current.hrv ?? null)
-		} as HealthCardValues;
-		this.steps.value = steps > 0 ? steps : this.steps.value;
-		this.calories.value = calorieEveryday > 0 ? calorieEveryday / 100 : this.calories.value;
-		this.startStaleTimer(receivedAt);
-	}
-
 	/** 页面进入时从本地数据库恢复最新广播记录，或广播入库后同步更新。 */
 	setBroadcastRecord(record: RealtimeBroadcastRecord): void {
 		if (this.isBroadcastStale(record.receivedAt)) {
 			this.clear();
 			return;
 		}
-		this.setBroadcastValues(
-			record.hr,
-			record.bhr,
-			record.spo2,
-			record.rmssd,
-			record.stepsEveryday,
-			record.calorieEveryday,
-			record.receivedAt
-		);
+		const current = this.healthCardValues.value as HealthCardValues;
+		this.lastBroadcastReceivedAt.value = record.receivedAt;
+		// 广播字段可能带无效占位值；保留最近有效值，直到广播整体过期。
+		this.healthCardValues.value = {
+			heartRate: record.hr >= 28 && record.hr <= 240 ? record.hr : (current.heartRate ?? null),
+			restingHeartRate:
+				record.bhr >= 28 && record.bhr <= 240
+					? record.bhr
+					: (current.restingHeartRate ?? null),
+			oxygen: record.spo2 >= 700 && record.spo2 <= 1000 ? record.spo2 / 10 : (current.oxygen ?? null),
+			hrv: record.rmssd > 0 ? record.rmssd : (current.hrv ?? null)
+		} as HealthCardValues;
+		this.steps.value = record.stepsEveryday > 0 ? record.stepsEveryday : this.steps.value;
+		this.calories.value =
+			record.calorieEveryday > 0 ? record.calorieEveryday / 100 : this.calories.value;
+		this.startStaleTimer(record.receivedAt);
 	}
 
 	async refreshFromLatestBroadcastRecord(): Promise<void> {

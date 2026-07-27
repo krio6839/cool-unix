@@ -2,9 +2,9 @@ import { bluetoothDataManager, parseCustomAdvData, toRealtimeBroadcast } from ".
 import type { RealtimeBroadcast } from "../../bluetooth";
 import { sleepTimeout } from "../../utils";
 import { realtime } from "../realtime";
-import { TARGET_DEVICE_NAME_PREFIX } from "./types";
+import { TARGET_DEVICE_NAME_PREFIX } from "./types/wear-location";
 import type { Device } from "./index";
-import type { BroadcastDebugInfo } from "./types";
+import type { BroadcastDebugInfo, BroadcastPacketContext } from "./types/broadcast-types";
 import { logger } from "../../service/logger";
 
 //#ifndef H5
@@ -16,10 +16,14 @@ const BROADCAST_TIME_DRIFT_SEC = 10;
 const BROADCAST_TIME_SYNC_DRIFT_SEC = 60;
 const BROADCAST_TIME_SYNC_COOLDOWN_MS = 60 * 1000;
 const RECENT_GATT_TIME_SYNC_SUPPRESS_MS = 60 * 1000;
+const EVENT_SYNC_DEBOUNCE_MS = 30 * 1000;
 const STALE_BROADCAST_REPEAT_THRESHOLD = 3;
 const STALE_BROADCAST_SCAN_RESTART_COOLDOWN_MS = 20 * 1000;
+const BROADCAST_HARD_RECOVERY_RESTART_THRESHOLD = 3;
+const BROADCAST_HARD_RECOVERY_COOLDOWN_MS = 60 * 1000;
 const BOUND_BROADCAST_SCAN_NO_CALLBACK_MS = 12 * 1000;
 const BOUND_BROADCAST_SCAN_STALE_MS = 18 * 1000;
+const BROADCAST_RECOVERY_ERROR_TEXT = "未收到设备广播，请确认设备在附近、电量充足且系统蓝牙权限正常";
 
 export class DeviceBroadcast {
 	private device: Device;
@@ -31,11 +35,18 @@ export class DeviceBroadcast {
 	private lastTimeSyncAttemptAt: number = 0;
 	private lastEventSeqByDevice = new Map<string, number>();
 	private seenEventSeqByDevice = new Map<string, boolean>();
+	private pendingEventSyncTimer: number = 0;
+	private pendingEventSyncDeviceId: string = "";
+	private pendingEventSeq: number = 0;
+	private pendingPreviousEventSeq: number = 0;
 	private lastTimeSyncOkAt: number = 0;
 	private lastBroadcastUtc: number = 0;
 	private lastBroadcastVHex: string = "";
 	private staleBroadcastRepeatCount: number = 0;
 	private lastBroadcastScanRestartAt: number = 0;
+	private consecutiveBroadcastRestartCount: number = 0;
+	private lastBroadcastHardRecoveryAt: number = 0;
+	private hardRecoveryPendingValidation: boolean = false;
 	private broadcastScanRestartBusy: boolean = false;
 	private boundBroadcastScanGeneration: number = 0;
 
@@ -43,6 +54,8 @@ export class DeviceBroadcast {
 		this.device = device;
 		this.hydrateLatestEventSeq();
 	}
+
+	/* ===== 初始化 / 外部入口 ===== */
 
 	private async hydrateLatestEventSeq(): Promise<void> {
 		try {
@@ -63,9 +76,7 @@ export class DeviceBroadcast {
 		this.boundBroadcastScanning = scanning;
 		this.boundBroadcastScanGeneration = this.boundBroadcastScanGeneration + 1;
 		if (scanning == true) {
-			this.lastBoundBroadcastHandledAt = 0;
-			this.lastBoundScanCallbackAt = 0;
-			this.lastBoundScanDebugAt = 0;
+			this.resetBoundScanWindow();
 			this.resetStaleBroadcastTracking();
 			this.watchBoundBroadcastScan(this.boundBroadcastScanGeneration);
 		}
@@ -74,9 +85,7 @@ export class DeviceBroadcast {
 	markScanStopped(): void {
 		this.boundBroadcastScanning = false;
 		this.boundBroadcastScanGeneration = this.boundBroadcastScanGeneration + 1;
-		this.lastBoundBroadcastHandledAt = 0;
-		this.lastBoundScanCallbackAt = 0;
-		this.lastBoundScanDebugAt = 0;
+		this.resetBoundScanWindow();
 		this.resetStaleBroadcastTracking();
 	}
 
@@ -121,15 +130,11 @@ export class DeviceBroadcast {
 			return;
 		}
 		const r: RealtimeBroadcast = toRealtimeBroadcast(parsed);
-		const deviceId =
-			this.device.currentDeviceId != ""
-				? this.device.currentDeviceId
-				: this.device.boundDeviceId;
-		const name = this.device.getDisplayDeviceName();
-		if (this.handleInvalidBroadcastTime("gatt", deviceId, name, 0, vHex, vHex, r) == true) {
+		const ctx = this.makeGattPacketContext(vHex);
+		if (this.handleInvalidBroadcastTime(ctx, r) == true) {
 			return;
 		}
-		this.acceptBroadcastRecord("gatt", deviceId, name, 0, vHex, vHex, r);
+		this.acceptBroadcastRecord(ctx, r);
 	}
 
 	handleBoundDeviceList(devices: DeviceInfo[]): void {
@@ -151,9 +156,17 @@ export class DeviceBroadcast {
 		//#endif
 	}
 
+	/* ===== 绑定广播扫描监控 ===== */
+
 	private markBoundScanCallback(): void {
 		if (this.boundBroadcastScanning == false) return;
 		this.lastBoundScanCallbackAt = Date.now();
+	}
+
+	private resetBoundScanWindow(): void {
+		this.lastBoundBroadcastHandledAt = 0;
+		this.lastBoundScanCallbackAt = 0;
+		this.lastBoundScanDebugAt = 0;
 	}
 
 	private watchBoundBroadcastScan(generation: number): void {
@@ -209,6 +222,8 @@ export class DeviceBroadcast {
 		);
 	}
 
+	/* ===== 广播解析主流程 ===== */
+
 	private tryParseBroadcast(d: DeviceInfo): void {
 		const ad = d.advertisData ?? null;
 		if (ad == null || ad.length <= 0) {
@@ -234,25 +249,14 @@ export class DeviceBroadcast {
 		const parsed = parseCustomAdvData(vHex);
 		if (parsed != null) {
 			const r: RealtimeBroadcast = toRealtimeBroadcast(parsed);
-			const name = d.name ?? d.localName ?? "";
-			const rssi = d.RSSI ?? 0;
-			if (this.handleStaleScannerBroadcast(d.deviceId, name, rssi, hex, vHex, r) == true) {
+			const ctx = this.makeBroadcastPacketContext(d, hex, vHex);
+			if (this.handleStaleScannerBroadcast(ctx, r) == true) {
 				return;
 			}
-			if (
-				this.handleInvalidBroadcastTime(
-					"broadcast",
-					d.deviceId,
-					name,
-					rssi,
-					hex,
-					vHex,
-					r
-				) == true
-			) {
+			if (this.handleInvalidBroadcastTime(ctx, r) == true) {
 				return;
 			}
-			this.acceptBroadcastRecord("broadcast", d.deviceId, name, rssi, hex, vHex, r);
+			this.acceptBroadcastRecord(ctx, r);
 		} else if (this.boundBroadcastScanning == true) {
 			logger.info(
 				"bluetooth",
@@ -261,45 +265,75 @@ export class DeviceBroadcast {
 		}
 	}
 
-	private acceptBroadcastRecord(
-		source: "broadcast" | "gatt",
-		deviceId: string,
-		name: string,
-		rssi: number,
-		rawHex: string,
-		vHex: string,
-		r: RealtimeBroadcast
-	): void {
-		this.markBroadcastEventNotice(deviceId, r);
-		this.device.realtime.value = r;
-		this.storeBroadcastRecordByDevice(deviceId, rawHex, vHex, r);
-		this.publishDebugInfoByDevice(source, deviceId, name, rssi, rawHex, vHex, r);
+	/* ===== 单条广播上下文 ===== */
+
+	private makeGattPacketContext(vHex: string): BroadcastPacketContext {
+		const deviceId =
+			this.device.currentDeviceId != ""
+				? this.device.currentDeviceId
+				: this.device.boundDeviceId;
+		return {
+			source: "gatt",
+			deviceId,
+			name: this.device.getDisplayDeviceName(),
+			rssi: 0,
+			rawHex: vHex,
+			vHex
+		} as BroadcastPacketContext;
 	}
 
-	private handleStaleScannerBroadcast(
-		deviceId: string,
-		name: string,
-		rssi: number,
+	private makeBroadcastPacketContext(
+		d: DeviceInfo,
 		rawHex: string,
-		vHex: string,
-		r: RealtimeBroadcast
-	): boolean {
+		vHex: string
+	): BroadcastPacketContext {
+		return {
+			source: "broadcast",
+			deviceId: d.deviceId,
+			name: d.name ?? d.localName ?? "",
+			rssi: d.RSSI ?? 0,
+			rawHex,
+			vHex
+		} as BroadcastPacketContext;
+	}
+
+	private acceptBroadcastRecord(ctx: BroadcastPacketContext, r: RealtimeBroadcast): void {
+		if (this.isBoundBroadcastRecord(ctx) == true) {
+			this.markBroadcastRecoveryOk();
+		}
+		this.markBroadcastEventNotice(ctx.deviceId, r);
+		this.device.realtime.value = r;
+		this.storeBroadcastRecordByDevice(ctx, r);
+		this.publishDebugInfoByDevice(ctx, r);
+	}
+
+	private isBoundBroadcastRecord(ctx: BroadcastPacketContext): boolean {
+		return (
+			ctx.source == "broadcast" &&
+			this.device.boundDeviceId != "" &&
+			ctx.deviceId == this.device.boundDeviceId
+		);
+	}
+
+	/* ===== 缓存广播识别 / 扫描恢复 ===== */
+
+	private handleStaleScannerBroadcast(ctx: BroadcastPacketContext, r: RealtimeBroadcast): boolean {
 		if (this.isBroadcastUtcUsable(r) == true) {
 			this.lastBroadcastUtc = r.utc;
-			this.lastBroadcastVHex = vHex;
+			this.lastBroadcastVHex = ctx.vHex;
 			this.staleBroadcastRepeatCount = 0;
 			return false;
 		}
 		if (this.lastBroadcastUtc <= 0) return false;
 		if (r.utc > this.lastBroadcastUtc) return false;
-		if (vHex != this.lastBroadcastVHex) return false;
+		if (ctx.vHex != this.lastBroadcastVHex) return false;
 		this.staleBroadcastRepeatCount = this.staleBroadcastRepeatCount + 1;
 		if (this.staleBroadcastRepeatCount < STALE_BROADCAST_REPEAT_THRESHOLD) return false;
-		this.publishDebugInfoByDevice("broadcast", deviceId, name, rssi, rawHex, vHex, r);
+		this.publishDebugInfoByDevice(ctx, r);
 		const diffSec = this.getBroadcastUtcDiffSec(r);
 		logger.warn(
 			"bluetooth",
-			`[BOOM-ADV] 检测到扫描缓存广播，丢弃并重启广播扫描: device=${deviceId}, repeat=${this.staleBroadcastRepeatCount}, lastUtc=${this.lastBroadcastUtc}, utc=${r.utc}, diff=${diffSec}s`
+			`[BOOM-ADV] 检测到扫描缓存广播，丢弃并重启广播扫描: device=${ctx.deviceId}, repeat=${this.staleBroadcastRepeatCount}, lastUtc=${this.lastBroadcastUtc}, utc=${r.utc}, diff=${diffSec}s`
 		);
 		this.restartBoundBroadcastScan("stale packet");
 		return true;
@@ -317,13 +351,67 @@ export class DeviceBroadcast {
 	}
 
 	private async restartBoundBroadcastScanAsync(reason: string): Promise<void> {
+		const hardRecover = this.shouldUseHardBroadcastRecovery(reason);
 		try {
-			await this.device.connection.restartBoundBroadcastScan(reason);
+			await this.device.connection.restartBoundBroadcastScan(reason, hardRecover);
 		} catch (e) {
 			logger.warn("bluetooth", "[BOOM-ADV] 重启广播扫描失败:", e);
 		} finally {
 			this.resetStaleBroadcastTracking();
 			this.broadcastScanRestartBusy = false;
+		}
+	}
+
+	private shouldUseHardBroadcastRecovery(reason: string): boolean {
+		this.consecutiveBroadcastRestartCount = this.consecutiveBroadcastRestartCount + 1;
+		if (this.hardRecoveryPendingValidation == true) {
+			this.reportBroadcastUnavailableAfterHardRecovery(reason);
+		}
+		if (this.consecutiveBroadcastRestartCount < BROADCAST_HARD_RECOVERY_RESTART_THRESHOLD) {
+			logger.warn(
+				"bluetooth",
+				`[BOOM-ADV] 广播恢复尝试: count=${this.consecutiveBroadcastRestartCount}/${BROADCAST_HARD_RECOVERY_RESTART_THRESHOLD}, reason=${reason}`
+			);
+			return false;
+		}
+		const now = Date.now();
+		if (now - this.lastBroadcastHardRecoveryAt < BROADCAST_HARD_RECOVERY_COOLDOWN_MS) {
+			logger.warn(
+				"bluetooth",
+				`[BOOM-ADV] 广播硬恢复冷却中，先轻量重启: count=${this.consecutiveBroadcastRestartCount}, reason=${reason}`
+			);
+			return false;
+		}
+		this.consecutiveBroadcastRestartCount = 0;
+		this.lastBroadcastHardRecoveryAt = now;
+		this.hardRecoveryPendingValidation = true;
+		logger.warn(
+			"bluetooth",
+			`[BOOM-ADV] 连续未收到有效绑定广播，升级重建扫描栈: reason=${reason}`
+		);
+		return true;
+	}
+
+	private reportBroadcastUnavailableAfterHardRecovery(reason: string): void {
+		if (this.device.errorMessage.value != BROADCAST_RECOVERY_ERROR_TEXT) {
+			logger.warn(
+				"bluetooth",
+				`[BOOM-ADV] 重建扫描栈后仍未收到有效绑定广播: reason=${reason}`
+			);
+		}
+		this.device.errorMessage.value = BROADCAST_RECOVERY_ERROR_TEXT;
+		this.device.touchState();
+	}
+
+	private markBroadcastRecoveryOk(): void {
+		if (this.consecutiveBroadcastRestartCount > 0 || this.hardRecoveryPendingValidation == true) {
+			logger.info("bluetooth", "[BOOM-ADV] 已重新收到有效绑定广播，清除广播恢复状态");
+		}
+		this.consecutiveBroadcastRestartCount = 0;
+		this.hardRecoveryPendingValidation = false;
+		if (this.device.errorMessage.value == BROADCAST_RECOVERY_ERROR_TEXT) {
+			this.device.errorMessage.value = "";
+			this.device.touchState();
 		}
 	}
 
@@ -333,28 +421,22 @@ export class DeviceBroadcast {
 		this.staleBroadcastRepeatCount = 0;
 	}
 
-	private handleInvalidBroadcastTime(
-		source: "broadcast" | "gatt",
-		deviceId: string,
-		name: string,
-		rssi: number,
-		rawHex: string,
-		vHex: string,
-		r: RealtimeBroadcast
-	): boolean {
+	/* ===== 时间校验 / 事件通知 ===== */
+
+	private handleInvalidBroadcastTime(ctx: BroadcastPacketContext, r: RealtimeBroadcast): boolean {
 		if (this.isBroadcastUtcUsable(r) == true) return false;
-		this.publishDebugInfoByDevice(source, deviceId, name, rssi, rawHex, vHex, r);
+		this.publishDebugInfoByDevice(ctx, r);
 		const diffSec = this.getBroadcastUtcDiffSec(r);
 		if (diffSec >= BROADCAST_TIME_SYNC_DRIFT_SEC) {
 			logger.warn(
 				"bluetooth",
-				`[BOOM-ADV] 广播 UTC 不可信，丢弃本条数据并尝试校时: device=${deviceId}, diff=${diffSec}s, utc=${r.utc}`
+				`[BOOM-ADV] 广播 UTC 不可信，丢弃本条数据并尝试校时: device=${ctx.deviceId}, diff=${diffSec}s, utc=${r.utc}`
 			);
 			this.requestTimeSyncFromBroadcast(diffSec, r.utc);
 		} else {
 			logger.warn(
 				"bluetooth",
-				`[BOOM-ADV] 广播 UTC 轻微滞后，丢弃本条缓存数据: device=${deviceId}, diff=${diffSec}s, utc=${r.utc}`
+				`[BOOM-ADV] 广播 UTC 轻微滞后，丢弃本条缓存数据: device=${ctx.deviceId}, diff=${diffSec}s, utc=${r.utc}`
 			);
 		}
 		return true;
@@ -383,7 +465,35 @@ export class DeviceBroadcast {
 	private requestEventSync(deviceId: string, previousSeq: number, eventSeq: number): void {
 		logger.info(
 			"bluetooth",
-			`[BOOM-EVENT] 广播提示有新事件，准备读取: device=${deviceId}, eventSeq=${previousSeq}->${eventSeq}`
+			`[BOOM-EVENT] 广播提示有新事件，等待静默后读取: device=${deviceId}, eventSeq=${previousSeq}->${eventSeq}`
+		);
+		this.pendingEventSyncDeviceId = deviceId;
+		this.pendingPreviousEventSeq = previousSeq;
+		this.pendingEventSeq = eventSeq;
+		if (this.pendingEventSyncTimer != 0) {
+			clearTimeout(this.pendingEventSyncTimer);
+			this.pendingEventSyncTimer = 0;
+		}
+		// 事件序号可能在佩戴/断开/读取事件后短时间连续跳变，静默合并后只连接一次。
+		// @ts-ignore setTimeout 在 UTS 不同平台返回类型不一,这里用 number 容器
+		this.pendingEventSyncTimer = setTimeout(() => {
+			this.pendingEventSyncTimer = 0;
+			this.flushPendingEventSync();
+		}, EVENT_SYNC_DEBOUNCE_MS);
+	}
+
+	private flushPendingEventSync(): void {
+		const deviceId = this.pendingEventSyncDeviceId;
+		const previousSeq = this.pendingPreviousEventSeq;
+		const eventSeq = this.pendingEventSeq;
+		this.pendingEventSyncDeviceId = "";
+		this.pendingPreviousEventSeq = 0;
+		this.pendingEventSeq = 0;
+		if (deviceId == "" || this.device.boundDeviceId == "") return;
+		if (deviceId != this.device.boundDeviceId) return;
+		logger.info(
+			"bluetooth",
+			`[BOOM-EVENT] 事件序号静默完成，入队读取: device=${deviceId}, eventSeq=${previousSeq}->${eventSeq}`
 		);
 		this.device.scheduler.enqueueReadEvent(deviceId, eventSeq);
 	}
@@ -415,6 +525,8 @@ export class DeviceBroadcast {
 		this.device.setUnpairedError("设备时间异常且自动校时失败，请检查设备后恢复广播扫描");
 	}
 
+	/* ===== 入库 / 实时值 / 调试日志 ===== */
+
 	private hasRecentGoodGattTimestamp(nowSec: number): boolean {
 		const boomSec = this.device.event.boomTimestamp.value;
 		if (boomSec <= 0) return false;
@@ -427,45 +539,17 @@ export class DeviceBroadcast {
 	}
 
 	private async storeBroadcastRecordByDevice(
-		deviceIdValue: string,
-		rawHex: string,
-		vHex: string,
+		ctx: BroadcastPacketContext,
 		r: RealtimeBroadcast
 	): Promise<void> {
-		const id = `${r.receivedAt}-${r.utc}`;
-		const ok = await bluetoothDataManager.storeRealtimeBroadcastRecord(
-			id,
-			this.getBroadcastTimestamp(r),
-			r.receivedAt,
-			r.utc,
-			r.voltageMv,
-			r.ppgAttached,
-			r.behavior,
-			r.activity,
-			r.hr,
-			r.ppi,
-			Math.round(r.spo2Pct * 10),
-			r.bhr,
-			r.eventSeq,
-			r.hasNewEvent,
-			r.batteryStatus,
-			r.hrvMs,
-			r.stepsEveryday,
-			r.calorieEveryday,
-			rawHex,
-			vHex,
-			deviceIdValue
-		);
-		if (ok == true) {
-			realtime.setBroadcastValues(
-				r.hr,
-				r.bhr,
-				Math.round(r.spo2Pct * 10),
-				r.hrvMs,
-				r.stepsEveryday,
-				r.calorieEveryday,
-				r.receivedAt
-			);
+		const record = await bluetoothDataManager.storeRealtimeBroadcast({
+			broadcast: r,
+			rawHex: ctx.rawHex,
+			vHex: ctx.vHex,
+			deviceId: ctx.deviceId
+		});
+		if (record != null) {
+			realtime.setBroadcastRecord(record);
 			await this.storeBroadcastPpiData(r);
 		}
 	}
@@ -497,15 +581,7 @@ export class DeviceBroadcast {
 		return diffSec;
 	}
 
-	private publishDebugInfoByDevice(
-		source: "broadcast" | "gatt",
-		deviceId: string,
-		name: string,
-		rssi: number,
-		rawHex: string,
-		vHex: string,
-		r: RealtimeBroadcast
-	): void {
+	private publishDebugInfoByDevice(ctx: BroadcastPacketContext, r: RealtimeBroadcast): void {
 		this.broadcastSeq = this.broadcastSeq + 1;
 		const nowSec = Math.floor(Date.now() / 1000);
 		let diff = nowSec - r.utc;
@@ -516,28 +592,30 @@ export class DeviceBroadcast {
 		const summary = `phone=${nowSec} utc=${r.utc} diff=${diff}s timeValid=${this.isBroadcastUtcUsable(r)} eventSeq=${r.eventSeq} newEvent=${r.hasNewEvent} battery=${r.batteryStatus}(${r.batteryStatusLabel}) ppg=${r.ppgAttached ? "attached" : "detached"} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr}${r.hrValid ? "" : "!"} ppi=${r.ppi}${r.ppiValid ? "" : "!"} rmssd=${rmssdText} spo2=${r.spo2Pct.toFixed(1)}${r.spo2Valid ? "" : "!"} bhr=${r.bhr}${r.bhrValid ? "" : "!"} steps=${r.stepsEveryday} kcal=${r.calorieKcal.toFixed(1)} v=${r.voltageMv}mV/${r.voltageV.toFixed(3)}V`;
 		const info: BroadcastDebugInfo = {
 			seq: this.broadcastSeq,
-			source,
-			deviceId,
-			name,
-			rssi,
-			rawHex,
-			vHex,
+			source: ctx.source,
+			deviceId: ctx.deviceId,
+			name: ctx.name,
+			rssi: ctx.rssi,
+			rawHex: ctx.rawHex,
+			vHex: ctx.vHex,
 			utc: r.utc,
 			diffSec: diff,
 			summary,
 			receivedAt: r.receivedAt
 		};
 		this.device.broadcastDebug.value = info;
-		if (source == "broadcast") {
+		if (ctx.source == "broadcast") {
 			if (info.seq <= 5 || info.seq % 30 == 0 || r.hasNewEvent == true) {
 				logger.info(
 					"bluetooth",
 					`[BOOM-ADV] 收到广播 #${info.seq}`,
-					`${summary}\nraw=${rawHex}\nv=${vHex}`
+					`${summary}\nraw=${ctx.rawHex}\nv=${ctx.vHex}`
 				);
 			}
 		}
 	}
+
+	/* ===== 小工具 ===== */
 
 	private bytesToHex(bytes: number[]): string {
 		let hex = "";
