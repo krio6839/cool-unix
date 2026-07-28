@@ -9,6 +9,7 @@
 - GATT 只作为任务执行通道，不主动长连；任务完成后断开并恢复广播扫描。
 - 自动 GATT 业务统一进入 `DeviceGattScheduler` 队列，批量连接执行，避免事件、历史、校时等命令互相掺杂。
 - 加急任务会立即触发队列执行；普通历史补缺由启动后和 10 分钟检查触发。
+- 事件读取有两类来源：广播 `eventSeq` 变化立即入队、自动同步每 30 分钟兜底入队。
 - 连接初始化只准备 services / characteristics / notify，不自动读固件版本，不自动读 0x50。
 
 ## 2. 启动与广播模式
@@ -18,7 +19,7 @@ App 启动后，如果已有绑定设备：
 1. 初始化蓝牙适配器。
 2. 启动绑定设备广播扫描。
 3. 从本地数据库恢复最近一次 `eventSeq`，避免首次广播误判为新事件。
-4. 启动生命体征历史缺口自动检查。
+4. 启动生命体征历史缺口自动检查，并按 30 分钟节奏投递事件兜底读取。
 
 广播扫描只匹配当前绑定设备 ID。收到绑定设备广播后，按新版 24B `custom_adv_data_t` 解析：
 
@@ -138,7 +139,14 @@ App 启动后，如果已有绑定设备：
 1. App 启动时从数据库恢复最近 `eventSeq`。
 2. 收到广播时，如果 `eventSeq` 相比上次变化，标记 `hasNewEvent=true`。
 3. 向 `DeviceGattScheduler` 投递 `readEvent` 加急任务。
-4. 如果事件读取过程中又收到新的 `eventSeq`，队列只保留同设备最新一次 `readEvent`。
+4. 如果队列里已有事件读取任务，会替换成最新一次；如果事件读取正在执行，则跳过重复入队。
+
+事件兜底读取：
+
+- 自动同步循环每 30 分钟投递一次普通优先级 `readEvent`。
+- 兜底读取不依赖广播 `eventSeq` 变化。
+- 兜底只负责“读事件”；读到 `SleepResult` 后才会保存睡眠并上传。
+- 如果队列里已有 `readEvent`，或正在执行 `readEvent`，兜底不会重复入队。
 
 事件读取流程：
 
@@ -150,7 +158,7 @@ App 启动后，如果已有绑定设备：
 6. 读取结束后补最近 2 分钟生命体征。
 7. 如果队列里还有历史补缺任务，继续执行；所有任务结束后断开回广播。
 
-事件读取期间必须保持连接模式，不能提前把 `testMode` 改回 `broadcast`。否则连接状态回调可能把当前 GATT 连接误判为广播模式残留连接并断开，导致后续 `0x3D` 写入失败。
+事件读取期间由 scheduler 持有临时 GATT 连接。页面不再维护 `testMode`；当前状态应由 `currentDeviceId`、`isGattTaskBusy()` 和 `getOnlineInfo()` 推导。
 
 日志中正常事件读取会出现：
 
@@ -184,15 +192,15 @@ App 启动后，如果已有绑定设备：
 [BOOM-HISTORY] 最近窗口补拉停止续读: 返回段已早于目标窗口
 ```
 
-## 8. 历史缺口自动补拉
+## 8. 历史缺口与事件兜底
 
-后台只自动补生命体征，不自动读事件。
-不存在连接态常驻轮询；缺口检查发现需要补数据时，才通过 GATT 任务队列临时连接执行。
+后台不存在连接态常驻轮询；需要读取历史生命体征或事件时，只投递 GATT 队列任务，由 scheduler 临时连接执行。
 
 触发策略：
 
 - App 启动后延迟 15 秒检查一次。
-- 之后每 10 分钟检查一次。
+- 之后每 10 分钟检查一次生命体征缺口。
+- 每 30 分钟投递一次事件兜底读取。
 - 只扫描最近 24 小时的 `ppi_data.timestamp`。
 - 相邻 PPI 时间戳间隔超过 180 秒，认为有缺口。
 - 本地完全没有 PPI 时，首次最多补最近 6 小时。
@@ -200,15 +208,16 @@ App 启动后，如果已有绑定设备：
 - 不再按 gap 数量限制每轮补缺；按最近优先补。
 - 单次 scheduler 执行默认最多占用 GATT 90 秒，到点后剩余缺口留到下一轮。
 
-历史补缺不会自己连接设备；`sync` 只负责规划缺口并投递 `historyRepair` 队列任务。
+历史补缺和事件兜底都不会自己连接设备；`sync` 只负责规划/投递队列任务。
 Scheduler 会把历史补缺放在本轮队列最后执行，避免大段历史读取挡住校时、设置、事件读取等加急任务。
 
 日志示例：
 
 ```text
 [BOOM-SYNC] 已规划生命体征历史缺口: reason=startup, gaps=...
-[BOOM-SCHED] 任务入队: kind=historyRepair, priority=tail
+[BOOM-SCHED] 任务入队: seq=..., key=historyRepair, kind=historyRepair, priority=tail, size=...
 [BOOM-SYNC] 开始补生命体征历史: reason=startup, gaps=...
+[BOOM-SYNC] 已入队事件兜底读取: reason=timer
 ```
 
 ## 9. GATT 任务队列与通道锁
@@ -216,20 +225,38 @@ Scheduler 会把历史补缺放在本轮队列最后执行，避免大段历史�
 自动 GATT 业务统一进入 `DeviceGattScheduler`：
 
 - `timeSync`：加急，广播时间异常时立即执行。
-- `readEvent`：加急，广播 `eventSeq` 变化时执行，同设备只保留最新一次。
+- `readEvent`：广播 `eventSeq` 变化时加急执行；30 分钟兜底时普通优先级执行。
 - `historyRepair`：尾部任务，启动后和每 10 分钟发现缺口时入队。
-- `setDeviceNumber` / `setBiometric`：加急任务类型已预留，用于后续设置编号和生物信息。
+- `manualCommand`：测试页和手动 GATT 命令。
+
+任务身份：
+
+- 每个任务都有 `seq`，用于日志追踪一次入队到执行的生命周期。
+- 每个任务都有 `key`，用于合并同类任务。
+- `timeSync` 的 key 是 `timeSync`，重复入队时保留最新校时参数。
+- `readEvent` 的 key 是 `readEvent`，广播新事件和 30 分钟兜底共享同一个槽位。
+- `historyRepair` 的 key 是 `historyRepair`，重复入队只保留一个补缺任务。
+- `manualCommand` 的 key 带 `seq`，所以不会合并。
+
+去重规则：
+
+- 队列里只保留一个 `readEvent`；新事件加急任务会替换已排队事件任务。
+- `readEvent` 正在执行时，新的事件任务和事件兜底任务都会跳过，不再排下一轮重复读取。
+- 队列里只保留一个 `historyRepair`；补历史正在执行时，新的补历史任务会跳过。
+- `manualCommand` 不去重，用户触发几次就执行几次。
+- flush 过程中如果又收到新的 flush 请求，会记录最强触发原因；只有队列里确实还有任务时才继续下一轮。
+- 连接失败、GATT 忙、90 秒预算到达时，不会立刻自旋重试，剩余任务等待下一次触发。
 
 Scheduler 执行顺序：
 
-1. 加急控制类：`unbind`、`timeSync`、`setDeviceNumber`、`setBiometric`、`manualCommand`
+1. 加急控制类：`timeSync`、`manualCommand`
 2. 数据类：`readEvent`
 3. 尾部任务：`historyRepair`
 
 Scheduler 执行流程：
 
 1. 队列为空时不连接。
-2. 有加急任务时立即 flush；普通历史检查每 10 分钟 flush。
+2. 有加急任务时立即 flush；普通历史/事件兜底由定时检查 flush。
 3. flush 开始时停止广播扫描，连接或重建 GATT。
 4. 每轮开始重新校验 service / notify，避免复用假连接。
 5. 按顺序执行任务，所有任务共用 GATT 锁。
@@ -248,9 +275,9 @@ Scheduler 执行流程：
 日志示例：
 
 ```text
-[BOOM-GATT] 通道占用: event
-[BOOM-GATT] 通道忙: current=event, request=vitalRecent
-[BOOM-GATT] 通道释放: event
+[BOOM-SCHED] 任务入队: seq=12, key=readEvent, kind=readEvent, priority=urgent, size=1
+[BOOM-SCHED] 任务合并: seq=12, key=readEvent, kind=readEvent, priority=urgent, size=1
+[BOOM-SCHED] 执行任务: seq=12, key=readEvent, kind=readEvent
 ```
 
 如果频繁看到“通道忙”，说明自动任务之间仍有冲突，需要调整触发时机。
@@ -259,19 +286,19 @@ Scheduler 执行流程：
 
 ### 广播模式
 
-- 停止 GATT 历史轮询。
+- 停止当前 GATT 任务后的连接占用。
 - 断开当前 GATT。
 - 启动绑定设备广播扫描。
-- 页面保持广播模式显示。
+- 页面用 `getOnlineInfo()` 显示广播在线/离线。
 
-### 连接模式
+### 临时 GATT 任务
 
 - 停止绑定广播扫描。
 - 优先直连缓存绑定设备。
-- 直连失败后扫描绑定设备再连接。
 - 连接成功后只初始化协议通道，不自动读固件、不自动校时、不自动读 0x50。
+- 执行队列任务，完成后断开并恢复广播扫描。
 
-手动 GATT 任务完成后，如果之前是广播模式，应回到广播模式。
+测试页不再手动切换连接模式；点击 GATT 命令后进入队列执行。
 
 ## 11. 删除设备与解绑
 

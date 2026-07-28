@@ -43,6 +43,8 @@ export type HistoryRepairResult = {
 const HISTORY_AUTO_INITIAL_DELAY_MS = 15000;
 /** 后台低频检查间隔。只做本地 gap scan；有缺口就投递 scheduler 队列。 */
 const HISTORY_AUTO_CHECK_INTERVAL_MS = 10 * 60 * 1000;
+/** 事件数据低频兜底：只入队，不在 sync 里直接连接读取。 */
+const EVENT_BACKFILL_INTERVAL_MS = 30 * 60 * 1000;
 
 /** 每次只扫描最近 24 小时的本地 PPI 时间点，避免全库 gap scan 太重。 */
 const VITAL_SCAN_WINDOW_SEC = 24 * 60 * 60;
@@ -56,11 +58,12 @@ const VITAL_GAP_OVERLAP_SEC = 2 * 60;
 /**
  * 设备后台历史同步。
  *
- * 这里只负责生命体征 0x3A/0x3B：
+ * 这里负责生命体征 0x3A/0x3B 低频兜底：
  * - 启动后延迟检查一次；
  * - 之后低频扫描 ppi_data 缺口；
- * - 有缺口只投递 historyRepair，实际连接和执行由 DeviceGattScheduler 统一负责；
- * - 不读取事件 0x3C/0x3D。
+ * - 有缺口投递 historyRepair；
+ * - 每 30 分钟投递一次事件兜底读取；
+ * - 实际连接和执行由 DeviceGattScheduler 统一负责。
  */
 export class DeviceSync {
 	state = ref<DeviceSyncState>("idle");
@@ -68,6 +71,7 @@ export class DeviceSync {
 	lastPlan = ref<HistorySyncPlan | null>(null);
 	lastCheckAt = ref<number>(0);
 	lastHistorySyncAt = ref<number>(0);
+	lastEventBackfillAt = ref<number>(0);
 
 	private device: Device;
 	private busy: boolean = false;
@@ -121,6 +125,7 @@ export class DeviceSync {
 	private async runAutoRepair(reason: DeviceSyncReason): Promise<void> {
 		if (this.autoEnabled == false) return;
 		await this.requestHistorySync(reason);
+		this.requestEventBackfillIfNeeded(reason);
 	}
 
 	async planHistorySync(): Promise<HistorySyncPlan> {
@@ -156,6 +161,11 @@ export class DeviceSync {
 			`[BOOM-SYNC] 已规划生命体征历史缺口: reason=${reason}, gaps=${plan.gaps.length}`
 		);
 		this.device.scheduler.enqueueHistoryRepair(reason);
+		this.requestSchedulerFlush(reason);
+		return true;
+	}
+
+	private requestSchedulerFlush(reason: DeviceSyncReason): void {
 		if (reason == "startup") {
 			this.device.scheduler.requestFlush("startup");
 		} else if (reason == "manual") {
@@ -163,7 +173,27 @@ export class DeviceSync {
 		} else {
 			this.device.scheduler.requestFlush("timer");
 		}
-		return true;
+	}
+
+	private requestEventBackfillIfNeeded(reason: DeviceSyncReason): boolean {
+		if (this.device.boundDeviceId == "") return false;
+		const now = Date.now();
+		if (
+			reason != "manual" &&
+			now - this.lastEventBackfillAt.value < EVENT_BACKFILL_INTERVAL_MS
+		) {
+			return false;
+		}
+		const queued = this.device.scheduler.enqueueEventBackfill(
+			this.device.boundDeviceId,
+			reason
+		);
+		if (queued == true) {
+			this.lastEventBackfillAt.value = now;
+			logger.info("bluetooth", `[BOOM-SYNC] 已入队事件兜底读取: reason=${reason}`);
+			this.requestSchedulerFlush(reason);
+		}
+		return queued;
 	}
 
 	async repairVitalHistoryGapsInCurrentConnection(

@@ -14,6 +14,8 @@ const GATT_FLUSH_BUDGET_MS = 90 * 1000;
 const TIMESTAMP_VERIFY_TIMEOUT_MS = 3000;
 
 export type GattQueueTask = {
+	seq: number;
+	key: string;
 	kind: GattQueueTaskKind;
 	priority: GattQueuePriority;
 	deviceId: string;
@@ -35,9 +37,11 @@ export type GattQueueTask = {
 export class DeviceGattScheduler {
 	private device: Device;
 	private tasks: GattQueueTask[] = [];
+	private taskSeq: number = 0;
 	private flushing: boolean = false;
-	private pendingUrgentFlush: boolean = false;
+	private pendingFlushReason: GattFlushReason | "" = "";
 	private pauseCurrentFlush: boolean = false;
+	private runningTask: GattQueueTask | null = null;
 
 	constructor(device: Device) {
 		this.device = device;
@@ -55,15 +59,35 @@ export class DeviceGattScheduler {
 		const task = this.makeTask("readEvent", "urgent");
 		task.deviceId = deviceId;
 		task.eventSeq = eventSeq;
-		this.removeTasksByKind("readEvent");
+		task.key = "readEvent";
+		if (this.isTaskRunning("readEvent") == true) {
+			logger.info("bluetooth", "[BOOM-SCHED] 事件读取正在执行，跳过重复事件任务");
+			return;
+		}
 		this.upsertTask(task);
 		this.requestFlush("urgent");
+	}
+
+	enqueueEventBackfill(deviceId: string, reason: DeviceSyncReason): boolean {
+		if (deviceId == "") return false;
+		if (this.hasTaskKind("readEvent") == true) return false;
+		const task = this.makeTask("readEvent", "normal");
+		task.deviceId = deviceId;
+		task.eventSeq = -1;
+		task.historyReason = reason;
+		task.key = "readEvent";
+		this.upsertTask(task);
+		return true;
 	}
 
 	enqueueHistoryRepair(reason: DeviceSyncReason): void {
 		const task = this.makeTask("historyRepair", "tail");
 		task.historyReason = reason;
-		this.removeTasksByKind("historyRepair");
+		task.key = "historyRepair";
+		if (this.isTaskRunning("historyRepair") == true) {
+			logger.info("bluetooth", "[BOOM-SCHED] 历史补缺正在执行，跳过重复补缺任务");
+			return;
+		}
 		this.upsertTask(task);
 		if (reason == "manual") {
 			this.requestFlush("manual");
@@ -77,6 +101,7 @@ export class DeviceGattScheduler {
 			task.manualName = name;
 			task.manualRunner = runner;
 			task.manualResolve = resolve;
+			task.key = `manualCommand:${task.seq}`;
 			this.upsertTask(task);
 			this.requestFlush("manual");
 		});
@@ -84,14 +109,17 @@ export class DeviceGattScheduler {
 
 	requestFlush(reason: GattFlushReason): void {
 		if (this.flushing == true) {
-			if (reason == "urgent" || reason == "manual") this.pendingUrgentFlush = true;
+			this.pendingFlushReason = this.getStrongerFlushReason(this.pendingFlushReason, reason);
 			return;
 		}
 		this.flush(reason);
 	}
 
 	private makeTask(kind: GattQueueTaskKind, priority: GattQueuePriority): GattQueueTask {
+		this.taskSeq = this.taskSeq + 1;
 		return {
+			seq: this.taskSeq,
+			key: kind,
 			kind,
 			priority,
 			deviceId: "",
@@ -106,27 +134,51 @@ export class DeviceGattScheduler {
 	}
 
 	private upsertTask(task: GattQueueTask): void {
+		const index = this.findTaskIndexByKey(task.key);
+		if (index >= 0) {
+			const old = this.tasks[index];
+			task.seq = old.seq;
+			this.tasks[index] = task;
+			logger.info(
+				"bluetooth",
+				`[BOOM-SCHED] 任务合并: seq=${task.seq}, key=${task.key}, kind=${task.kind}, priority=${task.priority}, size=${this.tasks.length}`
+			);
+			return;
+		}
 		this.tasks.push(task);
 		logger.info(
 			"bluetooth",
-			`[BOOM-SCHED] 任务入队: kind=${task.kind}, priority=${task.priority}, size=${this.tasks.length}`
+			`[BOOM-SCHED] 任务入队: seq=${task.seq}, key=${task.key}, kind=${task.kind}, priority=${task.priority}, size=${this.tasks.length}`
 		);
 	}
 
-	private removeTasksByKind(kind: GattQueueTaskKind): void {
-		const kept: GattQueueTask[] = [];
+	private findTaskIndexByKey(key: string): number {
 		for (let i = 0; i < this.tasks.length; i++) {
-			if (this.tasks[i].kind != kind) kept.push(this.tasks[i]);
+			if (this.tasks[i].key == key) return i;
 		}
-		this.tasks = kept;
+		return -1;
+	}
+
+	private hasTaskKind(kind: GattQueueTaskKind): boolean {
+		if (this.isTaskRunning(kind) == true) return true;
+		for (let i = 0; i < this.tasks.length; i++) {
+			if (this.tasks[i].kind == kind) return true;
+		}
+		return false;
+	}
+
+	private isTaskRunning(kind: GattQueueTaskKind): boolean {
+		const task = this.runningTask;
+		return task != null && task.kind == kind;
 	}
 
 	private async flush(reason: GattFlushReason): Promise<void> {
 		if (this.flushing == true) return;
 		if (this.tasks.length == 0) return;
 		this.flushing = true;
-		this.pendingUrgentFlush = false;
+		this.pendingFlushReason = "";
 		this.pauseCurrentFlush = false;
+		let shouldContinueFlush = false;
 		const startedAt = Date.now();
 		let connected = false;
 		try {
@@ -163,6 +215,7 @@ export class DeviceGattScheduler {
 					break;
 				}
 			}
+			shouldContinueFlush = this.tasks.length > 0 && this.pendingFlushReason != "";
 		} catch (e) {
 			logger.warn("bluetooth", "[BOOM-SCHED] 队列执行异常:", e);
 		} finally {
@@ -182,8 +235,12 @@ export class DeviceGattScheduler {
 				}
 			}
 			this.flushing = false;
-			if (this.pendingUrgentFlush == true && this.tasks.length > 0) {
-				this.requestFlush("urgent");
+			if (shouldContinueFlush == true && this.tasks.length > 0) {
+				let nextReason: GattFlushReason = "timer";
+				if (this.pendingFlushReason != "") {
+					nextReason = this.pendingFlushReason as GattFlushReason;
+				}
+				this.requestFlush(nextReason);
 			}
 		}
 	}
@@ -227,24 +284,32 @@ export class DeviceGattScheduler {
 	}
 
 	private async runTask(task: GattQueueTask, startedAt: number): Promise<void> {
-		logger.info("bluetooth", `[BOOM-SCHED] 执行任务: ${task.kind}`);
-		if (task.kind == "timeSync") {
-			await this.runTimeSync(task);
-			return;
+		logger.info(
+			"bluetooth",
+			`[BOOM-SCHED] 执行任务: seq=${task.seq}, key=${task.key}, kind=${task.kind}`
+		);
+		this.runningTask = task;
+		try {
+			if (task.kind == "timeSync") {
+				await this.runTimeSync(task);
+				return;
+			}
+			if (task.kind == "readEvent") {
+				await this.runReadEvent(task);
+				return;
+			}
+			if (task.kind == "historyRepair") {
+				await this.runHistoryRepair(task, startedAt);
+				return;
+			}
+			if (task.kind == "manualCommand") {
+				await this.runManualCommand(task);
+				return;
+			}
+			logger.info("bluetooth", `[BOOM-SCHED] 任务类型暂未接入执行器: ${task.kind}`);
+		} finally {
+			this.runningTask = null;
 		}
-		if (task.kind == "readEvent") {
-			await this.runReadEvent(task);
-			return;
-		}
-		if (task.kind == "historyRepair") {
-			await this.runHistoryRepair(task, startedAt);
-			return;
-		}
-		if (task.kind == "manualCommand") {
-			await this.runManualCommand(task);
-			return;
-		}
-		logger.info("bluetooth", `[BOOM-SCHED] 任务类型暂未接入执行器: ${task.kind}`);
 	}
 
 	private async runTimeSync(task: GattQueueTask): Promise<void> {
@@ -286,12 +351,13 @@ export class DeviceGattScheduler {
 	}
 
 	private async runReadEvent(task: GattQueueTask): Promise<void> {
+		const isBackfill = task.eventSeq < 0;
 		const endSec = Math.floor(Date.now() / 1000) + 60;
 		const startSec = endSec - EVENT_SYNC_WINDOW_SECONDS;
 		// 读事件期间没有广播，结束后顺手补最近生命体征，填上处理事件时漏掉的 0x50。
 		logger.info(
 			"bluetooth",
-			`[BOOM-EVENT] 开始读取新事件: device=${task.deviceId}, eventSeq=${task.eventSeq}, window=${startSec}~${endSec}`
+			`[BOOM-EVENT] 开始读取${isBackfill ? "事件兜底" : "新事件"}: device=${task.deviceId}, eventSeq=${task.eventSeq}, window=${startSec}~${endSec}, maxCount=${EVENT_SYNC_MAX_COUNT}`
 		);
 		const result = await this.device.history.readEventDataAuto({
 			type: EVENT_QUERY_TYPE_BY_TIME,
@@ -347,8 +413,8 @@ export class DeviceGattScheduler {
 	}
 
 	private requeueTask(task: GattQueueTask): void {
-		this.tasks.push(task);
-		logger.info("bluetooth", `[BOOM-SCHED] 任务回队: kind=${task.kind}`);
+		this.upsertTask(task);
+		logger.info("bluetooth", `[BOOM-SCHED] 任务回队: seq=${task.seq}, key=${task.key}`);
 	}
 
 	private async runManualCommand(task: GattQueueTask): Promise<void> {
@@ -389,5 +455,16 @@ export class DeviceGattScheduler {
 			await sleepTimeout(120);
 		}
 		return false;
+	}
+
+	private getStrongerFlushReason(
+		current: GattFlushReason | "",
+		next: GattFlushReason
+	): GattFlushReason {
+		if (current == "") return next;
+		if (current == "manual" || next == "manual") return "manual";
+		if (current == "urgent" || next == "urgent") return "urgent";
+		if (current == "startup" || next == "startup") return "startup";
+		return "timer";
 	}
 }
