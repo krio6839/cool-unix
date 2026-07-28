@@ -108,12 +108,6 @@ const timeRanges = ref<ClTabsItem[]>([
 ]);
 const currentTimeRange = ref<string>("7d");
 
-type TrendPoint = {
-	date: string;
-	atl: number;
-	ctl: number;
-};
-
 // TSB训练疲劳度参考表
 const tsbReference: TsbReferenceItem[] = [
 	{ range: "TSB>=-25", status: "状态下滑" },
@@ -165,20 +159,18 @@ const chartOption = computed((): UTSJSONObject => {
 		dayUts().format("YYYY-MM-DD"),
 		getDaysFromOption(currentTimeRange.value)
 	);
-	const trendByDate: { [key: string]: TrendPoint } = {};
-	dates.forEach((date: string, index: number) => {
-		trendByDate[date] = {
-			date,
-			atl: atlData[index],
-			ctl: ctlData[index]
-		};
-	});
 	const dateData = fullDateData.map((date: string): string => date.slice(5));
 	const atlValueData = fullDateData.map(
-		(date: string): number | null => trendByDate[date]?.atl ?? null
+		(date: string): number | null => {
+			const index = dates.indexOf(date);
+			return index >= 0 ? atlData[index] : null;
+		}
 	);
 	const ctlValueData = fullDateData.map(
-		(date: string): number | null => trendByDate[date]?.ctl ?? null
+		(date: string): number | null => {
+			const index = dates.indexOf(date);
+			return index >= 0 ? ctlData[index] : null;
+		}
 	);
 
 	let option: UTSJSONObject = {

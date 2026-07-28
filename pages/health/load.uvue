@@ -206,21 +206,21 @@ function getDateRange(endDate: string, days: number): string[] {
 	return dates;
 }
 
-function getDateChartData(
+function getDateAxisData(endDate: string, days: number): string[] {
+	return getDateRange(endDate, days).map((date: string): string => date.slice(5));
+}
+
+function getDateValueData(
 	chartData: DateValuePair[],
 	endDate: string,
 	days: number
-): { dateData: string[]; valueData: (number | null)[] } {
-	const fullDateData = getDateRange(endDate, days);
-	const valueByDate: { [key: string]: number } = {};
-	chartData.forEach((item: DateValuePair) => {
-		valueByDate[item.date] = item.value;
+): (number | null)[] {
+	return getDateRange(endDate, days).map((date: string): number | null => {
+		const item = chartData.find((chartItem: DateValuePair): boolean => {
+			return chartItem.date == date;
+		});
+		return item?.value ?? null;
 	});
-
-	return {
-		dateData: fullDateData.map((date: string): string => date.slice(5)),
-		valueData: fullDateData.map((date: string): number | null => valueByDate[date] ?? null)
-	};
 }
 
 function onLoadTrendDaysChange(days: string) {
@@ -372,11 +372,9 @@ const realtimeChartOption = computed((): UTSJSONObject => {
 
 const loadZoneChartOption = computed((): UTSJSONObject => {
 	const chartData = load.loadTrendData.value ?? [];
-	const { dateData, valueData } = getDateChartData(
-		chartData,
-		currentDate.value,
-		getDaysFromOption(loadTrendDays.value)
-	);
+	const days = getDaysFromOption(loadTrendDays.value);
+	const dateData = getDateAxisData(currentDate.value, days);
+	const valueData = getDateValueData(chartData, currentDate.value, days);
 
 	let option: UTSJSONObject = {
 		tooltip: {
@@ -443,11 +441,9 @@ const loadZoneChartOption = computed((): UTSJSONObject => {
 
 const exerciseChartOption = computed((): UTSJSONObject => {
 	const chartData = load.sportLoadTrendData.value ?? [];
-	const { dateData, valueData } = getDateChartData(
-		chartData,
-		currentDate.value,
-		getDaysFromOption(sportLoadDays.value)
-	);
+	const days = getDaysFromOption(sportLoadDays.value);
+	const dateData = getDateAxisData(currentDate.value, days);
+	const valueData = getDateValueData(chartData, currentDate.value, days);
 
 	let option: UTSJSONObject = {
 		tooltip: {
@@ -523,11 +519,9 @@ const exerciseChartOption = computed((): UTSJSONObject => {
 
 const sleepChartOption = computed((): UTSJSONObject => {
 	const chartData = load.sleepPressureTrendData.value ?? [];
-	const { dateData, valueData } = getDateChartData(
-		chartData,
-		currentDate.value,
-		getDaysFromOption(sleepPressureDays.value)
-	);
+	const days = getDaysFromOption(sleepPressureDays.value);
+	const dateData = getDateAxisData(currentDate.value, days);
+	const valueData = getDateValueData(chartData, currentDate.value, days);
 
 	let option: UTSJSONObject = {
 		tooltip: {

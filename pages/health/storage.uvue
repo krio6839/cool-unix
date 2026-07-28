@@ -197,12 +197,13 @@ const bodyEnergyChartOption = computed((): UTSJSONObject => {
 	const chartData = energy.bodyEnergyChartData.value ?? [];
 	const fullDateData = getDateRange(currentDate.value, getDaysFromOption(trendDays.value));
 	const dateData = fullDateData.map((date: string): string => date.slice(5));
-	const valueByDate: { [key: string]: number } = {};
-	chartData.forEach((item: DateValuePair) => {
-		valueByDate[item.date] = item.value;
-	});
 	const valueData = fullDateData.map(
-		(date: string): number | null => valueByDate[date] ?? null
+		(date: string): number | null => {
+			const item = chartData.find((chartItem: DateValuePair): boolean => {
+				return chartItem.date == date;
+			});
+			return item?.value ?? null;
+		}
 	);
 
 	let option: UTSJSONObject = {
