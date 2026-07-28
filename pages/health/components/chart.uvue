@@ -29,33 +29,33 @@
 			<view class="flex flex-col items-center flex-1">
 				<cl-text :size="14" color="rgba(255,255,255,0.6)">平均</cl-text>
 				<cl-text :size="20" color="white" :pt="{ className: 'font-bold opacity-70' }">
-					{{ stats.average.toFixed(0) }}
+					{{ statsAverageText }}
 				</cl-text>
 			</view>
 			<view class="flex flex-col items-center flex-1">
 				<cl-text :size="14" color="rgba(255,255,255,0.6)">最高</cl-text>
 				<cl-text :size="20" color="white" :pt="{ className: 'font-bold opacity-70' }">
-					{{ stats.max }}
+					{{ statsMaxText }}
 				</cl-text>
 				<cl-text
 					:size="12"
 					color="rgba(255,255,255,0.4)"
-					v-if="isValidIndex(stats.maxIndex)"
+					v-if="isValidIndex(statsMaxIndex)"
 				>
-					{{ xAxisData[stats.maxIndex] }}
+					{{ xAxisData[statsMaxIndex] }}
 				</cl-text>
 			</view>
 			<view class="flex flex-col items-center flex-1">
 				<cl-text :size="14" color="rgba(255,255,255,0.6)">最低</cl-text>
 				<cl-text :size="20" color="white" :pt="{ className: 'font-bold opacity-70' }">
-					{{ stats.min }}
+					{{ statsMinText }}
 				</cl-text>
 				<cl-text
 					:size="12"
 					color="rgba(255,255,255,0.4)"
-					v-if="isValidIndex(stats.minIndex)"
+					v-if="isValidIndex(statsMinIndex)"
 				>
-					{{ xAxisData[stats.minIndex] }}
+					{{ xAxisData[statsMinIndex] }}
 				</cl-text>
 			</view>
 		</view>
@@ -64,7 +64,8 @@
 
 <script lang="ts" setup>
 import { ref, computed, watch } from "vue";
-import type { ChartProps, ChartStats } from "../types/chart";
+import { assign } from "@/.cool";
+import type { ChartProps } from "../types/chart";
 import type { ClTabsItem } from "@/uni_modules/cool-ui";
 
 const props = withDefaults(defineProps<ChartProps>(), {
@@ -96,15 +97,29 @@ const chartRef = ref<LEchartComponentPublicInstance | null>(null);
 const echarts = null;
 
 const optionObj = computed((): UTSJSONObject => {
-	if (props.optionData != null) {
-		const tooltip = props.optionData["tooltip"] as UTSJSONObject | null;
-		console.log(tooltip);
-		return props.optionData;
+	let option = {} as UTSJSONObject;
+	const optionData = props.optionData;
+	const optionString = props.option;
+	if (optionData != null) {
+		option = optionData;
+	} else if (optionString != null && optionString !== "") {
+		option = JSON.parse(optionString) as UTSJSONObject;
 	}
-	if (props.option != null && props.option !== "") {
-		return JSON.parse(props.option) as UTSJSONObject;
+
+	const tooltip = props.tooltip;
+	if (tooltip != null) {
+		const baseTooltip = (option["tooltip"] as UTSJSONObject | null) ?? ({} as UTSJSONObject);
+		option["tooltip"] = assign(baseTooltip, tooltip);
 	}
-	return {} as UTSJSONObject;
+
+	const tooltipFormatter = props.tooltipFormatter;
+	if (tooltipFormatter != null && tooltipFormatter !== "") {
+		const baseTooltip = (option["tooltip"] as UTSJSONObject | null) ?? ({} as UTSJSONObject);
+		baseTooltip["formatter"] = tooltipFormatter;
+		option["tooltip"] = baseTooltip;
+	}
+
+	return option;
 });
 
 const xAxisData = computed((): string[] => {
@@ -117,28 +132,90 @@ const xAxisData = computed((): string[] => {
 	return [];
 });
 
-const stats = computed((): ChartStats => {
+const primarySeriesData = computed((): any[] => {
 	const opt = optionObj.value;
 	const seriesArr = opt["series"] as UTSJSONObject[] | null;
 	if (seriesArr == null || seriesArr.length == 0) {
-		return { average: 0, max: 0, maxIndex: 0, min: 0, minIndex: 0 };
+		return [] as any[];
 	}
 	const series = seriesArr[0];
-	const rawData = series["data"] as number[] | null;
-	const data = rawData != null ? rawData : ([] as number[]);
+	const rawData = series["data"] as any[] | null;
+	return rawData != null ? rawData : ([] as any[]);
+});
 
-	if (data.length === 0) {
-		return { average: 0, max: 0, maxIndex: 0, min: 0, minIndex: 0 };
+function getNumberValue(item: any): number | null {
+	if (typeof item == "number" && !isNaN(item)) {
+		return item as number;
 	}
+	if (item != null && typeof item == "object") {
+		const obj = item as UTSJSONObject;
+		const value = obj["value"];
+		if (typeof value == "number" && !isNaN(value)) {
+			return value as number;
+		}
+	}
+	return null;
+}
 
-	const sum = data.reduce<number>((acc: number, val: number) => acc + val, 0);
-	const average = sum / data.length;
-	const max = Math.max(...data);
-	const maxIndex = data.indexOf(max);
-	const min = Math.min(...data);
-	const minIndex = data.indexOf(min);
+const statsAverageText = computed((): string => {
+	const data = primarySeriesData.value;
+	let sum = 0;
+	let count = 0;
 
-	return { average, max, maxIndex, min, minIndex };
+	data.forEach((item: any) => {
+		const value = getNumberValue(item);
+		if (value != null) {
+			sum += value;
+			count++;
+		}
+	});
+
+	if (count == 0) return "--";
+	return (sum / count).toFixed(0);
+});
+
+const statsMaxIndex = computed((): number => {
+	const data = primarySeriesData.value;
+	let max = 0;
+	let maxIndex = -1;
+
+	data.forEach((item: any, index: number) => {
+		const value = getNumberValue(item);
+		if (value != null && (maxIndex < 0 || value > max)) {
+			max = value;
+			maxIndex = index;
+		}
+	});
+
+	return maxIndex;
+});
+
+const statsMinIndex = computed((): number => {
+	const data = primarySeriesData.value;
+	let min = 0;
+	let minIndex = -1;
+
+	data.forEach((item: any, index: number) => {
+		const value = getNumberValue(item);
+		if (value != null && (minIndex < 0 || value < min)) {
+			min = value;
+			minIndex = index;
+		}
+	});
+
+	return minIndex;
+});
+
+const statsMaxText = computed((): string => {
+	if (statsMaxIndex.value < 0) return "--";
+	const value = getNumberValue(primarySeriesData.value[statsMaxIndex.value]);
+	return value == null ? "--" : value.toFixed(0);
+});
+
+const statsMinText = computed((): string => {
+	if (statsMinIndex.value < 0) return "--";
+	const value = getNumberValue(primarySeriesData.value[statsMinIndex.value]);
+	return value == null ? "--" : value.toFixed(0);
 });
 
 function isValidIndex(index: number): boolean {

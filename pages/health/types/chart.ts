@@ -14,15 +14,9 @@ export type ChartProps = {
 	title?: string;
 	option?: string;
 	optionData?: UTSJSONObject;
+	tooltip?: UTSJSONObject;
+	tooltipFormatter?: string;
 	height?: number;
 	showFooter?: boolean;
 	showTool?: boolean;
-};
-
-export type ChartStats = {
-	average: number;
-	max: number;
-	maxIndex: number;
-	min: number;
-	minIndex: number;
 };
