@@ -93,6 +93,7 @@ function selectDays(value: string) {
 
 //@ts-ignore
 const chartRef = ref<LEchartComponentPublicInstance | null>(null);
+const chartReady = ref<boolean>(false);
 
 const echarts = null;
 
@@ -143,7 +144,7 @@ const primarySeriesData = computed((): any[] => {
 	return rawData != null ? rawData : ([] as any[]);
 });
 
-function getNumberValue(item: any): number | null {
+function getNumberValue(item: any | null): number | null {
 	if (typeof item == "number" && !isNaN(item)) {
 		return item as number;
 	}
@@ -218,18 +219,21 @@ const statsMinText = computed((): string => {
 	return value == null ? "--" : value.toFixed(0);
 });
 
-function isValidIndex(index: number): boolean {
-	return xAxisData.value.length > 0 && index >= 0 && index < xAxisData.value.length;
+function isValidIndex(index: number | null): boolean {
+	return (
+		index != null && xAxisData.value.length > 0 && index >= 0 && index < xAxisData.value.length
+	);
 }
 
 async function initChart() {
 	if (chartRef.value == null) return;
 	const chart = await chartRef.value!.init(echarts);
+	chartReady.value = true;
 	chart.setOption(optionObj.value);
 }
 
 function updateChart() {
-	if (chartRef.value == null) return;
+	if (chartRef.value == null || !chartReady.value) return;
 	chartRef.value?.setOption(optionObj.value);
 }
 

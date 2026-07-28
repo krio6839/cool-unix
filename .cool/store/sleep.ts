@@ -77,7 +77,7 @@ export class Sleep {
 				data: { startDate, endDate } as UTSJSONObject
 			})
 				.then((res) => {
-					if (res != null && isObject(res)) {
+					if (res != null && isArray(res)) {
 						this.setTrendData(res);
 					}
 					resolve();
@@ -132,7 +132,9 @@ export class Sleep {
 			return;
 		}
 
-		const list = parse<TimeValuePair[]>(data) ?? [];
+		const list = isArray(data)
+			? (data as any[]).map((item: any): TimeValuePair => parse<TimeValuePair>(item)!)
+			: [];
 		this.metricData.value = list;
 
 		if (metric === "hrv") {
@@ -149,7 +151,9 @@ export class Sleep {
 			return;
 		}
 
-		const trendDataResult = parse<DateValuePair[]>(data)!;
+		const trendDataResult = isArray(data)
+			? (data as any[]).map((item: any): DateValuePair => parse<DateValuePair>(item)!)
+			: [];
 		this.trendData.value = trendDataResult;
 		this.sleepTrendData.value = trendDataResult ?? [];
 	}

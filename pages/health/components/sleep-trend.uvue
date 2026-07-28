@@ -61,10 +61,7 @@
 
 			<view class="flex flex-row justify-between px-3">
 				<view class="flex-1">
-					<cl-text
-						:size="13"
-						color="rgba(255,255,255,0.6)"
-						:pt="{ className: 'mb-1' }"
+					<cl-text :size="13" color="rgba(255,255,255,0.6)" :pt="{ className: 'mb-1' }"
 						>平均入睡时间</cl-text
 					>
 					<cl-text :size="16" color="white">{{
@@ -72,10 +69,7 @@
 					}}</cl-text>
 				</view>
 				<view class="flex-1">
-					<cl-text
-						:size="13"
-						color="rgba(255,255,255,0.6)"
-						:pt="{ className: 'mb-1' }"
+					<cl-text :size="13" color="rgba(255,255,255,0.6)" :pt="{ className: 'mb-1' }"
 						>平均起床时间</cl-text
 					>
 					<cl-text :size="16" color="white">{{
