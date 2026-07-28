@@ -616,10 +616,7 @@
 						<view class="event-window-button" @tap="setEventWindowMinutes(43200)">
 							<text class="event-window-button-text">{{ t("近一月") }}</text>
 						</view>
-						<view
-							class="event-window-button event-window-button-danger"
-							@tap="setEventWindowAll"
-						>
+						<view class="event-window-button" @tap="setEventWindowAll">
 							<text class="event-window-button-text">{{ t("全部") }}</text>
 						</view>
 					</view>
@@ -2324,11 +2321,6 @@ function testClearError(): void {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-}
-
-.event-window-button-danger {
-	background-color: rgba(255, 180, 80, 0.14);
-	border-color: rgba(255, 180, 80, 0.28);
 }
 
 .event-window-button-text {

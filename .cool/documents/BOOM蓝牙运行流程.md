@@ -17,7 +17,7 @@
 App 启动后，如果已有绑定设备：
 
 1. 初始化蓝牙适配器。
-2. 启动绑定设备广播扫描。
+2. 以后台扫描权限配置初始化 `kux-bluetooth`，并启动绑定设备广播扫描。
 3. 从本地数据库恢复最近一次 `eventSeq`，避免首次广播误判为新事件。
 4. 启动生命体征历史缺口自动检查，并按 30 分钟节奏投递事件兜底读取。
 
@@ -59,6 +59,24 @@ App 启动后，如果已有绑定设备：
 - 这种情况日志里会看到 `startDiscovery 成功` 和 `discovering=true`，但没有任何 `[BOOM-ADV] 收到广播` 或“未匹配绑定设备”日志。
 - App 会主动重启绑定广播扫描。
 - 这个保护和缓存包识别不同：缓存包是“有回调但包是旧的”，扫描无回调是“完全没有回调”。
+
+后台保活扫描兜底：
+
+- `kux-bluetooth` 初始化时开启 `accessBackgroundLocation=true`，确保插件请求后台定位权限链路。
+- Android 保活服务每分钟唤醒一次 App 侧任务。
+- 如果已有绑定设备、当前没有 GATT 连接、没有 GATT 队列任务执行中，保活会检查绑定广播扫描状态。
+- 如果绑定广播扫描未启动，保活会直接拉起绑定设备过滤扫描。
+- 如果绑定广播扫描已启动，但超过 70 秒没有任何扫描回调或绑定广播处理，保活会轻量重启扫描。
+- 保活只维护扫描，不发送 GATT 命令；历史、事件、校时仍统一走 scheduler。
+- 保活扫描维护失败只记录日志，不影响 PPI/睡眠上传兜底。
+- 代码结构上，广播扫描分为三层：`startBoundBroadcastScan()` 只启动，`restartBoundBroadcastScan()` 只重启，`maintainBoundBroadcastScan()` 只检查并按需调用前两者。
+
+后台兜底日志示例：
+
+```text
+[SCAN] 检查绑定广播扫描: reason=keepalive service, bound=..., scanning=true, purpose=boundBroadcast, current=, gattBusy=false, idleMs=..., maxIdleMs=70000
+[SCAN] 绑定广播扫描无活跃回调，重启扫描
+```
 
 时间校验规则：
 

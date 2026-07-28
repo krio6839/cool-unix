@@ -157,6 +157,22 @@ export class DeviceBroadcast {
 		//#endif
 	}
 
+	hasRecentBoundScanActivity(maxAgeMs: number): boolean {
+		const idleMs = this.getBoundScanIdleMs();
+		if (idleMs < 0) return false;
+		return idleMs < maxAgeMs;
+	}
+
+	getBoundScanIdleMs(): number {
+		if (this.boundBroadcastScanning == false) return -1;
+		const latestAt =
+			this.lastBoundScanCallbackAt > this.lastBoundBroadcastHandledAt
+				? this.lastBoundScanCallbackAt
+				: this.lastBoundBroadcastHandledAt;
+		if (latestAt <= 0) return -1;
+		return Date.now() - latestAt;
+	}
+
 	/* ===== 绑定广播扫描监控 ===== */
 
 	private markBoundScanCallback(): void {

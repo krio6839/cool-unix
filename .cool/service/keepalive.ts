@@ -7,9 +7,9 @@ import * as TKeepAlive from "@/uni_modules/t-keepalive-api";
 //#endif
 
 const KEEP_ALIVE_MIN_TICK_INTERVAL_MS = 60 * 1000;
-
 let keepAliveStarted = false;
 let keepAliveTicking = false;
+let keepAliveScanChecking = false;
 let lastKeepAliveTickAt = 0;
 
 export type KeepAliveTickReason = "launch" | "show" | "hide" | "service";
@@ -36,6 +36,7 @@ export function runKeepAliveTick(reason: KeepAliveTickReason): void {
 async function runKeepAliveTickAsync(reason: KeepAliveTickReason): Promise<void> {
 	if (keepAliveTicking == true) {
 		logger.info("keepalive", "保活任务仍在执行，跳过本轮", reason);
+		runKeepAliveBroadcastScanOnly(reason);
 		return;
 	}
 
@@ -50,7 +51,7 @@ async function runKeepAliveTickAsync(reason: KeepAliveTickReason): Promise<void>
 		const { device } = useStore();
 		if (device.boundDeviceId != "") {
 			bluetoothDataManager.setDeviceInfo(device.getDisplayDeviceName(), device.boundDeviceId);
-			// 保活 tick 不直接初始化蓝牙/GATT，避免和前台扫描、任务队列抢 BLE 通道。
+			await maintainBoundBroadcastScanFromKeepAlive(reason);
 			device.sync.startAutoRepair();
 		}
 		await bluetoothDataManager.uploadData();
@@ -59,6 +60,36 @@ async function runKeepAliveTickAsync(reason: KeepAliveTickReason): Promise<void>
 		logger.warn("keepalive", "保活任务失败", reason, e);
 	} finally {
 		keepAliveTicking = false;
+	}
+}
+
+function runKeepAliveBroadcastScanOnly(reason: KeepAliveTickReason): void {
+	if (keepAliveScanChecking == true) return;
+	keepAliveScanChecking = true;
+	runKeepAliveBroadcastScanOnlyAsync(reason)
+		.catch((e) => {
+			logger.warn("keepalive", "保活扫描兜底失败", reason, e);
+		})
+		.finally(() => {
+			keepAliveScanChecking = false;
+		});
+}
+
+async function runKeepAliveBroadcastScanOnlyAsync(reason: KeepAliveTickReason): Promise<void> {
+	const { device } = useStore();
+	if (device.boundDeviceId == "") return;
+	bluetoothDataManager.setDeviceInfo(device.getDisplayDeviceName(), device.boundDeviceId);
+	await maintainBoundBroadcastScanFromKeepAlive(reason);
+}
+
+async function maintainBoundBroadcastScanFromKeepAlive(reason: KeepAliveTickReason): Promise<void> {
+	const { device } = useStore();
+	if (device.boundDeviceId == "") return;
+	// 保活 tick 不发 GATT 命令，但要在后台持续维护绑定广播扫描。
+	try {
+		await device.connection.maintainBoundBroadcastScan(`keepalive ${reason}`);
+	} catch (e) {
+		logger.warn("keepalive", "保活绑定广播扫描维护失败", reason, e);
 	}
 }
 

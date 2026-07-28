@@ -230,7 +230,7 @@ export class BluetoothManager implements IBluetooth {
 	private _checkDiscoveredDevices(deviceId: string, fail?: ApiFail, complete?: ApiComplete) {
 		this._checkMacAddress(deviceId, fail, complete);
 
-		if (!this.mDiscoveredDevices.has(deviceId)) {
+		if (!this.mDiscoveredDevices.has(deviceId) || !this.discoveredDevices.has(deviceId)) {
 			const res = new KuxBluetoothFailImpl(10002);
 			fail?.(res);
 			complete?.(res);
@@ -1038,6 +1038,9 @@ export class BluetoothManager implements IBluetooth {
 
 		// 检查当前设备是否存在
 		this._checkDiscoveredDevices(deviceId, options?.fail, options?.complete);
+		if (!this.discoveredDevices.has(deviceId) || !this.mDiscoveredDevices.has(deviceId)) {
+			return;
+		}
 
 		// 检查当前设备是否已连接
 		if (this.connectedDevices.has(deviceId)) {
@@ -1047,8 +1050,14 @@ export class BluetoothManager implements IBluetooth {
 			return;
 		}
 
-		const device: BluetoothDevice = this.discoveredDevices.get(deviceId)!;
-		const deviceInfo: DeviceInfo = this.mDiscoveredDevices.get(deviceId)!;
+		const device = this.discoveredDevices.get(deviceId);
+		const deviceInfo = this.mDiscoveredDevices.get(deviceId);
+		if (device == null || deviceInfo == null) {
+			const res = new KuxBluetoothFailImpl(10002);
+			options?.fail?.(res);
+			options?.complete?.(res);
+			return;
+		}
 
 		try {
 			const callback = new GattCallback(

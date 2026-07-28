@@ -43,6 +43,8 @@ export class DeviceConnection {
 	private static readonly DIRECT_CONNECT_TIMEOUT_MS = 8000;
 	/** 停止扫描/断开后给系统 BLE 栈一点释放时间，再重新启动绑定广播扫描。 */
 	private static readonly BOUND_BROADCAST_RESTART_DELAY_MS = 600;
+	/** 保活检查时，绑定广播扫描超过 70 秒无回调就认为扫描管线停摆。 */
+	private static readonly BOUND_BROADCAST_MAINTAIN_IDLE_MS = 70 * 1000;
 	/** startDiscovery 系统异常时才重建适配器，15 秒内只允许一次，避免恢复逻辑自身打架。 */
 	private static readonly SCAN_HARD_RECOVERY_COOLDOWN_MS = 15000;
 	/** 首次配对扫描窗口：期间发现设备会先弹窗，扫描继续累计到 30 秒。 */
@@ -211,7 +213,7 @@ export class DeviceConnection {
 		}
 	}
 
-	private async startBoundBroadcastScan(): Promise<boolean> {
+	async startBoundBroadcastScan(): Promise<boolean> {
 		if (this.device.isDeletingDevice == true) {
 			logger.info("bluetooth", "[SCAN] 删除设备中，跳过绑定广播扫描");
 			return false;
@@ -222,6 +224,16 @@ export class DeviceConnection {
 		}
 		await this.stopBluetoothSearch();
 		if (this.device.boundDeviceId == "") return false;
+		if (this.device.available == false) {
+			try {
+				await openAdapter();
+				this.device.available = true;
+				this.device.touchState();
+			} catch (e) {
+				logger.warn("bluetooth", "[SCAN] 启动绑定广播扫描前打开蓝牙适配器失败:", e);
+				return false;
+			}
+		}
 		this.device.status.value = "SEARCHING";
 		this.device.errorMessage.value = "";
 		const deviceName = this.device.getDisplayDeviceName();
@@ -231,6 +243,38 @@ export class DeviceConnection {
 			this.device.touchState();
 		}
 		return ok;
+	}
+
+	/** 体检绑定广播扫描；必要时复用 start/restart，不直接操作底层扫描。 */
+	async maintainBoundBroadcastScan(reason: string): Promise<boolean> {
+		const boundId = this.device.boundDeviceId;
+		if (boundId == "") return false;
+		const gattBusy = this.device.isGattTaskBusy();
+		const scanning = this._isSearching == true && this._scanPurpose == "boundBroadcast";
+		const idleMs = this.device.broadcast.getBoundScanIdleMs();
+		logger.info(
+			"bluetooth",
+			`[SCAN] 检查绑定广播扫描: reason=${reason}, bound=${boundId}, scanning=${scanning}, purpose=${this._scanPurpose}, current=${this.device.currentDeviceId}, gattBusy=${gattBusy}, idleMs=${idleMs}, maxIdleMs=${DeviceConnection.BOUND_BROADCAST_MAINTAIN_IDLE_MS}`
+		);
+		if (this.device.currentDeviceId != "") return false;
+		if (this.device.isDeletingDevice == true) return false;
+		if (gattBusy == true) return false;
+		if (
+			scanning == true &&
+			this.device.broadcast.hasRecentBoundScanActivity(
+				DeviceConnection.BOUND_BROADCAST_MAINTAIN_IDLE_MS
+			) == true
+		) {
+			return true;
+		}
+		if (scanning == true) {
+			logger.warn(
+				"bluetooth",
+				`[SCAN] 绑定广播扫描无活跃回调，重启扫描: reason=${reason}, idleMs=${idleMs}`
+			);
+			return await this.restartBoundBroadcastScan(reason, false);
+		}
+		return await this.startBoundBroadcastScan();
 	}
 
 	private startBoundBroadcastScanSafely(reason: string): void {

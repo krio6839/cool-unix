@@ -34,7 +34,7 @@ export type { DeviceInfo, GetBLEDeviceServicesSuccessService, BLEDeviceCharacter
 
 const DEFAULT_CONFIG: InitConfig = {
 	needLocation: true,
-	accessBackgroundLocation: false
+	accessBackgroundLocation: true
 };
 
 // 模块级单例:整个项目共用一个 IBluetooth 实例；扫描栈异常时允许重建 native manager。

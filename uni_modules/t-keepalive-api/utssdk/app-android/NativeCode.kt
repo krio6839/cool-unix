@@ -109,6 +109,7 @@ object KeepAliveManager {
 	private var isRunning = false
 	private var customTask: (() -> Unit)? = null
 	private var onServiceStopped: (() -> Unit)? = null // 新增回调接口
+	private var onePixelActivityAvailable = true
 
 	fun start(
 		context: Context,
@@ -289,13 +290,25 @@ object KeepAliveManager {
 	}
 
 	fun startOnePixelActivity(context: Context) {
-		val intent = Intent(context, OnePixelActivity::class.java)
-		intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-		context.startActivity(intent)
+		if (!onePixelActivityAvailable) return
+		try {
+			val intent = Intent(context, OnePixelActivity::class.java)
+			intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+			context.startActivity(intent)
+		} catch (e: Exception) {
+			onePixelActivityAvailable = false
+			console.log(TAG, "启动1像素Activity失败", e.message ?: "")
+		}
 	}
 
 	fun finishOnePixelActivity(context: Context) {
-		context.sendBroadcast(Intent(ACTION_FINISH_ONE_PIXEL))
+		if (!onePixelActivityAvailable) return
+		try {
+			context.sendBroadcast(Intent(ACTION_FINISH_ONE_PIXEL))
+		} catch (e: Exception) {
+			onePixelActivityAvailable = false
+			console.log(TAG, "关闭1像素Activity失败", e.message ?: "")
+		}
 	}
 
 	const val ACTION_FINISH_ONE_PIXEL = "uts.sdk.modules.tKeepaliveApi.FINISH_ONE_PIXEL"
@@ -316,10 +329,16 @@ object KeepAliveManager {
 				}
 				KeepAliveManager.ACTION_FINISH_ONE_PIXEL -> {
 					console.log(TAG, "关闭1像素Activity")
-					val onePixelIntent = Intent(context, OnePixelActivity::class.java)
-					onePixelIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-					onePixelIntent.putExtra("finish", true)
-					context.startActivity(onePixelIntent)
+					if (!onePixelActivityAvailable) return
+					try {
+						val onePixelIntent = Intent(context, OnePixelActivity::class.java)
+						onePixelIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+						onePixelIntent.putExtra("finish", true)
+						context.startActivity(onePixelIntent)
+					} catch (e: Exception) {
+						onePixelActivityAvailable = false
+						console.log(TAG, "关闭1像素Activity失败", e.message ?: "")
+					}
 				}
 			}
 		}
