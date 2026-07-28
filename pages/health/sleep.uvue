@@ -103,6 +103,14 @@ watch(
 	},
 	{ immediate: true }
 );
+
+watch(
+	sleepActiveMetric,
+	() => {
+		fetchSleepMetric();
+	},
+	{ immediate: false }
+);
 </script>
 
 <style lang="scss" scoped></style>

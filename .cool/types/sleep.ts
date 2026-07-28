@@ -1,5 +1,3 @@
-import type { TimeValuePair, DateValuePair } from "./common";
-
 export type SleepStatusApiResponse = {
 	totalSleep: number;
 	sleepProgress: number;
@@ -10,12 +8,6 @@ export type SleepStatusApiResponse = {
 	recoverySleepDuration: string;
 	avgRecoverySleepPercentage: string;
 	avgRecoverySleepDuration: string;
-};
-
-export type SleepMetricApiResponse = {
-	sleepHeartRateData: TimeValuePair[];
-	sleepHrvData: TimeValuePair[];
-	sleepOxygenData: TimeValuePair[];
 };
 
 export type SleepDateValuePair = {

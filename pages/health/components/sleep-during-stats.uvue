@@ -110,6 +110,27 @@ const maxLabel = "期间最高";
 const minLabel = "期间最低";
 const avgLabel = "期间平均";
 
+type AxisRange = {
+	min: number;
+	max: number;
+};
+
+function getAxisRange(values: number[], defaultMin: number, defaultMax: number): AxisRange {
+	if (values.length === 0) {
+		return { min: defaultMin, max: defaultMax };
+	}
+
+	const dataMin = Math.min(...values);
+	const dataMax = Math.max(...values);
+	const span = Math.max(1, dataMax - dataMin);
+	const padding = Math.ceil(span * 0.1);
+
+	return {
+		min: Math.min(defaultMin, Math.floor(dataMin - padding)),
+		max: Math.max(defaultMax, Math.ceil(dataMax + padding))
+	};
+}
+
 const chartOption = computed(() => {
 	let list: TimeValuePair[] = [];
 	if (activeMetric.value === "heartRate") {
@@ -120,28 +141,30 @@ const chartOption = computed(() => {
 		list = sleep.sleepOxygenData.value;
 	}
 
-	const values = list.map((item) => item.value);
+	const values = list.map((item) => item.value as number);
 	const xAxisData = list.map((item) => item.time);
 
 	let color = "#D2FF5C";
 	let name = "心率";
 	let unit = "bpm";
-	let min = 40;
-	let max = 100;
+	let defaultMin = 40;
+	let defaultMax = 100;
 
 	if (activeMetric.value === "hrv") {
 		color = "#FE8C04";
 		name = "HRV";
 		unit = "ms";
-		min = 20;
-		max = 80;
+		defaultMin = 20;
+		defaultMax = 80;
 	} else if (activeMetric.value === "oxygen") {
 		color = "#994BE7";
 		name = "血氧";
 		unit = "%";
-		min = 90;
-		max = 100;
+		defaultMin = 90;
+		defaultMax = 100;
 	}
+
+	const axisRange = getAxisRange(values, defaultMin, defaultMax);
 	const option = {
 		title: { show: false },
 		tooltip: {
@@ -163,8 +186,8 @@ const chartOption = computed(() => {
 		},
 		yAxis: {
 			type: "value",
-			min: min,
-			max: max,
+			min: axisRange.min,
+			max: axisRange.max,
 			axisLine: { show: false },
 			axisLabel: { show: false },
 			splitLine: { show: false }

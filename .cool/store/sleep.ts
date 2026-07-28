@@ -1,16 +1,12 @@
 import { ref } from "vue";
 import { request } from "../service";
-import { getErrorMessage, isNull, isObject, parse } from "../utils";
-import type {
-	SleepStatusApiResponse,
-	SleepMetricApiResponse,
-	SleepModeApiResponse
-} from "../types/sleep";
+import { getErrorMessage, isArray, isNull, isObject, parse } from "../utils";
+import type { SleepStatusApiResponse, SleepModeApiResponse } from "../types/sleep";
 import type { TimeValuePair, DateValuePair } from "../types/common";
 
 export class Sleep {
 	statusData = ref<SleepStatusApiResponse | null>(null);
-	metricData = ref<SleepMetricApiResponse | null>(null);
+	metricData = ref<TimeValuePair[]>([]);
 	trendData = ref<DateValuePair[]>([]);
 
 	totalSleep = ref<number>(0);
@@ -61,8 +57,8 @@ export class Sleep {
 				data: { date, metric } as UTSJSONObject
 			})
 				.then((res) => {
-					if (res != null && isObject(res)) {
-						this.setMetricData(res);
+					if (res != null && isArray(res)) {
+						this.setMetricData(res, metric);
 					}
 					resolve();
 				})
@@ -131,16 +127,21 @@ export class Sleep {
 		this.avgRecoverySleepDuration.value = statusData.avgRecoverySleepDuration ?? "";
 	}
 
-	setMetricData(data: any): void {
+	setMetricData(data: any, metric: string): void {
 		if (isNull(data)) {
 			return;
 		}
 
-		const metricData = parse<SleepMetricApiResponse>(data)!;
-		this.metricData.value = metricData;
-		this.sleepHeartRateData.value = metricData.sleepHeartRateData ?? [];
-		this.sleepHrvData.value = metricData.sleepHrvData ?? [];
-		this.sleepOxygenData.value = metricData.sleepOxygenData ?? [];
+		const list = parse<TimeValuePair[]>(data) ?? [];
+		this.metricData.value = list;
+
+		if (metric === "hrv") {
+			this.sleepHrvData.value = list;
+		} else if (metric === "oxygen") {
+			this.sleepOxygenData.value = list;
+		} else {
+			this.sleepHeartRateData.value = list;
+		}
 	}
 
 	setTrendData(data: any): void {
@@ -176,7 +177,7 @@ export class Sleep {
 	}
 
 	clearMetric(): void {
-		this.metricData.value = null;
+		this.metricData.value = [];
 		this.sleepHeartRateData.value = [];
 		this.sleepHrvData.value = [];
 		this.sleepOxygenData.value = [];
