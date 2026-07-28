@@ -82,10 +82,19 @@ function getDaysFromOption(option: string): number {
 }
 
 async function fetchReadinessData(days: string) {
-	const endDate = dayUts().format("YYYY-MM-DD");
-	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
-	console.log(startDate, endDate, days);
+	const endDate = selectedDate.value;
+	const startDate = dayUts(endDate)
+		.subtract(getDaysFromOption(days) - 1, "day")
+		.format("YYYY-MM-DD");
 	await status.fetchReadiness(device.boundDeviceId, startDate, endDate);
+}
+
+function getDateRange(endDate: string, days: number): string[] {
+	const dates: string[] = [];
+	for (let i = days - 1; i >= 0; i--) {
+		dates.push(dayUts(endDate).subtract(i, "day").format("YYYY-MM-DD"));
+	}
+	return dates;
 }
 
 function onReadinessDaysChange(days: string) {
@@ -268,8 +277,15 @@ const hrvChartOption = computed((): UTSJSONObject => {
 // 训练准备度趋势图配置
 const readinessChartOption = computed((): UTSJSONObject => {
 	const chartData = status.readinessData.value ?? [];
-	const dateData = chartData.map((item: DateValuePair) => item.date);
-	const valueData = chartData.map((item: DateValuePair) => item.value);
+	const fullDateData = getDateRange(selectedDate.value, getDaysFromOption(readinessDays.value));
+	const dateData = fullDateData.map((date: string): string => date.slice(5));
+	const valueByDate: { [key: string]: number } = {};
+	chartData.forEach((item: DateValuePair) => {
+		valueByDate[item.date] = item.value;
+	});
+	const valueData = fullDateData.map(
+		(date: string): number | null => valueByDate[date] ?? null
+	);
 
 	let option: UTSJSONObject = {
 		tooltip: {

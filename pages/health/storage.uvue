@@ -85,11 +85,21 @@ function fetchEnergyStatus(): Promise<void> {
 }
 
 function fetchEnergyTrend(days: string): Promise<void> {
-	const endDate = dayUts().format("YYYY-MM-DD");
-	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
+	const endDate = currentDate.value;
+	const startDate = dayUts(endDate)
+		.subtract(getDaysFromOption(days) - 1, "day")
+		.format("YYYY-MM-DD");
 	return energy.fetchTrend(device.boundDeviceId, startDate, endDate).catch((err) => {
 		console.error("刷新储能趋势失败:", err);
 	});
+}
+
+function getDateRange(endDate: string, days: number): string[] {
+	const dates: string[] = [];
+	for (let i = days - 1; i >= 0; i--) {
+		dates.push(dayUts(endDate).subtract(i, "day").format("YYYY-MM-DD"));
+	}
+	return dates;
 }
 
 function onTrendDaysChange(days: string) {
@@ -185,8 +195,15 @@ const energyChartOption = computed((): UTSJSONObject => {
 
 const bodyEnergyChartOption = computed((): UTSJSONObject => {
 	const chartData = energy.bodyEnergyChartData.value ?? [];
-	const dateData = chartData.map((item: DateValuePair) => item.date);
-	const valueData = chartData.map((item: DateValuePair) => item.value);
+	const fullDateData = getDateRange(currentDate.value, getDaysFromOption(trendDays.value));
+	const dateData = fullDateData.map((date: string): string => date.slice(5));
+	const valueByDate: { [key: string]: number } = {};
+	chartData.forEach((item: DateValuePair) => {
+		valueByDate[item.date] = item.value;
+	});
+	const valueData = fullDateData.map(
+		(date: string): number | null => valueByDate[date] ?? null
+	);
 
 	let option: UTSJSONObject = {
 		tooltip: {

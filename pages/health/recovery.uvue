@@ -108,6 +108,12 @@ const timeRanges = ref<ClTabsItem[]>([
 ]);
 const currentTimeRange = ref<string>("7d");
 
+type TrendPoint = {
+	date: string;
+	atl: number;
+	ctl: number;
+};
+
 // TSB训练疲劳度参考表
 const tsbReference: TsbReferenceItem[] = [
 	{ range: "TSB>=-25", status: "状态下滑" },
@@ -137,19 +143,43 @@ async function fetchRecoveryStatus() {
 
 async function fetchRecoveryTrend(days: string) {
 	const endDate = dayUts().format("YYYY-MM-DD");
-	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
+	const startDate = dayUts(endDate)
+		.subtract(getDaysFromOption(days) - 1, "day")
+		.format("YYYY-MM-DD");
 	await recovery.fetchTrend(device.boundDeviceId, startDate, endDate);
 }
 
-function onTrendDaysChange(days: string) {
-	currentTimeRange.value = days;
-	fetchRecoveryTrend(days);
+function getDateRange(endDate: string, days: number): string[] {
+	const dates: string[] = [];
+	for (let i = days - 1; i >= 0; i--) {
+		dates.push(dayUts(endDate).subtract(i, "day").format("YYYY-MM-DD"));
+	}
+	return dates;
 }
 
 const chartOption = computed((): UTSJSONObject => {
 	const atlData = recovery.atlTrendData.value ?? [];
 	const ctlData = recovery.ctlTrendData.value ?? [];
 	const dates = recovery.trendDates.value ?? [];
+	const fullDateData = getDateRange(
+		dayUts().format("YYYY-MM-DD"),
+		getDaysFromOption(currentTimeRange.value)
+	);
+	const trendByDate: { [key: string]: TrendPoint } = {};
+	dates.forEach((date: string, index: number) => {
+		trendByDate[date] = {
+			date,
+			atl: atlData[index],
+			ctl: ctlData[index]
+		};
+	});
+	const dateData = fullDateData.map((date: string): string => date.slice(5));
+	const atlValueData = fullDateData.map(
+		(date: string): number | null => trendByDate[date]?.atl ?? null
+	);
+	const ctlValueData = fullDateData.map(
+		(date: string): number | null => trendByDate[date]?.ctl ?? null
+	);
 
 	let option: UTSJSONObject = {
 		tooltip: {
@@ -167,7 +197,7 @@ const chartOption = computed((): UTSJSONObject => {
 		},
 		xAxis: {
 			type: "category",
-			data: dates,
+			data: dateData,
 			axisLabel: {
 				color: "rgba(255,255,255,0.6)"
 			},
@@ -193,7 +223,7 @@ const chartOption = computed((): UTSJSONObject => {
 			{
 				name: "ATL",
 				type: "line",
-				data: atlData,
+				data: atlValueData,
 				itemStyle: {
 					color: "#D2FF5C"
 				},
@@ -223,7 +253,7 @@ const chartOption = computed((): UTSJSONObject => {
 			{
 				name: "CTL",
 				type: "line",
-				data: ctlData,
+				data: ctlValueData,
 				itemStyle: {
 					color: "#FF9800"
 				},

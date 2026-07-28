@@ -112,6 +112,7 @@ const timeRanges = ref<ClTabsItem[]>([
 ]);
 
 const selectedDays = ref<string>("7d");
+const trendEndDate = ref<string>(dayUts().format("YYYY-MM-DD"));
 
 const metricList: MetricItem[] = [
 	{
@@ -154,13 +155,51 @@ function getDaysFromOption(option: string): number {
 	return 7;
 }
 
-const weekDays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+const weekDayLabels = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+
+function getWeekdayLabel(date: string): string {
+	if (date === "") {
+		return "";
+	}
+
+	const day = new Date(`${date}T00:00:00`).getDay();
+	return weekDayLabels[day] ?? date;
+}
+
+function getDateOffset(date: string, offset: number): string {
+	const d = new Date(`${date}T00:00:00`);
+	d.setDate(d.getDate() + offset);
+	const year = d.getFullYear();
+	const month = `${d.getMonth() + 1}`.padStart(2, "0");
+	const day = `${d.getDate()}`.padStart(2, "0");
+	return `${year}-${month}-${day}`;
+}
+
+const trendDates = computed((): string[] => {
+	const days = getDaysFromOption(selectedDays.value);
+	const dates: string[] = [];
+	for (let index = days - 1; index >= 0; index--) {
+		dates.push(getDateOffset(trendEndDate.value, -index));
+	}
+	return dates;
+});
+
+const trendWeekdays = computed((): string[] => {
+	return trendDates.value.map((date) => getWeekdayLabel(date));
+});
 
 const sleepDurationChartOption = computed(() => {
 	const data = sleep.sleepTrendData.value;
-	const sleepDurationData = data.map((item) => item.value);
-	const sum = sleepDurationData.reduce((acc, val) => acc + val, 0);
-	const average = sleepDurationData.length > 0 ? sum / sleepDurationData.length : 0;
+	const dataByDate = new Map<string, number>();
+	data.forEach((item) => {
+		dataByDate.set(item.date, item.value);
+	});
+
+	const xAxisData = trendWeekdays.value;
+	const sleepDurationData = trendDates.value.map((date) => dataByDate.get(date) ?? 0);
+	const validDurationData = sleepDurationData.filter((value) => value > 0);
+	const sum = validDurationData.reduce((acc, val) => acc + val, 0);
+	const average = validDurationData.length > 0 ? sum / validDurationData.length : 0;
 
 	const averageData = sleepDurationData.map(function (_val: number): number {
 		return parseFloat(average.toFixed(2));
@@ -185,7 +224,7 @@ const sleepDurationChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: weekDays,
+			data: xAxisData,
 			axisLine: {
 				lineStyle: {
 					color: "rgba(255, 255, 255, 0.2)"
@@ -270,6 +309,10 @@ const sleepDurationChartOption = computed(() => {
 });
 
 function timeToMinutesFrom24(time: string): number {
+	if (time === "") {
+		return 0;
+	}
+
 	const parts = time.split(":");
 	const hours = parseInt(parts[0]);
 	const minutes = parseInt(parts[1]);
@@ -280,31 +323,73 @@ function timeToMinutesFrom24(time: string): number {
 	return min;
 }
 
+function getWakeMinutesAfterBedtime(bedtime: string, wakeTime: string): number {
+	const bedMinutes = timeToMinutesFrom24(bedtime);
+	let wakeMinutes = timeToMinutesFrom24(wakeTime);
+
+	if (wakeMinutes < bedMinutes) {
+		wakeMinutes += 1440;
+	}
+
+	return wakeMinutes;
+}
+
 const sleepRegularityChartOption = computed(() => {
 	const mode = sleep.sleepModeData.value;
 	const bedtimes = mode?.bedtimes ?? [];
 	const wakeTimes = mode?.wakeTimes ?? [];
-
-	const avgBedtimeMinutes = timeToMinutesFrom24(mode?.avgBedtime ?? "");
-	const avgWakeTimeMinutes = timeToMinutesFrom24(mode?.avgWakeTime ?? "");
-
-	const bedtimeData: number[] = bedtimes.map(function (item): number {
-		return timeToMinutesFrom24(item.value);
+	const bedtimeByDate = new Map<string, string>();
+	const wakeTimeByDate = new Map<string, string>();
+	bedtimes.forEach((item) => {
+		bedtimeByDate.set(item.date, item.value);
+	});
+	wakeTimes.forEach((item) => {
+		wakeTimeByDate.set(item.date, item.value);
 	});
 
-	const sleepDurationData: number[] = wakeTimes.map(function (item, index): number {
-		const wakeMinutes = timeToMinutesFrom24(item.value);
-		const bedMinutes = timeToMinutesFrom24(bedtimes[index].value);
+	const xAxisData = trendWeekdays.value;
+
+	const avgBedtime = mode?.avgBedtime ?? "";
+	const avgWakeTime = mode?.avgWakeTime ?? "";
+	const avgBedtimeMinutes = timeToMinutesFrom24(avgBedtime);
+	const avgWakeTimeMinutes =
+		avgBedtime !== "" && avgWakeTime !== ""
+			? getWakeMinutesAfterBedtime(avgBedtime, avgWakeTime)
+			: 0;
+
+	const bedtimeData: number[] = trendDates.value.map(function (date): number {
+		return timeToMinutesFrom24(bedtimeByDate.get(date) ?? "");
+	});
+
+	const sleepDurationData: number[] = trendDates.value.map(function (date): number {
+		const bedtime = bedtimeByDate.get(date) ?? "";
+		const wakeTime = wakeTimeByDate.get(date) ?? "";
+		if (bedtime === "" || wakeTime === "") {
+			return 0;
+		}
+
+		const bedMinutes = timeToMinutesFrom24(bedtime);
+		const wakeMinutes = getWakeMinutesAfterBedtime(bedtime, wakeTime);
 		return wakeMinutes - bedMinutes;
 	});
 
-	const avgBedtimeLineData: number[] = bedtimes.map(function (_t, _i: number): number {
+	const avgBedtimeLineData: number[] = trendDates.value.map(function (_date): number {
 		return avgBedtimeMinutes;
 	});
 
-	const avgWakeTimeLineData: number[] = bedtimes.map(function (_t, _i: number): number {
+	const avgWakeTimeLineData: number[] = trendDates.value.map(function (_date): number {
 		return avgWakeTimeMinutes;
 	});
+
+	const maxWakeMinutes = trendDates.value.reduce((max, date) => {
+		const bedtime = bedtimeByDate.get(date) ?? "";
+		const wakeTime = wakeTimeByDate.get(date) ?? "";
+		if (bedtime === "" || wakeTime === "") {
+			return max;
+		}
+
+		return Math.max(max, getWakeMinutesAfterBedtime(bedtime, wakeTime));
+	}, avgWakeTimeMinutes);
 
 	return JSON.stringify({
 		title: { show: false },
@@ -320,7 +405,7 @@ const sleepRegularityChartOption = computed(() => {
 		},
 		xAxis: {
 			type: "category",
-			data: weekDays,
+			data: xAxisData,
 			axisLine: {
 				lineStyle: {
 					color: "rgba(255, 255, 255, 0.2)"
@@ -333,7 +418,7 @@ const sleepRegularityChartOption = computed(() => {
 		yAxis: {
 			type: "value",
 			min: 0,
-			max: 1440,
+			max: Math.max(1440, maxWakeMinutes),
 			axisLine: {
 				show: false
 			},
@@ -411,6 +496,7 @@ const sleepRegularityChartOption = computed(() => {
 async function fetchSleepTrend(days: string) {
 	const endDate = dayUts().format("YYYY-MM-DD");
 	const startDate = dayUts().subtract(getDaysFromOption(days), "day").format("YYYY-MM-DD");
+	trendEndDate.value = endDate;
 	sleep.fetchTrend(device.boundDeviceId, startDate, endDate);
 	sleep.fetchSleepMode(device.boundDeviceId, startDate, endDate);
 }

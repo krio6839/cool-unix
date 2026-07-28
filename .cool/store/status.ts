@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { request } from "../service";
-import { getErrorMessage, isNull, isObject, parse } from "../utils";
+import { getErrorMessage, isArray, isNull, isObject, parse } from "../utils";
 import type { StatusApiResponse } from "../types/status";
 import type { TimeValuePair, DateValuePair } from "../types/common";
 
@@ -53,8 +53,10 @@ export class Status {
 				}
 			})
 				.then((res) => {
-					if (res != null && isObject(res)) {
-						this.setReadinessData(res);
+					if (res != null && isArray(res)) {
+						this.readinessData.value = (res as any[]).map(
+							(item) => parse<DateValuePair>(item)!
+						);
 					}
 					resolve();
 				})
