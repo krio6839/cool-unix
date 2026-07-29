@@ -42,6 +42,8 @@ export class DeviceConnection {
 	/* ===== 直连 / 扫描配置 ===== */
 	/** 绑定设备临时 GATT 直连最多等 8 秒；更长会让队列任务和广播恢复显得卡顿。 */
 	private static readonly DIRECT_CONNECT_TIMEOUT_MS = 8000;
+	/** 首次配对由用户主动触发，给连接和 services 发现稍长一点时间，但不能无限卡住。 */
+	private static readonly PAIRING_CONNECT_TIMEOUT_MS = 15000;
 	/** 停止扫描/断开后给系统 BLE 栈一点释放时间，再重新启动绑定广播扫描。 */
 	private static readonly BOUND_BROADCAST_RESTART_DELAY_MS = 600;
 	/** 保活检查时，绑定广播扫描超过 70 秒无回调就认为扫描管线停摆。 */
@@ -548,23 +550,16 @@ export class DeviceConnection {
 		);
 		const beforeCount = this.device.devices.length;
 		this.device.cacheFoundDevice(found, name);
-		logger.info("bluetooth", "[SCAN] 当前 BOOM 设备列表长度:", this.device.devices.length);
-		if (this._scanPurpose == "pairing" && this.device.devices.length > 0) {
-			this.showPairingPickerDuringScan();
+		const count = this.device.devices.length;
+		if (this._pairingPickerVisible == false) {
+			logger.info("bluetooth", "[SCAN] 首次发现目标设备,立即弹窗并继续扫描");
+			this._pairingPickerVisible = true;
+			this.openPairingDevicePicker();
+			return;
 		}
-		if (this._pairingPickerVisible == true && beforeCount != this.device.devices.length) {
-			logger.info(
-				"bluetooth",
-				`[SCAN] 配对扫描继续累计设备: count=${this.device.devices.length}`
-			);
+		if (beforeCount != count) {
+			logger.info("bluetooth", `[SCAN] 配对扫描继续累计设备: count=${count}`);
 		}
-	}
-
-	private showPairingPickerDuringScan(): void {
-		if (this._pairingPickerVisible == true) return;
-		logger.info("bluetooth", "[SCAN] 首次发现目标设备,立即弹窗并继续扫描");
-		this._pairingPickerVisible = true;
-		this.openPairingDevicePicker();
 	}
 
 	private openPairingDevicePicker(): void {
@@ -601,7 +596,7 @@ export class DeviceConnection {
 
 	/**
 	 * 扫描超时处理
-	 * - pairing mode:0 个 → 提示"未找到设备";≥1 个 → 弹设备选择 actionSheet
+	 * 已经弹出单设备列表时，超时只在发现多台设备后刷新，避免同一台设备重复刷新弹窗。
 	 */
 	private async _handlePairingScanTimeout(): Promise<void> {
 		const mode = this._scanPurpose;
@@ -609,7 +604,6 @@ export class DeviceConnection {
 		logger.info("bluetooth", `[SCAN] 配对扫描结束,mode=${mode},共发现 ${count} 个目标设备`);
 		await this.stopBluetoothSearch();
 
-		// === 配对 mode:0/1/2+ 标准流程 ===
 		if (count == 0) {
 			this.device.status.value = "UNPAIRED";
 			this.device.errorMessage.value = t("未找到设备,请确认设备已开机且在范围内");
@@ -618,13 +612,17 @@ export class DeviceConnection {
 
 		this.device.status.value = "PAIRING";
 		this.device.touchState();
-		if (this._pairingPickerVisible == true) {
-			logger.info("bluetooth", `[SCAN] 扫描超时，刷新最终设备列表: ${count}`);
-			this.openPairingDevicePicker();
+		const shouldRefreshPicker = this._pairingPickerVisible == false || count > 1;
+		if (shouldRefreshPicker == false) {
+			logger.info("bluetooth", `[SCAN] 扫描超时，设备列表无变化，保留当前弹窗: ${count}`);
 			return;
 		}
-		logger.info("bluetooth", `[SCAN] 扫描超时发现 ${count} 个设备,补弹窗让用户选择`);
-		this._pairingPickerVisible = true;
+		if (this._pairingPickerVisible == false) {
+			logger.info("bluetooth", `[SCAN] 扫描超时发现 ${count} 个设备,补弹窗让用户选择`);
+			this._pairingPickerVisible = true;
+		} else {
+			logger.info("bluetooth", `[SCAN] 扫描超时，设备列表有变化，刷新最终设备列表: ${count}`);
+		}
 		this.openPairingDevicePicker();
 	}
 
