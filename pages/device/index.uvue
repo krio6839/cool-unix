@@ -4,8 +4,8 @@
 			safe-area-top
 			background-color="transparent"
 			left-icon="arrow-left"
+			:backable="isPreparingPairing == false"
 			:title="titleText"
-			@tap="goBack"
 		>
 			<template #append>
 				<cl-button text @tap="goDetail" v-if="deviceStore.boundDeviceId">
@@ -41,10 +41,7 @@
 
 		<!-- 配对状态和搜索状态 -->
 		<view v-show="isPairingOrSearching" class="flex-1">
-			<PairingState
-				:searching="isSearching"
-				@select="onSelect"
-			></PairingState>
+			<PairingState :searching="isSearching" @select="onSelect"></PairingState>
 		</view>
 
 		<!-- 错误提示 -->
@@ -59,7 +56,7 @@
 
 		<!-- 未配对状态 -->
 		<view v-show="showUnpairedState" class="flex-1">
-			<UnpairedState @click="enterPairingMode"></UnpairedState>
+			<UnpairedState :loading="isPreparingPairing" @click="enterPairingMode"></UnpairedState>
 		</view>
 
 		<!-- 测试弹窗组件 已迁移到详情页,设备页不再使用 -->
@@ -95,6 +92,11 @@ watch(
 );
 
 const connectedDeviceName = ref<string>("Cool Unix 设备");
+const isPreparingPairing = ref<boolean>(false);
+
+onBackPress(() => {
+	return isPreparingPairing.value == true;
+});
 
 const isConnected = computed<boolean>(() => {
 	return deviceStore.status.value == "CONNECTED";
@@ -113,7 +115,11 @@ const hasDeviceError = computed<boolean>(() => {
 });
 
 const showUnpairedState = computed<boolean>(() => {
-	return isConnected.value == false && isPairingOrSearching.value == false && hasDeviceError.value == false;
+	return (
+		isConnected.value == false &&
+		isPairingOrSearching.value == false &&
+		hasDeviceError.value == false
+	);
 });
 
 const titleText = computed(() => {
@@ -131,6 +137,8 @@ function onSelect(location: string) {
 }
 
 async function enterPairingMode() {
+	if (isPreparingPairing.value == true) return;
+	isPreparingPairing.value = true;
 	try {
 		// UTS:显式比较 boolean,避免隐式布尔
 		if (deviceStore.available == false) {
@@ -146,6 +154,8 @@ async function enterPairingMode() {
 		const message = t("蓝牙初始化失败,请检查蓝牙和位置权限");
 		deviceStore.setUnpairedError(message);
 		ui.showToast({ message, type: "error" });
+	} finally {
+		isPreparingPairing.value = false;
 	}
 }
 
@@ -154,10 +164,6 @@ function handleConfirmClick() {
 		path: "/pages/index/home",
 		mode: "reLaunch"
 	});
-}
-
-function goBack() {
-	router.back();
 }
 
 /**

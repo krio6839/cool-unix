@@ -168,6 +168,17 @@ export class BluetoothManager implements IBluetooth {
 		);
 	}
 
+	hasAndroidPermission(permissionName: string): boolean {
+		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+			return true;
+		}
+		const context = UTSAndroid.getAppContext();
+		if (context == null) {
+			return false;
+		}
+		return context.checkSelfPermission(permissionName) == PackageManager.PERMISSION_GRANTED;
+	}
+
 	/**
 	 * 检查蓝牙适配器是否可用
 	 */

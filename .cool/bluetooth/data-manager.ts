@@ -7,6 +7,7 @@ import { request } from "../service";
 import { logger } from "../service/logger";
 import { dayUts } from "../utils/day";
 import { UPLOAD_INTERVAL, UPLOAD_PPI_URL, UPLOAD_SLEEP_URL } from "./constants";
+import type { SelectSqlResult } from "@/uni_modules/meibao-Sqlite";
 import type {
 	SleepData,
 	PpiUploadRequest,
@@ -35,6 +36,7 @@ export class BluetoothDataManager {
 	private isUploading: boolean = false;
 	private ppiUploadPending: boolean = false;
 	private lastPpiUploadAttemptAt: number = 0;
+	private databaseReady: Promise<boolean>;
 
 	/** 设备名称 */
 	private deviceName: string = "";
@@ -47,7 +49,7 @@ export class BluetoothDataManager {
 	 * 初始化数据库、启动定时上传、清理旧数据
 	 */
 	constructor() {
-		this.initDatabase();
+		this.databaseReady = this.initDatabase();
 		this.startUploadTimer();
 	}
 
@@ -69,8 +71,29 @@ export class BluetoothDataManager {
 	/**
 	 * 初始化数据库
 	 */
-	private async initDatabase(): Promise<void> {
-		await bluetoothDatabase.open();
+	private async initDatabase(): Promise<boolean> {
+		return await bluetoothDatabase.open();
+	}
+
+	private async ensureDatabaseReady(): Promise<boolean> {
+		const ready = await this.databaseReady;
+		if (ready == true && bluetoothDatabase.getIsOpen() == true) {
+			return true;
+		}
+		this.databaseReady = this.initDatabase();
+		return await this.databaseReady;
+	}
+
+	private async execute(sql: string): Promise<boolean> {
+		const ready = await this.ensureDatabaseReady();
+		if (ready == false) return false;
+		return bluetoothDatabase.execute(sql);
+	}
+
+	private async query(sql: string): Promise<SelectSqlResult | null> {
+		const ready = await this.ensureDatabaseReady();
+		if (ready == false) return null;
+		return bluetoothDatabase.query(sql);
 	}
 
 	/**
@@ -91,7 +114,7 @@ export class BluetoothDataManager {
 			)
 			.join(",");
 		const sql = `INSERT OR IGNORE INTO ppi_data (id, timestamp, hr, spo2, ppi, uploaded) VALUES ${values}`;
-		return bluetoothDatabase.execute(sql);
+		return this.execute(sql);
 	}
 
 	async storeBroadcastPpiData(
@@ -104,7 +127,7 @@ export class BluetoothDataManager {
 			return false;
 		}
 		const sql = `INSERT OR IGNORE INTO ppi_data (id, timestamp, hr, spo2, ppi, uploaded) VALUES ('${timestamp}', ${timestamp}, ${hr}, ${spo2}, ${ppi}, 0)`;
-		return bluetoothDatabase.execute(sql);
+		return this.execute(sql);
 	}
 
 	/**
@@ -158,7 +181,7 @@ export class BluetoothDataManager {
 			"INSERT OR REPLACE INTO realtime_broadcast_data " +
 			"(id, timestamp, received_at, utc, voltage_mv, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, event_seq, has_new_event, battery_status, rmssd, steps_everyday, calorie_everyday, raw_hex, v_hex, device_id) VALUES " +
 			`('${record.id}', ${record.timestamp}, ${record.receivedAt}, ${record.utc}, ${record.voltageMv}, ${ppgAttached}, ${record.behavior}, ${record.activity}, ${record.hr}, ${record.ppi}, ${record.spo2}, ${record.bhr}, ${record.eventSeq}, ${hasNewEvent}, ${record.batteryStatus}, ${record.rmssd}, ${record.stepsEveryday}, ${record.calorieEveryday}, '${rawHex}', '${vHex}', '${deviceId}')`;
-		return bluetoothDatabase.execute(sql);
+		return this.execute(sql);
 	}
 
 	/**
@@ -167,7 +190,7 @@ export class BluetoothDataManager {
 	async getLatestRealtimeBroadcastRecord(): Promise<RealtimeBroadcastRecord | null> {
 		const sql =
 			"SELECT id, timestamp, received_at, utc, voltage_mv, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, event_seq, has_new_event, battery_status, rmssd, steps_everyday, calorie_everyday, raw_hex, v_hex, device_id FROM realtime_broadcast_data ORDER BY received_at DESC LIMIT 1";
-		const result = await bluetoothDatabase.query(sql);
+		const result = await this.query(sql);
 		if (result == null || result.rows.length == 0) {
 			return null;
 		}
@@ -230,7 +253,7 @@ export class BluetoothDataManager {
 	}
 
 	private async queryCount(sql: string): Promise<number> {
-		const result = await bluetoothDatabase.query(sql);
+		const result = await this.query(sql);
 		if (result == null || result.rows.length == 0) {
 			return 0;
 		}
@@ -238,7 +261,7 @@ export class BluetoothDataManager {
 	}
 
 	private async queryTimestamp(sql: string): Promise<number> {
-		const result = await bluetoothDatabase.query(sql);
+		const result = await this.query(sql);
 		if (result == null || result.rows.length == 0 || result.rows[0][0] == null) {
 			return 0;
 		}
@@ -312,7 +335,7 @@ export class BluetoothDataManager {
 		const sql =
 			"SELECT id, timestamp, received_at, utc, voltage_mv, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, event_seq, has_new_event, battery_status, rmssd, steps_everyday, calorie_everyday, raw_hex, v_hex, device_id FROM realtime_broadcast_data ORDER BY received_at DESC LIMIT " +
 			safeLimit.toString();
-		const result = await bluetoothDatabase.query(sql);
+		const result = await this.query(sql);
 		if (result == null) {
 			return [];
 		}
@@ -330,7 +353,7 @@ export class BluetoothDataManager {
 	async getLatestPpiData(): Promise<PpiData | null> {
 		const sql =
 			"SELECT id, timestamp, hr, spo2, ppi, uploaded FROM ppi_data ORDER BY timestamp DESC LIMIT 1";
-		const result = await bluetoothDatabase.query(sql);
+		const result = await this.query(sql);
 		if (result == null || result.rows.length == 0) {
 			return null;
 		}
@@ -346,7 +369,7 @@ export class BluetoothDataManager {
 		const sql =
 			"SELECT id, timestamp, hr, spo2, ppi, uploaded FROM ppi_data ORDER BY timestamp DESC LIMIT " +
 			safeLimit.toString();
-		const result = await bluetoothDatabase.query(sql);
+		const result = await this.query(sql);
 		if (result == null) {
 			return [];
 		}
@@ -372,7 +395,7 @@ export class BluetoothDataManager {
 			" AND timestamp <= " +
 			endSec.toString() +
 			" ORDER BY timestamp ASC";
-		const result = await bluetoothDatabase.query(sql);
+		const result = await this.query(sql);
 		if (result == null) {
 			return [];
 		}
@@ -391,7 +414,7 @@ export class BluetoothDataManager {
 			uploadedValue.toString() +
 			" ORDER BY timestamp DESC LIMIT " +
 			safeLimit.toString();
-		const result = await bluetoothDatabase.query(sql);
+		const result = await this.query(sql);
 		if (result == null) {
 			return [];
 		}
@@ -410,7 +433,7 @@ export class BluetoothDataManager {
 	async getUnuploadedPpiData(): Promise<PpiData[]> {
 		const sql =
 			"SELECT id, timestamp, hr, spo2, ppi, uploaded FROM ppi_data WHERE uploaded = 0 ORDER BY timestamp ASC";
-		const result = await bluetoothDatabase.query(sql);
+		const result = await this.query(sql);
 
 		if (result == null) {
 			return [];
@@ -438,7 +461,7 @@ export class BluetoothDataManager {
 
 		const idList = ids.map((id) => `'${id}'`).join(",");
 		const sql = `UPDATE ppi_data SET uploaded = 1 WHERE id IN (${idList})`;
-		await bluetoothDatabase.execute(sql);
+		await this.execute(sql);
 	}
 
 	/**
@@ -446,9 +469,9 @@ export class BluetoothDataManager {
 	 */
 	async clearAllData(): Promise<void> {
 		logger.info("bluetooth", "清空所有数据库数据");
-		await bluetoothDatabase.execute("DELETE FROM sleep_data");
-		await bluetoothDatabase.execute("DELETE FROM ppi_data");
-		await bluetoothDatabase.execute("DELETE FROM realtime_broadcast_data");
+		await this.execute("DELETE FROM sleep_data");
+		await this.execute("DELETE FROM ppi_data");
+		await this.execute("DELETE FROM realtime_broadcast_data");
 		logger.info("bluetooth", "数据库数据清空完成");
 	}
 
@@ -466,7 +489,7 @@ export class BluetoothDataManager {
 		const sleepSql = `INSERT OR IGNORE INTO sleep_data
 			(id, report_timestamp, bedtime, sleep_time, wake_time, getup_time, record_count, detail, uploaded)
 			VALUES ('${sleepId}', ${reportTimestamp}, ${bedtime}, ${sleepTime}, ${wakeTime}, ${getupTime}, ${recordCount}, '${safeDetail}', 0)`;
-		await bluetoothDatabase.execute(sleepSql);
+		await this.execute(sleepSql);
 	}
 
 	/**
@@ -476,7 +499,7 @@ export class BluetoothDataManager {
 	async getUnuploadedSleepData(): Promise<SleepData[]> {
 		const sql =
 			"SELECT id, report_timestamp, bedtime, sleep_time, wake_time, getup_time, record_count, detail FROM sleep_data WHERE uploaded = 0";
-		const result = await bluetoothDatabase.query(sql);
+		const result = await this.query(sql);
 
 		if (result == null) {
 			return [];
@@ -514,7 +537,7 @@ export class BluetoothDataManager {
 			sql += uploaded == true ? " WHERE uploaded = 1" : " WHERE uploaded = 0";
 		}
 		sql += " ORDER BY report_timestamp DESC LIMIT " + safeLimit.toString();
-		const result = await bluetoothDatabase.query(sql);
+		const result = await this.query(sql);
 		if (result == null) {
 			return [];
 		}
@@ -549,7 +572,7 @@ export class BluetoothDataManager {
 
 		const idList = ids.map((id) => `'${id}'`).join(",");
 		const sql = `UPDATE sleep_data SET uploaded = 1 WHERE id IN (${idList})`;
-		await bluetoothDatabase.execute(sql);
+		await this.execute(sql);
 	}
 
 	/**

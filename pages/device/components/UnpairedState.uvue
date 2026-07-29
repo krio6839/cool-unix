@@ -11,15 +11,21 @@
 			color="#000"
 			type="primary"
 			rounded
+			:loading="loading"
+			:disabled="loading"
 			@tap="enterPairingMode"
 		>
-			{{ t("去配对") }}
+			{{ t(loading ? "正在准备..." : "去配对") }}
 		</cl-button>
 	</view>
 </template>
 
 <script setup lang="ts">
 import { t } from "@/.cool";
+
+defineProps<{
+	loading: boolean;
+}>();
 
 const emit = defineEmits(["click"]);
 

@@ -34,12 +34,14 @@ export type { DeviceInfo, GetBLEDeviceServicesSuccessService, BLEDeviceCharacter
 
 const DEFAULT_CONFIG: InitConfig = {
 	needLocation: true,
-	accessBackgroundLocation: true
+	accessBackgroundLocation: false
 };
 
 // 模块级单例:整个项目共用一个 IBluetooth 实例；扫描栈异常时允许重建 native manager。
 //@ts-ignore
 let kx = useKuxBluetooth(DEFAULT_CONFIG) as IBluetooth;
+
+const ANDROID_BACKGROUND_LOCATION_PERMISSION = "android.permission.ACCESS_BACKGROUND_LOCATION";
 
 export function recreateKuxBluetooth(reason: string = ""): void {
 	//@ts-ignore
@@ -76,6 +78,21 @@ export function openAdapter(): Promise<OpenBluetoothAdapterSuccess> {
 			}
 		});
 	});
+}
+
+export function hasAndroidPermission(permissionName: string): boolean {
+	try {
+		const granted = kx.hasAndroidPermission(permissionName) === true;
+		logger.info("bluetooth", `[BLE] 权限检查 ${permissionName}: ${granted}`);
+		return granted;
+	} catch (e) {
+		logger.warn("bluetooth", `[BLE] 权限检查失败 ${permissionName}:`, e);
+		return false;
+	}
+}
+
+export function hasBackgroundLocationPermission(): boolean {
+	return hasAndroidPermission(ANDROID_BACKGROUND_LOCATION_PERMISSION);
 }
 
 export function closeAdapter(): Promise<boolean> {

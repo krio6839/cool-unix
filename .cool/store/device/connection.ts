@@ -23,6 +23,7 @@ import {
 	onDeviceFound,
 	offDeviceFound,
 	recreateKuxBluetooth,
+	hasBackgroundLocationPermission,
 	connect,
 	disconnect,
 	onConnectionStateChange,
@@ -65,6 +66,7 @@ export class DeviceConnection {
 	private _pairingPickerVisible: boolean = false;
 	private _ignoreConnectionStateChange: boolean = false;
 	private _isSwitchingToBroadcastMode: boolean = false;
+	private _isRequestingBackgroundAccess: boolean = false;
 
 	constructor(device: Device) {
 		this.device = device;
@@ -345,6 +347,48 @@ export class DeviceConnection {
 		this.device.saveBoundDevice(deviceId, displayName);
 		bluetoothDataManager.setDeviceInfo(displayName, deviceId);
 		this.device.touchState();
+	}
+
+	private requestBackgroundBluetoothAccessAfterFirstBind(): void {
+		if (this._isRequestingBackgroundAccess == true) return;
+		if (hasBackgroundLocationPermission() == true) {
+			logger.info("bluetooth", "[BLE] 后台定位权限已开启，跳过引导");
+			return;
+		}
+		this._isRequestingBackgroundAccess = true;
+		// 后台定位在 Android 10+ 往往会打断当前连接流程；设备绑定成功后再用业务弹窗引导。
+		setTimeout(() => {
+			this._isRequestingBackgroundAccess = false;
+			if (hasBackgroundLocationPermission() == true) {
+				logger.info("bluetooth", "[BLE] 后台定位权限已开启，跳过引导");
+				return;
+			}
+			this.showBackgroundLocationSettingGuide();
+		}, 150);
+	}
+
+	private showBackgroundLocationSettingGuide(): void {
+		uni.showModal({
+			title: t("设备已绑定"),
+			content: t("如需后台自动重连和持续接收设备数据，请在权限设置中将定位改为始终允许。"),
+			confirmText: t("去设置"),
+			cancelText: t("稍后再说"),
+			success: (res) => {
+				if (res.confirm == true) {
+					uni.openAppAuthorizeSetting({
+						success: () => {
+							logger.info("bluetooth", "[BLE] 已打开应用权限设置页");
+						},
+						fail: (e) => {
+							logger.warn("bluetooth", "[BLE] 打开应用权限设置页失败:", e);
+						}
+					});
+				}
+			},
+			fail: (e) => {
+				logger.warn("bluetooth", "[BLE] 后台定位权限引导弹窗失败:", e);
+			}
+		});
 	}
 
 	/* ===== 设备扫描 ===== */
@@ -632,6 +676,7 @@ export class DeviceConnection {
 		timeoutMs: number
 	): Promise<boolean> {
 		this.device.status.value = "SEARCHING";
+		const shouldRequestBackgroundAccess = this.device.boundDeviceId == "";
 		logger.info("bluetooth", "[BOOM] 开始连接设备", `${deviceId}, timeout=${timeoutMs}`);
 		//#ifndef H5
 		const ok = await connect(deviceId, timeoutMs);
@@ -652,6 +697,9 @@ export class DeviceConnection {
 			//#endif
 			this._resetConnectionState();
 			return false;
+		}
+		if (shouldRequestBackgroundAccess == true) {
+			this.requestBackgroundBluetoothAccessAfterFirstBind();
 		}
 		logger.info("bluetooth", "设备连接状态", this.device.status.value);
 		return true;
