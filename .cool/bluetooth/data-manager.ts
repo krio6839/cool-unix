@@ -16,6 +16,7 @@ import type {
 	PpiDataItem,
 	PpiData,
 	HeartRateRecord,
+	VitalHistoryGapCheck,
 	RealtimeBroadcastRecord,
 	StoreRealtimeBroadcastInput,
 	UploadTableStats
@@ -406,6 +407,59 @@ export class BluetoothDataManager {
 		return timestamps;
 	}
 
+	async storeVitalHistoryGapCheck(
+		fromSec: number,
+		toSec: number,
+		status: string,
+		pages: number,
+		savedRecords: number,
+		message: string
+	): Promise<boolean> {
+		if (toSec <= fromSec) return false;
+		const id = fromSec.toString() + "-" + toSec.toString();
+		const safeStatus = this.escapeSqlText(status);
+		const safeMessage = this.escapeSqlText(message);
+		const checkedAt = Date.now();
+		const sql =
+			"INSERT OR REPLACE INTO vital_history_gap_checks " +
+			"(id, from_sec, to_sec, checked_at, status, pages, saved_records, message) VALUES " +
+			`('${id}', ${fromSec}, ${toSec}, ${checkedAt}, '${safeStatus}', ${pages}, ${savedRecords}, '${safeMessage}')`;
+		return this.execute(sql);
+	}
+
+	async getVitalHistoryGapChecksBetween(
+		startSec: number,
+		endSec: number,
+		minCheckedAt: number
+	): Promise<VitalHistoryGapCheck[]> {
+		if (endSec <= startSec) return [];
+		const sql =
+			"SELECT from_sec, to_sec, checked_at, status, pages, saved_records, message " +
+			"FROM vital_history_gap_checks WHERE checked_at >= " +
+			minCheckedAt.toString() +
+			" AND to_sec >= " +
+			startSec.toString() +
+			" AND from_sec <= " +
+			endSec.toString() +
+			" ORDER BY from_sec ASC";
+		const result = await this.query(sql);
+		if (result == null) return [];
+		const checks: VitalHistoryGapCheck[] = [];
+		for (let i = 0; i < result.rows.length; i++) {
+			const row = result.rows[i];
+			checks.push({
+				fromSec: parseInt(row[0] as string),
+				toSec: parseInt(row[1] as string),
+				checkedAt: parseInt(row[2] as string),
+				status: row[3] as string,
+				pages: parseInt(row[4] as string),
+				savedRecords: parseInt(row[5] as string),
+				message: (row[6] ?? "") as string
+			} as VitalHistoryGapCheck);
+		}
+		return checks;
+	}
+
 	async getRecentPpiDataByUploadStatus(limit: number, uploaded: boolean): Promise<PpiData[]> {
 		const safeLimit = limit <= 0 ? 10 : limit;
 		const uploadedValue = uploaded == true ? 1 : 0;
@@ -472,6 +526,7 @@ export class BluetoothDataManager {
 		await this.execute("DELETE FROM sleep_data");
 		await this.execute("DELETE FROM ppi_data");
 		await this.execute("DELETE FROM realtime_broadcast_data");
+		await this.execute("DELETE FROM vital_history_gap_checks");
 		logger.info("bluetooth", "数据库数据清空完成");
 	}
 

@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { bluetoothDataManager } from "../../bluetooth/data-manager";
-import type { VitalDataQueryResponse } from "../../bluetooth";
+import type { VitalDataQueryResponse, VitalHistoryGapCheck } from "../../bluetooth";
 import { sleepTimeout } from "../../utils";
 import type { VitalAutoReadResult, HistoryReadStatus } from "./history-reader";
 import type { Device } from "./index";
@@ -10,16 +10,19 @@ export type DeviceSyncReason = "startup" | "timer" | "manual";
 
 export type DeviceSyncState = "idle" | "planning" | "repairing";
 
+/** 本地 `ppi_data` 中推导出的生命体征缺口，单位为 UTC 秒。 */
 export type HistoryGap = {
 	fromSec: number;
 	toSec: number;
 };
 
+/** 一次缺口扫描的规划结果；这里只做规划，不直接触碰 GATT。 */
 export type HistorySyncPlan = {
 	needed: boolean;
 	gaps: HistoryGap[];
 };
 
+/** 单段缺口在一次 GATT 连接中的补拉结果。 */
 export type HistoryGapRepairResult = {
 	gap: HistoryGap;
 	status: HistoryReadStatus;
@@ -54,6 +57,8 @@ const VITAL_INITIAL_WINDOW_SEC = 6 * 60 * 60;
 const VITAL_GAP_THRESHOLD_SEC = 180;
 /** 补缺口时向前后各扩 2 分钟；入库 INSERT OR IGNORE，可安全重叠读取。 */
 const VITAL_GAP_OVERLAP_SEC = 2 * 60;
+/** 已经有可靠响应的补拉窗口，6 小时内不重复补，避免无效/稀疏时段反复连接。 */
+const VITAL_CHECKED_GAP_SUPPRESS_MS = 6 * 60 * 60 * 1000;
 
 /**
  * 设备后台历史同步。
@@ -66,6 +71,7 @@ const VITAL_GAP_OVERLAP_SEC = 2 * 60;
  * - 实际连接和执行由 DeviceGattScheduler 统一负责。
  */
 export class DeviceSync {
+	/** 给页面/测试工具展示当前后台同步阶段，不作为业务锁。 */
 	state = ref<DeviceSyncState>("idle");
 	lastError = ref<string>("");
 	lastPlan = ref<HistorySyncPlan | null>(null);
@@ -74,8 +80,10 @@ export class DeviceSync {
 	lastEventBackfillAt = ref<number>(0);
 
 	private device: Device;
+	/** 防止同一个 DeviceSync 在同一条 GATT 连接里被重复进入。 */
 	private busy: boolean = false;
 	private autoEnabled: boolean = false;
+	/** 用 generation 让 stop 后旧的 async loop 自然失效，避免 UTS timer 取消差异。 */
 	private autoGeneration: number = 0;
 
 	constructor(device: Device) {
@@ -104,6 +112,7 @@ export class DeviceSync {
 
 	private async runAutoLoop(generation: number): Promise<void> {
 		try {
+			// 启动后先让 0x50 广播有机会落库，否则刚启动会把最近一段误判为缺口。
 			await sleepTimeout(HISTORY_AUTO_INITIAL_DELAY_MS);
 			if (this.isAutoGenerationActive(generation) == false) return;
 			await this.runAutoRepair("startup");
@@ -124,6 +133,7 @@ export class DeviceSync {
 
 	private async runAutoRepair(reason: DeviceSyncReason): Promise<void> {
 		if (this.autoEnabled == false) return;
+		// 历史和事件都只入队；真正连接、串行执行、断开恢复广播都交给 scheduler。
 		await this.requestHistorySync(reason);
 		this.requestEventBackfillIfNeeded(reason);
 	}
@@ -166,6 +176,7 @@ export class DeviceSync {
 	}
 
 	private requestSchedulerFlush(reason: DeviceSyncReason): void {
+		// 保留触发来源，方便 scheduler 日志区分启动、定时和用户手动触发。
 		if (reason == "startup") {
 			this.device.scheduler.requestFlush("startup");
 		} else if (reason == "manual") {
@@ -178,6 +189,7 @@ export class DeviceSync {
 	private requestEventBackfillIfNeeded(reason: DeviceSyncReason): boolean {
 		if (this.device.boundDeviceId == "") return false;
 		const now = Date.now();
+		// 事件兜底是“低频保险”：广播 eventSeq 变化仍会走加急读取。
 		if (
 			reason != "manual" &&
 			now - this.lastEventBackfillAt.value < EVENT_BACKFILL_INTERVAL_MS
@@ -213,6 +225,7 @@ export class DeviceSync {
 		this.state.value = "repairing";
 		this.lastError.value = "";
 		try {
+			// 执行前重新规划一次，避免队列等待期间广播已经把 gap 补上。
 			const plan = await this.planHistorySync();
 			this.state.value = "repairing";
 			this.lastPlan.value = plan;
@@ -270,6 +283,7 @@ export class DeviceSync {
 		const scanStartSec = nowSec - VITAL_SCAN_WINDOW_SEC;
 		const timestamps = await bluetoothDataManager.getPpiTimestampsBetween(scanStartSec, nowSec);
 		if (timestamps.length == 0) {
+			// 首次或清库后没有锚点，只补最近 6 小时，避免一上来追设备全部历史。
 			return this.normalizeGaps(
 				[
 					{
@@ -282,10 +296,12 @@ export class DeviceSync {
 		}
 
 		const rawGaps: HistoryGap[] = [];
+		// 补扫描窗口开头到第一条本地数据之间的缺口。
 		const first = timestamps[0];
 		if (first - scanStartSec > VITAL_GAP_THRESHOLD_SEC) {
 			rawGaps.push({ fromSec: scanStartSec, toSec: first - 1 } as HistoryGap);
 		}
+		// 补两条本地数据之间超过阈值的断档。
 		for (let i = 1; i < timestamps.length; i++) {
 			const prev = timestamps[i - 1];
 			const next = timestamps[i];
@@ -293,18 +309,20 @@ export class DeviceSync {
 				rawGaps.push({ fromSec: prev + 1, toSec: next - 1 } as HistoryGap);
 			}
 		}
+		// 补最后一条本地数据到当前时间之间的缺口。
 		const last = timestamps[timestamps.length - 1];
 		if (nowSec - last > VITAL_GAP_THRESHOLD_SEC) {
 			rawGaps.push({ fromSec: last + 1, toSec: nowSec } as HistoryGap);
 		}
 
-		return this.normalizeGaps(rawGaps, nowSec);
+		return await this.suppressRecentlyCheckedGaps(this.normalizeGaps(rawGaps, nowSec));
 	}
 
 	private normalizeGaps(rawGaps: HistoryGap[], nowSec: number): HistoryGap[] {
 		const normalized: HistoryGap[] = [];
 		const startLimit = nowSec - VITAL_SCAN_WINDOW_SEC;
 		for (let i = 0; i < rawGaps.length; i++) {
+			// overlap 让边界秒和设备返回窗口有少量重叠；落库用 INSERT OR IGNORE 去重。
 			const g = this.withOverlap(rawGaps[i]);
 			let fromSec = g.fromSec;
 			let toSec = g.toSec;
@@ -315,6 +333,7 @@ export class DeviceSync {
 		}
 
 		const recentFirst: HistoryGap[] = [];
+		// 最近缺口优先，更容易补到用户当前关心的数据，也更接近设备历史末端。
 		for (let i = normalized.length - 1; i >= 0; i--) {
 			recentFirst.push(normalized[i]);
 		}
@@ -328,11 +347,83 @@ export class DeviceSync {
 		} as HistoryGap;
 	}
 
+	private async suppressRecentlyCheckedGaps(gaps: HistoryGap[]): Promise<HistoryGap[]> {
+		if (gaps.length == 0) return gaps;
+		let minSec = gaps[0].fromSec;
+		let maxSec = gaps[0].toSec;
+		for (let i = 1; i < gaps.length; i++) {
+			if (gaps[i].fromSec < minSec) minSec = gaps[i].fromSec;
+			if (gaps[i].toSec > maxSec) maxSec = gaps[i].toSec;
+		}
+		const minCheckedAt = Date.now() - VITAL_CHECKED_GAP_SUPPRESS_MS;
+		const checks = await bluetoothDataManager.getVitalHistoryGapChecksBetween(
+			minSec,
+			maxSec,
+			minCheckedAt
+		);
+		if (checks.length == 0) return gaps;
+
+		// 临时表中的窗口表示“设备已经响应过这段”，无论保存 0 条还是多条都不重复补。
+		const suppressed: HistoryGap[] = [];
+		for (let i = 0; i < gaps.length; i++) {
+			this.appendGapMinusCheckedWindows(suppressed, gaps[i], checks);
+		}
+		logger.info(
+			"bluetooth",
+			`[BOOM-SYNC] 跳过近期已补拉确认的历史窗口: before=${gaps.length}, after=${suppressed.length}, checks=${checks.length}`
+		);
+		return suppressed;
+	}
+
+	private appendGapMinusCheckedWindows(
+		output: HistoryGap[],
+		gap: HistoryGap,
+		checks: VitalHistoryGapCheck[]
+	): void {
+		// 一个 gap 可能被多个已检查窗口切开，逐个扣减后保留剩余未确认段。
+		let segments: HistoryGap[] = [gap];
+		for (let i = 0; i < checks.length; i++) {
+			const next: HistoryGap[] = [];
+			for (let j = 0; j < segments.length; j++) {
+				this.appendSegmentMinusCheck(next, segments[j], checks[i]);
+			}
+			segments = next;
+			if (segments.length == 0) break;
+		}
+		for (let i = 0; i < segments.length; i++) {
+			if (segments[i].toSec > segments[i].fromSec) output.push(segments[i]);
+		}
+	}
+
+	private appendSegmentMinusCheck(
+		output: HistoryGap[],
+		gap: HistoryGap,
+		check: VitalHistoryGapCheck
+	): void {
+		if (check.toSec <= gap.fromSec || check.fromSec >= gap.toSec) {
+			output.push(gap);
+			return;
+		}
+		if (check.fromSec > gap.fromSec) {
+			output.push({
+				fromSec: gap.fromSec,
+				toSec: Math.min(check.fromSec, gap.toSec)
+			} as HistoryGap);
+		}
+		if (check.toSec < gap.toSec) {
+			output.push({
+				fromSec: Math.max(check.toSec, gap.fromSec),
+				toSec: gap.toSec
+			} as HistoryGap);
+		}
+	}
+
 	private async runVitalGaps(
 		gaps: HistoryGap[],
 		deadlineAt: number
 	): Promise<HistoryGapRepairResult[]> {
 		const results: HistoryGapRepairResult[] = [];
+		// 如果设备返回的历史已经早于目标，说明更晚的缺口继续问也没有意义。
 		let deviceHistoryUpperBoundSec = 0;
 		for (let i = 0; i < gaps.length; i++) {
 			if (Date.now() >= deadlineAt) {
@@ -361,6 +452,7 @@ export class DeviceSync {
 				gap.fromSec,
 				gap.toSec
 			);
+			await this.rememberGapCheckIfReliable(gap, result);
 			results.push(this.makeGapResult(gap, result));
 
 			const upper = this.getVitalResultUpperBoundSec(result);
@@ -373,6 +465,23 @@ export class DeviceSync {
 			}
 		}
 		return results;
+	}
+
+	private async rememberGapCheckIfReliable(
+		gap: HistoryGap,
+		result: VitalAutoReadResult
+	): Promise<void> {
+		// 超时和发送失败属于通信失败，不能证明设备这段没有数据，所以不写检查记录。
+		if (result.status == "TIMEOUT" || result.status == "SEND_FAILED") return;
+		if (result.pages <= 0) return;
+		await bluetoothDataManager.storeVitalHistoryGapCheck(
+			gap.fromSec,
+			gap.toSec,
+			result.status,
+			result.pages,
+			result.savedRecords,
+			result.message
+		);
 	}
 
 	private getVitalResultUpperBoundSec(result: VitalAutoReadResult): number {

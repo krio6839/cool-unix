@@ -126,6 +126,24 @@ class BluetoothDatabase {
 		await this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_timestamp ON ppi_data(timestamp)");
 		await this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_uploaded ON ppi_data(uploaded)");
 
+		await this.execute(`CREATE TEMP TABLE IF NOT EXISTS vital_history_gap_checks (
+        id TEXT PRIMARY KEY,
+        from_sec INTEGER NOT NULL,
+        to_sec INTEGER NOT NULL,
+        checked_at INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT '',
+        pages INTEGER NOT NULL DEFAULT 0,
+        saved_records INTEGER NOT NULL DEFAULT 0,
+        message TEXT NOT NULL DEFAULT ''
+      )`);
+
+		await this.execute(
+			"CREATE INDEX IF NOT EXISTS idx_vital_gap_check_range ON vital_history_gap_checks(from_sec, to_sec)"
+		);
+		await this.execute(
+			"CREATE INDEX IF NOT EXISTS idx_vital_gap_check_checked ON vital_history_gap_checks(checked_at)"
+		);
+
 		await this.recreateRealtimeBroadcastTableIfLegacy();
 		await this.createRealtimeBroadcastTable();
 

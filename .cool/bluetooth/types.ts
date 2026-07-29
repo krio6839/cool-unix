@@ -32,6 +32,22 @@ export type PpiData = {
 };
 
 /**
+ * 历史生命体征缺口补拉检查记录。
+ * 只要设备对某段补拉有可靠响应，就认为这段已经检查过；
+ * 该记录只保存在 SQLite 临时表中，App 重启后重新判断缺口。
+ * savedRecords 仅用于诊断有效数据有多少，不参与是否重复补拉的判断。
+ */
+export type VitalHistoryGapCheck = {
+	fromSec: number;
+	toSec: number;
+	checkedAt: number;
+	status: string;
+	pages: number;
+	savedRecords: number;
+	message: string;
+};
+
+/**
  * 0x50 广播实时数据记录（本地首页展示使用，不参与 PPI 上传）
  */
 export type RealtimeBroadcastRecord = {

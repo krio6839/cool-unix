@@ -232,6 +232,10 @@ App 启动后，如果已有绑定设备：
 - 每个缺口前后扩 2 分钟。
 - 不再按 gap 数量限制每轮补缺；按最近优先补。
 - 单次 scheduler 执行默认最多占用 GATT 90 秒，到点后剩余缺口留到下一轮。
+- 只要某段缺口补拉收到设备可靠响应，就记录到临时表 `vital_history_gap_checks`。
+- 近期已补拉确认的窗口 6 小时内不重复补；即使这段只有少量有效点或全无效，也不会在当前 App 运行期间每 10 分钟反复连接。
+- `vital_history_gap_checks` 不长期保留，App 重启后会重新扫描最近 24 小时并重新判断缺口。
+- 超时或发送失败不记录为已补拉，避免把通信失败误判成设备无数据。
 
 历史补缺和事件兜底都不会自己连接设备；`sync` 只负责规划/投递队列任务。
 Scheduler 会把历史补缺放在本轮队列最后执行，避免大段历史读取挡住校时、设置、事件读取等加急任务。
@@ -242,6 +246,7 @@ Scheduler 会把历史补缺放在本轮队列最后执行，避免大段历史�
 [BOOM-SYNC] 已规划生命体征历史缺口: reason=startup, gaps=...
 [BOOM-SCHED] 任务入队: seq=..., key=historyRepair, kind=historyRepair, priority=tail, size=...
 [BOOM-SYNC] 开始补生命体征历史: reason=startup, gaps=...
+[BOOM-SYNC] 跳过近期已补拉确认的历史窗口: before=..., after=..., checks=...
 [BOOM-SYNC] 已入队事件兜底读取: reason=timer
 ```
 
