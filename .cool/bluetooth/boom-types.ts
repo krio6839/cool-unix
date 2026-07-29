@@ -130,7 +130,7 @@ export type VitalDataPerSecond = {
 	pitch: number; // 2     UINT8  步频（0-255）
 	acc: number; // 3     UINT8  加速度幅值
 	ppi: number; // 4-5   UINT16 LE  脉波间期 ms（0=无效）
-	/** 是否有效（hr 不为 0x00、0xFE、0xFF） */
+	/** 是否有效（hr 或 ppi 至少一个有效） */
 	valid: boolean;
 };
 

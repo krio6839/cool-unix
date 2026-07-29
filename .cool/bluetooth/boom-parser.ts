@@ -282,7 +282,8 @@ export function parseVitalDataPerSecond(hex: string, off: number): VitalDataPerS
 	const pitch = parseU8(hex, off + 4);
 	const acc = parseU8(hex, off + 6);
 	const ppi = parseU16LE(hex, off + 8);
-	const valid = hr != VITAL_DATA_INVALID && hr != VITAL_DATA_BLANK && hr != VITAL_DATA_ALL_FF;
+	const hrValid = hr != VITAL_DATA_INVALID && hr != VITAL_DATA_BLANK && hr != VITAL_DATA_ALL_FF;
+	const valid = hrValid || ppi > 0;
 	return { hr, status, pitch, acc, ppi, valid };
 }
 
