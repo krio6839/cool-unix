@@ -46,5 +46,6 @@ export type HomeData = {
 	boomGoText: string;
 	energyPercentage: number;
 	healthCardValues: HealthCardValues;
+	dataComplete?: boolean;
 	details: TrainingDetails;
 };

@@ -1,5 +1,5 @@
 import { ref } from "vue";
-import { getErrorMessage, isNull, isObject, parse } from "../utils";
+import { getErrorMessage, isNull, isObject } from "../utils";
 import type { HomeData, HealthStatus, HealthCardValues, TrainingDetails } from "../types/home";
 import { request } from "../service";
 
@@ -32,7 +32,8 @@ export class Home {
 		return new Promise((resolve, reject) => {
 			request({
 				url: `/devices/${deviceId}/go`,
-				method: "GET"
+				method: "GET",
+				timeout: 100000
 			})
 				.then((res) => {
 					if (res != null && isObject(res)) {
@@ -52,7 +53,39 @@ export class Home {
 			return;
 		}
 
-		const homeData = parse<HomeData>(data)!;
+		const obj = data as UTSJSONObject;
+		const healthStatusObj =
+			(obj["healthStatus"] as UTSJSONObject | null) ?? ({} as UTSJSONObject);
+		const healthCardValuesObj =
+			(obj["healthCardValues"] as UTSJSONObject | null) ?? ({} as UTSJSONObject);
+		const detailsObj = (obj["details"] as UTSJSONObject | null) ?? ({} as UTSJSONObject);
+
+		const healthStatus = {
+			status: (healthStatusObj["status"] as number | null) ?? 0,
+			sleep: (healthStatusObj["sleep"] as number | null) ?? 0,
+			load: (healthStatusObj["load"] as number | null) ?? 0
+		} as HealthStatus;
+
+		const healthCardValues = {
+			heartRate: healthCardValuesObj["heartRate"] as number | null,
+			restingHeartRate: healthCardValuesObj["restingHeartRate"] as number | null,
+			oxygen: healthCardValuesObj["oxygen"] as number | null,
+			hrv: healthCardValuesObj["hrv"] as number | null
+		} as HealthCardValues;
+
+		const details = {
+			supercompensationTime:
+				(detailsObj["supercompensationTime"] as string | null) ?? ""
+		} as TrainingDetails;
+
+		const homeData = {
+			healthStatus,
+			boomGoText: (obj["boomGoText"] as string | null) ?? "",
+			energyPercentage: (obj["energyPercentage"] as number | null) ?? 0,
+			healthCardValues,
+			dataComplete: (obj["dataComplete"] as boolean | null) ?? false,
+			details
+		} as HomeData;
 		this.data.value = homeData;
 		this.healthStatus.value =
 			(homeData.healthStatus as HealthStatus) ??
