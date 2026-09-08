@@ -60,8 +60,10 @@ export const VITAL_DATA_ALL_FF = 0xff;
 /** 0x3A/0x3B 请求 V Byte 5：每次只能读 2 或 5 分钟 */
 export const VITAL_MINUTES_OPTIONS: number[] = [2, 5];
 /** 0x3A 请求 V Byte 4：方向（0=向前，1=向后） */
-export const VITAL_DIRECTION_FORWARD: number = 0;
-export const VITAL_DIRECTION_BACKWARD: number = 1;
+/** 实机验证：0 从查询锚点向更早时间读取。 */
+export const VITAL_DIRECTION_OLDER: number = 0;
+/** 实机验证：1 向更新方向读取。 */
+export const VITAL_DIRECTION_NEWER: number = 1;
 
 /* ===== 0x3C/0x3D 事件数据常量 ===== */
 

@@ -137,7 +137,7 @@ export type VitalDataPerSecond = {
 /** 0x3A 请求 V（6B）：4B 时戳 + 1B 方向 + 1B 分钟数 */
 export type VitalDataQueryRequest = {
 	startSec: number;
-	direction: VitalDirectionValue; // 0=向前 1=向后
+	direction: VitalDirectionValue; // 实测 0=向更早时间读取，1=向更新方向
 	minutes: VitalMinutesValue; // 只能是 2 或 5
 };
 
@@ -237,12 +237,12 @@ export type EventDataWear = {
 
 /** 2.1.4.2.6 SleepResult：eventData = 22B packed LE vital_sleep_result_t */
 export type EventDataSleepResult = {
-	sleepOnsetSec: number; // 距当前秒数
-	awakeSec: number; // 距当前秒数
-	lightSleepSec: number; // 浅度睡眠时长
-	deepSleepSec: number; // 深度睡眠时长
-	otherSleepSec: number; // 其他睡眠时长
-	restHr: number; // 静息心率 bpm
+	sleepOnsetTime: number; // sleep_onset_time，距当前秒数
+	awakeTime: number; // awake_time，距当前秒数
+	lightSleepPeriod: number; // light_sleep_period，浅度睡眠时长
+	deepSleepPeriod: number; // deep_sleep_period，深度睡眠时长
+	otherSleepPeriod: number; // other_sleep_period，其他睡眠时长
+	heartRateRest: number; // heart_rate_rest，静息心率 bpm
 };
 
 /** 2.1.4.2.7 Sedentary：eventData = 2B LE（久坐阈值秒数） */

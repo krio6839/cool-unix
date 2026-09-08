@@ -4,8 +4,7 @@ import type { RealtimeBroadcast } from "./boom-types";
 
 /**
  * 睡眠数据（同时作为输入和记录类型）
- * detail 字段由 SleepResponseAssembler 装配时按 (signed_status + 2) 规则生成，
- * 数据库仅存 detail 字符串，不再有独立的 sleep_status 表。
+ * detail 字段为睡眠上传接口使用的每秒状态数字串。
  */
 export type SleepData = {
 	id?: string;
@@ -14,7 +13,6 @@ export type SleepData = {
 	sleepTime: number;
 	wakeTime: number;
 	getupTime: number;
-	recordCount: number;
 	detail: string;
 	uploaded?: boolean;
 };
@@ -29,22 +27,6 @@ export type PpiData = {
 	spo2: number;
 	ppi: number;
 	uploaded: boolean;
-};
-
-/**
- * 历史生命体征缺口补拉检查记录。
- * 只要设备对某段补拉有可靠响应，就认为这段已经检查过；
- * 该记录只保存在 SQLite 临时表中，App 重启后重新判断缺口。
- * savedRecords 仅用于诊断有效数据有多少，不参与是否重复补拉的判断。
- */
-export type VitalHistoryGapCheck = {
-	fromSec: number;
-	toSec: number;
-	checkedAt: number;
-	status: string;
-	pages: number;
-	savedRecords: number;
-	message: string;
 };
 
 /**
@@ -97,6 +79,17 @@ export type UploadTableStats = {
 	latestTimestamp: number;
 	latestUploadedTimestamp: number;
 	latestUnuploadedTimestamp: number;
+};
+
+/** 当前 App 会话内的历史补录与 PPI 上传诊断摘要。 */
+export type HistorySessionDiagnostics = {
+	pendingTasks: number;
+	firstPendingFromSec: number;
+	lastPendingToSec: number;
+	confirmedRanges: number;
+	unuploadedCount: number;
+	earliestUnuploadedSec: number;
+	latestUnuploadedSec: number;
 };
 
 /**

@@ -2,6 +2,9 @@
 	"name": "boom",
 	"version": "8.1.0",
 	"license": "MIT",
+	"scripts": {
+		"test:boom": "node --test tests/boom-reliability.test.mjs tests/boom-history-progress.test.mjs"
+	},
 	"dependencies": {
 		"echarts": "^6.0.0",
 		"hammer-touchemulator": "^0.0.2",

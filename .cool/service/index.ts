@@ -17,6 +17,7 @@ export type RequestOptions = {
 	firstIpv4?: boolean; // 是否优先使用IPv4
 	enableChunked?: boolean; // 是否启用分块传输
 	showError?: ErrorNoticeShowType; // 错误提示方式：toast-轻提示, modal-确认弹窗, none-不显示，默认toast
+	strictSuccess?: boolean; // 上传接口必须明确返回 code=0 或 status=success
 };
 
 // 响应数据类型定义
@@ -27,7 +28,11 @@ export type Response = {
 };
 
 // 请求队列（用于等待token刷新后继续请求）
-let requests: ((token: string) => void)[] = [];
+type PendingRequest = {
+	resume: (token: string) => void;
+	fail: (message: string) => void;
+};
+let requests: PendingRequest[] = [];
 
 // 标记token是否正在刷新
 let isRefreshing = false;
@@ -140,6 +145,32 @@ export function request(options: RequestOptions): Promise<any | null> {
 
 					// 200 正常响应
 					else if (res.statusCode == 200) {
+						if (options.strictSuccess == true) {
+							const body = res.data;
+							let acknowledged = false;
+							if (body != null && isObject(body as any)) {
+								const obj = body as UTSJSONObject;
+								const code = obj["code"];
+								const status = obj["status"];
+								acknowledged =
+									code != null
+										? code === 0 && (status == null || status == "success")
+										: status == "success";
+							}
+							if (acknowledged == false) {
+								logger.requestError({
+									method,
+									url,
+									statusCode: res.statusCode,
+									duration: Date.now() - startedAt,
+									detail: body,
+									message: "上传响应未明确确认成功"
+								});
+								return rejectWithNotice({
+									message: "上传响应未明确确认成功"
+								} as Response);
+							}
+						}
 						if (res.data == null) {
 							resolve(null);
 						} else if (!isObject(res.data as any)) {
@@ -213,35 +244,39 @@ export function request(options: RequestOptions): Promise<any | null> {
 					if (storage.isExpired("refreshToken")) {
 						// 刷新token也过期，直接退出登录
 						user.logout();
+						rejectWithNotice({ message: t("登录已过期，请重新登录") } as Response);
 						return;
 					}
 
+					// 先登记当前请求；刷新成功/失败都必须结束所有等待中的 Promise。
+					requests.push({
+						resume: (token: string) => {
+							Authorization = token;
+							next();
+						},
+						fail: (message: string) => rejectWithNotice({ message } as Response)
+					} as PendingRequest);
 					// 如果当前没有在刷新token，则发起刷新
 					if (!isRefreshing) {
 						isRefreshing = true;
 						user.refreshToken()
 							.then((token) => {
 								// 刷新成功后，执行队列中的请求
-								requests.forEach((cb) => cb(token));
+								const pending = requests;
 								requests = [];
 								isRefreshing = false;
+								pending.forEach((item) => item.resume(token));
 							})
 							.catch((err) => {
 								const message = getErrorMessage(err, "刷新token失败");
-								rejectWithNotice({ message } as Response);
+								const pending = requests;
+								requests = [];
+								isRefreshing = false;
+								pending.forEach((item) => item.fail(message));
 								user.logout();
 							});
 					}
 
-					// 将当前请求加入队列，等待token刷新后再执行
-					new Promise((resolve) => {
-						requests.push((token: string) => {
-							// 重新设置token
-							Authorization = token;
-							next();
-							resolve(true);
-						});
-					});
 					// 此处return，等待token刷新
 					return;
 				}

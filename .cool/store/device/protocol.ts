@@ -12,8 +12,8 @@ import {
 	BOOM_GATT_SERVICE_UUID,
 	EVENT_QUERY_TYPE_ALL,
 	EVENT_QUERY_TYPE_BY_TIME,
-	VITAL_DIRECTION_BACKWARD,
-	VITAL_DIRECTION_FORWARD,
+	VITAL_DIRECTION_NEWER,
+	VITAL_DIRECTION_OLDER,
 	encodeTlvc,
 	wrapDataIdentifier,
 	BOOM_CMD,
@@ -98,12 +98,14 @@ export class DeviceProtocol {
 				if (services && services.length > 0) {
 					break;
 				}
-				logger.warn("bluetooth",
+				logger.warn(
+					"bluetooth",
 					"[BOOM-PROTO] 获取 services 为空",
 					`retry=${retryCount + 1}`
 				);
 			} catch (error) {
-				logger.warn("bluetooth",
+				logger.warn(
+					"bluetooth",
 					"[BOOM-PROTO] 获取 services 失败",
 					`retry=${retryCount + 1}, error=${error}`
 				);
@@ -251,7 +253,10 @@ export class DeviceProtocol {
 			}
 		}
 		if (validPpgPosition == false) {
-			logger.warn("bluetooth", `[BOOM-PROTO] 0x35 ppgPosition=${b.ppgPosition} 非法（应为0~6）`);
+			logger.warn(
+				"bluetooth",
+				`[BOOM-PROTO] 0x35 ppgPosition=${b.ppgPosition} 非法（应为0~6）`
+			);
 			return Promise.resolve(false);
 		}
 		return this.sendTlvc(BOOM_CMD.SET_BIOMETRIC, serializeBiometric(b));
@@ -290,12 +295,15 @@ export class DeviceProtocol {
 	/**
 	 * 0x3A 开始读生命体征数据
 	 * @param req.startSec UTC 秒
-	 * @param req.direction 0=向前 1=向后
+	 * @param req.direction 实测 0=向更早时间读取，1=向更新方向；以设备实测为准
 	 * @param req.minutes 2 或 5
 	 */
 	readVitalData(req: VitalDataQueryRequest): Promise<boolean> {
-		if (req.direction != VITAL_DIRECTION_FORWARD && req.direction != VITAL_DIRECTION_BACKWARD) {
-			logger.warn("bluetooth", `[BOOM-PROTO] 0x3A direction=${req.direction} 非法（应=0或1）`);
+		if (req.direction != VITAL_DIRECTION_OLDER && req.direction != VITAL_DIRECTION_NEWER) {
+			logger.warn(
+				"bluetooth",
+				`[BOOM-PROTO] 0x3A direction=${req.direction} 非法（应=0或1）`
+			);
 			return Promise.resolve(false);
 		}
 		if (req.minutes != 2 && req.minutes != 5) {

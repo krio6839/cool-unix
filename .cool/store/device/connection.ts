@@ -210,7 +210,7 @@ export class DeviceConnection {
 			const result = await this.device.history.readRecentVitalWindow();
 			logger.info(
 				"bluetooth",
-				`[BOOM-HISTORY] 断开前补最近2分钟: status=${result.status}, pages=${result.pages}, saved=${result.savedRecords}, upload=${result.uploadOk}`
+				`[BOOM-HISTORY] 断开前补最近2分钟: status=${result.status}, pages=${result.pages}, saved=${result.savedRecords}, uploadScheduled=${result.uploadScheduled}`
 			);
 		} catch (e) {
 			logger.warn("bluetooth", "[BOOM-HISTORY] 断开前补最近2分钟失败:", e);
@@ -346,7 +346,7 @@ export class DeviceConnection {
 		this.device.currentDeviceId = deviceId;
 		this.device.currentDeviceName = displayName;
 		this.device.status.value = "CONNECTED";
-		this.device.saveBoundDevice(deviceId, displayName);
+		await this.device.saveBoundDevice(deviceId, displayName);
 		bluetoothDataManager.setDeviceInfo(displayName, deviceId);
 		this.device.touchState();
 	}
@@ -813,7 +813,7 @@ export class DeviceConnection {
 				if (this.device.currentDeviceName == "") {
 					this.device.currentDeviceName = this.device.getDisplayDeviceName();
 				}
-				this.device.saveBoundDevice(deviceId, this.device.currentDeviceName);
+				await this.device.saveBoundDevice(deviceId, this.device.currentDeviceName);
 				bluetoothDataManager.setDeviceInfo(this.device.currentDeviceName, deviceId);
 				this.device.touchState();
 			}

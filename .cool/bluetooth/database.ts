@@ -22,6 +22,61 @@ const DB_NAME = "bluetooth_db";
 
 class BluetoothDatabase {
 	private isOpen: boolean = false;
+	private operations: Promise<void> = Promise.resolve();
+
+	private serialize<T>(operation: () => Promise<T>): Promise<T> {
+		const result = this.operations.then(operation);
+		this.operations = result.then(
+			() => {},
+			() => {}
+		);
+		return result;
+	}
+
+	/** UTS 对泛型 Promise 的联合返回值推断不稳定，查询走显式类型队列。 */
+	private serializeQuery(
+		operation: () => Promise<SelectSqlResult | null>
+	): Promise<SelectSqlResult | null> {
+		return new Promise((resolve) => {
+			const run: Promise<void> = this.operations.then(async () => {
+				try {
+					const result: SelectSqlResult | null = await operation();
+					resolve(result);
+				} catch (error) {
+					logger.error("bluetooth", "查询队列执行异常", error);
+					resolve(null);
+				}
+			});
+			this.operations = run.then(
+				() => {},
+				() => {}
+			);
+		});
+	}
+
+	/** 所有普通读写也使用同一队列，不能插入页面事务中。 */
+	transaction(statements: string[], guardSql: string = ""): Promise<boolean> {
+		return this.serialize(async () => {
+			if ((await this.executeRaw("BEGIN IMMEDIATE")) == false) return false;
+			try {
+				if (guardSql != "") {
+					const guard = await this.queryRaw(guardSql);
+					if (guard == null || guard.rows.length == 0)
+						throw new Error("历史任务已变化，拒绝旧页面提交");
+				}
+				for (let i = 0; i < statements.length; i++) {
+					if ((await this.executeRaw(statements[i])) == false)
+						throw new Error("事务写入失败");
+				}
+				if ((await this.executeRaw("COMMIT")) == false) throw new Error("事务提交失败");
+				return true;
+			} catch (error) {
+				await this.executeRaw("ROLLBACK");
+				logger.error("bluetooth", "历史页面事务回滚", error);
+				return false;
+			}
+		});
+	}
 
 	// 打开数据库
 	open(): Promise<boolean> {
@@ -52,6 +107,10 @@ class BluetoothDatabase {
 
 	// 关闭数据库
 	close(): Promise<boolean> {
+		return this.serialize(() => this.closeRaw());
+	}
+
+	private closeRaw(): Promise<boolean> {
 		return new Promise((resolve) => {
 			if (this.isOpen == false) {
 				resolve(true);
@@ -76,6 +135,10 @@ class BluetoothDatabase {
 
 	// 删除数据库
 	delete(): Promise<boolean> {
+		return this.serialize(() => this.deleteRaw());
+	}
+
+	private deleteRaw(): Promise<boolean> {
 		return new Promise((resolve) => {
 			const options: DeleteDatabaseOptions = {
 				name: DB_NAME,
@@ -104,10 +167,10 @@ class BluetoothDatabase {
         sleep_time INTEGER NOT NULL,
         wake_time INTEGER NOT NULL,
         getup_time INTEGER NOT NULL,
-        record_count INTEGER NOT NULL,
         detail TEXT NOT NULL DEFAULT '',
         uploaded INTEGER DEFAULT 0
       )`);
+		await this.removeSleepRecordCountColumn();
 
 		await this.execute(
 			"CREATE INDEX IF NOT EXISTS idx_sleep_report ON sleep_data(report_timestamp)"
@@ -126,22 +189,13 @@ class BluetoothDatabase {
 		await this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_timestamp ON ppi_data(timestamp)");
 		await this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_uploaded ON ppi_data(uploaded)");
 
-		await this.execute(`CREATE TEMP TABLE IF NOT EXISTS vital_history_gap_checks (
-        id TEXT PRIMARY KEY,
-        from_sec INTEGER NOT NULL,
-        to_sec INTEGER NOT NULL,
-        checked_at INTEGER NOT NULL,
-        status TEXT NOT NULL DEFAULT '',
-        pages INTEGER NOT NULL DEFAULT 0,
-        saved_records INTEGER NOT NULL DEFAULT 0,
-        message TEXT NOT NULL DEFAULT ''
+		// 广播每秒的 activity；睡眠上传时按事件窗口读取并组装 detail。
+		await this.execute(`CREATE TABLE IF NOT EXISTS sleep_status_data (
+        timestamp INTEGER PRIMARY KEY,
+        activity INTEGER NOT NULL
       )`);
-
 		await this.execute(
-			"CREATE INDEX IF NOT EXISTS idx_vital_gap_check_range ON vital_history_gap_checks(from_sec, to_sec)"
-		);
-		await this.execute(
-			"CREATE INDEX IF NOT EXISTS idx_vital_gap_check_checked ON vital_history_gap_checks(checked_at)"
+			"CREATE INDEX IF NOT EXISTS idx_sleep_status_timestamp ON sleep_status_data(timestamp)"
 		);
 
 		await this.recreateRealtimeBroadcastTableIfLegacy();
@@ -192,6 +246,11 @@ class BluetoothDatabase {
 		return false;
 	}
 
+	private async removeSleepRecordCountColumn(): Promise<void> {
+		if ((await this.hasColumn("sleep_data", "record_count")) == false) return;
+		await this.execute("ALTER TABLE sleep_data DROP COLUMN record_count");
+	}
+
 	/** realtime_broadcast_data 只是实时缓存；旧结构直接丢弃重建，避免无意义迁移。 */
 	private async recreateRealtimeBroadcastTableIfLegacy(): Promise<void> {
 		const hasStatus = await this.hasColumn("realtime_broadcast_data", "status");
@@ -204,6 +263,10 @@ class BluetoothDatabase {
 
 	// 执行 SQL 语句
 	execute(sql: string): Promise<boolean> {
+		return this.serialize(() => this.executeRaw(sql));
+	}
+
+	private executeRaw(sql: string): Promise<boolean> {
 		return new Promise((resolve) => {
 			if (this.isOpen == false) {
 				logger.error("bluetooth", "数据库未打开");
@@ -228,6 +291,12 @@ class BluetoothDatabase {
 
 	// 查询数据
 	query(sql: string): Promise<SelectSqlResult | null> {
+		return this.serializeQuery((): Promise<SelectSqlResult | null> => {
+			return this.queryRaw(sql);
+		});
+	}
+
+	private queryRaw(sql: string): Promise<SelectSqlResult | null> {
 		return new Promise((resolve) => {
 			if (this.isOpen == false) {
 				logger.error("bluetooth", "数据库未打开");

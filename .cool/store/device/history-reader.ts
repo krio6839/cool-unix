@@ -1,4 +1,10 @@
 import {
+	historyProgress,
+	historyQueryAnchor,
+	historyStableBefore
+} from "../../bluetooth/history-progress";
+import type { HistoryTask } from "../../bluetooth/history-progress";
+import {
 	BOOM_CMD,
 	bluetoothDataManager,
 	LOG_EVENT_NAMES,
@@ -39,6 +45,8 @@ export type VitalAutoReadOptions = {
 	shouldStop?: () => boolean;
 	onProgress?: (progress: HistoryReadProgress) => void;
 	onPage?: (response: VitalDataQueryResponse, page: number) => void;
+	persistPage?: (response: VitalDataQueryResponse) => Promise<boolean>;
+	deadlineAt?: number;
 };
 
 export type VitalAutoReadResult = {
@@ -51,6 +59,7 @@ export type VitalAutoReadResult = {
 	savedRecords: number;
 	saveOk: boolean;
 	uploadAttempted: boolean;
+	uploadScheduled: boolean;
 	uploadOk: boolean;
 };
 
@@ -96,18 +105,9 @@ const EVENT_BATCH_SETTLE_MS = 600;
 /* ===== 最近窗口生命体征补拉 ===== */
 /** GATT 任务结束前后补最近 120 秒，填补连接期间漏掉的广播数据。 */
 const RECENT_VITAL_WINDOW_SECONDS = 120;
-/** 0x3A 查询方向：0=向前读，1=向后读。这里按时间向后续页推进。 */
-const RECENT_VITAL_DIRECTION = 0;
-/** 最近窗口每页读 2 分钟，响应体积较小。 */
-const RECENT_VITAL_MINUTES = 2;
-/** 历史缺口补拉每页读 5 分钟，符合设备限制，同时减少大缺口页数。 */
-const VITAL_GAP_READ_MINUTES = 5;
-/** 历史缺口补拉方向：0=向前读。 */
+/** 自动历史读取每页请求 2 分钟，direction=0 向更早时间推进。 */
+const VITAL_GAP_READ_MINUTES = 2;
 const VITAL_GAP_READ_DIRECTION = 0;
-/** 最近窗口补拉最多续读 10 页，避免设备时间异常时追太远。 */
-const RECENT_VITAL_MAX_PAGES = 10;
-/** 如果设备返回窗口明显晚于目标窗口，用这个上限判断“别再追了”。 */
-const RECENT_VITAL_MAX_FUTURE_DRIFT_SECONDS = RECENT_VITAL_MINUTES * RECENT_VITAL_MAX_PAGES * 60;
 /** 调试弹窗展示历史明细时最多输出的行数。 */
 const MAX_FORMAT_DETAIL_LINES = 260;
 
@@ -273,14 +273,35 @@ export class DeviceHistoryReader {
 		}
 		this.setDisplaySuspended(true);
 		try {
-			const result = await this.readVitalDataAutoInner(options);
-			if (options.persistData == false) {
-				return result;
-			}
-			const records = this.toHeartRateRecords(result.responses);
-			result.savedRecords = records.length;
-			result.saveOk =
-				await bluetoothDataManager.storeHistoricalHeartRateRecordsBatch(records);
+			// 手动页也沿用自动补录的落库顺序：确认写入成功后才允许发送下一条 0x3B。
+			let savedRecords = 0;
+			let saveOk = true;
+			const savePages = options.persistData != false;
+			const callerPersistPage = options.persistPage;
+			const result = await this.readVitalDataAutoInner({
+				...options,
+				persistPage: async (response: VitalDataQueryResponse) => {
+					// 保留调用方页回调；其拒绝时不能继续读取或写入本地数据。
+					if (callerPersistPage != null && (await callerPersistPage(response)) == false)
+						return false;
+					if (savePages == false) return true;
+					// 只保存本页，避免长读取期间把已收到的数据仅留在内存中。
+					const records = this.toHeartRateRecords([response]);
+					if (
+						(await bluetoothDataManager.storeHistoricalHeartRateRecordsBatch(
+							records
+						)) == false
+					) {
+						saveOk = false;
+						return false;
+					}
+					savedRecords += records.length;
+					return true;
+				}
+			});
+			if (savePages == false) return result;
+			result.saveOk = saveOk;
+			result.savedRecords = savedRecords;
 			if (result.savedRecords > 0 && options.uploadAfterSave != false) {
 				result.uploadAttempted = true;
 				result.uploadOk = await bluetoothDataManager.uploadData();
@@ -293,153 +314,117 @@ export class DeviceHistoryReader {
 	}
 
 	async readRecentVitalWindow(): Promise<VitalAutoReadResult> {
-		if (this.device.beginGattTask("vitalRecent") == false) {
-			return this.makeVitalResult("STOPPED", "gatt busy", 0, []);
-		}
-		this.setDisplaySuspended(true);
-		try {
-			const beforeVitalSeq = this.vitalDataResponseSeqValue;
-			const beforeNotifySeq = this.device.event.notifySeqValue;
-			const nowSec = Math.floor(Date.now() / 1000);
-			const startSec = nowSec - RECENT_VITAL_WINDOW_SECONDS;
-			logger.info(
-				"bluetooth",
-				`[BOOM-HISTORY] 最近窗口补拉: nowSec=${nowSec} ${this.formatMaybeTime(nowSec)}, startSec=${startSec} ${this.formatMaybeTime(startSec)}, boomTimestamp=${this.device.event.boomTimestamp.value}, direction=${RECENT_VITAL_DIRECTION}, minutes=${RECENT_VITAL_MINUTES}, vitalSeq=${beforeVitalSeq}, notifySeq=${beforeNotifySeq}`
-			);
-			const targetEndSec = nowSec;
-			let stopRecentRead = false;
-			let lastResponseStartSec = -1;
-			const result = await this.readVitalDataAutoInner({
-				startSec,
-				direction: RECENT_VITAL_DIRECTION,
-				minutes: RECENT_VITAL_MINUTES,
-				timeoutMs: DEFAULT_TIMEOUT_MS,
-				maxPages: RECENT_VITAL_MAX_PAGES,
-				pageDelayMs: DEFAULT_PAGE_DELAY_MS,
-				shouldStop: () => stopRecentRead,
-				onPage: (response, page) => {
-					let validCount = 0;
-					for (let i = 0; i < response.vitalData.length; i++) {
-						if (response.vitalData[i].valid == true) validCount++;
-					}
-					logger.info(
-						"bluetooth",
-						`[BOOM-HISTORY] 最近窗口补拉段: page=${page}, responseStart=${response.startSec} ${this.formatMaybeTime(response.startSec)}, responseEnd=${this.getVitalWindowEndSec(response)}, n=${response.n}, valid=${validCount}/${response.vitalData.length}`
-					);
-					let stopReason = this.getRecentVitalStopReason(
-						response,
-						startSec,
-						targetEndSec
-					);
-					if (
-						stopReason == null &&
-						page > 1 &&
-						response.startSec > 0 &&
-						response.startSec == lastResponseStartSec
-					) {
-						stopReason = "返回段与上一页重复，停止续读";
-					}
-					lastResponseStartSec = response.startSec;
-					if (stopReason != null) {
-						stopRecentRead = true;
-						logger.warn(
-							"bluetooth",
-							`[BOOM-HISTORY] 最近窗口补拉停止续读: ${stopReason}, page=${page}, target=${startSec} ${this.formatMaybeTime(startSec)} ~ ${targetEndSec} ${this.formatMaybeTime(targetEndSec)}, response=${response.startSec} ${this.formatMaybeTime(response.startSec)} ~ ${this.getVitalWindowEndSec(response)} ${this.formatMaybeTime(this.getVitalWindowEndSec(response))}`
-						);
-					}
-				}
-			});
-			if (result.status == "TIMEOUT") {
-				const afterVitalSeq = this.vitalDataResponseSeqValue;
-				const afterNotifySeq = this.device.event.notifySeqValue;
-				logger.warn(
-					"bluetooth",
-					`[BOOM-HISTORY] 最近窗口补拉超时诊断: hadNotify=${afterNotifySeq > beforeNotifySeq}, beforeNotifySeq=${beforeNotifySeq}, afterNotifySeq=${afterNotifySeq}, lastNotifyAt=${this.device.event.lastNotifyAtValue}, beforeVitalSeq=${beforeVitalSeq}, afterVitalSeq=${afterVitalSeq}`
-				);
-			}
-			const records = this.toHeartRateRecordsInWindow(
-				result.responses,
-				startSec,
-				targetEndSec
-			);
-			result.savedRecords = records.length;
-			result.saveOk =
-				await bluetoothDataManager.storeHistoricalHeartRateRecordsBatch(records);
-			if (result.savedRecords > 0) {
-				result.uploadAttempted = true;
-				result.uploadOk = await bluetoothDataManager.uploadData();
-			}
-			logger.info(
-				"bluetooth",
-				`[BOOM-HISTORY] 最近窗口补拉完成: status=${result.status}, pages=${result.pages}, saved=${result.savedRecords}, upload=${result.uploadOk}`
-			);
-			return result;
-		} finally {
-			this.setDisplaySuspended(false);
-			this.device.endGattTask("vitalRecent");
-		}
+		const anchor = historyQueryAnchor(Math.floor(Date.now() / 1000));
+		return await this.readVitalWindow(anchor - RECENT_VITAL_WINDOW_SECONDS, anchor);
 	}
 
-	/**
-	 * 按指定窗口补拉生命体征历史。
-	 *
-	 * readRecentVitalWindow() 面向“GATT 任务结束前后补最近两分钟”；而设备同步调度层
-	 * 需要按本地数据库 gap 精确补某一段，所以这里提供更通用的窗口入口。
-	 * 入库仍使用 INSERT OR IGNORE，调用方可以放心传入带 overlap 的窗口。
-	 */
-	async readVitalWindow(startSec: number, endSec: number): Promise<VitalAutoReadResult> {
-		if (this.device.beginGattTask("vitalGap") == false) {
+	/** 从较晚端反向读；逐页保存，网络上传不参与 GATT 等待链。 */
+	async readVitalWindow(
+		startSec: number,
+		endSec: number,
+		task: HistoryTask | null = null,
+		deadlineAt: number = 0
+	): Promise<VitalAutoReadResult> {
+		if (this.device.beginGattTask("vitalGap") == false)
 			return this.makeVitalResult("STOPPED", "gatt busy", 0, []);
-		}
-		if (endSec <= startSec) {
-			this.device.endGattTask("vitalGap");
-			return this.makeVitalResult("STOPPED", "invalid vital window", 0, []);
-		}
 		this.setDisplaySuspended(true);
+		let saved = 0;
+		let saveOk = true;
+		let stopRead = false;
+		let lastStart = 0;
+		let failure = "";
+		let currentTask = task;
 		try {
-			const windowSeconds = endSec - startSec;
-			// 设备协议不支持传 endSec；缺口窗口只用于本地判断何时停止续读。
-			// 真正发给设备的仍然是 startSec + minutes，且 minutes 必须是 2 或 5。
-			const pageSeconds = VITAL_GAP_READ_MINUTES * 60;
-			const maxPages = Math.max(1, Math.ceil(windowSeconds / pageSeconds) + 2);
-			let stopRead = false;
+			if (endSec <= startSec)
+				return this.makeVitalResult("STOPPED", "invalid vital window", 0, []);
+			const anchor = task == null ? endSec : task.cursorSec;
 			logger.info(
 				"bluetooth",
-				`[BOOM-HISTORY] 缺口补拉窗口: ${startSec} ${this.formatMaybeTime(startSec)} ~ ${endSec} ${this.formatMaybeTime(endSec)}, maxPages=${maxPages}`
+				`[BOOM-HISTORY] 反向补录: task=${task == null ? "recent" : task.id}, window=${startSec}~${endSec}, anchor=${anchor}, minutes=2`
 			);
 			const result = await this.readVitalDataAutoInner({
-				startSec,
+				startSec: anchor,
 				direction: VITAL_GAP_READ_DIRECTION,
 				minutes: VITAL_GAP_READ_MINUTES,
+				maxPages: 300,
 				timeoutMs: DEFAULT_TIMEOUT_MS,
-				maxPages,
 				pageDelayMs: DEFAULT_PAGE_DELAY_MS,
-				shouldStop: () => stopRead,
-				onPage: (response, page) => {
-					const stopReason = this.getRecentVitalStopReason(response, startSec, endSec);
-					if (stopReason != null) {
-						stopRead = true;
+				deadlineAt,
+				shouldStop: () =>
+					stopRead || (task != null && this.device.boundDeviceId != task.deviceId),
+				persistPage: async (response) => {
+					try {
+						if (task != null && this.device.boundDeviceId != task.deviceId)
+							throw new Error("绑定设备已改变");
+						if (response.startSec == 0) {
+							if (currentTask != null) await historyProgress.noMore(currentTask!);
+							return true;
+						}
+						if (lastStart > 0 && response.startSec >= lastStart)
+							throw new Error("历史页面未向更早时间推进");
+						if (
+							response.n <= 0 ||
+							response.n > 2 ||
+							response.rmssdSdnn.length != response.n
+						)
+							throw new Error("历史页面结构无效");
+						if (response.startSec > anchor) throw new Error("历史页面晚于查询锚点");
+						let count = 0;
+						if (currentTask != null) {
+							count = await historyProgress.savePage(
+								currentTask!,
+								response,
+								historyStableBefore(Math.floor(Date.now() / 1000))
+							);
+							currentTask = await historyProgress.getTask(currentTask!.id);
+							stopRead =
+								currentTask!.status == "done" || currentTask!.retryAt > Date.now();
+						} else {
+							const records = this.toHeartRateRecordsInWindow(
+								[response],
+								startSec,
+								Math.min(endSec, Math.floor(Date.now() / 1000))
+							);
+							if (
+								(await bluetoothDataManager.storeHistoricalHeartRateRecordsBatch(
+									records
+								)) == false
+							)
+								throw new Error("历史页面落库失败");
+							count = records.length;
+						}
+						saved += count;
+						lastStart = response.startSec;
+						if (response.startSec <= startSec) stopRead = true;
 						logger.info(
 							"bluetooth",
-							`[BOOM-HISTORY] 缺口补拉停止续读: ${stopReason}, page=${page}`
+							`[BOOM-HISTORY] 页面已提交: response=${response.startSec}, n=${response.n}, saved=${count}, next=${currentTask == null ? response.startSec : currentTask!.cursorSec}`
 						);
+						return true;
+					} catch (error) {
+						saveOk = false;
+						failure = `${error}`;
+						logger.error("bluetooth", "[BOOM-HISTORY] 页面处理失败，保留进度", error);
+						return false;
 					}
 				}
 			});
-			const records = this.toHeartRateRecordsInWindow(result.responses, startSec, endSec);
-			result.savedRecords = records.length;
-			result.saveOk =
-				await bluetoothDataManager.storeHistoricalHeartRateRecordsBatch(records);
-			if (result.savedRecords > 0) {
-				result.uploadAttempted = true;
-				result.uploadOk = await bluetoothDataManager.uploadData();
+			result.savedRecords = saved;
+			result.uploadScheduled = saved > 0;
+			result.saveOk = saveOk;
+			if (failure != "") result.message = failure;
+			if (
+				currentTask != null &&
+				(result.status == "TIMEOUT" ||
+					result.status == "SEND_FAILED" ||
+					result.status == "LIMIT" ||
+					!saveOk)
+			) {
+				await historyProgress.defer(currentTask!, result.message);
 			}
-			logger.info(
-				"bluetooth",
-				`[BOOM-HISTORY] 缺口补拉完成: status=${result.status}, pages=${result.pages}, saved=${result.savedRecords}, upload=${result.uploadOk}`
-			);
 			return result;
 		} finally {
+			if (saved > 0) bluetoothDataManager.scheduleUpload();
 			this.setDisplaySuspended(false);
 			this.device.endGattTask("vitalGap");
 		}
@@ -462,6 +447,18 @@ export class DeviceHistoryReader {
 
 		if (options.onProgress != null) {
 			options.onProgress!({ phase: "0x3A", page, message: "start" });
+		}
+		if (
+			options.deadlineAt != null &&
+			options.deadlineAt! > 0 &&
+			Date.now() + timeoutMs >= options.deadlineAt!
+		) {
+			return this.makeVitalResult(
+				"STOPPED",
+				"history repair budget reached",
+				page,
+				responses
+			);
 		}
 		this.device.event.resetDataIdentifierReassembler();
 		let beforeSeq = this.vitalDataResponseSeqValue;
@@ -487,6 +484,9 @@ export class DeviceHistoryReader {
 
 			page++;
 			responses.push(response);
+			if (options.persistPage != null && (await options.persistPage!(response)) == false) {
+				return this.makeVitalResult("STOPPED", "page persistence failed", page, responses);
+			}
 			if (options.onPage != null) {
 				options.onPage!(response, page);
 			}
@@ -519,6 +519,18 @@ export class DeviceHistoryReader {
 				await this.sleep(pageDelayMs);
 			}
 
+			if (
+				options.deadlineAt != null &&
+				options.deadlineAt! > 0 &&
+				Date.now() + timeoutMs >= options.deadlineAt!
+			) {
+				return this.makeVitalResult(
+					"STOPPED",
+					"history repair budget reached",
+					page,
+					responses
+				);
+			}
 			ok = await this.device.protocol.continueReadVitalData(options.minutes);
 			if (ok == false) {
 				return this.makeVitalResult("SEND_FAILED", "0x3B send failed", page, responses);
@@ -542,9 +554,7 @@ export class DeviceHistoryReader {
 			this.resetEventReadDeduplication();
 			const result = await this.readEventDataAutoInner(options);
 			this.eventReadActive = false;
-			if (options.persistSleepData == false) {
-				return result;
-			}
+			if (options.persistSleepData == false) return result;
 			try {
 				const saved = await this.persistSleepResultsFromEvents(result.items);
 				result.savedSleepRecords = saved;
@@ -731,6 +741,7 @@ export class DeviceHistoryReader {
 			savedRecords: 0,
 			saveOk: true,
 			uploadAttempted: false,
+			uploadScheduled: false,
 			uploadOk: false
 		};
 	}
@@ -787,35 +798,6 @@ export class DeviceHistoryReader {
 		return records;
 	}
 
-	private getVitalWindowEndSec(response: VitalDataQueryResponse): number {
-		if (response.startSec <= 0) return 0;
-		const minutes = response.n > 0 ? response.n : RECENT_VITAL_MINUTES;
-		return response.startSec + minutes * 60;
-	}
-
-	private getRecentVitalStopReason(
-		response: VitalDataQueryResponse,
-		targetStartSec: number,
-		targetEndSec: number
-	): string | null {
-		if (response.startSec <= 0) return null;
-		const responseEndSec = this.getVitalWindowEndSec(response);
-		if (responseEndSec <= 0) return null;
-		if (responseEndSec <= targetStartSec) {
-			return "返回段已早于目标窗口，继续 0x3B 只会读取更早数据";
-		}
-		if (response.startSec <= targetStartSec && responseEndSec >= targetEndSec) {
-			return "返回段已覆盖目标窗口";
-		}
-		if (
-			response.startSec > targetEndSec &&
-			response.startSec - targetEndSec > RECENT_VITAL_MAX_FUTURE_DRIFT_SECONDS
-		) {
-			return "返回段明显晚于目标窗口，停止追读";
-		}
-		return null;
-	}
-
 	private makeEventResult(
 		status: HistoryReadStatus,
 		message: string,
@@ -856,7 +838,7 @@ export class DeviceHistoryReader {
 				skipped++;
 				logger.warn(
 					"bluetooth",
-					`[BOOM] 睡眠事件跳过: ts=${item.ts} ${this.formatMaybeTime(item.ts)}, data=${item.eventDataHex}, parsed=${this.formatEventParsedForDetail(item.eventType, item.parsedEvent)}`
+					`[BOOM] 睡眠事件跳过: ts=${item.ts}, data=${item.eventDataHex}`
 				);
 				continue;
 			}
@@ -874,70 +856,20 @@ export class DeviceHistoryReader {
 
 	private toSleepData(item: LogDataItem): SleepData | null {
 		const parsed = item.parsedEvent;
-		const sleepOnsetSec = this.getParsedNumber(parsed, "sleepOnsetSec");
-		const awakeSec = this.getParsedNumber(parsed, "awakeSec");
-		const lightSleepSec = this.getParsedNumber(parsed, "lightSleepSec");
-		const deepSleepSec = this.getParsedNumber(parsed, "deepSleepSec");
-		const otherSleepSec = this.getParsedNumber(parsed, "otherSleepSec");
-		const restHr = this.getParsedNumber(parsed, "restHr");
-		if (item.ts <= 0 || sleepOnsetSec <= 0 || awakeSec <= 0) return null;
-		const sleepSeconds = lightSleepSec + deepSleepSec + otherSleepSec;
-		let recordCount = Math.ceil(sleepSeconds / 60);
-		if (recordCount <= 0 && awakeSec > sleepOnsetSec) {
-			recordCount = Math.ceil((awakeSec - sleepOnsetSec) / 60);
-		}
-		const detail = this.buildSleepResultDetail(
-			lightSleepSec,
-			deepSleepSec,
-			otherSleepSec,
-			restHr
-		);
+		const sleepOnsetTime = this.getParsedNumber(parsed, "sleepOnsetTime");
+		const awakeTime = this.getParsedNumber(parsed, "awakeTime");
+		const lightSleepPeriod = this.getParsedNumber(parsed, "lightSleepPeriod");
+		const deepSleepPeriod = this.getParsedNumber(parsed, "deepSleepPeriod");
+		const otherSleepPeriod = this.getParsedNumber(parsed, "otherSleepPeriod");
+		if (item.ts <= 0 || sleepOnsetTime <= awakeTime || awakeTime < 0) return null;
 		return {
 			reportTimestamp: item.ts,
-			bedtime: sleepOnsetSec,
-			sleepTime: sleepOnsetSec,
-			wakeTime: awakeSec,
-			getupTime: awakeSec,
-			recordCount,
-			detail
+			bedtime: sleepOnsetTime,
+			sleepTime: lightSleepPeriod + deepSleepPeriod + otherSleepPeriod,
+			wakeTime: awakeTime,
+			getupTime: 0,
+			detail: ""
 		} as SleepData;
-	}
-
-	private buildSleepResultDetail(
-		lightSleepSec: number,
-		deepSleepSec: number,
-		otherSleepSec: number,
-		restHr: number
-	): string {
-		const statuses = this.buildSleepStatusDetail(lightSleepSec, deepSleepSec, otherSleepSec);
-		const detail: UTSJSONObject = {
-			source: "boom_event_sleep_result",
-			lightSleepSec,
-			deepSleepSec,
-			otherSleepSec,
-			restHr,
-			statuses
-		};
-		return JSON.stringify(detail);
-	}
-
-	private buildSleepStatusDetail(
-		lightSleepSec: number,
-		deepSleepSec: number,
-		otherSleepSec: number
-	): number[] {
-		const statuses: number[] = [];
-		this.appendSleepStatusMinutes(statuses, deepSleepSec, 0);
-		this.appendSleepStatusMinutes(statuses, lightSleepSec, 1);
-		this.appendSleepStatusMinutes(statuses, otherSleepSec, 2);
-		return statuses;
-	}
-
-	private appendSleepStatusMinutes(statuses: number[], seconds: number, status: number): void {
-		const minutes = Math.ceil(seconds / 60);
-		for (let i = 0; i < minutes; i++) {
-			statuses.push(status);
-		}
 	}
 
 	private async waitForVitalResponse(
@@ -1207,13 +1139,13 @@ export class DeviceHistoryReader {
 			return `wear ${before == 1 ? "佩戴" : "未佩戴"} -> ${after == 1 ? "佩戴" : "未佩戴"}`;
 		}
 		if (eventType == LOG_EVENT_TYPE.SleepResult) {
-			const onset = this.getParsedNumber(parsed, "sleepOnsetSec");
-			const awake = this.getParsedNumber(parsed, "awakeSec");
-			const light = this.getParsedNumber(parsed, "lightSleepSec");
-			const deep = this.getParsedNumber(parsed, "deepSleepSec");
-			const other = this.getParsedNumber(parsed, "otherSleepSec");
-			const restHr = this.getParsedNumber(parsed, "restHr");
-			return `sleep onset=${onset} awake=${awake} light=${this.formatDurationSeconds(light)} deep=${this.formatDurationSeconds(deep)} other=${this.formatDurationSeconds(other)} restHr=${restHr}`;
+			const onset = this.getParsedNumber(parsed, "sleepOnsetTime");
+			const awake = this.getParsedNumber(parsed, "awakeTime");
+			const light = this.getParsedNumber(parsed, "lightSleepPeriod");
+			const deep = this.getParsedNumber(parsed, "deepSleepPeriod");
+			const other = this.getParsedNumber(parsed, "otherSleepPeriod");
+			const heartRateRest = this.getParsedNumber(parsed, "heartRateRest");
+			return `sleep onset=${onset} awake=${awake} light=${this.formatDurationSeconds(light)} deep=${this.formatDurationSeconds(deep)} other=${this.formatDurationSeconds(other)} restHr=${heartRateRest}`;
 		}
 		if (eventType == LOG_EVENT_TYPE.Sedentary) {
 			return `threshold=${this.formatDurationSeconds(this.getParsedNumber(parsed, "thresholdSec"))}`;

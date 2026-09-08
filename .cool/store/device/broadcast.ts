@@ -593,6 +593,7 @@ export class DeviceBroadcast {
 		const spo2 = r.spo2Valid ? Math.round(r.spo2Pct * 10) : 0;
 		const ppi = r.ppiValid ? r.ppi : 0;
 		const ok = await bluetoothDataManager.storeBroadcastPpiData(timestamp, hr, spo2, ppi);
+		await bluetoothDataManager.storeBroadcastSleepActivity(timestamp, r.activity);
 		if (ok == true) {
 			await bluetoothDataManager.requestPpiUpload();
 		}

@@ -44,14 +44,7 @@ import {
 	parseU32LE,
 	parseAscii
 } from "./boom-bytes";
-import {
-	VITAL_DATA_INVALID,
-	VITAL_DATA_BLANK,
-	VITAL_DATA_ALL_FF,
-	VITAL_MINUTES_OPTIONS,
-	LOG_DATA_FLAG,
-	LOG_EVENT_TYPE
-} from "./boom-constants";
+import { VITAL_MINUTES_OPTIONS, LOG_DATA_FLAG, LOG_EVENT_TYPE } from "./boom-constants";
 
 const ADV_BEHAVIOR_LABELS = [
 	"休息",
@@ -260,7 +253,10 @@ export function serializeVitalDataQuery(req: VitalDataQueryRequest): string {
 		}
 	}
 	if (valid == false) {
-		logger.warn("bluetooth", `[BOOM-PARSER] 0x3A minutes=${req.minutes} 非法（应=2或5），仍按原值编码`);
+		logger.warn(
+			"bluetooth",
+			`[BOOM-PARSER] 0x3A minutes=${req.minutes} 非法（应=2或5），仍按原值编码`
+		);
 	}
 	return encodeU32LE(req.startSec) + encodeU8(req.direction) + encodeU8(req.minutes);
 }
@@ -282,8 +278,9 @@ export function parseVitalDataPerSecond(hex: string, off: number): VitalDataPerS
 	const pitch = parseU8(hex, off + 4);
 	const acc = parseU8(hex, off + 6);
 	const ppi = parseU16LE(hex, off + 8);
-	const hrValid = hr != VITAL_DATA_INVALID && hr != VITAL_DATA_BLANK && hr != VITAL_DATA_ALL_FF;
-	const valid = hrValid || ppi > 0;
+	// 只有完整的全 FF 秒记录无效；0 是原始有效值，不按生理范围过滤。
+	const raw = hex.substring(off, off + 12).toLowerCase();
+	const valid = raw.length == 12 && raw != "ffffffffffff";
 	return { hr, status, pitch, acc, ppi, valid };
 }
 
@@ -320,16 +317,36 @@ function parseRmssdSdnn(hex: string, off: number): RmssdSdnnPair {
 	};
 }
 
+/** 协议页不能用异常数据推进补录游标；先写诊断日志再抛给读取状态机。 */
+function vitalResponseError(message: string): Error {
+	logger.error("bluetooth", `[BOOM-PARSER] ${message}`);
+	return new Error(message);
+}
+
 /** 解析 0x3A/0x3B 响应 V（变长）
  * 格式: 4B startSec(LE) + 1B direction + 1B n + n*8B RMSSD/SDNN + n*60*6B vital
  */
 export function parseVitalDataResponse(vHex: string): VitalDataQueryResponse {
 	if (vHex.length < 12) {
-		return { startSec: 0, direction: 0, n: 0, rmssdSdnn: [], vitalData: [] };
+		throw vitalResponseError("生命体征响应头不足，不能作为历史结束标记");
+	}
+	if (vHex.length % 2 != 0) {
+		throw vitalResponseError("生命体征响应字节不完整");
 	}
 	const startSec = parseU32LE(vHex, 0);
 	const direction = parseU8(vHex, 8);
 	const n = parseU8(vHex, 10);
+	const vitalStart = 12 + n * 16;
+	if (vHex.length < vitalStart) {
+		throw vitalResponseError("生命体征响应分钟摘要截断");
+	}
+	if ((vHex.length - vitalStart) % 12 != 0) {
+		throw vitalResponseError("生命体征响应秒数据截断");
+	}
+	const vitalSeconds = (vHex.length - vitalStart) / 12;
+	// 设备可以提前结束一页：只要每秒记录完整，0 到 n*60 个秒都有效。
+	// 例如没有该段数据时会只回分钟摘要，或回一个全 FF 秒标记。
+	if (vitalSeconds > n * 60) throw vitalResponseError("生命体征响应秒数超出分钟声明");
 	const rmssdSdnn: RmssdSdnnPair[] = [];
 	let off = 12; // 跳过 4B+1B+1B
 	for (let i = 0; i < n && off + 16 <= vHex.length; i++) {
@@ -337,9 +354,8 @@ export function parseVitalDataResponse(vHex: string): VitalDataQueryResponse {
 		off += 16; // 8B/项
 	}
 	const vitalData: VitalDataPerSecond[] = [];
-	const vitalStart = 12 + n * 16;
 	off = vitalStart;
-	for (let i = 0; i < n * 60 && off + 12 <= vHex.length; i++) {
+	for (let i = 0; i < vitalSeconds && off + 12 <= vHex.length; i++) {
 		vitalData.push(parseVitalDataPerSecond(vHex, off));
 		off += 12; // 6B/项
 	}
@@ -426,21 +442,21 @@ export function parseEventDataWear(eventDataHex: string): EventDataWear {
 export function parseEventDataSleepResult(eventDataHex: string): EventDataSleepResult {
 	if (eventDataHex.length < 44) {
 		return {
-			sleepOnsetSec: 0,
-			awakeSec: 0,
-			lightSleepSec: 0,
-			deepSleepSec: 0,
-			otherSleepSec: 0,
-			restHr: 0
+			sleepOnsetTime: 0,
+			awakeTime: 0,
+			lightSleepPeriod: 0,
+			deepSleepPeriod: 0,
+			otherSleepPeriod: 0,
+			heartRateRest: 0
 		};
 	}
 	return {
-		sleepOnsetSec: parseU32LE(eventDataHex, 0),
-		awakeSec: parseU32LE(eventDataHex, 8),
-		lightSleepSec: parseU32LE(eventDataHex, 16),
-		deepSleepSec: parseU32LE(eventDataHex, 24),
-		otherSleepSec: parseU32LE(eventDataHex, 32),
-		restHr: parseU16LE(eventDataHex, 40)
+		sleepOnsetTime: parseU32LE(eventDataHex, 0),
+		awakeTime: parseU32LE(eventDataHex, 8),
+		lightSleepPeriod: parseU32LE(eventDataHex, 16),
+		deepSleepPeriod: parseU32LE(eventDataHex, 24),
+		otherSleepPeriod: parseU32LE(eventDataHex, 32),
+		heartRateRest: parseU16LE(eventDataHex, 40)
 	};
 }
 
@@ -498,12 +514,12 @@ export function parseEventData(eventType: number, eventDataHex: string): EventDa
 		case LOG_EVENT_TYPE.SleepResult: {
 			const parsed = parseEventDataSleepResult(eventDataHex);
 			const result: UTSJSONObject = {
-				sleepOnsetSec: parsed.sleepOnsetSec,
-				awakeSec: parsed.awakeSec,
-				lightSleepSec: parsed.lightSleepSec,
-				deepSleepSec: parsed.deepSleepSec,
-				otherSleepSec: parsed.otherSleepSec,
-				restHr: parsed.restHr
+				sleepOnsetTime: parsed.sleepOnsetTime,
+				awakeTime: parsed.awakeTime,
+				lightSleepPeriod: parsed.lightSleepPeriod,
+				deepSleepPeriod: parsed.deepSleepPeriod,
+				otherSleepPeriod: parsed.otherSleepPeriod,
+				heartRateRest: parsed.heartRateRest
 			};
 			return result;
 		}

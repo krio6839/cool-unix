@@ -387,7 +387,7 @@ export class DeviceGattScheduler {
 		const vital = await this.device.history.readRecentVitalWindow();
 		logger.info(
 			"bluetooth",
-			`[BOOM-HISTORY] 事件后补最近2分钟: status=${vital.status}, pages=${vital.pages}, saved=${vital.savedRecords}, upload=${vital.uploadOk}`
+			`[BOOM-HISTORY] 事件后补最近2分钟: status=${vital.status}, pages=${vital.pages}, saved=${vital.savedRecords}, uploadScheduled=${vital.uploadScheduled}`
 		);
 	}
 

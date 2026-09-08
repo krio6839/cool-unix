@@ -3,6 +3,7 @@
  * 负责蓝牙数据的存储、管理和上传
  */
 import { bluetoothDatabase } from "./database";
+import { historyProgress } from "./history-progress";
 import { request } from "../service";
 import { logger } from "../service/logger";
 import { dayUts } from "../utils/day";
@@ -16,14 +17,17 @@ import type {
 	PpiDataItem,
 	PpiData,
 	HeartRateRecord,
-	VitalHistoryGapCheck,
 	RealtimeBroadcastRecord,
 	StoreRealtimeBroadcastInput,
-	UploadTableStats
+	UploadTableStats,
+	HistorySessionDiagnostics
 } from "./types";
 
 const PPI_UPLOAD_BATCH_SIZE = 30;
 const PPI_UPLOAD_MIN_INTERVAL_MS = 30 * 1000;
+/** 单个请求最多 300 秒数据，每轮最多 10 批，防止长期占用上传通道。 */
+const PPI_UPLOAD_MAX_RECORDS = 300;
+const PPI_UPLOAD_MAX_BATCHES = 10;
 
 /**
  * 蓝牙数据管理器类
@@ -35,7 +39,8 @@ export class BluetoothDataManager {
 
 	/** 是否正在上传中 */
 	private isUploading: boolean = false;
-	private ppiUploadPending: boolean = false;
+	private lastPpiUploadFailedAt: number = 0;
+	private uploadScheduled: boolean = false;
 	private lastPpiUploadAttemptAt: number = 0;
 	private databaseReady: Promise<boolean>;
 
@@ -73,7 +78,18 @@ export class BluetoothDataManager {
 	 * 初始化数据库
 	 */
 	private async initDatabase(): Promise<boolean> {
-		return await bluetoothDatabase.open();
+		const opened = await bluetoothDatabase.open();
+		if (opened == false) return false;
+		// 补录只在当前 App 会话内排队；每次冷启动都从当前时间重新规划。
+		try {
+			if ((await historyProgress.initializeSessionSchema()) == false) return false;
+			const cleared = await this.clearHistorySessionRaw();
+			if (cleared == false) return false;
+			return true;
+		} catch (error) {
+			logger.error("bluetooth", "[BOOM-DATA] 初始化时清空补录会话失败", error);
+			return false;
+		}
 	}
 
 	private async ensureDatabaseReady(): Promise<boolean> {
@@ -116,6 +132,39 @@ export class BluetoothDataManager {
 			.join(",");
 		const sql = `INSERT OR IGNORE INTO ppi_data (id, timestamp, hr, spo2, ppi, uploaded) VALUES ${values}`;
 		return this.execute(sql);
+	}
+	async storeBroadcastSleepActivity(timestamp: number, activity: number): Promise<boolean> {
+		if (timestamp <= 0 || activity < 0 || activity > 7) return false;
+		return this.execute(
+			"INSERT OR REPLACE INTO sleep_status_data (timestamp, activity) VALUES (" +
+				timestamp +
+				", " +
+				activity +
+				")"
+		);
+	}
+
+	async getSleepActivitiesBetween(
+		startSec: number,
+		endSec: number
+	): Promise<Map<number, number>> {
+		const activities = new Map<number, number>();
+		if (endSec <= startSec) return activities;
+		const result = await this.query(
+			"SELECT timestamp, activity FROM sleep_status_data WHERE timestamp >= " +
+				startSec +
+				" AND timestamp < " +
+				endSec +
+				" ORDER BY timestamp ASC"
+		);
+		if (result == null) return activities;
+		for (let i = 0; i < result.rows.length; i++) {
+			activities.set(
+				parseInt(result.rows[i][0] as string),
+				parseInt(result.rows[i][1] as string)
+			);
+		}
+		return activities;
 	}
 
 	async storeBroadcastPpiData(
@@ -247,9 +296,8 @@ export class BluetoothDataManager {
 			sleepTime: parseInt(row[3] as string),
 			wakeTime: parseInt(row[4] as string),
 			getupTime: parseInt(row[5] as string),
-			recordCount: parseInt(row[6] as string),
-			detail: (row[7] ?? "") as string,
-			uploaded: parseInt(row[8] as string) == 1
+			detail: (row[6] ?? "") as string,
+			uploaded: parseInt(row[7] as string) == 1
 		} as SleepData;
 	}
 
@@ -276,6 +324,29 @@ export class BluetoothDataManager {
 			await this.getUploadStatsForTable("sleep_data", "report_timestamp")
 		);
 		return stats;
+	}
+
+	/** 供本地测试页排查“未读取、未落库、未上传”三个阶段。 */
+	async getHistorySessionDiagnostics(): Promise<HistorySessionDiagnostics> {
+		return {
+			pendingTasks: await this.queryCount(
+				"SELECT COUNT(*) FROM vital_history_tasks WHERE status != 'done'"
+			),
+			firstPendingFromSec: await this.queryTimestamp(
+				"SELECT MIN(from_sec) FROM vital_history_tasks WHERE status != 'done'"
+			),
+			lastPendingToSec: await this.queryTimestamp(
+				"SELECT MAX(to_sec) FROM vital_history_tasks WHERE status != 'done'"
+			),
+			confirmedRanges: await this.queryCount("SELECT COUNT(*) FROM vital_history_ranges"),
+			unuploadedCount: await this.getUnuploadedPpiCount(),
+			earliestUnuploadedSec: await this.queryTimestamp(
+				"SELECT MIN(timestamp) FROM ppi_data WHERE uploaded = 0"
+			),
+			latestUnuploadedSec: await this.queryTimestamp(
+				"SELECT MAX(timestamp) FROM ppi_data WHERE uploaded = 0"
+			)
+		} as HistorySessionDiagnostics;
 	}
 
 	private async getUploadStatsForTable(
@@ -398,66 +469,13 @@ export class BluetoothDataManager {
 			" ORDER BY timestamp ASC";
 		const result = await this.query(sql);
 		if (result == null) {
-			return [];
+			throw new Error("读取历史补缺时间点失败");
 		}
 		const timestamps: number[] = [];
 		for (let i = 0; i < result.rows.length; i++) {
 			timestamps.push(parseInt(result.rows[i][0] as string));
 		}
 		return timestamps;
-	}
-
-	async storeVitalHistoryGapCheck(
-		fromSec: number,
-		toSec: number,
-		status: string,
-		pages: number,
-		savedRecords: number,
-		message: string
-	): Promise<boolean> {
-		if (toSec <= fromSec) return false;
-		const id = fromSec.toString() + "-" + toSec.toString();
-		const safeStatus = this.escapeSqlText(status);
-		const safeMessage = this.escapeSqlText(message);
-		const checkedAt = Date.now();
-		const sql =
-			"INSERT OR REPLACE INTO vital_history_gap_checks " +
-			"(id, from_sec, to_sec, checked_at, status, pages, saved_records, message) VALUES " +
-			`('${id}', ${fromSec}, ${toSec}, ${checkedAt}, '${safeStatus}', ${pages}, ${savedRecords}, '${safeMessage}')`;
-		return this.execute(sql);
-	}
-
-	async getVitalHistoryGapChecksBetween(
-		startSec: number,
-		endSec: number,
-		minCheckedAt: number
-	): Promise<VitalHistoryGapCheck[]> {
-		if (endSec <= startSec) return [];
-		const sql =
-			"SELECT from_sec, to_sec, checked_at, status, pages, saved_records, message " +
-			"FROM vital_history_gap_checks WHERE checked_at >= " +
-			minCheckedAt.toString() +
-			" AND to_sec >= " +
-			startSec.toString() +
-			" AND from_sec <= " +
-			endSec.toString() +
-			" ORDER BY from_sec ASC";
-		const result = await this.query(sql);
-		if (result == null) return [];
-		const checks: VitalHistoryGapCheck[] = [];
-		for (let i = 0; i < result.rows.length; i++) {
-			const row = result.rows[i];
-			checks.push({
-				fromSec: parseInt(row[0] as string),
-				toSec: parseInt(row[1] as string),
-				checkedAt: parseInt(row[2] as string),
-				status: row[3] as string,
-				pages: parseInt(row[4] as string),
-				savedRecords: parseInt(row[5] as string),
-				message: (row[6] ?? "") as string
-			} as VitalHistoryGapCheck);
-		}
-		return checks;
 	}
 
 	async getRecentPpiDataByUploadStatus(limit: number, uploaded: boolean): Promise<PpiData[]> {
@@ -486,11 +504,12 @@ export class BluetoothDataManager {
 	 */
 	async getUnuploadedPpiData(): Promise<PpiData[]> {
 		const sql =
-			"SELECT id, timestamp, hr, spo2, ppi, uploaded FROM ppi_data WHERE uploaded = 0 ORDER BY timestamp ASC";
+			"SELECT id, timestamp, hr, spo2, ppi, uploaded FROM ppi_data WHERE uploaded = 0 ORDER BY timestamp ASC LIMIT " +
+			PPI_UPLOAD_MAX_RECORDS;
 		const result = await this.query(sql);
 
 		if (result == null) {
-			return [];
+			throw new Error("读取待上传 PPI 数据失败");
 		}
 
 		const dataList: PpiData[] = [];
@@ -501,21 +520,23 @@ export class BluetoothDataManager {
 	}
 
 	async getUnuploadedPpiCount(): Promise<number> {
-		return this.queryCount("SELECT COUNT(*) FROM ppi_data WHERE uploaded = 0");
+		const result = await this.query("SELECT COUNT(*) FROM ppi_data WHERE uploaded = 0");
+		if (result == null || result.rows.length == 0) throw new Error("读取待上传 PPI 数量失败");
+		return parseInt(result.rows[0][0] as string);
 	}
 
 	/**
 	 * 标记PPI数据为已上传
 	 * @param ids 数据ID数组
 	 */
-	async markPpiDataAsUploaded(ids: string[]): Promise<void> {
+	async markPpiDataAsUploaded(ids: string[]): Promise<boolean> {
 		if (ids.length == 0) {
-			return;
+			return true;
 		}
 
 		const idList = ids.map((id) => `'${id}'`).join(",");
 		const sql = `UPDATE ppi_data SET uploaded = 1 WHERE id IN (${idList})`;
-		await this.execute(sql);
+		return await this.execute(sql);
 	}
 
 	/**
@@ -523,27 +544,62 @@ export class BluetoothDataManager {
 	 */
 	async clearAllData(): Promise<void> {
 		logger.info("bluetooth", "清空所有数据库数据");
-		await this.execute("DELETE FROM sleep_data");
-		await this.execute("DELETE FROM ppi_data");
-		await this.execute("DELETE FROM realtime_broadcast_data");
-		await this.execute("DELETE FROM vital_history_gap_checks");
+		const ready = await this.ensureDatabaseReady();
+		if (ready == false) {
+			logger.error("bluetooth", "[BOOM-DATA] 数据库未就绪，不能清空旧设备数据");
+			throw new Error("数据库未就绪，不能清空旧设备数据");
+		}
+		const cleared = await bluetoothDatabase.transaction([
+			"DELETE FROM sleep_data",
+			"DELETE FROM ppi_data",
+			"DELETE FROM sleep_status_data",
+			"DELETE FROM realtime_broadcast_data",
+			"DELETE FROM vital_history_ranges",
+			"DELETE FROM vital_history_tasks",
+			"DELETE FROM vital_history_state"
+		]);
+		if (cleared == false) {
+			logger.error("bluetooth", "[BOOM-DATA] 清空旧设备数据失败");
+			throw new Error("清空旧设备数据失败");
+		}
 		logger.info("bluetooth", "数据库数据清空完成");
+	}
+
+	/** 清空当前 App 会话的补录队列，不影响已经保存和待上传的每秒数据。 */
+	async clearHistorySession(): Promise<void> {
+		try {
+			if ((await this.clearHistorySessionRaw()) == false)
+				throw new Error("清空历史补录会话失败");
+		} catch (error) {
+			logger.error("bluetooth", "[BOOM-DATA] 清空历史补录会话失败", error);
+			throw error;
+		}
+		logger.info("bluetooth", "已清空本次 App 会话的历史补录状态");
+	}
+
+	private async clearHistorySessionRaw(): Promise<boolean> {
+		if ((await bluetoothDatabase.execute("DELETE FROM vital_history_ranges")) == false)
+			throw new Error("清空历史补录范围失败");
+		if ((await bluetoothDatabase.execute("DELETE FROM vital_history_tasks")) == false)
+			throw new Error("清空历史补录任务失败");
+		if ((await bluetoothDatabase.execute("DELETE FROM vital_history_state")) == false)
+			throw new Error("清空历史补录规划状态失败");
+		return true;
 	}
 
 	/**
 	 * 存储睡眠数据
 	 * 用 INSERT OR IGNORE 防御性去重：相同 reportTimestamp 已存在则静默跳过；
 	 * 配合 fetchAllSleepData 断点续传后，从源头避免重复存储与 uploaded 状态被重置。
-	 * @param sleepData 睡眠数据（detail 已由 SleepResponseAssembler 生成）
+	 * @param sleepData 睡眠数据
 	 */
 	async storeSleepData(sleepData: SleepData): Promise<void> {
-		const { reportTimestamp, bedtime, sleepTime, wakeTime, getupTime, recordCount, detail } =
-			sleepData;
+		const { reportTimestamp, bedtime, sleepTime, wakeTime, getupTime, detail } = sleepData;
 		const sleepId = reportTimestamp.toString();
 		const safeDetail = this.escapeSqlText(detail);
 		const sleepSql = `INSERT OR IGNORE INTO sleep_data
-			(id, report_timestamp, bedtime, sleep_time, wake_time, getup_time, record_count, detail, uploaded)
-			VALUES ('${sleepId}', ${reportTimestamp}, ${bedtime}, ${sleepTime}, ${wakeTime}, ${getupTime}, ${recordCount}, '${safeDetail}', 0)`;
+			(id, report_timestamp, bedtime, sleep_time, wake_time, getup_time, detail, uploaded)
+			VALUES ('${sleepId}', ${reportTimestamp}, ${bedtime}, ${sleepTime}, ${wakeTime}, ${getupTime}, '${safeDetail}', 0)`;
 		await this.execute(sleepSql);
 	}
 
@@ -553,11 +609,11 @@ export class BluetoothDataManager {
 	 */
 	async getUnuploadedSleepData(): Promise<SleepData[]> {
 		const sql =
-			"SELECT id, report_timestamp, bedtime, sleep_time, wake_time, getup_time, record_count, detail FROM sleep_data WHERE uploaded = 0";
+			"SELECT id, report_timestamp, bedtime, sleep_time, wake_time, getup_time, detail FROM sleep_data WHERE uploaded = 0";
 		const result = await this.query(sql);
 
 		if (result == null) {
-			return [];
+			throw new Error("读取待上传睡眠数据失败");
 		}
 
 		const sleepDataList: SleepData[] = [];
@@ -571,8 +627,7 @@ export class BluetoothDataManager {
 				sleepTime: parseInt(row[3] as string),
 				wakeTime: parseInt(row[4] as string),
 				getupTime: parseInt(row[5] as string),
-				recordCount: parseInt(row[6] as string),
-				detail: (row[7] ?? "") as string,
+				detail: (row[6] ?? "") as string,
 				uploaded: false
 			});
 		}
@@ -587,7 +642,7 @@ export class BluetoothDataManager {
 	async getRecentSleepData(limit: number, uploaded: boolean | null): Promise<SleepData[]> {
 		const safeLimit = limit <= 0 ? 10 : limit;
 		let sql =
-			"SELECT id, report_timestamp, bedtime, sleep_time, wake_time, getup_time, record_count, detail, uploaded FROM sleep_data";
+			"SELECT id, report_timestamp, bedtime, sleep_time, wake_time, getup_time, detail, uploaded FROM sleep_data";
 		if (uploaded != null) {
 			sql += uploaded == true ? " WHERE uploaded = 1" : " WHERE uploaded = 0";
 		}
@@ -620,14 +675,14 @@ export class BluetoothDataManager {
 	 * 标记睡眠数据为已上传
 	 * @param ids 睡眠数据ID数组
 	 */
-	async markSleepAsUploaded(ids: string[]): Promise<void> {
+	async markSleepAsUploaded(ids: string[]): Promise<boolean> {
 		if (ids.length == 0) {
-			return;
+			return true;
 		}
 
 		const idList = ids.map((id) => `'${id}'`).join(",");
 		const sql = `UPDATE sleep_data SET uploaded = 1 WHERE id IN (${idList})`;
-		await this.execute(sql);
+		return await this.execute(sql);
 	}
 
 	/**
@@ -644,115 +699,97 @@ export class BluetoothDataManager {
 	 * @returns 是否上传成功
 	 */
 	async uploadPpiData(): Promise<boolean> {
-		if (this.isUploading == true) {
-			logger.info("bluetooth", "正在上传中，跳过PPI上传");
-			return false;
-		}
-
-		const unuploadedData = await this.getUnuploadedPpiData();
-		logger.info(
-			"bluetooth",
-			"未上传的PPI数据数量:",
-			unuploadedData.length,
-			"全部数据:",
-			unuploadedData
-		);
-		if (unuploadedData.length == 0) {
-			return true;
-		}
-
-		logger.info("bluetooth", "当前设备信息:", {
-			deviceName: this.deviceName,
-			address: this.deviceAddress
-		});
-		if (this.deviceAddress == "") {
-			logger.info("bluetooth", "设备未连接，跳过PPI上传");
-			return false;
-		}
-
+		if (this.isUploading == true) return false;
+		// 查询前抢锁，避免广播、定时器和历史补拉同时取出同一批未上传记录。
 		this.isUploading = true;
-
 		try {
-			// 直接从 ppi_data 表构建上传数据（每行已包含 hr, spo2, ppi）
-			const datas: PpiDataItem[] = [];
-			for (let i = 0; i < unuploadedData.length; i++) {
-				const item = unuploadedData[i];
-				// timestamp 存储的是秒，需要转换为毫秒再格式化
-				datas.push({
-					time: this.formatTimestamp(item.timestamp * 1000),
-					hr: item.hr,
-					spo2: this.normalizeSpo2ForUpload(item.spo2),
-					ppi: item.ppi
-				});
-			}
-
-			const requestData: PpiUploadRequest = {
-				device: this.deviceName,
-				address: this.deviceAddress,
-				timezone: "08:00",
-				datas
-			};
-
-			logger.info("bluetooth", "上传PPI数据:", JSON.stringify(requestData));
-
-			const response = await request({
-				url: UPLOAD_PPI_URL,
-				method: "POST",
-				data: requestData,
-				header: {
-					"Content-Type": "application/json"
+			const deviceName = this.deviceName;
+			const deviceAddress = this.deviceAddress;
+			for (let batch = 0; batch < PPI_UPLOAD_MAX_BATCHES; batch++) {
+				const unuploadedData = await this.getUnuploadedPpiData();
+				if (unuploadedData.length == 0) return true;
+				if (
+					deviceAddress == "" ||
+					this.deviceAddress != deviceAddress ||
+					this.deviceName != deviceName
+				) {
+					return false;
 				}
-			});
-
-			logger.info("bluetooth", "PPI上传响应:", response);
-
-			const uploadedIds: string[] = [];
-			for (let i = 0; i < unuploadedData.length; i++) {
-				uploadedIds.push(unuploadedData[i].id);
+				const datas: PpiDataItem[] = [];
+				const uploadedIds: string[] = [];
+				for (let i = 0; i < unuploadedData.length; i++) {
+					const item = unuploadedData[i];
+					datas.push({
+						time: this.formatTimestamp(item.timestamp * 1000),
+						hr: item.hr,
+						spo2: this.normalizeSpo2ForUpload(item.spo2),
+						ppi: item.ppi
+					});
+					uploadedIds.push(item.id);
+				}
+				const requestData: PpiUploadRequest = {
+					device: deviceName,
+					address: deviceAddress,
+					timezone: "08:00",
+					datas
+				};
+				logger.info(
+					"bluetooth",
+					`[BOOM-UPLOAD] 上传PPI数据: batch=${batch + 1}, count=${datas.length}, from=${unuploadedData[0].timestamp}, to=${unuploadedData[unuploadedData.length - 1].timestamp}`
+				);
+				await request({
+					url: UPLOAD_PPI_URL,
+					method: "POST",
+					data: requestData,
+					strictSuccess: true,
+					header: { "Content-Type": "application/json" }
+				});
+				// 请求期间如果切换/清除了设备，不修改当前数据库中的上传标记。
+				if (this.deviceAddress != deviceAddress || this.deviceName != deviceName)
+					return false;
+				if ((await this.markPpiDataAsUploaded(uploadedIds)) == false) {
+					throw new Error("PPI上传已确认，但本地上传标记保存失败");
+				}
+				this.lastPpiUploadFailedAt = 0;
+				logger.info("bluetooth", `[BOOM-UPLOAD] PPI上传成功: count=${datas.length}`);
 			}
-			await this.markPpiDataAsUploaded(uploadedIds);
-
-			logger.info("bluetooth", "PPI上传成功");
-			return true;
+			const remaining = await this.getUnuploadedPpiCount();
+			logger.info("bluetooth", `[BOOM-UPLOAD] 本轮批次结束: remaining=${remaining}`);
+			return remaining == 0;
 		} catch (error) {
-			logger.error("bluetooth", "PPI上传失败:", error);
+			this.lastPpiUploadFailedAt = Date.now();
+			logger.error("bluetooth", "PPI上传失败，保留未上传数据:", error);
 			return false;
 		} finally {
 			this.isUploading = false;
-			if (this.ppiUploadPending == true) {
-				this.ppiUploadPending = false;
-				setTimeout(() => {
-					this.requestPpiUpload();
-				}, 0);
-			}
 		}
 	}
 
-	async requestPpiUpload(): Promise<void> {
-		if (this.isUploading == true) {
-			this.ppiUploadPending = true;
-			return;
-		}
-
-		const count = await this.getUnuploadedPpiCount();
-		if (count == 0) {
-			return;
-		}
-
-		const now = Date.now();
-		if (this.lastPpiUploadAttemptAt == 0) {
-			this.lastPpiUploadAttemptAt = now;
-			if (count < PPI_UPLOAD_BATCH_SIZE) {
-				return;
+	/** true 表示本次检查无待传数据，或本轮已全部传完；延后/忙/失败返回 false。 */
+	async requestPpiUpload(): Promise<boolean> {
+		if (this.isUploading == true) return false;
+		try {
+			const count = await this.getUnuploadedPpiCount();
+			if (count == 0) return true;
+			const now = Date.now();
+			// 失败后即使数量超过触发阈值，也不要随每秒广播反复请求。
+			if (
+				this.lastPpiUploadFailedAt > 0 &&
+				now - this.lastPpiUploadFailedAt < PPI_UPLOAD_MIN_INTERVAL_MS
+			)
+				return false;
+			if (this.lastPpiUploadAttemptAt == 0) {
+				this.lastPpiUploadAttemptAt = now;
+				if (count < PPI_UPLOAD_BATCH_SIZE) return false;
 			}
+			const elapsed = now - this.lastPpiUploadAttemptAt;
+			if (count < PPI_UPLOAD_BATCH_SIZE && elapsed < PPI_UPLOAD_MIN_INTERVAL_MS) return false;
+			this.lastPpiUploadAttemptAt = now;
+			return await this.uploadPpiData();
+		} catch (error) {
+			logger.error("bluetooth", "PPI上传检查失败:", error);
+			return false;
 		}
-		const elapsed = now - this.lastPpiUploadAttemptAt;
-		if (count < PPI_UPLOAD_BATCH_SIZE && elapsed < PPI_UPLOAD_MIN_INTERVAL_MS) {
-			return;
-		}
-
-		this.lastPpiUploadAttemptAt = now;
-		await this.uploadPpiData();
 	}
 
 	/**
@@ -760,34 +797,42 @@ export class BluetoothDataManager {
 	 * @returns 是否上传成功
 	 */
 	async uploadSleepData(): Promise<boolean> {
+		try {
+			const unuploadedSleepData = await this.getUnuploadedSleepData();
+			logger.info("bluetooth", "未上传的睡眠数据数量:", unuploadedSleepData.length);
+			return await this.uploadSleepRecords(unuploadedSleepData);
+		} catch (error) {
+			logger.error("bluetooth", "睡眠上传检查失败:", error);
+			return false;
+		}
+	}
+
+	/** 测试用：重新上传最近的已上传睡眠记录，不改变其状态。 */
+	async reuploadSleepData(count: number): Promise<number> {
+		if (count <= 0) return 0;
+		const uploadedSleepData = await this.getRecentSleepData(count, true);
+		if (uploadedSleepData.length == 0) return 0;
+		const ok = await this.uploadSleepRecords(uploadedSleepData);
+		return ok ? uploadedSleepData.length : 0;
+	}
+
+	private async uploadSleepRecords(sleepDataList: SleepData[]): Promise<boolean> {
+		if (sleepDataList.length == 0) return true;
 		if (this.isUploading == true) {
 			logger.info("bluetooth", "正在上传中，跳过睡眠数据上传");
 			return false;
 		}
-
-		const unuploadedSleepData = await this.getUnuploadedSleepData();
-		logger.info("bluetooth", "未上传的睡眠数据数量:", unuploadedSleepData.length);
-		if (unuploadedSleepData.length == 0) {
-			return true;
-		}
-
-		logger.info("bluetooth", "当前设备信息:", {
-			deviceName: this.deviceName,
-			address: this.deviceAddress
-		});
 		if (this.deviceAddress == "") {
 			logger.info("bluetooth", "设备未连接，跳过睡眠数据上传");
 			return false;
 		}
 
 		this.isUploading = true;
-
 		try {
 			const datas: SleepUploadDataItem[] = [];
-			for (let i = 0; i < unuploadedSleepData.length; i++) {
-				datas.push(this.buildSleepUploadItem(unuploadedSleepData[i]));
+			for (let i = 0; i < sleepDataList.length; i++) {
+				datas.push(await this.buildSleepUploadItem(sleepDataList[i]));
 			}
-
 			const requestData: SleepUploadRequest = {
 				address: this.deviceAddress,
 				datas,
@@ -800,24 +845,22 @@ export class BluetoothDataManager {
 			};
 
 			logger.info("bluetooth", "上传睡眠数据:", JSON.stringify(requestData));
-
 			const response = await request({
 				url: UPLOAD_SLEEP_URL,
+				strictSuccess: true,
 				method: "POST",
 				data: requestData,
-				header: {
-					"Content-Type": "application/json"
-				}
+				header: { "Content-Type": "application/json" }
 			});
-
 			logger.info("bluetooth", "睡眠数据上传响应:", response);
 
 			const uploadedIds: string[] = [];
-			for (let i = 0; i < unuploadedSleepData.length; i++) {
-				uploadedIds.push(unuploadedSleepData[i].id!);
+			for (let i = 0; i < sleepDataList.length; i++) {
+				if (sleepDataList[i].id != null) uploadedIds.push(sleepDataList[i].id!);
 			}
-			await this.markSleepAsUploaded(uploadedIds);
-
+			if ((await this.markSleepAsUploaded(uploadedIds)) == false) {
+				throw new Error("睡眠上传已确认，但本地上传标记保存失败");
+			}
 			logger.info("bluetooth", "睡眠数据上传成功");
 			return true;
 		} catch (error) {
@@ -828,20 +871,36 @@ export class BluetoothDataManager {
 		}
 	}
 
-	/**
-	 * 构建睡眠上传数据项
-	 * 数据库 4 个 offset 秒字段直接对应上传 4 个 Sec 字段，不做减法
-	 * （用户决策："拿到什么就是什么"）
-	 */
-	private buildSleepUploadItem(sleepData: SleepData): SleepUploadDataItem {
+	/** 构建睡眠上传数据项 */
+	private async buildSleepUploadItem(sleepData: SleepData): Promise<SleepUploadDataItem> {
 		return {
 			bedSec: sleepData.bedtime,
-			detail: sleepData.detail,
+			detail: await this.buildSleepDetailForUpload(sleepData),
 			sleepSec: sleepData.sleepTime,
 			time: this.formatTimestamp(sleepData.reportTimestamp * 1000), // 转为毫秒
-			upSec: sleepData.wakeTime,
-			wakeSec: sleepData.getupTime
+			upSec: sleepData.getupTime,
+			wakeSec: sleepData.wakeTime
 		};
+	}
+
+	/**
+	 * SleepResult 的 bedtime/wakeTime 均是相对 reportTimestamp 的秒数。
+	 * 广播接收时已经将每秒 activity 落库，因此上传时只需按该窗口逐秒组装。
+	 */
+	private async buildSleepDetailForUpload(sleepData: SleepData): Promise<string> {
+		const startSec = sleepData.reportTimestamp - sleepData.bedtime;
+		const endSec = sleepData.reportTimestamp - sleepData.wakeTime;
+		if (startSec <= 0 || endSec <= startSec) return "";
+		const activities = await this.getSleepActivitiesBetween(startSec, endSec);
+		const detail: string[] = [];
+		for (let timestamp = startSec; timestamp < endSec; timestamp++) {
+			const activity = activities.get(timestamp);
+			if (activity == 0) detail.push("3");
+			else if (activity == 1) detail.push("2");
+			else if (activity == 2) detail.push("1");
+			else detail.push("0");
+		}
+		return detail.join("");
 	}
 
 	private normalizeSpo2ForUpload(spo2: number): number {
@@ -854,9 +913,28 @@ export class BluetoothDataManager {
 	 * @returns 是否上传成功
 	 */
 	async uploadData(): Promise<boolean> {
-		await this.requestPpiUpload();
-		await this.uploadSleepData();
-		return true;
+		const ppiOk = await this.requestPpiUpload();
+		const sleepOk = await this.uploadSleepData();
+		return ppiOk && sleepOk;
+	}
+
+	/** 历史落库后独立触发上传，不让网络请求阻塞 GATT 释放和广播恢复。 */
+	scheduleUpload(): void {
+		if (this.uploadScheduled == true) return;
+		this.uploadScheduled = true;
+		setTimeout(() => {
+			this.uploadScheduled = false;
+			this.uploadData()
+				.then((ok) => {
+					logger.info(
+						"bluetooth",
+						`[BOOM-UPLOAD] 历史落库后上传检查完成: complete=${ok}`
+					);
+				})
+				.catch((error) => {
+					logger.error("bluetooth", "[BOOM-UPLOAD] 历史落库后上传异常:", error);
+				});
+		}, 0);
 	}
 
 	/**

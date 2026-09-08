@@ -100,6 +100,41 @@
 				</cl-text>
 			</view>
 
+			<view class="mb-4 p-3 bg-gray-800 rounded">
+				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+					{{ t("重新上传睡眠") }}
+				</cl-text>
+				<view class="flex flex-row flex-wrap">
+					<cl-button
+						v-for="count in [1, 2, 3]"
+						:key="count"
+						type="primary"
+						color="#526"
+						rounded
+						size="small"
+						class="mr-2 mb-2"
+						:disabled="loading"
+						@tap="reuploadSleep(count)"
+					>
+						{{ t("上传") }} {{ count }} {{ t("条") }}
+					</cl-button>
+					<cl-button
+						type="primary"
+						color="#526"
+						rounded
+						size="small"
+						class="mr-2 mb-2"
+						:disabled="loading"
+						@tap="reuploadSleepCustom"
+					>
+						{{ t("自定义") }}
+					</cl-button>
+				</view>
+				<cl-text color="gray-400" :size="12">
+					{{ t("按最近的已上传睡眠记录重新发送，不修改上传状态。") }}
+				</cl-text>
+			</view>
+
 			<view class="mb-3 p-3 bg-gray-800 rounded">
 				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
 					{{ titleText }}
@@ -120,7 +155,13 @@
 //#ifndef H5
 import { ref } from "vue";
 import { bluetoothDataManager, t } from "@/.cool";
-import type { PpiData, RealtimeBroadcastRecord, SleepData, UploadTableStats } from "@/.cool";
+import type {
+	PpiData,
+	RealtimeBroadcastRecord,
+	SleepData,
+	UploadTableStats,
+	HistorySessionDiagnostics
+} from "@/.cool";
 
 const show = defineModel("show", {
 	default: false
@@ -157,6 +198,42 @@ function clearRows(): void {
 	rows.value = [];
 }
 
+async function reuploadSleep(count: number): Promise<void> {
+	if (setLoading(`${t("重新上传睡眠")} ${count} ${t("条")}`) == false) return;
+	try {
+		const uploadedCount = await bluetoothDataManager.reuploadSleepData(count);
+		rows.value = [
+			uploadedCount > 0
+				? `${t("重新上传成功")}: ${uploadedCount} ${t("条")}`
+				: t("重新上传失败，可能没有已上传记录或设备未连接")
+		];
+	} catch (e) {
+		rows.value = [`${t("重新上传失败")}: ${e}`];
+	} finally {
+		finishLoading();
+	}
+}
+
+function reuploadSleepCustom(): void {
+	uni.showModal({
+		title: t("重新上传睡眠"),
+		content: t("请输入条数"),
+		editable: true,
+		placeholderText: "1",
+		confirmText: t("上传"),
+		cancelText: t("取消"),
+		success: (res) => {
+			if (res.confirm == false) return;
+			const count = parseInt((res.content ?? "").trim());
+			if (count <= 0 || isNaN(count)) {
+				uni.showToast({ title: t("请输入有效条数"), icon: "none" });
+				return;
+			}
+			reuploadSleep(count);
+		}
+	});
+}
+
 function getBatteryStatusLabel(value: number): string {
 	if (value == 1) return t("充电中");
 	if (value == 2) return t("充电完成");
@@ -177,11 +254,15 @@ function formatPpi(item: PpiData): string {
 
 function formatSleep(item: SleepData): string {
 	const detailLength = item.detail == null ? 0 : item.detail.length;
-	return `report=${formatSecTime(item.reportTimestamp)}, uploaded=${item.uploaded}, bedtime=${formatSecTime(item.bedtime)}, sleep=${formatSecTime(item.sleepTime)}, wake=${formatSecTime(item.wakeTime)}, getup=${formatSecTime(item.getupTime)}, count=${item.recordCount}, detailLen=${detailLength}, id=${item.id}`;
+	return `report=${formatSecTime(item.reportTimestamp)}, uploaded=${item.uploaded}, bedtime=${formatSecTime(item.bedtime)}, sleep=${formatSecTime(item.sleepTime)}, wake=${formatSecTime(item.wakeTime)}, getup=${formatSecTime(item.getupTime)}, detailLen=${detailLength}, id=${item.id}`;
 }
 
 function formatStats(item: UploadTableStats): string {
 	return `${item.tableName}: total=${item.total}, uploaded=${item.uploaded}, unuploaded=${item.unuploaded}, range=${formatSecTime(item.earliestTimestamp)} -> ${formatSecTime(item.latestTimestamp)}, latestUploaded=${formatSecTime(item.latestUploadedTimestamp)}, latestUnuploaded=${formatSecTime(item.latestUnuploadedTimestamp)}`;
+}
+
+function formatHistorySession(item: HistorySessionDiagnostics): string {
+	return `history session: pending=${item.pendingTasks}, pendingRange=${formatSecTime(item.firstPendingFromSec)} -> ${formatSecTime(item.lastPendingToSec)}, confirmedRanges=${item.confirmedRanges}, unuploaded=${item.unuploadedCount}, unuploadedRange=${formatSecTime(item.earliestUnuploadedSec)} -> ${formatSecTime(item.latestUnuploadedSec)}`;
 }
 
 async function loadOverview(): Promise<void> {
@@ -194,6 +275,7 @@ async function loadOverview(): Promise<void> {
 		const latestPpi = await bluetoothDataManager.getLatestPpiData();
 		const unuploadedPpi = await bluetoothDataManager.getUnuploadedPpiData();
 		const unuploadedSleep = await bluetoothDataManager.getUnuploadedSleepData();
+		const historySession = await bluetoothDataManager.getHistorySessionDiagnostics();
 		const result: string[] = [];
 		result.push(`realtime_broadcast_data count=${broadcastCount}`);
 		result.push(
@@ -204,6 +286,7 @@ async function loadOverview(): Promise<void> {
 		result.push(`ppi_data count=${ppiCount}, unuploaded=${unuploadedPpi.length}`);
 		result.push(latestPpi == null ? "latest ppi=无" : `latest ppi: ${formatPpi(latestPpi)}`);
 		result.push(`sleep_data count=${sleepCount}, unuploaded=${unuploadedSleep.length}`);
+		result.push(formatHistorySession(historySession));
 		rows.value = result;
 	} catch (e) {
 		rows.value = [`${t("查询失败")}: ${e}`];

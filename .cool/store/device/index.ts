@@ -208,7 +208,15 @@ export class Device {
 	}
 
 	/** 持久化绑定设备 ID */
-	saveBoundDevice(deviceId: string, deviceName: string = ""): void {
+	async saveBoundDevice(deviceId: string, deviceName: string = ""): Promise<void> {
+		const previousDeviceId = this.boundDeviceId;
+		if (previousDeviceId != "" && previousDeviceId != deviceId) {
+			logger.info(
+				"bluetooth",
+				`[DEVICE] 重新绑定设备，清空旧设备本地数据: ${previousDeviceId} -> ${deviceId}`
+			);
+			await bluetoothDataManager.clearAllData();
+		}
 		this.boundDeviceId = deviceId;
 		if (deviceName != "") {
 			this.boundDeviceName = deviceName;
