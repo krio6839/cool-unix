@@ -100,6 +100,19 @@ export class BluetoothManager implements IBluetooth {
 	private uuidString = "00001101-0000-1000-8000-00805F9B34FB";
 	private cccdUUID = "00002902-0000-1000-8000-00805f9b34fb";
 	private createBLEConnectionTimeout: number | null;
+	/**
+	 * 已 disconnect、但还没等到断开回调的 GATT client（按 deviceId 分组）。
+	 * Android 只有 `close()` 才会把 BluetoothGattCallback 从系统 BLE 栈注销；
+	 * 只调 `disconnect()` 的话，这个 client 的 onCharacteristicChanged /
+	 * onServicesDiscovered 会继续投递给当前注册的处理器，同一帧被解析多次。
+	 * 回调丢失时由下一次连接或 closeBluetoothAdapter 兜底 close()。
+	 */
+	private retiredGattClients: Map<string, BluetoothGatt[]>;
+	/**
+	 * 每个 deviceId 的连接代数，每次 createBLEConnection 递增。
+	 * 迟到的旧连接回调据此判断自己是否还代表当前连接。
+	 */
+	private gattEpoch: Map<string, number>;
 	private mOnBluetoothDeviceFoundCallback: OnBluetoothDeviceFoundCallback | null;
 	private mOnBLEConnectionStateChangeCallback: OnBLEConnectionStateChangeCallback | null;
 	private mOnBLECharacteristicValueChangeCallback: OnBLECharacteristicValueChangeCallback | null;
@@ -138,6 +151,8 @@ export class BluetoothManager implements IBluetooth {
 		this.mConnectedDevices = new Map<string, DeviceInfo>();
 
 		this.createBLEConnectionTimeout = null;
+		this.retiredGattClients = new Map<string, BluetoothGatt[]>();
+		this.gattEpoch = new Map<string, number>();
 		this.mOnBLEConnectionStateChangeCallback = null;
 		this.BLEDiscoveredServices = new Map<string, BluetoothGattService>();
 		this.mBLEDiscoveredServices = new Map<string, GetBLEDeviceServicesSuccessService[]>();
@@ -408,6 +423,9 @@ export class BluetoothManager implements IBluetooth {
 			this.mBluetoothAdapter!.cancelDiscovery();
 			// 清空本地列表
 			this._clearScanCaches();
+			// 先释放所有 GATT client 再清空本地表：只有 close() 会注销系统回调，
+			// 否则旧 client 会继续向之后注册的处理器投递通知。
+			this.closeAllGattClients();
 			this.mBLEDiscoveredServices.clear();
 			this.connectedDevices.clear();
 			this.mConnectedDevices.clear();
@@ -1071,6 +1089,13 @@ export class BluetoothManager implements IBluetooth {
 		}
 
 		try {
+			// 先释放同一设备上一次连接留下的 client，再建立新的。
+			this.closeRetiredGattClients(deviceId);
+			// 本次连接的代数：之后所有回调都用它判断自己是否还代表当前连接。
+			const currentEpoch = this.gattEpoch.get(deviceId);
+			let epoch = 1;
+			if (currentEpoch != null) epoch = currentEpoch + 1;
+			this.gattEpoch.set(deviceId, epoch);
 			const callback = new GattCallback(
 				(connected: boolean, gatt: BluetoothGatt) => {
 					/**
@@ -1093,6 +1118,11 @@ export class BluetoothManager implements IBluetooth {
 							clearTimeout(this.createBLEConnectionTimeout as number);
 							this.createBLEConnectionTimeout = null;
 						}
+						if (this.isRetiredGattClient(deviceId, gatt) == true) {
+							// 超时后才姗姗连上：这次连接已按失败上报，直接释放这个 client。
+							this.closeGattClient(deviceId, gatt, epoch);
+							return;
+						}
 						if (!this.connectedDevices.has(deviceId)) {
 							this.connectedDevices.set(deviceId, gatt);
 							this.mConnectedDevices.set(deviceId, deviceInfo);
@@ -1103,6 +1133,9 @@ export class BluetoothManager implements IBluetooth {
 							options?.success?.(res);
 							options?.complete?.(res);
 						}
+					} else {
+						// 断开必须 close()：只 disconnect() 的话这个 client 的回调会继续投递。
+						this.closeGattClient(deviceId, gatt, epoch);
 					}
 				},
 				(services: ArrayList<BluetoothGattService> | null) => {
@@ -1177,6 +1210,9 @@ export class BluetoothManager implements IBluetooth {
 				this.createBLEConnectionTimeout = setTimeout(() => {
 					// 连接超时主动断开连接服务
 					gatt.disconnect();
+					// 超时后断开回调不保证到达，先登记为待释放；
+					// 由断开回调、下一次连接或 closeBluetoothAdapter 兜底 close()。
+					this.retireGattClient(deviceId, gatt);
 					const res = new KuxBluetoothFailImpl(10012);
 					options?.fail?.(res);
 					options?.complete?.(res);
@@ -1588,6 +1624,87 @@ export class BluetoothManager implements IBluetooth {
 	}
 
 	/**
+	 * 关闭底层 GATT client，注销系统回调。重复调用是安全的（已 close 的对象内部已置空）。
+	 */
+	private closeGatt(gatt: BluetoothGatt | null) {
+		if (gatt == null) return;
+		try {
+			gatt.close();
+		} catch (error) {
+			console.log("释放 GATT client 失败:", error);
+		}
+	}
+
+	/** 登记一个已 disconnect、等待释放的 client；同一个对象不会重复登记。 */
+	private retireGattClient(deviceId: string, gatt: BluetoothGatt) {
+		const existing = this.retiredGattClients.get(deviceId);
+		if (existing == null) {
+			const created: BluetoothGatt[] = [];
+			created.push(gatt);
+			this.retiredGattClients.set(deviceId, created);
+			return;
+		}
+		if (existing.indexOf(gatt) >= 0) return;
+		existing.push(gatt);
+	}
+
+	private isRetiredGattClient(deviceId: string, gatt: BluetoothGatt): boolean {
+		const list = this.retiredGattClients.get(deviceId);
+		if (list == null) return false;
+		return list.indexOf(gatt) >= 0;
+	}
+
+	/**
+	 * 释放 client 并注销系统回调。
+	 * @param epoch 该 client 建立时的连接代数；只有仍是当前代数才清理连接缓存，
+	 *   否则迟到的旧连接回调会清掉重连后新对象的缓存，让后续读写拿到空对象。
+	 */
+	private closeGattClient(deviceId: string, gatt: BluetoothGatt | null, epoch: number) {
+		if (gatt == null) return;
+		const list = this.retiredGattClients.get(deviceId);
+		if (list != null) {
+			const index = list.indexOf(gatt);
+			if (index >= 0) list.splice(index, 1);
+		}
+		this.closeGatt(gatt);
+		if (this.gattEpoch.get(deviceId) === epoch) {
+			this.connectedDevices.delete(deviceId);
+			this.mConnectedDevices.delete(deviceId);
+			this.BLEDiscoveredServices.delete(deviceId);
+			this.mBLEDiscoveredServices.delete(deviceId);
+			this.BLEDeviceCharacteristics.delete(deviceId);
+			this.mBLEDeviceCharacteristics.delete(deviceId);
+		}
+	}
+
+	/**
+	 * 打开新连接前释放同一设备上一次留下的 client。
+	 * 断开回调可能丢失，靠这里兜底，避免系统 GATT client 注册数被漏掉的连接耗尽。
+	 */
+	private closeRetiredGattClients(deviceId: string) {
+		const list = this.retiredGattClients.get(deviceId);
+		if (list == null) return;
+		const pending = list.slice();
+		this.retiredGattClients.delete(deviceId);
+		for (let i = 0; i < pending.length; i++) {
+			this.closeGatt(pending[i]);
+		}
+	}
+
+	/** 关闭全部 client（含等待断开回调的残留 client）。 */
+	private closeAllGattClients() {
+		this.connectedDevices.forEach((gatt: BluetoothGatt) => {
+			this.closeGatt(gatt);
+		});
+		this.retiredGattClients.forEach((list: BluetoothGatt[]) => {
+			for (let i = 0; i < list.length; i++) {
+				this.closeGatt(list[i]);
+			}
+		});
+		this.retiredGattClients.clear();
+	}
+
+	/**
 	 * 断开蓝牙设备
 	 * @param { CloseBLEConnectionOptions } options 参数
 	 */
@@ -1607,6 +1724,9 @@ export class BluetoothManager implements IBluetooth {
 			const gatt = this.connectedDevices.get(deviceId)!;
 
 			gatt.disconnect();
+			// 断开回调到达时 close() 注销系统回调；这里必须先留下引用，
+			// 否则 client 会被系统继续持有并向之后注册的处理器投递通知。
+			this.retireGattClient(deviceId, gatt);
 			// 从已连接设备列表中删除
 			this.connectedDevices.delete(deviceId);
 			this.mConnectedDevices.delete(deviceId);

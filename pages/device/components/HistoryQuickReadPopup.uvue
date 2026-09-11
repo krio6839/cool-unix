@@ -1,0 +1,84 @@
+<template>
+	<cl-popup v-model="show" :title="t('快速历史读取')" direction="bottom" :size="680">
+		<scroll-view class="popup-body" scroll-y="true">
+			<text class="help">{{ t("连续读取近一天、三天或一周的历史数据。") }}</text>
+			<view class="range-grid">
+				<cl-button
+					v-for="days in [1, 3, 7]"
+					:key="days"
+					type="primary"
+					color="#0369a1"
+					rounded
+					size="small"
+					:disabled="props.busy"
+					@tap="emit('read-range', days)"
+					>{{ t("读取近") }} {{ days == 7 ? t("一周") : days + t("天") }}</cl-button
+				>
+			</view>
+			<view class="status-card">
+				<text>{{ props.status }}</text>
+				<text>{{ t("目标范围") }}：{{ props.days > 0 ? props.days + t("天") : "-" }}</text>
+				<text
+					>{{ t("页数") }}：{{ props.pages }} · {{ t("解析秒数") }}：{{
+						props.seconds
+					}}</text
+				>
+			</view>
+			<view class="range-grid"
+				><cl-button
+					type="primary"
+					color="#b45309"
+					rounded
+					size="small"
+					:disabled="props.busy == false"
+					@tap="emit('stop')"
+					>{{ t("停止当前读取") }}</cl-button
+				><cl-button
+					type="primary"
+					color="#047857"
+					rounded
+					size="small"
+					:disabled="props.busy || props.exportCount == 0"
+					@tap="emit('export')"
+					>{{ t("保存到下载") }}
+				</cl-button>
+			</view>
+		</scroll-view>
+	</cl-popup>
+</template>
+<script lang="ts" setup>
+import { t } from "@/.cool";
+import type { HistoryQuickReadPopupProps } from "./types";
+const show = defineModel("show", { default: false });
+const props = defineProps<HistoryQuickReadPopupProps>();
+const emit = defineEmits(["read-range", "stop", "export"]);
+</script>
+<style lang="scss" scoped>
+.popup-body {
+	height: 100%;
+	padding: 16px;
+	background-color: #111827;
+}
+.help {
+	color: #9ca3af;
+	font-size: 12px;
+	line-height: 18px;
+}
+.range-grid {
+	display: flex;
+	flex-direction: row;
+	flex-wrap: wrap;
+	margin: 12px 0;
+}
+
+.status-card {
+	padding: 12px;
+	border-radius: 8px;
+	background-color: #1f2937;
+	color: #dbeafe;
+	display: flex;
+	flex-direction: column;
+	font-size: 12px;
+	line-height: 18px;
+}
+</style>

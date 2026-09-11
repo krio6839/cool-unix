@@ -1,0 +1,33 @@
+import ContentValues from "android.content.ContentValues";
+import Environment from "android.os.Environment";
+import MediaStore from "android.provider.MediaStore";
+import OutputStreamWriter from "java.io.OutputStreamWriter";
+
+/**
+ * Android 10 及以后通过 MediaStore 写公共下载目录，不依赖应用私有沙盒路径。
+ * 系统文件管理器中路径为 Download/BOOM/<fileName>。
+ */
+export function saveCsvToDownloads(fileName: string, content: string): string {
+	const activity = UTSAndroid.getUniActivity();
+	if (activity == null) throw new Error("当前没有可用的 Android Activity");
+
+	const values = new ContentValues();
+	values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
+	values.put(MediaStore.MediaColumns.MIME_TYPE, "text/csv");
+	values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/BOOM");
+
+	const resolver = activity.getContentResolver();
+	const uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+	if (uri == null) throw new Error("无法创建下载文件");
+
+	const output = resolver.openOutputStream(uri);
+	if (output == null) throw new Error("无法打开下载文件");
+	const writer = new OutputStreamWriter(output, "UTF-8");
+	try {
+		writer.write(content);
+		writer.flush();
+	} finally {
+		writer.close();
+	}
+	return "Download/BOOM/" + fileName;
+}

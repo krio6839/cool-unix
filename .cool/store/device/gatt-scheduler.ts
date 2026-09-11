@@ -10,7 +10,8 @@ const EVENT_SYNC_MAX_COUNT = 10;
 const EVENT_SYNC_MAX_PAGES = 20;
 const EVENT_SYNC_TIMEOUT_MS = 10000;
 const EVENT_SYNC_AFTER_CONNECT_DELAY_MS = 800;
-const GATT_FLUSH_BUDGET_MS = 90 * 1000;
+/** 一次 flush 最多占用 GATT 多久；到点必须断开回广播。 */
+const GATT_FLUSH_BUDGET_MS = 120 * 1000;
 const TIMESTAMP_VERIFY_TIMEOUT_MS = 3000;
 
 export type GattQueueTask = {
@@ -42,6 +43,11 @@ export class DeviceGattScheduler {
 	private pendingFlushReason: GattFlushReason | "" = "";
 	private pauseCurrentFlush: boolean = false;
 	private runningTask: GattQueueTask | null = null;
+	/**
+	 * 本轮 flush 已执行过、又回队的任务 key。
+	 * 同一轮内不再重复取用，否则回队任务会立刻再次命中预算检查，空转到整轮超时。
+	 */
+	private flushDeferredKeys = new Map<string, boolean>();
 
 	constructor(device: Device) {
 		this.device = device;
@@ -70,7 +76,10 @@ export class DeviceGattScheduler {
 
 	enqueueEventBackfill(deviceId: string, reason: DeviceSyncReason): boolean {
 		if (deviceId == "") return false;
-		if (this.hasTaskKind("readEvent") == true) return false;
+		// 因通道忙回队的事件任务还在排队：不重复入队，但仍要触发 flush，
+		// 否则它会一直等到下一次 eventSeq 变化才被执行。
+		if (this.hasQueuedTaskKind("readEvent") == true) return true;
+		if (this.isTaskRunning("readEvent") == true) return false;
 		const task = this.makeTask("readEvent", "normal");
 		task.deviceId = deviceId;
 		task.eventSeq = -1;
@@ -159,8 +168,8 @@ export class DeviceGattScheduler {
 		return -1;
 	}
 
-	private hasTaskKind(kind: GattQueueTaskKind): boolean {
-		if (this.isTaskRunning(kind) == true) return true;
+	/** 只检查排队中的任务，不包含正在执行的那个。 */
+	private hasQueuedTaskKind(kind: GattQueueTaskKind): boolean {
 		for (let i = 0; i < this.tasks.length; i++) {
 			if (this.tasks[i].kind == kind) return true;
 		}
@@ -178,6 +187,7 @@ export class DeviceGattScheduler {
 		this.flushing = true;
 		this.pendingFlushReason = "";
 		this.pauseCurrentFlush = false;
+		this.flushDeferredKeys.clear();
 		let shouldContinueFlush = false;
 		const startedAt = Date.now();
 		let connected = false;
@@ -222,13 +232,13 @@ export class DeviceGattScheduler {
 			if (connected == true) {
 				if (this.shouldRestoreBroadcast() == true) {
 					try {
-						await this.device.connection.switchToBroadcastMode(false);
+						await this.device.connection.switchToBroadcastMode();
 					} catch (e) {
 						logger.warn("bluetooth", "[BOOM-SCHED] 恢复广播失败:", e);
 					}
 				} else {
 					try {
-						await this.device.connection.disconnectDevice(false);
+						await this.device.connection.disconnectDevice();
 					} catch (e) {
 						logger.warn("bluetooth", "[BOOM-SCHED] 断开 GATT 失败:", e);
 					}
@@ -247,15 +257,18 @@ export class DeviceGattScheduler {
 
 	private takeNextTask(): GattQueueTask | null {
 		if (this.tasks.length == 0) return null;
-		let index = 0;
-		let score = this.getTaskSortScore(this.tasks[0]);
-		for (let i = 1; i < this.tasks.length; i++) {
+		let index = -1;
+		let score = 0;
+		for (let i = 0; i < this.tasks.length; i++) {
+			// 本轮已经跑过又回队的任务留到下一轮，避免同一轮内反复命中预算检查。
+			if (this.flushDeferredKeys.get(this.tasks[i].key) == true) continue;
 			const itemScore = this.getTaskSortScore(this.tasks[i]);
-			if (itemScore < score) {
+			if (index < 0 || itemScore < score) {
 				index = i;
 				score = itemScore;
 			}
 		}
+		if (index < 0) return null;
 		const task = this.tasks[index];
 		this.tasks.splice(index, 1);
 		return task;
@@ -354,7 +367,6 @@ export class DeviceGattScheduler {
 		const isBackfill = task.eventSeq < 0;
 		const endSec = Math.floor(Date.now() / 1000) + 60;
 		const startSec = endSec - EVENT_SYNC_WINDOW_SECONDS;
-		// 读事件期间没有广播，结束后顺手补最近生命体征，填上处理事件时漏掉的 0x50。
 		logger.info(
 			"bluetooth",
 			`[BOOM-EVENT] 开始读取${isBackfill ? "事件兜底" : "新事件"}: device=${task.deviceId}, eventSeq=${task.eventSeq}, window=${startSec}~${endSec}, maxCount=${EVENT_SYNC_MAX_COUNT}`
@@ -384,11 +396,8 @@ export class DeviceGattScheduler {
 				`[BOOM-EVENT] 新事件解析结果:\n${this.device.history.formatEventAutoBrief(result.items, 20)}`
 			);
 		}
-		const vital = await this.device.history.readRecentVitalWindow();
-		logger.info(
-			"bluetooth",
-			`[BOOM-HISTORY] 事件后补最近2分钟: status=${vital.status}, pages=${vital.pages}, saved=${vital.savedRecords}, uploadScheduled=${vital.uploadScheduled}`
-		);
+		// 读事件期间停广播留下的秒级空洞不在这里补：交给下一轮自动历史检查，
+		// 由 recent / incremental 任务按统一记账补回，避免第二条绕过任务表的写入路径。
 	}
 
 	private async runHistoryRepair(
@@ -414,6 +423,7 @@ export class DeviceGattScheduler {
 
 	private requeueTask(task: GattQueueTask): void {
 		this.upsertTask(task);
+		this.flushDeferredKeys.set(task.key, true);
 		logger.info("bluetooth", `[BOOM-SCHED] 任务回队: seq=${task.seq}, key=${task.key}`);
 	}
 
@@ -424,7 +434,11 @@ export class DeviceGattScheduler {
 			const runner = task.manualRunner;
 			if (runner != null) ok = await runner();
 		} catch (e) {
-			logger.warn("bluetooth", `[BOOM-SCHED] 手动 GATT 任务异常: ${task.manualName}`, e);
+			// Android 日志将 Error 对象序列化为 {}，必须写入字符串才方便定位测试命令异常。
+			logger.warn(
+				"bluetooth",
+				`[BOOM-SCHED] 手动 GATT 任务异常: ${task.manualName}, error=${e}`
+			);
 			ok = false;
 		} finally {
 			const resolve = task.manualResolve;

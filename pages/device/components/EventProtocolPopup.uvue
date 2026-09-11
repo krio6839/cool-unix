@@ -1,0 +1,150 @@
+<template>
+	<cl-popup v-model="show" :title="t('事件协议 0x3C/0x3D')" direction="bottom" :size="680"
+		><scroll-view class="popup-body" scroll-y="true"
+			><view class="form-card"
+				><text class="title">{{ t("手动读取事件") }}</text
+				><cl-select class="form-field" v-model="type" :options="typeOptions" />
+				<cl-select-date
+					v-if="type == 1"
+					v-model:values="timeRange"
+					type="second"
+					rangeable
+					:value-format="timeFormat"
+					:label-format="timeFormat"
+					:start-placeholder="t('选择开始时间')"
+					:end-placeholder="t('选择结束时间')"
+					class="form-field"
+				/>
+				<text v-if="type == 1" class="protocol-seconds">{{ rangeSecText }}</text>
+				<cl-input
+					class="form-field"
+					v-model="maxCount"
+					type="number"
+					:placeholder="t('每批条数')"
+				/><cl-button
+					class="form-field"
+					type="primary"
+					color="#991b1b"
+					rounded
+					size="small"
+					:disabled="props.busy"
+					@tap="submitEvent"
+					>{{ t("发送 0x3C 并连续读取 0x3D") }}</cl-button
+				><cl-button
+					class="form-field"
+					type="primary"
+					color="#b45309"
+					rounded
+					size="small"
+					:disabled="props.busy == false"
+					@tap="emit('stop')"
+					>{{ t("停止事件读取") }}</cl-button
+				></view
+			><text v-if="formError != ''" class="form-error">{{ formError }}</text> ><view
+				v-if="props.hasData"
+				class="result-card"
+				><text class="title">{{ t("事件结果") }}</text
+				><text>{{ props.eventHeader }}</text
+				><text>{{ t("事件数量") }}：{{ props.eventCount }}</text
+				><text>{{ props.eventItems }}</text
+				><text>{{ props.autoDetail }}</text
+				><text>{{ t("原始数据") }}：{{ props.rawHex }}</text></view
+			></scroll-view
+		></cl-popup
+	>
+</template>
+<script lang="ts" setup>
+import { computed, ref } from "vue";
+import { dayUts, t } from "@/.cool";
+import type { ClSelectOption } from "@/uni_modules/cool-ui";
+import type { EventProtocolPopupProps } from "./types";
+const show = defineModel("show", { default: false });
+const props = defineProps<EventProtocolPopupProps>();
+const emit = defineEmits(["submit", "stop"]);
+const type = ref(1);
+const timeFormat = "YYYY-MM-DD HH:mm:ss";
+function formatPickerTime(sec: number): string {
+	return dayUts(new Date(sec * 1000)).format(timeFormat);
+}
+function toUnixSec(value: string): number {
+	if (value == "") return 0;
+	const ms = dayUts(value).valueOf();
+	return Number.isNaN(ms) ? 0 : Math.floor(ms / 1000);
+}
+const nowSec = Math.floor(Date.now() / 1000);
+const timeRange = ref<string[]>([
+	formatPickerTime(nowSec - 24 * 60 * 60),
+	formatPickerTime(nowSec)
+]);
+const maxCount = ref("30");
+const formError = ref("");
+const rangeSecText = computed<string>(() => {
+	if (timeRange.value.length < 2) return t("协议秒") + "：-";
+	const startSec = toUnixSec(timeRange.value[0]);
+	const endSec = toUnixSec(timeRange.value[1]);
+	return `${t("协议秒")}: ${startSec > 0 ? startSec : "-"} ~ ${endSec > 0 ? endSec : "-"}`;
+});
+const typeOptions: ClSelectOption[] = [
+	{ label: t("按时间读取 (1)"), value: 1 },
+	{ label: t("读取全部 (0)"), value: 0 }
+];
+function submitEvent(): void {
+	let startSec = 0;
+	let endSec = 0;
+	if (type.value == 1) {
+		if (timeRange.value.length < 2) {
+			formError.value = t("请选择开始和结束时间");
+			return;
+		}
+		startSec = toUnixSec(timeRange.value[0]);
+		endSec = toUnixSec(timeRange.value[1]);
+		if (startSec <= 0 || endSec <= startSec) {
+			formError.value = t("结束时间必须晚于开始时间");
+			return;
+		}
+	}
+	formError.value = "";
+	emit("submit", {
+		type: type.value,
+		startSec: startSec.toString(),
+		endSec: endSec.toString(),
+		maxCount: maxCount.value
+	});
+}
+</script>
+<style lang="scss" scoped>
+.popup-body {
+	height: 100%;
+	padding: 16px;
+	background-color: #111827;
+}
+.form-card,
+.result-card {
+	padding: 12px;
+	margin-bottom: 12px;
+	border-radius: 8px;
+	background-color: #1f2937;
+	display: flex;
+	flex-direction: column;
+	color: #e5e7eb;
+	font-size: 12px;
+	line-height: 18px;
+}
+
+.title {
+	color: #fff;
+	font-size: 14px;
+	font-weight: 700;
+}
+.form-field,
+.protocol-seconds,
+.form-error {
+	margin-top: 9px;
+}
+.protocol-seconds {
+	color: #93c5fd;
+}
+.form-error {
+	color: #fecaca;
+}
+</style>

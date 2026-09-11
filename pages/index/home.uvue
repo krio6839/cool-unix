@@ -179,22 +179,35 @@ function stopRefreshTimer() {
 	}
 }
 
-function refreshHomeData() {
+/**
+ * 刷新在途标记：/go 超时 120 秒而轮询间隔 30 秒，不拦在途请求会在后端变慢时堆叠多个请求，
+ * 它们的拒绝又在同一次回调里一起落地。onMounted 与 onShow 也会各触发一次。
+ */
+let refreshPending = false;
+
+async function refreshHomeData(showError: boolean) {
 	const deviceId = device.boundDeviceId;
 	if (deviceId == "") return;
-	home.fetch(deviceId).catch((err) => {
+	if (refreshPending == true) return;
+	refreshPending = true;
+	try {
+		await home.fetch(deviceId, showError ? "toast" : "none");
+	} catch (err) {
 		console.warn("首页数据刷新失败:", err);
-	});
+	} finally {
+		refreshPending = false;
+	}
 }
 
 function startRefreshTimer() {
 	stopRefreshTimer();
 	onlineTick.value = Date.now();
-	refreshHomeData();
+	refreshHomeData(true);
 	// @ts-ignore
 	refreshTimer = setInterval(() => {
 		onlineTick.value = Date.now();
-		refreshHomeData();
+		// 常驻轮询不弹提示：后端异常时每一轮都提示会盖住当前操作。
+		refreshHomeData(false);
 	}, REFRESH_INTERVAL);
 }
 

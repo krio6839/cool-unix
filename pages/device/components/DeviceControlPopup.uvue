@@ -1,0 +1,175 @@
+<template>
+	<cl-popup v-model="show" :title="t('设备控制')" direction="bottom" :size="680"
+		><scroll-view class="popup-body" scroll-y="true"
+			><view v-if="form == '0x31' || form == '0x35'" class="form-card"
+				><text class="title">{{
+					form == "0x31" ? t("设置设备编号") : t("设置生物识别")
+				}}</text
+				><cl-input
+					v-if="form == '0x31'"
+					v-model="deviceNumber"
+					:placeholder="t('设备编号')"
+					:maxlength="29"
+				></cl-input
+				><view v-else class="bio-fields"
+					><cl-select v-model="gender" :options="genderOptions"></cl-select
+					><cl-input v-model="weight" type="number" :placeholder="t('体重')"></cl-input
+					><cl-input v-model="height" type="number" :placeholder="t('身高')"></cl-input
+					><cl-input v-model="age" type="number" :placeholder="t('年龄')"></cl-input
+					><cl-input v-model="bhr" type="number" :placeholder="t('BHR')"></cl-input></view
+				><view class="form-actions"
+					><cl-button type="light" size="small" @tap="form = ''">{{
+						t("取消")
+					}}</cl-button
+					><cl-button
+						type="primary"
+						size="small"
+						:disabled="props.busy"
+						@tap="submitForm"
+						>{{ t("发送") }}</cl-button
+					></view
+				></view
+			>
+			><view class="button-grid"
+				><cl-button
+					v-for="item in reads"
+					:key="item.cmd"
+					type="primary"
+					color="#334155"
+					rounded
+					size="small"
+					:disabled="disabled(item.cmd)"
+					@tap="emit('command', item.cmd)"
+					>{{ item.label }}</cl-button
+				><cl-button
+					type="primary"
+					color="#475569"
+					rounded
+					size="small"
+					:disabled="disabled('0x31')"
+					@tap="form = '0x31'"
+					>{{ t("写设备编号") }}</cl-button
+				><cl-button
+					type="primary"
+					color="#475569"
+					rounded
+					size="small"
+					:disabled="disabled('0x35')"
+					@tap="form = '0x35'"
+					>{{ t("写生物识别") }}</cl-button
+				><cl-button
+					type="primary"
+					color="#64748b"
+					rounded
+					size="small"
+					:disabled="disabled('0x40')"
+					@tap="emit('command', '0x40')"
+					>{{ t("震动") }}</cl-button
+				><cl-button
+					type="primary"
+					color="#334155"
+					rounded
+					size="small"
+					:disabled="props.busy"
+					@tap="emit('command', 'disconnect')"
+					>{{ t("断开连接") }}</cl-button
+				><cl-button
+					type="primary"
+					color="#334155"
+					rounded
+					size="small"
+					:disabled="props.busy"
+					@tap="emit('command', 'restore')"
+					>{{ t("恢复广播") }}</cl-button
+				><cl-button
+					type="primary"
+					color="#475569"
+					rounded
+					size="small"
+					:disabled="props.busy"
+					@tap="emit('command', 'clear-error')"
+					>{{ t("清除错误") }}</cl-button
+				></view
+			></scroll-view
+		></cl-popup
+	>
+</template>
+<script lang="ts" setup>
+import { ref } from "vue";
+import { t } from "@/.cool";
+import type { DeviceControlPopupProps, DeviceReadItem } from "./types";
+const show = defineModel("show", { default: false });
+const props = defineProps<DeviceControlPopupProps>();
+const emit = defineEmits(["command", "submit-form"]);
+const form = ref<"" | "0x31" | "0x35">("");
+const deviceNumber = ref("");
+const gender = ref(0);
+const weight = ref("7000");
+const height = ref("18000");
+const age = ref("20");
+const bhr = ref("60");
+const genderOptions = [
+	{ label: t("男 (0)"), value: 0 },
+	{ label: t("女 (1)"), value: 1 }
+];
+function submitForm(): void {
+	if (form.value == "0x31")
+		emit("submit-form", { type: form.value, deviceNumber: deviceNumber.value });
+	if (form.value == "0x35")
+		emit("submit-form", {
+			type: form.value,
+			gender: gender.value,
+			weight: weight.value,
+			height: height.value,
+			age: age.value,
+			bhr: bhr.value
+		});
+	form.value = "";
+}
+const reads: DeviceReadItem[] = [
+	{ cmd: "0x30", label: t("0x30 读固件") },
+	{ cmd: "0x32", label: t("0x32 读设备编号") },
+	{ cmd: "0x34", label: t("0x34 读时戳") },
+	{ cmd: "0x36", label: t("0x36 读生物识别") }
+];
+function disabled(cmd: string): boolean {
+	return cmd == "disconnect" || cmd == "restore" || cmd == "clear-error"
+		? props.busy
+		: props.isDisabled(cmd);
+}
+</script>
+<style lang="scss" scoped>
+.popup-body {
+	height: 100%;
+	padding: 16px;
+	background-color: #111827;
+}
+.button-grid {
+	display: flex;
+	flex-direction: row;
+	flex-wrap: wrap;
+}
+
+.form-card,
+.bio-fields {
+	display: flex;
+	flex-direction: column;
+}
+
+.form-card {
+	padding: 12px;
+	margin-bottom: 12px;
+	border-radius: 8px;
+	background-color: #1f2937;
+}
+.title {
+	color: #fff;
+	font-size: 14px;
+	font-weight: 700;
+}
+.form-actions {
+	display: flex;
+	flex-direction: row;
+	margin-top: 4px;
+}
+</style>

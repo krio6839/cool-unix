@@ -132,9 +132,18 @@ export async function createRuntime(t) {
 			if (
 				[
 					"./database",
+					"../database",
 					"./history-schema",
 					"./history-progress",
+					"./history-coverage",
+					"./history-coverage-service",
+					"./coverage",
+					"./coverage-service",
+					"../boom-types",
+					"./history/progress",
+					"./history/coverage-service",
 					"../../bluetooth/history-progress",
+					"../../bluetooth/history/progress",
 					"./boom-parser",
 					"./boom-bytes",
 					"./boom-constants"
@@ -205,7 +214,11 @@ export async function createRuntime(t) {
 	state.request = cache.get(".cool/service/index.ts").namespace.request;
 	state.seed = (count) => {
 		const insert = db.prepare("INSERT INTO ppi_data VALUES (?, ?, 60, 0, 1000, 0)");
-		for (let i = 1; i <= count; i++) insert.run(String(i), i);
+		const base = Math.floor(Date.now() / 1000) - count - 10;
+		for (let i = 1; i <= count; i++) {
+			const timestamp = base + i;
+			insert.run(String(timestamp), timestamp);
+		}
 	};
 	return state;
 }

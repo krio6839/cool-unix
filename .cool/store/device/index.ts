@@ -534,7 +534,7 @@ export class Device {
 
 			// 1. 断开 BLE(删除场景不恢复绑定广播扫描)
 			try {
-				await this.connection.disconnectGattOnly(false);
+				await this.connection.disconnectGattOnly();
 			} catch (e) {
 				logger.warn(
 					"bluetooth",

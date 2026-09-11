@@ -1,150 +1,188 @@
 <template>
-	<cl-popup v-model="show" :title="t('本地数据库查询')" direction="bottom" :size="680">
+	<cl-popup v-model="show" :title="t('数据诊断')" direction="bottom" :size="680">
 		<scroll-view class="p-4 db-popup" scroll-y="true" style="height: 100%">
-			<view class="mb-4 p-3 bg-gray-800 rounded">
-				<view class="flex flex-row flex-wrap">
-					<cl-button
-						type="primary"
-						color="#256"
-						rounded
-						size="small"
-						class="mr-2 mb-2"
-						:disabled="loading"
-						@tap="loadOverview"
-					>
-						{{ t("总览") }}
-					</cl-button>
-					<cl-button
-						type="primary"
-						color="#256"
-						rounded
-						size="small"
-						class="mr-2 mb-2"
-						:disabled="loading"
-						@tap="loadBroadcastRows"
-					>
-						{{ t("最近广播") }}
-					</cl-button>
-					<cl-button
-						type="primary"
-						color="#265"
-						rounded
-						size="small"
-						class="mr-2 mb-2"
-						:disabled="loading"
-						@tap="loadPpiRows"
-					>
-						{{ t("最近PPI") }}
-					</cl-button>
-					<cl-button
-						type="primary"
-						color="#526"
-						rounded
-						size="small"
-						class="mr-2 mb-2"
-						:disabled="loading"
-						@tap="loadUploadQueues"
-					>
-						{{ t("待上传") }}
-					</cl-button>
-					<cl-button
-						type="primary"
-						color="#725"
-						rounded
-						size="small"
-						class="mr-2 mb-2"
-						:disabled="loading"
-						@tap="loadUploadAudit"
-					>
-						{{ t("上传核验") }}
-					</cl-button>
-					<cl-button
-						type="primary"
-						color="#275"
-						rounded
-						size="small"
-						class="mr-2 mb-2"
-						:disabled="loading"
-						@tap="loadUploadedRows"
-					>
-						{{ t("最近已上传") }}
-					</cl-button>
-					<cl-button
-						type="primary"
-						color="#742"
-						rounded
-						size="small"
-						class="mr-2 mb-2"
-						:disabled="loading"
-						@tap="loadUnuploadedRows"
-					>
-						{{ t("最近未上传") }}
-					</cl-button>
-					<cl-button
-						type="primary"
-						color="#347"
-						rounded
-						size="small"
-						class="mr-2 mb-2"
-						:disabled="loading"
-						@tap="loadSleepRows"
-					>
-						{{ t("最近睡眠") }}
-					</cl-button>
-					<cl-button type="light" rounded size="small" class="mr-2 mb-2" @tap="clearRows">
-						{{ t("清空") }}
-					</cl-button>
-				</view>
-				<cl-text color="gray-400" :size="12">
-					{{ t("只查询，不清库不上传。列表最多显示 10 条，uploaded=1 表示已上传。") }}
-				</cl-text>
+			<view class="diagnostic-tabs">
+				<cl-button type="light" size="small" @tap="tab = 'database'">数据库</cl-button>
+				<cl-button type="light" size="small" @tap="tab = 'protocol'">协议日志</cl-button>
+				<cl-button type="light" size="small" @tap="tab = 'diagnostic'">诊断日志</cl-button>
 			</view>
-
-			<view class="mb-4 p-3 bg-gray-800 rounded">
-				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-					{{ t("重新上传睡眠") }}
-				</cl-text>
-				<view class="flex flex-row flex-wrap">
+			<view v-if="tab != 'database'" class="log-card">
+				<view class="log-toolbar">
 					<cl-button
-						v-for="count in [1, 2, 3]"
-						:key="count"
-						type="primary"
-						color="#526"
-						rounded
+						v-if="tab == 'diagnostic'"
+						type="light"
 						size="small"
-						class="mr-2 mb-2"
-						:disabled="loading"
-						@tap="reuploadSleep(count)"
+						@tap="loadDiagnosticLogs"
+						>刷新诊断日志</cl-button
 					>
-						{{ t("上传") }} {{ count }} {{ t("条") }}
+					<cl-button type="primary" color="#2563eb" size="small" @tap="copyVisibleLogs">
+						复制当前日志
 					</cl-button>
-					<cl-button
-						type="primary"
-						color="#526"
-						rounded
-						size="small"
-						class="mr-2 mb-2"
-						:disabled="loading"
-						@tap="reuploadSleepCustom"
-					>
-						{{ t("自定义") }}
+					<cl-button type="primary" color="#0f766e" size="small" @tap="exportVisibleLogs">
+						导出当前日志
 					</cl-button>
 				</view>
-				<cl-text color="gray-400" :size="12">
-					{{ t("按最近的已上传睡眠记录重新发送，不修改上传状态。") }}
-				</cl-text>
+				<text
+					v-for="(line, i) in tab == 'protocol' ? protocolLogs : diagnosticRows"
+					:key="i"
+					>{{ line }}</text
+				>
+				<text v-if="(tab == 'protocol' ? protocolLogs : diagnosticRows).length == 0"
+					>暂无日志</text
+				>
 			</view>
-
-			<view class="mb-3 p-3 bg-gray-800 rounded">
-				<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
-					{{ titleText }}
-				</cl-text>
-				<view v-if="rows.length == 0" class="py-4">
-					<cl-text color="gray-400" :size="13">{{ t("暂无查询结果") }}</cl-text>
+			<view v-if="tab == 'database'">
+				<view class="mb-4 p-3 bg-gray-800 rounded">
+					<view class="flex flex-row flex-wrap">
+						<cl-button
+							type="primary"
+							color="#256"
+							rounded
+							size="small"
+							class="mr-2 mb-2"
+							:disabled="loading"
+							@tap="loadOverview"
+						>
+							{{ t("总览") }}
+						</cl-button>
+						<cl-button
+							type="primary"
+							color="#256"
+							rounded
+							size="small"
+							class="mr-2 mb-2"
+							:disabled="loading"
+							@tap="loadBroadcastRows"
+						>
+							{{ t("最近广播") }}
+						</cl-button>
+						<cl-button
+							type="primary"
+							color="#265"
+							rounded
+							size="small"
+							class="mr-2 mb-2"
+							:disabled="loading"
+							@tap="loadPpiRows"
+						>
+							{{ t("最近PPI") }}
+						</cl-button>
+						<cl-button
+							type="primary"
+							color="#526"
+							rounded
+							size="small"
+							class="mr-2 mb-2"
+							:disabled="loading"
+							@tap="loadUploadQueues"
+						>
+							{{ t("待上传") }}
+						</cl-button>
+						<cl-button
+							type="primary"
+							color="#725"
+							rounded
+							size="small"
+							class="mr-2 mb-2"
+							:disabled="loading"
+							@tap="loadUploadAudit"
+						>
+							{{ t("上传核验") }}
+						</cl-button>
+						<cl-button
+							type="primary"
+							color="#275"
+							rounded
+							size="small"
+							class="mr-2 mb-2"
+							:disabled="loading"
+							@tap="loadUploadedRows"
+						>
+							{{ t("最近已上传") }}
+						</cl-button>
+						<cl-button
+							type="primary"
+							color="#742"
+							rounded
+							size="small"
+							class="mr-2 mb-2"
+							:disabled="loading"
+							@tap="loadUnuploadedRows"
+						>
+							{{ t("最近未上传") }}
+						</cl-button>
+						<cl-button
+							type="primary"
+							color="#347"
+							rounded
+							size="small"
+							class="mr-2 mb-2"
+							:disabled="loading"
+							@tap="loadSleepRows"
+						>
+							{{ t("最近睡眠") }}
+						</cl-button>
+						<cl-button
+							type="light"
+							rounded
+							size="small"
+							class="mr-2 mb-2"
+							@tap="clearRows"
+						>
+							{{ t("清空") }}
+						</cl-button>
+					</view>
+					<cl-text color="gray-400" :size="12">
+						{{ t("只查询，不清库不上传。列表最多显示 10 条，uploaded=1 表示已上传。") }}
+					</cl-text>
 				</view>
-				<view v-for="(row, index) in rows" :key="index" class="db-row">
-					<text class="db-row-index">#{{ index + 1 }}</text>
-					<text class="db-row-text">{{ row }}</text>
+
+				<view class="mb-4 p-3 bg-gray-800 rounded">
+					<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+						{{ t("重新上传睡眠") }}
+					</cl-text>
+					<view class="flex flex-row flex-wrap">
+						<cl-button
+							v-for="count in [1, 2, 3]"
+							:key="count"
+							type="primary"
+							color="#526"
+							rounded
+							size="small"
+							class="mr-2 mb-2"
+							:disabled="loading"
+							@tap="reuploadSleep(count)"
+						>
+							{{ t("上传") }} {{ count }} {{ t("条") }}
+						</cl-button>
+						<cl-button
+							type="primary"
+							color="#526"
+							rounded
+							size="small"
+							class="mr-2 mb-2"
+							:disabled="loading"
+							@tap="reuploadSleepCustom"
+						>
+							{{ t("自定义") }}
+						</cl-button>
+					</view>
+					<cl-text color="gray-400" :size="12">
+						{{ t("按最近的已上传睡眠记录重新发送，不修改上传状态。") }}
+					</cl-text>
+				</view>
+
+				<view class="mb-3 p-3 bg-gray-800 rounded">
+					<cl-text color="white" :size="14" :pt="{ className: 'font-bold mb-2' }">
+						{{ titleText }}
+					</cl-text>
+					<view v-if="rows.length == 0" class="py-4">
+						<cl-text color="gray-400" :size="13">{{ t("暂无查询结果") }}</cl-text>
+					</view>
+					<view v-for="(row, index) in rows" :key="index" class="db-row">
+						<text class="db-row-index">#{{ index + 1 }}</text>
+						<text class="db-row-text">{{ row }}</text>
+					</view>
 				</view>
 			</view>
 		</scroll-view>
@@ -153,8 +191,8 @@
 
 <script lang="ts" setup>
 //#ifndef H5
-import { ref } from "vue";
-import { bluetoothDataManager, t } from "@/.cool";
+import { computed, ref, watch } from "vue";
+import { bluetoothDataManager, diagnostics, t } from "@/.cool";
 import type {
 	PpiData,
 	RealtimeBroadcastRecord,
@@ -162,9 +200,69 @@ import type {
 	UploadTableStats,
 	HistorySessionDiagnostics
 } from "@/.cool";
+import type { DataDiagnosticsPopupProps } from "./types";
+import { saveCsvToDownloads } from "@/uni_modules/boom-csv-saver";
 
 const show = defineModel("show", {
 	default: false
+});
+const props = defineProps<DataDiagnosticsPopupProps>();
+const protocolLogs = computed<string[]>((): string[] => {
+	const value = props.protocolLogs;
+	if (value == null) return [];
+	return value;
+});
+const diagnosticLogs = computed<string[]>((): string[] => {
+	const value = props.diagnosticLogs;
+	if (value == null) return [];
+	return value;
+});
+const diagnosticRows = ref<string[]>(diagnosticLogs.value);
+const tab = ref<"database" | "protocol" | "diagnostic">("database");
+
+function visibleLogLines(): string[] {
+	return tab.value == "protocol" ? protocolLogs.value : diagnosticRows.value;
+}
+
+function visibleLogText(): string {
+	return visibleLogLines().join("\n");
+}
+
+function copyVisibleLogs(): void {
+	const text = visibleLogText();
+	if (text.length == 0) {
+		uni.showToast({ title: t("暂无日志"), icon: "none" });
+		return;
+	}
+	uni.setClipboardData({
+		data: text,
+		success: () => {
+			uni.showToast({ title: t("已复制当前日志"), icon: "success" });
+		}
+	});
+}
+
+function exportVisibleLogs(): void {
+	const text = visibleLogText();
+	if (text.length == 0) {
+		uni.showToast({ title: t("暂无日志"), icon: "none" });
+		return;
+	}
+	const prefix = tab.value == "protocol" ? "protocol-log" : "diagnostic-log";
+	const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+	try {
+		const path = saveCsvToDownloads(`${prefix}-${stamp}.txt`, text);
+		uni.showToast({ title: `${t("已导出")}: ${path}`, icon: "success" });
+	} catch (e) {
+		uni.showToast({ title: `${t("导出失败")}: ${e}`, icon: "none" });
+	}
+}
+
+async function loadDiagnosticLogs(): Promise<void> {
+	diagnosticRows.value = await diagnostics.getLogsAsync(200);
+}
+watch(show, (visible: boolean) => {
+	if (visible) void loadDiagnosticLogs();
 });
 
 const loading = ref<boolean>(false);
@@ -444,23 +542,58 @@ async function loadUploadQueues(): Promise<void> {
 	background-color: #2b2c28;
 }
 
+.diagnostic-tabs {
+	display: flex;
+	flex-direction: row;
+	flex-wrap: wrap;
+	margin-bottom: 12px;
+}
+
+.diagnostic-tabs .cl-button {
+	margin-right: 8px;
+	margin-bottom: 8px;
+}
+
+.log-toolbar {
+	display: flex;
+	flex-direction: row;
+	flex-wrap: wrap;
+	margin-bottom: 12px;
+}
+
+.log-toolbar .cl-button {
+	margin-right: 8px;
+	margin-bottom: 8px;
+}
+
+.log-card {
+	padding: 12px;
+	margin-bottom: 12px;
+	border-radius: 8px;
+	background-color: #111827;
+	display: flex;
+	flex-direction: column;
+	color: #f8fafc;
+	font-size: 12px;
+	line-height: 18px;
+}
+
 .db-row {
 	padding: 10px;
 	margin-bottom: 8px;
 	border-radius: 6px;
-	background-color: #1f201d;
+	background-color: #111827;
 }
 
 .db-row-index {
 	margin-bottom: 4px;
-	color: #9ca3af;
+	color: #94a3b8;
 	font-size: 11px;
 }
 
 .db-row-text {
-	color: #e5e7eb;
+	color: #f8fafc;
 	font-size: 12px;
 	line-height: 18px;
-	word-break: break-all;
 }
 </style>

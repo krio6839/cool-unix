@@ -193,6 +193,17 @@ export function decodeAdvStatus(status: number): AdvStatus {
 	};
 }
 
+/**
+ * 实时广播展示值：0 是设备的原始值；只有非零且校验失败才标为无效。
+ * 该函数不参与数据持久化或上传，避免展示规则改变原始采集数据。
+ */
+export function formatRealtimeMetric(value: number, valid: boolean, fractionDigits: number): string {
+	if (value == 0) return "0";
+	if (valid == false) return "invalid";
+	if (fractionDigits <= 0) return value.toString();
+	return value.toFixed(fractionDigits);
+}
+
 /** 扁平化为 RealtimeBroadcast（含 status 解码 + 接收时间戳） */
 export function toRealtimeBroadcast(d: CustomAdvData): RealtimeBroadcast {
 	const s = decodeAdvStatus(d.status);
@@ -336,6 +347,11 @@ export function parseVitalDataResponse(vHex: string): VitalDataQueryResponse {
 	const startSec = parseU32LE(vHex, 0);
 	const direction = parseU8(vHex, 8);
 	const n = parseU8(vHex, 10);
+	// 设备在历史最早端会仅返回 6B 结束帧：startSec=0 + direction + n，
+	// 不携带 n 对应的分钟摘要和逐秒数据。它是正常结束标记，不能按截断报错。
+	if (startSec == 0 && vHex.length == 12) {
+		return { startSec, direction, n, rmssdSdnn: [], vitalData: [] };
+	}
 	const vitalStart = 12 + n * 16;
 	if (vHex.length < vitalStart) {
 		throw vitalResponseError("生命体征响应分钟摘要截断");

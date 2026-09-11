@@ -1,0 +1,357 @@
+<template>
+	<cl-popup v-model="show" :title="t('历史缺口与补录')" direction="bottom" :size="680">
+		<scroll-view class="p-4 gap-popup" scroll-y="true" style="height: 100%">
+			<view class="gap-summary">
+				<text class="gap-summary-title">{{ t("待处理缺口") }}</text>
+				<text class="gap-summary-count">{{ pendingTotal }} {{ t("个") }}</text>
+				<text v-if="loading" class="gap-loading">{{ t("正在读取...") }}</text>
+				<text v-if="props.busy" class="gap-running">{{ props.commandMessage }}</text>
+				<cl-button
+					type="primary"
+					color="#725"
+					rounded
+					size="small"
+					:disabled="loading || props.busy"
+					@tap="refresh"
+					>{{ t("刷新") }}</cl-button
+				>
+			</view>
+			<text v-if="batchHint != ''" class="gap-batch">{{ batchHint }}</text>
+			<view v-if="errorText != ''" class="gap-error"
+				><text class="gap-error-text">{{ errorText }}</text></view
+			>
+			<view v-if="props.busy" class="gap-progress"
+				><text class="gap-progress-text">{{ props.commandMessage }}</text></view
+			>
+			<text class="gap-help">{{
+				t("补录从当前游标发送 0x3A，再用 0x3B 向更早时间继续读取。")
+			}}</text>
+			<view v-if="groups.length == 0" class="gap-empty"
+				><text class="gap-empty-text">{{ t("当前没有待补或待核验的历史缺口") }}</text></view
+			>
+			<view v-for="group in groups" :key="group.id" class="gap-card">
+				<view class="gap-card-head"
+					><text class="gap-kind">{{ taskKindLabel(group.kind) }}</text
+					><text class="gap-state">{{ taskStateLabel(group) }}</text></view
+				>
+				<text class="gap-segment-count"
+					>{{ t("合并") }} {{ group.taskIds.length }} {{ t("个真实缺口") }}</text
+				>
+				<view class="gap-line"
+					><text class="gap-label">{{ t("连续读取窗口") }}</text
+					><text class="gap-value"
+						>{{ formatWindow(group.fromSec, group.toSec) }}</text
+					></view
+				>
+				<view class="gap-line"
+					><text class="gap-label">{{ t("实际待补") }}</text
+					><text class="gap-value">{{ group.repairSeconds }} {{ t("秒") }}</text></view
+				>
+				<view class="gap-line"
+					><text class="gap-label">{{ t("预计耗时") }}</text
+					><text class="gap-value" :class="{ 'gap-warn': estimateLabel(group) != '' }"
+						>{{ estimateLabel(group) }}</text
+					></view
+				>
+				<view class="gap-line"
+					><text class="gap-label">{{ t("窗口内非待补") }}</text
+					><text class="gap-value"
+						>{{ group.bridgeSeconds }} {{ t("秒（连续读取时跳过写入）") }}</text
+					></view
+				>
+				<view class="gap-line"
+					><text class="gap-label">{{ t("当前游标") }}</text
+					><text class="gap-value">{{ formatSec(group.cursorSec) }}</text></view
+				>
+				<view class="gap-line"
+					><text class="gap-label">{{ t("下次重试") }}</text
+					><text class="gap-value"
+						>{{ retryLabel(group.retryAt) }} · {{ t("已尝试") }} {{ group.attempts }}
+						{{ t("次") }}</text
+					></view
+				>
+				<cl-button
+					type="primary"
+					color="#047857"
+					rounded
+					size="small"
+					class="gap-repair"
+					:disabled="isRepairDisabled()"
+					@tap="repairGroup(group.id, group.taskIds)"
+					>{{ repairButtonText(group.id) }}</cl-button
+				>
+			</view>
+		</scroll-view>
+	</cl-popup>
+</template>
+<script lang="ts" setup>
+// #ifndef H5
+import { computed, ref, watch } from "vue";
+import { t } from "@/.cool";
+import { historyProgress, type HistoryTaskGroup } from "@/.cool/bluetooth/history/progress";
+import type { HistoryGapRepairPayload, HistoryGapRepairPopupProps } from "./types";
+const show = defineModel("show", { default: false });
+const emit = defineEmits(["refresh", "repair-history-gap"]);
+const props = defineProps<HistoryGapRepairPopupProps>();
+const revision = computed<number>(() => props.revision);
+const groups = ref<HistoryTaskGroup[]>([]);
+const loading = ref<boolean>(false);
+const errorText = ref<string>("");
+/** 队列里的真实待处理总数，不受单批上限截断。 */
+const pendingTotal = ref<number>(0);
+/** 本批列出的任务数：一次点击“补此缺口”实际会处理的数量。 */
+const listedTasks = computed<number>(() => {
+	let total = 0;
+	for (let i = 0; i < groups.value.length; i++) total += groups.value[i].taskIds.length;
+	return total;
+});
+/**
+ * 队列比本批更大时把差额写清楚：否则补完一次看到同样的卡片，
+ * 会被误读成补录失败，而不是“一次只补一批”。
+ */
+const batchHint = computed<string>(() => {
+	if (pendingTotal.value <= 0) return "";
+	const head =
+		t("本次列出") +
+		" " +
+		listedTasks.value +
+		" " +
+		t("个真实缺口，合并为") +
+		" " +
+		groups.value.length +
+		" " +
+		t("个连续读取窗口");
+	const remaining = pendingTotal.value - listedTasks.value;
+	if (remaining <= 0) return head + "，" + t("可一次补完。");
+	return head + "；" + t("一次补录只补这一批，剩余") + " " + remaining + " " + t("个下次继续。");
+});
+const repairingGroupId = ref("");
+function repairGroup(groupId: string, taskIds: string[]): void {
+	repairingGroupId.value = groupId;
+	const payload: HistoryGapRepairPayload = { taskIds };
+	emit("repair-history-gap", payload);
+}
+function isRepairDisabled(): boolean {
+	return loading.value || props.busy;
+}
+function repairButtonText(groupId: string): string {
+	if (props.busy && repairingGroupId.value == groupId) return t("正在补录...");
+	if (props.busy) return t("队列执行中");
+	return t("补此缺口");
+}
+async function loadTasks(): Promise<void> {
+	try {
+		// 先取总数再取本批：两者不一致是正常的，页面会把差额说明清楚。
+		pendingTotal.value = await historyProgress.countPendingTasks();
+		groups.value = await historyProgress.listPendingTaskGroups();
+	} catch (error) {
+		groups.value = [];
+		pendingTotal.value = 0;
+		errorText.value = "查询失败: " + error;
+	} finally {
+		loading.value = false;
+	}
+}
+async function refresh(): Promise<void> {
+	if (loading.value) return;
+	loading.value = true;
+	errorText.value = "";
+	await loadTasks();
+}
+function scheduleOpenRefresh(): void {
+	if (loading.value) return;
+	loading.value = true;
+	errorText.value = "";
+	setTimeout(() => {
+		loadTasks();
+	}, 16);
+}
+watch(show, (visible: boolean) => {
+	if (visible) scheduleOpenRefresh();
+});
+/** 由 DeviceSync 的规划/执行 revision 驱动，不在弹窗内轮询数据库。 */
+watch(revision, (value: number) => {
+	if (show.value && value > 0) scheduleOpenRefresh();
+});
+function two(value: number): string {
+	return value < 10 ? "0" + value : value.toString();
+}
+function formatSec(sec: number): string {
+	const date = new Date(sec * 1000);
+	return (
+		date.getFullYear() +
+		"-" +
+		two(date.getMonth() + 1) +
+		"-" +
+		two(date.getDate()) +
+		" " +
+		two(date.getHours()) +
+		":" +
+		two(date.getMinutes()) +
+		":" +
+		two(date.getSeconds())
+	);
+}
+function formatWindow(fromSec: number, toSec: number): string {
+	if (toSec <= fromSec) return formatSec(fromSec);
+	return formatSec(fromSec) + " 至 " + formatSec(toSec - 1);
+}
+function retryLabel(retryAt: number): string {
+	return retryAt <= Date.now() ? t("可立即执行") : formatSec(Math.floor(retryAt / 1000));
+}
+/**
+ * 设备按 2 分钟一页、页间 250ms 返回，一页约 1.45 秒。
+ * 卡片窗口跨度决定要读多少页，超过一次 GATT 预算（120 秒）时明确写出来，
+ * 否则用户会以为点一次就能补完这张卡。
+ */
+const GATT_BUDGET_SEC = 120;
+const PAGE_COST_SEC = 1.45;
+function estimateLabel(group: HistoryTaskGroup): string {
+	const pages = Math.ceil(Math.max(0, group.toSec - group.fromSec) / 120);
+	const secs = Math.round(pages * PAGE_COST_SEC);
+	if (secs <= GATT_BUDGET_SEC) return secs + " " + t("秒（单次可完成）");
+	return (
+		secs +
+		" " +
+		t("秒，超出单次预算，会自动分") +
+		" " +
+		Math.ceil(secs / GATT_BUDGET_SEC) +
+		" " +
+		t("次执行")
+	);
+}
+function taskKindLabel(kind: string): string {
+	if (kind == "recent") return t("最近窗口");
+	if (kind == "incremental") return t("增量补录");
+	if (kind == "archive") return t("旧历史补录");
+	if (kind == "verify") return t("缺口核验");
+	if (kind == "scan") return t("待扫描区间");
+	return kind;
+}
+function taskStateLabel(task: HistoryTaskGroup): string {
+	return task.retryAt <= Date.now() ? t("等待补录") : t("等待重试");
+}
+// #endif
+</script>
+<style lang="scss" scoped>
+.gap-popup {
+	background-color: #111827;
+}
+.gap-summary {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	margin-bottom: 10px;
+}
+.gap-summary-title {
+	color: #fff;
+	font-size: 16px;
+	font-weight: 700;
+	flex: 1;
+}
+.gap-summary-count {
+	color: #a7f3d0;
+	font-size: 13px;
+	margin-right: 10px;
+}
+.gap-loading {
+	margin-right: 10px;
+	color: #93c5fd;
+	font-size: 12px;
+}
+.gap-batch {
+	color: #93c5fd;
+	font-size: 12px;
+	line-height: 18px;
+	margin-bottom: 10px;
+}
+.gap-running {
+	margin-right: 10px;
+	color: #fcd34d;
+	font-size: 12px;
+}
+.gap-progress {
+	padding: 10px;
+	margin-bottom: 10px;
+	border-radius: 8px;
+	background-color: rgba(146, 64, 14, 0.3);
+
+}
+.gap-progress-text {
+	color: #fef3c7;
+	font-size: 12px;
+	line-height: 18px;
+}
+.gap-help {
+	color: #9ca3af;
+	font-size: 12px;
+	line-height: 18px;
+	margin-bottom: 12px;
+}
+.gap-empty {
+	padding: 32px 12px;
+}
+.gap-empty-text {
+	color: #9ca3af;
+	text-align: center;
+}
+.gap-error {
+	padding: 10px;
+	margin-bottom: 10px;
+	border-radius: 8px;
+	background-color: rgba(127, 29, 29, 0.35);
+}
+.gap-error-text {
+	color: #fecaca;
+	font-size: 12px;
+	line-height: 18px;
+}
+.gap-card {
+	background-color: #1f2937;
+	border-radius: 10px;
+	padding: 12px;
+	margin-bottom: 10px;
+}
+.gap-card-head {
+	display: flex;
+	flex-direction: row;
+	margin-bottom: 9px;
+}
+.gap-kind {
+	color: #fef3c7;
+	font-size: 14px;
+	font-weight: 700;
+	flex: 1;
+}
+.gap-state {
+	color: #a7f3d0;
+	font-size: 12px;
+}
+.gap-segment-count {
+	margin-bottom: 8px;
+	color: #93c5fd;
+	font-size: 12px;
+}
+.gap-line {
+	display: flex;
+	flex-direction: row;
+	margin-bottom: 6px;
+}
+.gap-label {
+	color: #9ca3af;
+	font-size: 12px;
+	width: 66px;
+}
+.gap-value {
+	color: #e5e7eb;
+	font-size: 12px;
+	flex: 1;
+	line-height: 17px;
+}
+.gap-warn {
+	color: #fcd34d;
+}
+.gap-repair {
+	margin-top: 6px;
+}
+</style>

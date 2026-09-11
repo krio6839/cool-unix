@@ -155,14 +155,14 @@ export class DeviceConnection {
 		//#endif
 	}
 
-	async switchToBroadcastMode(readRecentVital: boolean = true): Promise<boolean> {
+	async switchToBroadcastMode(): Promise<boolean> {
 		if (this._isSwitchingToBroadcastMode == true) {
 			logger.info("bluetooth", "[BOOM] 正在切换广播模式，跳过重复请求");
 			return true;
 		}
 		this._isSwitchingToBroadcastMode = true;
 		try {
-			await this.disconnectCurrentGatt(readRecentVital, 350);
+			await this.disconnectCurrentGatt(350);
 			await sleepTimeout(120);
 			return await this.startBoundBroadcastScan();
 		} finally {
@@ -171,17 +171,14 @@ export class DeviceConnection {
 		}
 	}
 
-	async disconnectGattOnly(readRecentVital: boolean = true): Promise<void> {
-		await this.disconnectCurrentGatt(readRecentVital, 350);
+	async disconnectGattOnly(): Promise<void> {
+		await this.disconnectCurrentGatt(350);
 	}
 
-	/** GATT 任务结束统一出口：先补最近历史，再静默断开，最后回到广播主流程。 */
-	private async disconnectCurrentGatt(readRecentVital: boolean, settleMs: number): Promise<void> {
+	/** GATT 任务结束统一出口：先静默断开，再回到广播主流程。 */
+	private async disconnectCurrentGatt(settleMs: number): Promise<void> {
 		try {
 			await this.stopBluetoothSearch();
-			if (readRecentVital == true) {
-				await this.readRecentVitalBeforeDisconnect();
-			}
 			await this.disconnectCurrentDeviceSilently(settleMs);
 			this._resetConnectionState();
 		} finally {
@@ -199,22 +196,6 @@ export class DeviceConnection {
 			await sleepTimeout(settleMs);
 		}
 		//#endif
-	}
-
-	/** 断开前用 0x3A 补最近窗口，弥补 GATT 任务期间收不到广播造成的秒级缺口。 */
-	private async readRecentVitalBeforeDisconnect(): Promise<void> {
-		if (this.device.currentDeviceId == "") return;
-		if (this.device.status.value != "CONNECTED") return;
-		if (this.isProtocolReady() == false) return;
-		try {
-			const result = await this.device.history.readRecentVitalWindow();
-			logger.info(
-				"bluetooth",
-				`[BOOM-HISTORY] 断开前补最近2分钟: status=${result.status}, pages=${result.pages}, saved=${result.savedRecords}, uploadScheduled=${result.uploadScheduled}`
-			);
-		} catch (e) {
-			logger.warn("bluetooth", "[BOOM-HISTORY] 断开前补最近2分钟失败:", e);
-		}
 	}
 
 	async startBoundBroadcastScan(): Promise<boolean> {
@@ -959,8 +940,8 @@ export class DeviceConnection {
 	}
 
 	/** 主动断开当前设备 */
-	async disconnectDevice(readRecentVital: boolean = true): Promise<void> {
-		await this.switchToBroadcastMode(readRecentVital);
+	async disconnectDevice(): Promise<void> {
+		await this.switchToBroadcastMode();
 	}
 
 	/** 内部：清空连接相关字段 */

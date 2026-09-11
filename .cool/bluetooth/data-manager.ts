@@ -3,7 +3,8 @@
  * 负责蓝牙数据的存储、管理和上传
  */
 import { bluetoothDatabase } from "./database";
-import { historyProgress } from "./history-progress";
+import { historyProgress } from "./history/progress";
+import { HISTORY_PPI_RETENTION_SEC } from "./history/coverage-service";
 import { request } from "../service";
 import { logger } from "../service/logger";
 import { dayUts } from "../utils/day";
@@ -80,14 +81,13 @@ export class BluetoothDataManager {
 	private async initDatabase(): Promise<boolean> {
 		const opened = await bluetoothDatabase.open();
 		if (opened == false) return false;
-		// 补录只在当前 App 会话内排队；每次冷启动都从当前时间重新规划。
+		// 补录进度跨冷启动保留。数据库重开或 App 重启都不能让永久缺失的旧区间重新入队；
+		// 产品在重新绑定时由 clearAllData() 一并清除旧设备进度。
 		try {
 			if ((await historyProgress.initializeSessionSchema()) == false) return false;
-			const cleared = await this.clearHistorySessionRaw();
-			if (cleared == false) return false;
 			return true;
 		} catch (error) {
-			logger.error("bluetooth", "[BOOM-DATA] 初始化时清空补录会话失败", error);
+			logger.error("bluetooth", "[BOOM-DATA] 初始化补录进度表失败", error);
 			return false;
 		}
 	}
@@ -173,9 +173,8 @@ export class BluetoothDataManager {
 		spo2: number,
 		ppi: number
 	): Promise<boolean> {
-		if (hr <= 0 && spo2 <= 0 && ppi <= 0) {
-			return false;
-		}
+		// 0 是设备返回的有效原始值；广播时间已在调用方校验，不能据此丢弃上传秒。
+		if (timestamp <= 0) return false;
 		const sql = `INSERT OR IGNORE INTO ppi_data (id, timestamp, hr, spo2, ppi, uploaded) VALUES ('${timestamp}', ${timestamp}, ${hr}, ${spo2}, ${ppi}, 0)`;
 		return this.execute(sql);
 	}
@@ -500,11 +499,16 @@ export class BluetoothDataManager {
 
 	/**
 	 * 获取未上传的PPI数据（从ppi_data表）
+	 * @param maxTimestamp 只取不晚于该时间戳的记录（上传时的本轮窗口上界）；null 表示不设上界
 	 * @returns 未上传的PPI数据数组
 	 */
-	async getUnuploadedPpiData(): Promise<PpiData[]> {
+	async getUnuploadedPpiData(maxTimestamp: number | null = null): Promise<PpiData[]> {
+		let where = "uploaded = 0";
+		if (maxTimestamp != null) where += " AND timestamp <= " + maxTimestamp.toString();
 		const sql =
-			"SELECT id, timestamp, hr, spo2, ppi, uploaded FROM ppi_data WHERE uploaded = 0 ORDER BY timestamp ASC LIMIT " +
+			"SELECT id, timestamp, hr, spo2, ppi, uploaded FROM ppi_data WHERE " +
+			where +
+			" ORDER BY timestamp ASC LIMIT " +
 			PPI_UPLOAD_MAX_RECORDS;
 		const result = await this.query(sql);
 
@@ -525,6 +529,15 @@ export class BluetoothDataManager {
 		return parseInt(result.rows[0][0] as string);
 	}
 
+	/** 本轮上传窗口内的剩余数量：只统计不晚于 cutoff 的记录。 */
+	private async getUnuploadedPpiCountUpTo(cutoff: number): Promise<number> {
+		const result = await this.query(
+			"SELECT COUNT(*) FROM ppi_data WHERE uploaded = 0 AND timestamp <= " + cutoff.toString()
+		);
+		if (result == null || result.rows.length == 0) throw new Error("读取待上传 PPI 数量失败");
+		return parseInt(result.rows[0][0] as string);
+	}
+
 	/**
 	 * 标记PPI数据为已上传
 	 * @param ids 数据ID数组
@@ -537,6 +550,27 @@ export class BluetoothDataManager {
 		const idList = ids.map((id) => `'${id}'`).join(",");
 		const sql = `UPDATE ppi_data SET uploaded = 1 WHERE id IN (${idList})`;
 		return await this.execute(sql);
+	}
+
+	/** 仅清理已上传且超出本地 30 天审计窗口的 PPI；未上传行必须保留。 */
+	async pruneUploadedPpiBefore(boundarySec: number): Promise<number> {
+		const ready = await this.ensureDatabaseReady();
+		if (ready == false) throw new Error("数据库未就绪，不能清理旧 PPI 数据");
+		const countResult = await bluetoothDatabase.query(
+			`SELECT COUNT(*) FROM ppi_data WHERE uploaded=1 AND timestamp<${boundarySec}`
+		);
+		if (countResult == null || countResult.rows.length == 0)
+			throw new Error("读取待清理 PPI 数量失败");
+		const count = parseInt(countResult.rows[0][0] as string);
+		if (count == 0) return 0;
+		if (
+			(await bluetoothDatabase.execute(
+				`DELETE FROM ppi_data WHERE uploaded=1 AND timestamp<${boundarySec}`
+			)) == false
+		)
+			throw new Error("清理旧 PPI 数据失败");
+		logger.info("bluetooth", `[BOOM-DATA] 清理已上传 PPI: before=${boundarySec}, count=${count}`);
+		return count;
 	}
 
 	/**
@@ -565,16 +599,16 @@ export class BluetoothDataManager {
 		logger.info("bluetooth", "数据库数据清空完成");
 	}
 
-	/** 清空当前 App 会话的补录队列，不影响已经保存和待上传的每秒数据。 */
+	/** 显式清空当前绑定的补录进度，不影响已经保存和待上传的每秒数据。 */
 	async clearHistorySession(): Promise<void> {
 		try {
 			if ((await this.clearHistorySessionRaw()) == false)
-				throw new Error("清空历史补录会话失败");
+				throw new Error("清空历史补录进度失败");
 		} catch (error) {
-			logger.error("bluetooth", "[BOOM-DATA] 清空历史补录会话失败", error);
+			logger.error("bluetooth", "[BOOM-DATA] 清空历史补录进度失败", error);
 			throw error;
 		}
-		logger.info("bluetooth", "已清空本次 App 会话的历史补录状态");
+		logger.info("bluetooth", "已清空当前绑定的历史补录进度");
 	}
 
 	private async clearHistorySessionRaw(): Promise<boolean> {
@@ -705,8 +739,11 @@ export class BluetoothDataManager {
 		try {
 			const deviceName = this.deviceName;
 			const deviceAddress = this.deviceAddress;
+			// 冻结本轮的目标窗口。实时广播每秒仍在落库，若每批都按“当前所有未上传”取数，
+			// 循环会被新到的实时秒一直喂饱，直到撞上批次上限仍在连发（每批只有 1~2 条）。
+			const cutoff = await this.queryTimestamp("SELECT MAX(timestamp) FROM ppi_data");
 			for (let batch = 0; batch < PPI_UPLOAD_MAX_BATCHES; batch++) {
-				const unuploadedData = await this.getUnuploadedPpiData();
+				const unuploadedData = await this.getUnuploadedPpiData(cutoff);
 				if (unuploadedData.length == 0) return true;
 				if (
 					deviceAddress == "" ||
@@ -750,10 +787,14 @@ export class BluetoothDataManager {
 				if ((await this.markPpiDataAsUploaded(uploadedIds)) == false) {
 					throw new Error("PPI上传已确认，但本地上传标记保存失败");
 				}
+				await this.pruneUploadedPpiBefore(
+					Math.floor(Date.now() / 1000) - HISTORY_PPI_RETENTION_SEC
+				);
 				this.lastPpiUploadFailedAt = 0;
 				logger.info("bluetooth", `[BOOM-UPLOAD] PPI上传成功: count=${datas.length}`);
 			}
-			const remaining = await this.getUnuploadedPpiCount();
+			// 只对本轮窗口内的记录负责；窗口外新到的实时秒留给下一轮，不计入失败判定。
+			const remaining = await this.getUnuploadedPpiCountUpTo(cutoff);
 			logger.info("bluetooth", `[BOOM-UPLOAD] 本轮批次结束: remaining=${remaining}`);
 			return remaining == 0;
 		} catch (error) {

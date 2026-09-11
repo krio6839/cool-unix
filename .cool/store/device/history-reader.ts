@@ -1,9 +1,9 @@
 import {
+	canReadHistoryTaskGroup,
 	historyProgress,
-	historyQueryAnchor,
 	historyStableBefore
-} from "../../bluetooth/history-progress";
-import type { HistoryTask } from "../../bluetooth/history-progress";
+} from "../../bluetooth/history/progress";
+import type { HistoryTask } from "../../bluetooth/history/progress";
 import {
 	BOOM_CMD,
 	bluetoothDataManager,
@@ -97,14 +97,14 @@ export type EventAutoReadResult = {
 const DEFAULT_TIMEOUT_MS = 8000;
 /** 手动/自动续读的默认最大页数兜底，防止设备异常时无限续读。 */
 const DEFAULT_MAX_PAGES = 100;
+/** 测试读取使用 0 表示不设总页数上限，由调用方或设备结束读取。 */
+const UNLIMITED_MAX_PAGES = 0x7fffffff;
 /** 连续发送 0x3B/0x3D 前的短暂停顿，给设备一点处理时间。 */
 const DEFAULT_PAGE_DELAY_MS = 250;
 /** 0x3D 一次续读可能连续吐多个 TLVC，收到首批后等待短暂静默再认为本次响应结束。 */
 const EVENT_BATCH_SETTLE_MS = 600;
 
 /* ===== 最近窗口生命体征补拉 ===== */
-/** GATT 任务结束前后补最近 120 秒，填补连接期间漏掉的广播数据。 */
-const RECENT_VITAL_WINDOW_SECONDS = 120;
 /** 自动历史读取每页请求 2 分钟，direction=0 向更早时间推进。 */
 const VITAL_GAP_READ_MINUTES = 2;
 const VITAL_GAP_READ_DIRECTION = 0;
@@ -278,8 +278,19 @@ export class DeviceHistoryReader {
 			let saveOk = true;
 			const savePages = options.persistData != false;
 			const callerPersistPage = options.persistPage;
+			// UTS Android 会把对象展开编译为 Fastjson 的 JavaBean 拷贝；当回调捕获页面状态时，
+			// Fastjson 无法序列化 Lambda。逐字段传递，保留回调引用本身。
 			const result = await this.readVitalDataAutoInner({
-				...options,
+				startSec: options.startSec,
+				direction: options.direction,
+				minutes: options.minutes,
+				maxPages: options.maxPages,
+				pageDelayMs: options.pageDelayMs,
+				timeoutMs: options.timeoutMs,
+				shouldStop: options.shouldStop,
+				onProgress: options.onProgress,
+				onPage: options.onPage,
+				deadlineAt: options.deadlineAt,
 				persistPage: async (response: VitalDataQueryResponse) => {
 					// 保留调用方页回调；其拒绝时不能继续读取或写入本地数据。
 					if (callerPersistPage != null && (await callerPersistPage(response)) == false)
@@ -307,24 +318,53 @@ export class DeviceHistoryReader {
 				result.uploadOk = await bluetoothDataManager.uploadData();
 			}
 			return result;
+		} catch (error) {
+			// Android 对 Error 对象直接序列化会只显示 {}，转成文本才能保留真实异常原因。
+			logger.error("bluetooth", `[BOOM-HISTORY] 生命体征读取异常: ${error}`);
+			throw error;
 		} finally {
 			this.setDisplaySuspended(false);
 			this.device.endGattTask("vitalAuto");
 		}
 	}
 
-	async readRecentVitalWindow(): Promise<VitalAutoReadResult> {
-		const anchor = historyQueryAnchor(Math.floor(Date.now() / 1000));
-		return await this.readVitalWindow(anchor - RECENT_VITAL_WINDOW_SECONDS, anchor);
-	}
-
-	/** 从较晚端反向读；逐页保存，网络上传不参与 GATT 等待链。 */
-	async readVitalWindow(
-		startSec: number,
-		endSec: number,
-		task: HistoryTask | null = null,
+	/**
+	 * 连续任务组只建立一次 0x3A 查询上下文，随后持续发送 0x3B。
+	 * 每个响应页按时间交集提交给对应的底层任务，因此各任务仍保留自己的
+	 * cursor/retry 状态；自动补录和测试页手动补录共用此方法。
+	 */
+	async readVitalTaskGroup(
+		tasks: HistoryTask[],
 		deadlineAt: number = 0
 	): Promise<VitalAutoReadResult> {
+		if (tasks.length == 0)
+			return this.makeVitalResult("STOPPED", "empty history task group", 0, []);
+		const boundDeviceId = this.device.boundDeviceId;
+		if (boundDeviceId == "") return this.makeVitalResult("STOPPED", "no bound device", 0, []);
+		const activeTasks = tasks.slice();
+		for (let i = 1; i < activeTasks.length; i++) {
+			const value = activeTasks[i];
+			let index = i - 1;
+			while (index >= 0 && activeTasks[index].fromSec > value.fromSec) {
+				activeTasks[index + 1] = activeTasks[index];
+				index--;
+			}
+			activeTasks[index + 1] = value;
+		}
+		const firstTask = activeTasks[0];
+		const lastTask = activeTasks[activeTasks.length - 1];
+		if (canReadHistoryTaskGroup(activeTasks) == false) {
+			const message = "history task group is not readable in one chain";
+			logger.warn("bluetooth", `[BOOM-HISTORY] 连续补录拒绝: ${message}`);
+			return this.makeVitalResult("STOPPED", message, 0, []);
+		}
+		const startSec = firstTask.fromSec;
+		const anchor = lastTask.cursorSec;
+		if (anchor <= startSec) {
+			const message = "history task group is already complete";
+			logger.warn("bluetooth", `[BOOM-HISTORY] 连续补录跳过: ${message}`);
+			return this.makeVitalResult("STOPPED", message, 0, []);
+		}
 		if (this.device.beginGattTask("vitalGap") == false)
 			return this.makeVitalResult("STOPPED", "gatt busy", 0, []);
 		this.setDisplaySuspended(true);
@@ -333,31 +373,26 @@ export class DeviceHistoryReader {
 		let stopRead = false;
 		let lastStart = 0;
 		let failure = "";
-		let currentTask = task;
 		try {
-			if (endSec <= startSec)
-				return this.makeVitalResult("STOPPED", "invalid vital window", 0, []);
-			const anchor = task == null ? endSec : task.cursorSec;
 			logger.info(
 				"bluetooth",
-				`[BOOM-HISTORY] 反向补录: task=${task == null ? "recent" : task.id}, window=${startSec}~${endSec}, anchor=${anchor}, minutes=2`
+				`[BOOM-HISTORY] 连续补录: tasks=${activeTasks.length}, window=${startSec}~${lastTask.toSec}, anchor=${anchor}, minutes=2`
 			);
 			const result = await this.readVitalDataAutoInner({
 				startSec: anchor,
 				direction: VITAL_GAP_READ_DIRECTION,
 				minutes: VITAL_GAP_READ_MINUTES,
 				maxPages: 300,
+				deadlineAt,
 				timeoutMs: DEFAULT_TIMEOUT_MS,
 				pageDelayMs: DEFAULT_PAGE_DELAY_MS,
-				deadlineAt,
-				shouldStop: () =>
-					stopRead || (task != null && this.device.boundDeviceId != task.deviceId),
+				shouldStop: () => stopRead || this.device.boundDeviceId != boundDeviceId,
 				persistPage: async (response) => {
 					try {
-						if (task != null && this.device.boundDeviceId != task.deviceId)
+						if (this.device.boundDeviceId != boundDeviceId)
 							throw new Error("绑定设备已改变");
 						if (response.startSec == 0) {
-							if (currentTask != null) await historyProgress.noMore(currentTask!);
+							saveOk = false;
 							return true;
 						}
 						if (lastStart > 0 && response.startSec >= lastStart)
@@ -368,43 +403,83 @@ export class DeviceHistoryReader {
 							response.rmssdSdnn.length != response.n
 						)
 							throw new Error("历史页面结构无效");
-						if (response.startSec > anchor) throw new Error("历史页面晚于查询锚点");
-						let count = 0;
-						if (currentTask != null) {
-							count = await historyProgress.savePage(
-								currentTask!,
+						if (response.startSec > anchor) {
+							lastStart = response.startSec;
+							return true;
+						}
+						const actualEnd =
+							response.startSec +
+							(response.vitalData.length == 0
+								? response.n * 60
+								: response.vitalData.length);
+						let pageSaved = 0;
+						let matchedTask = false;
+						for (let i = 0; i < activeTasks.length; i++) {
+							const item = activeTasks[i];
+							if (actualEnd <= item.fromSec || response.startSec >= item.toSec)
+								continue;
+							matchedTask = true;
+							pageSaved += await historyProgress.savePage(
+								item,
 								response,
 								historyStableBefore(Math.floor(Date.now() / 1000))
 							);
-							currentTask = await historyProgress.getTask(currentTask!.id);
-							stopRead =
-								currentTask!.status == "done" || currentTask!.retryAt > Date.now();
-						} else {
-							const records = this.toHeartRateRecordsInWindow(
-								[response],
-								startSec,
-								Math.min(endSec, Math.floor(Date.now() / 1000))
-							);
-							if (
-								(await bluetoothDataManager.storeHistoricalHeartRateRecordsBatch(
-									records
-								)) == false
-							)
-								throw new Error("历史页面落库失败");
-							count = records.length;
+							activeTasks[i] = await historyProgress.getTask(item.id);
 						}
-						saved += count;
+						if (matchedTask == false && actualEnd <= startSec) {
+							// 设备可以直接跳到目标窗口之前：它已经越过整个窗口，说明这段区间设备
+							// 没有数据。按“没返回就是没有”收尾，不当作读取失败——否则同一次连接里
+							// 排在后面的缺口会被这个 break 一起放弃。
+							for (let i = 0; i < activeTasks.length; i++) {
+								if (activeTasks[i].status != "done")
+									await historyProgress.noMore(activeTasks[i]);
+							}
+							logger.info(
+								"bluetooth",
+								`[BOOM-HISTORY] 设备返回段早于目标窗口，按无数据收尾: page=${response.startSec}, window=${startSec}~${lastTask.toSec}`
+							);
+							stopRead = true;
+							return true;
+						}
+						// 待扫描区间：设备没有返回任何有效秒就说明这段时间确实没数据，
+						// 直接收尾。若不收尾，每轮都会为同一段“没佩戴”重新占用一次 GATT 链路。
+						if (matchedTask == true && pageSaved == 0) {
+							let allScan = true;
+							for (let i = 0; i < activeTasks.length; i++) {
+								if (activeTasks[i].kind != "scan") {
+									allScan = false;
+									break;
+								}
+							}
+							if (allScan == true) {
+								for (let i = 0; i < activeTasks.length; i++) {
+									if (activeTasks[i].status != "done")
+										await historyProgress.noMore(activeTasks[i]);
+								}
+								logger.info(
+									"bluetooth",
+									`[BOOM-HISTORY] 待扫描区间设备无数据，按已确认收尾: page=${response.startSec}, window=${startSec}~${lastTask.toSec}`
+								);
+								stopRead = true;
+								return true;
+							}
+						}
+						saved += pageSaved;
 						lastStart = response.startSec;
-						if (response.startSec <= startSec) stopRead = true;
-						logger.info(
-							"bluetooth",
-							`[BOOM-HISTORY] 页面已提交: response=${response.startSec}, n=${response.n}, saved=${count}, next=${currentTask == null ? response.startSec : currentTask!.cursorSec}`
-						);
+						let pending = false;
+						for (let i = 0; i < activeTasks.length; i++) {
+							if (
+								activeTasks[i].status != "done" &&
+								activeTasks[i].retryAt <= Date.now()
+							)
+								pending = true;
+						}
+						stopRead = response.startSec <= startSec || pending == false;
 						return true;
 					} catch (error) {
 						saveOk = false;
 						failure = `${error}`;
-						logger.error("bluetooth", "[BOOM-HISTORY] 页面处理失败，保留进度", error);
+						logger.error("bluetooth", "[BOOM-HISTORY] 连续缺口页面处理失败", error);
 						return false;
 					}
 				}
@@ -412,15 +487,26 @@ export class DeviceHistoryReader {
 			result.savedRecords = saved;
 			result.uploadScheduled = saved > 0;
 			result.saveOk = saveOk;
+			if (
+				result.status == "STOPPED" &&
+				result.message == "stopped by caller" &&
+				stopRead &&
+				saveOk
+			) {
+				result.status = "DONE";
+				result.message = "target window complete";
+			}
 			if (failure != "") result.message = failure;
 			if (
-				currentTask != null &&
-				(result.status == "TIMEOUT" ||
-					result.status == "SEND_FAILED" ||
-					result.status == "LIMIT" ||
-					!saveOk)
+				result.status == "TIMEOUT" ||
+				result.status == "SEND_FAILED" ||
+				result.status == "LIMIT" ||
+				!saveOk
 			) {
-				await historyProgress.defer(currentTask!, result.message);
+				for (let i = 0; i < activeTasks.length; i++) {
+					if (activeTasks[i].status != "done")
+						await historyProgress.defer(activeTasks[i], result.message);
+				}
 			}
 			return result;
 		} finally {
@@ -437,8 +523,8 @@ export class DeviceHistoryReader {
 		if (options.timeoutMs != null) timeoutMs = options.timeoutMs;
 		if (timeoutMs <= 0) timeoutMs = DEFAULT_TIMEOUT_MS;
 		let maxPages = DEFAULT_MAX_PAGES;
-		if (options.maxPages != null) maxPages = options.maxPages;
-		if (maxPages <= 0) maxPages = DEFAULT_MAX_PAGES;
+		if (options.maxPages === 0) maxPages = UNLIMITED_MAX_PAGES;
+		else if (options.maxPages != null && options.maxPages > 0) maxPages = options.maxPages;
 		let pageDelayMs = DEFAULT_PAGE_DELAY_MS;
 		if (options.pageDelayMs != null) pageDelayMs = options.pageDelayMs;
 		if (pageDelayMs < 0) pageDelayMs = DEFAULT_PAGE_DELAY_MS;
@@ -582,8 +668,8 @@ export class DeviceHistoryReader {
 		if (options.timeoutMs != null) timeoutMs = options.timeoutMs;
 		if (timeoutMs <= 0) timeoutMs = DEFAULT_TIMEOUT_MS;
 		let maxPages = DEFAULT_MAX_PAGES;
-		if (options.maxPages != null) maxPages = options.maxPages;
-		if (maxPages <= 0) maxPages = DEFAULT_MAX_PAGES;
+		if (options.maxPages === 0) maxPages = UNLIMITED_MAX_PAGES;
+		else if (options.maxPages != null && options.maxPages > 0) maxPages = options.maxPages;
 		let pageDelayMs = DEFAULT_PAGE_DELAY_MS;
 		if (options.pageDelayMs != null) pageDelayMs = options.pageDelayMs;
 		if (pageDelayMs < 0) pageDelayMs = DEFAULT_PAGE_DELAY_MS;
@@ -757,34 +843,6 @@ export class DeviceHistoryReader {
 				if (item.valid == false) continue;
 				const timestamp = response.startSec + i;
 				if (timestamp <= 0) continue;
-				if (seen.has(timestamp)) continue;
-				seen.set(timestamp, true);
-				records.push({
-					timestamp,
-					heartRate: item.hr,
-					bloodOxygen: 0,
-					ppi: item.ppi
-				} as HeartRateRecord);
-			}
-		}
-		return records;
-	}
-
-	private toHeartRateRecordsInWindow(
-		responses: VitalDataQueryResponse[],
-		startSec: number,
-		endSec: number
-	): HeartRateRecord[] {
-		const records: HeartRateRecord[] = [];
-		const seen = new Map<number, boolean>();
-		for (let p = 0; p < responses.length; p++) {
-			const response = responses[p];
-			if (response.startSec <= 0) continue;
-			for (let i = 0; i < response.vitalData.length; i++) {
-				const item = response.vitalData[i];
-				if (item.valid == false) continue;
-				const timestamp = response.startSec + i;
-				if (timestamp < startSec || timestamp >= endSec) continue;
 				if (seen.has(timestamp)) continue;
 				seen.set(timestamp, true);
 				records.push({

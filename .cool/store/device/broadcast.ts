@@ -1,4 +1,9 @@
-import { bluetoothDataManager, parseCustomAdvData, toRealtimeBroadcast } from "../../bluetooth";
+import {
+	bluetoothDataManager,
+	formatRealtimeMetric,
+	parseCustomAdvData,
+	toRealtimeBroadcast
+} from "../../bluetooth";
 import type { RealtimeBroadcast } from "../../bluetooth";
 import { sleepTimeout } from "../../utils";
 import { realtime } from "../realtime";
@@ -589,9 +594,10 @@ export class DeviceBroadcast {
 
 	private async storeBroadcastPpiData(r: RealtimeBroadcast): Promise<void> {
 		const timestamp = this.getBroadcastTimestamp(r);
-		const hr = r.hrValid ? r.hr : 0;
-		const spo2 = r.spo2Valid ? Math.round(r.spo2Pct * 10) : 0;
-		const ppi = r.ppiValid ? r.ppi : 0;
+		// 有效性只影响展示/诊断；收到的协议原始值必须完整落库并上传。
+		const hr = r.hr;
+		const spo2 = Math.round(r.spo2Pct * 10);
+		const ppi = r.ppi;
 		const ok = await bluetoothDataManager.storeBroadcastPpiData(timestamp, hr, spo2, ppi);
 		await bluetoothDataManager.storeBroadcastSleepActivity(timestamp, r.activity);
 		if (ok == true) {
@@ -620,10 +626,12 @@ export class DeviceBroadcast {
 		const nowSec = Math.floor(Date.now() / 1000);
 		let diff = nowSec - r.utc;
 		if (diff < 0) diff = 0 - diff;
-		const rmssdText = r.rmssdValid
-			? `${r.rmssd.toFixed(2)}ms(hrv=${r.hrvMs})`
-			: `${r.rmssd.toFixed(2)}!`;
-		const summary = `phone=${nowSec} utc=${r.utc} diff=${diff}s timeValid=${this.isBroadcastUtcUsable(r)} eventSeq=${r.eventSeq} newEvent=${r.hasNewEvent} battery=${r.batteryStatus}(${r.batteryStatusLabel}) ppg=${r.ppgAttached ? "attached" : "detached"} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${r.hr}${r.hrValid ? "" : "!"} ppi=${r.ppi}${r.ppiValid ? "" : "!"} rmssd=${rmssdText} spo2=${r.spo2Pct.toFixed(1)}${r.spo2Valid ? "" : "!"} bhr=${r.bhr}${r.bhrValid ? "" : "!"} steps=${r.stepsEveryday} kcal=${r.calorieKcal.toFixed(1)} v=${r.voltageMv}mV/${r.voltageV.toFixed(3)}V`;
+		const hrText = formatRealtimeMetric(r.hr, r.hrValid, 0);
+		const ppiText = formatRealtimeMetric(r.ppi, r.ppiValid, 0);
+		const rmssdText = formatRealtimeMetric(r.rmssd, r.rmssdValid, 2);
+		const spo2Text = formatRealtimeMetric(r.spo2Pct, r.spo2Valid, 1);
+		const bhrText = formatRealtimeMetric(r.bhr, r.bhrValid, 0);
+		const summary = `phone=${nowSec} utc=${r.utc} diff=${diff}s timeValid=${this.isBroadcastUtcUsable(r)} eventSeq=${r.eventSeq} newEvent=${r.hasNewEvent} battery=${r.batteryStatus}(${r.batteryStatusLabel}) ppg=${r.ppgAttached ? "attached" : "detached"} behavior=${r.behavior}(${r.behaviorLabel}) activity=${r.activity}(${r.activityLabel}) hr=${hrText} ppi=${ppiText} rmssd=${rmssdText} spo2=${spo2Text} bhr=${bhrText} steps=${r.stepsEveryday} kcal=${r.calorieKcal.toFixed(1)} v=${r.voltageMv}mV/${r.voltageV.toFixed(3)}V`;
 		const info: BroadcastDebugInfo = {
 			seq: this.broadcastSeq,
 			source: ctx.source,

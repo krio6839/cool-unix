@@ -1,0 +1,51 @@
+{
+	"id": "boom-csv-saver",
+	"displayName": "BOOM CSV 下载保存",
+	"version": "1.0.0",
+	"description": "将 BOOM 历史数据 CSV 写入 Android 公共下载目录",
+	"keywords": [
+		"boom",
+		"csv",
+		"download",
+		"android"
+	],
+	"repository": "",
+	"engines": {
+		"HBuilderX": "^4.75"
+	},
+	"dcloudext": {
+		"type": "uts",
+		"sale": {
+			"regular": {
+				"price": "0.00"
+			},
+			"sourcecode": {
+				"price": "0.00"
+			}
+		},
+		"contact": {
+			"qq": ""
+		},
+		"declaration": {
+			"ads": "",
+			"data": "",
+			"permissions": ""
+		},
+		"npmurl": ""
+	},
+	"uni_modules": {
+		"dependencies": [],
+		"encrypt": [],
+		"platforms": {
+			"client": {
+				"Vue": {
+					"vue2": "u",
+					"vue3": "u"
+				},
+				"App": {
+					"app-android": "u"
+				}
+			}
+		}
+	}
+}

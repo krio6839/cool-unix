@@ -1,5 +1,5 @@
-import { historyProgress } from "../../bluetooth/history-progress";
-import type { HistoryTask } from "../../bluetooth/history-progress";
+import { groupHistoryTasksForRead, historyProgress } from "../../bluetooth/history/progress";
+import type { HistoryTaskGroup } from "../../bluetooth/history/progress";
 import { ref } from "vue";
 import { sleepTimeout } from "../../utils";
 import type { VitalAutoReadResult, HistoryReadStatus } from "./history-reader";
@@ -11,7 +11,7 @@ export type DeviceSyncReason = "startup" | "timer" | "manual";
 export type DeviceSyncState = "idle" | "planning" | "repairing";
 
 /** 持久化设备历史任务，不从有效点密度推断缺口。 */
-export type HistoryGap = HistoryTask;
+export type HistoryGap = HistoryTaskGroup;
 
 /** 一次历史任务的规划结果；这里只做规划，不直接触碰 GATT。 */
 export type HistorySyncPlan = {
@@ -45,6 +45,11 @@ export type HistoryRepairResult = {
 const HISTORY_AUTO_INITIAL_DELAY_MS = 15000;
 /** 后台低频检查间隔。只规划本次 App 会话任务；有到期任务就投递 scheduler 队列。 */
 const HISTORY_AUTO_CHECK_INTERVAL_MS = 10 * 60 * 1000;
+/**
+ * 队列还没排空时的回访间隔。一次 GATT 最多占用 GATT_FLUSH_BUDGET_MS（120 秒），
+ * 之后必须断开把通道还给广播，所以这里留出至少 2 倍于预算的广播时间再回来。
+ */
+const HISTORY_AUTO_BACKLOG_INTERVAL_MS = 5 * 60 * 1000;
 /** 事件数据低频兜底：只入队，不在 sync 里直接连接读取。 */
 const EVENT_BACKFILL_INTERVAL_MS = 30 * 60 * 1000;
 
@@ -94,14 +99,17 @@ export class DeviceSync {
 		while (this.isAutoGenerationActive(generation) == true) {
 			await sleepTimeout(delayMs);
 			if (this.isAutoGenerationActive(generation) == false) return;
+			let backlog = false;
 			try {
-				await this.runAutoRepair(reason);
+				backlog = await this.runAutoRepair(reason);
 			} catch (e) {
 				this.lastError.value = `${e}`;
 				logger.error("bluetooth", "[BOOM-SYNC] 本轮自动补缺异常，下轮继续", `${e}`);
 			}
 			reason = "timer";
-			delayMs = HISTORY_AUTO_CHECK_INTERVAL_MS;
+			// 队列还没排空就尽快回来：补录期间广播是停的，所以积压时缩短间隔、
+			// 空闲时保持低频，既不长期占用通道也不让积压一直追不上。
+			delayMs = backlog ? HISTORY_AUTO_BACKLOG_INTERVAL_MS : HISTORY_AUTO_CHECK_INTERVAL_MS;
 		}
 	}
 
@@ -109,14 +117,16 @@ export class DeviceSync {
 		return this.autoEnabled == true && this.autoGeneration == generation;
 	}
 
-	private async runAutoRepair(reason: DeviceSyncReason): Promise<void> {
-		if (this.autoEnabled == false) return;
+	private async runAutoRepair(reason: DeviceSyncReason): Promise<boolean> {
+		if (this.autoEnabled == false) return false;
 		// 历史和事件都只入队；真正连接、串行执行、断开恢复广播都交给 scheduler。
+		let backlog = false;
 		try {
-			await this.requestHistorySync(reason);
+			backlog = await this.requestHistorySync(reason);
 		} finally {
 			if (this.autoEnabled == true) this.requestEventBackfillIfNeeded(reason);
 		}
+		return backlog;
 	}
 
 	async planHistorySync(): Promise<HistorySyncPlan> {
@@ -140,13 +150,16 @@ export class DeviceSync {
 		}
 	}
 
+	/**
+	 * @returns 是否还有积压（用于决定下一轮自动检查的间隔）。
+	 */
 	async requestHistorySync(reason: DeviceSyncReason): Promise<boolean> {
 		if (this.autoEnabled == false && reason != "manual") return false;
 		const plan = await this.planHistorySync();
 		if (this.autoEnabled == false && reason != "manual") return false;
 		if (plan.needed == false) {
 			logger.info("bluetooth", `[BOOM-SYNC] 无生命体征历史缺口: reason=${reason}`);
-			return true;
+			return false;
 		}
 		logger.info(
 			"bluetooth",
@@ -226,7 +239,12 @@ export class DeviceSync {
 				"[BOOM-SYNC] 开始补生命体征历史",
 				`reason=${reason}, gaps=${plan.gaps.length}`
 			);
-			const results = await this.runVitalGaps(plan.gaps, deadlineAt);
+			// 规划给出的是全部待处理任务；真正读哪一批由剩余时间预算决定，
+			// 这样碎片缺口多的区间能一次读满，而不是被固定条数卡住。
+			const budgeted = await historyProgress.listBudgetedTasks(deadlineAt);
+			const gaps =
+				budgeted.length == 0 ? plan.gaps : groupHistoryTasksForRead(budgeted);
+			const results = await this.runVitalGaps(gaps, deadlineAt);
 			let ok = true;
 			for (let i = 0; i < results.length; i++) {
 				const item = results[i];
@@ -264,7 +282,7 @@ export class DeviceSync {
 	}
 
 	private async planVitalGaps(nowSec: number): Promise<HistoryGap[]> {
-		return await historyProgress.plan(this.device.boundDeviceId, nowSec);
+		return groupHistoryTasksForRead(await historyProgress.plan(this.device.boundDeviceId, nowSec));
 	}
 
 	private async runVitalGaps(
@@ -279,12 +297,7 @@ export class DeviceSync {
 			}
 			const gap = gaps[i];
 			if (this.device.boundDeviceId != gap.deviceId) break;
-			const result = await this.device.history.readVitalWindow(
-				gap.fromSec,
-				gap.toSec,
-				gap,
-				deadlineAt
-			);
+			const result = await this.device.history.readVitalTaskGroup(gap.tasks, deadlineAt);
 			results.push(this.makeGapResult(gap, result));
 			if (
 				result.message == "history repair budget reached" ||

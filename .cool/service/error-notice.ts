@@ -37,7 +37,8 @@ function modalNotice(message: string): void {
 export const defaultErrorNotice: ErrorNotice = {
 	show(options: ErrorNoticeOptions): void {
 		const message = options.message;
-		const type = options.showType;
+		// 未指定时按 RequestOptions.showError 声明的默认值提示，否则请求失败没有任何反馈。
+		const type: ErrorNoticeShowType = options.showType ?? "toast";
 		if (type == "toast") {
 			toastNotice(message);
 		} else if (type == "modal") {

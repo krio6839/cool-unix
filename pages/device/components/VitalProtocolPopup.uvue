@@ -1,0 +1,142 @@
+<template>
+	<cl-popup v-model="show" :title="t('生命体征协议 0x3A/0x3B')" direction="bottom" :size="680">
+		<scroll-view class="popup-body" scroll-y="true">
+			<view class="form-card">
+				<text class="title">{{ t("手动读取") }}</text>
+				<cl-select-date
+					v-model="startTime"
+					type="second"
+					:value-format="timeFormat"
+					:label-format="timeFormat"
+					:placeholder="t('选择起始时间')"
+					class="form-field"
+				/>
+				<text class="protocol-seconds">{{ t("协议秒") }}：{{ startSecText }}</text>
+				<cl-select class="form-field" v-model="direction" :options="directionOptions" />
+				<cl-select
+					class="form-field"
+					v-model="minutes"
+					:options="minutesOptions"
+				/><cl-button
+					class="form-field"
+					type="primary"
+					color="#047857"
+					rounded
+					size="small"
+					:disabled="props.busy"
+					@tap="submitVital"
+					>{{ t("发送 0x3A 并连续读取 0x3B") }}</cl-button
+				>
+				<cl-button
+					class="form-field"
+					type="primary"
+					color="#b45309"
+					rounded
+					size="small"
+					:disabled="props.busy == false"
+					@tap="emit('stop')"
+					>{{ t("停止读取") }}</cl-button
+				>
+				<text v-if="formError != ''" class="form-error">{{ formError }}</text>
+			</view>
+			<view v-if="props.hasData" class="result-card">
+				<text class="title">{{ t("读取结果") }}</text>
+				<text>{{ props.vitalText.start }}</text>
+				<text>{{ props.vitalText.directionMinutes }}</text>
+				<text
+					>{{ t("有效秒") }}：{{ props.vitalText.valid }} · PPI：{{
+						props.vitalText.ppi
+					}}</text
+				>
+				<text>{{ props.vitalText.status }}</text>
+				<text>{{ props.vitalText.rmssdSdnn }}</text>
+				<text>{{ props.vitalText.vital }}</text>
+				<text>{{ props.autoDetail }}</text>
+				<text>{{ t("原始响应") }}：{{ props.rawHex }}</text></view
+			>
+		</scroll-view>
+	</cl-popup>
+</template>
+<script lang="ts" setup>
+import { computed, ref } from "vue";
+import { dayUts, t } from "@/.cool";
+import type { ClSelectOption } from "@/uni_modules/cool-ui";
+import type { VitalPopupText, VitalProtocolPopupProps } from "./types";
+const show = defineModel("show", { default: false });
+const props = defineProps<VitalProtocolPopupProps>();
+const emit = defineEmits(["submit", "stop"]);
+const timeFormat = "YYYY-MM-DD HH:mm:ss";
+function formatPickerTime(sec: number): string {
+	return dayUts(new Date(sec * 1000)).format(timeFormat);
+}
+function toUnixSec(value: string): number {
+	if (value == "") return 0;
+	const ms = dayUts(value).valueOf();
+	return Number.isNaN(ms) ? 0 : Math.floor(ms / 1000);
+}
+const startTime = ref(formatPickerTime(Math.floor(Date.now() / 1000) - 5 * 60));
+const formError = ref("");
+const startSecText = computed<string>(() => {
+	const sec = toUnixSec(startTime.value);
+	return sec > 0 ? sec.toString() : "-";
+});
+const direction = ref(0);
+const minutes = ref(2);
+const directionOptions: ClSelectOption[] = [
+	{ label: t("向前 (0)"), value: 0 },
+	{ label: t("向后 (1)"), value: 1 }
+];
+const minutesOptions: ClSelectOption[] = [
+	{ label: t("2 分钟"), value: 2 },
+	{ label: t("5 分钟"), value: 5 }
+];
+function submitVital(): void {
+	const startSec = toUnixSec(startTime.value);
+	if (startSec <= 0) {
+		formError.value = t("请选择有效的起始时间");
+		return;
+	}
+	formError.value = "";
+	emit("submit", {
+		startSec: startSec.toString(),
+		direction: direction.value,
+		minutes: minutes.value
+	});
+}
+</script>
+<style lang="scss" scoped>
+.popup-body {
+	height: 100%;
+	padding: 16px;
+	background-color: #111827;
+}
+.form-card,
+.result-card {
+	padding: 12px;
+	margin-bottom: 12px;
+	border-radius: 8px;
+	background-color: #1f2937;
+	display: flex;
+	flex-direction: column;
+	color: #e5e7eb;
+	font-size: 12px;
+	line-height: 18px;
+}
+
+.title {
+	color: #fff;
+	font-size: 14px;
+	font-weight: 700;
+}
+.form-field,
+.protocol-seconds,
+.form-error {
+	margin-top: 9px;
+}
+.protocol-seconds {
+	color: #93c5fd;
+}
+.form-error {
+	color: #fecaca;
+}
+</style>

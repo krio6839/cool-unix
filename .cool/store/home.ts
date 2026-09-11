@@ -2,6 +2,7 @@ import { ref } from "vue";
 import { getErrorMessage, isNull, isObject } from "../utils";
 import type { HomeData, HealthStatus, HealthCardValues, TrainingDetails } from "../types/home";
 import { request } from "../service";
+import type { ErrorNoticeShowType } from "../service/error-notice";
 
 export class Home {
 	data = ref<HomeData | null>(null);
@@ -25,7 +26,10 @@ export class Home {
 		supercompensationTime: ""
 	});
 
-	fetch(deviceId: string): Promise<void> {
+	/**
+	 * @param showError 失败提示方式。首页常驻轮询传 "none"，避免后端异常时反复弹提示。
+	 */
+	fetch(deviceId: string, showError: ErrorNoticeShowType = "toast"): Promise<void> {
 		if (deviceId == null || deviceId === "") {
 			return Promise.reject("deviceId is null");
 		}
@@ -33,7 +37,8 @@ export class Home {
 			request({
 				url: `/devices/${deviceId}/go`,
 				method: "GET",
-				timeout: 100000
+				timeout: 120000,
+				showError
 			})
 				.then((res) => {
 					if (res != null && isObject(res)) {
@@ -74,8 +79,7 @@ export class Home {
 		} as HealthCardValues;
 
 		const details = {
-			supercompensationTime:
-				(detailsObj["supercompensationTime"] as string | null) ?? ""
+			supercompensationTime: (detailsObj["supercompensationTime"] as string | null) ?? ""
 		} as TrainingDetails;
 
 		const homeData = {

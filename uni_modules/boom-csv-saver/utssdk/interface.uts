@@ -1,0 +1,2 @@
+/** 将 CSV 写入 Android 公共下载目录，返回文件管理器中的相对路径。 */
+export declare function saveCsvToDownloads(fileName: string, content: string): string;

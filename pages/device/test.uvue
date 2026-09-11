@@ -7,800 +7,167 @@
 		></cl-topbar>
 		<scroll-view class="test-popup-body" scroll-y="true">
 			<view class="panel status-panel">
-				<view class="panel-header" @tap="toggleStatusSection">
-					<view>
-						<cl-text color="white" :size="16" :pt="{ className: 'font-bold' }">
-							{{ t("设备状态") }}
-						</cl-text>
-						<cl-text color="gray-400" :size="12">
-							{{ testModeText }}
-						</cl-text>
-					</view>
-					<view class="header-actions">
-						<view :class="'state-pill ' + runtimeStateClass">
-							<text class="state-pill-text">{{ runtimeStateText }}</text>
-						</view>
-						<text class="collapse-button">{{ collapseText(showStatusSection) }}</text>
-					</view>
-				</view>
-				<view v-if="showStatusSection">
-					<view class="state-overview">
-						<view :class="'state-card ' + runtimeStateClass">
-							<text class="state-card-label">{{ t("运行态") }}</text>
-							<text class="state-card-value">{{ runtimeStateText }}</text>
-						</view>
-						<view :class="'state-card ' + channelStateClass">
-							<text class="state-card-label">{{ t("通道态") }}</text>
-							<text class="state-card-value">{{ channelStateText }}</text>
-						</view>
-					</view>
-					<view class="status-grid">
-						<view class="status-cell">
-							<text class="cell-label">{{ t("固件版本") }}</text>
-							<text class="cell-value">{{ fwText }}</text>
-						</view>
-						<view class="status-cell">
-							<text class="cell-label">{{ t("设备编号") }}</text>
-							<text class="cell-value">{{ deviceNumberText }}</text>
-						</view>
-						<view class="status-cell">
-							<text class="cell-label">{{ t("BOOM 时戳") }}</text>
-							<text class="cell-value">{{ boomTimestampText }}</text>
-						</view>
-						<view class="status-cell">
-							<text class="cell-label">{{ t("生物识别") }}</text>
-							<text class="cell-value cell-value-small">{{ bioText }}</text>
-						</view>
-					</view>
-					<view class="protocol-ready-line">
-						<cl-text :color="protocolReady ? 'success' : 'warning'" :size="12">
-							{{ protocolReadyText }}
-						</cl-text>
-					</view>
-				</view>
+				<view class="panel-header"
+					><view
+						><cl-text color="white" :size="16" :pt="{ className: 'font-bold' }">{{
+							t("设备状态")
+						}}</cl-text
+						><cl-text color="gray-400" :size="12">{{ testModeText }}</cl-text></view
+					><view :class="'state-pill ' + runtimeStateClass"
+						><text class="state-pill-text">{{ runtimeStateText }}</text></view
+					></view
+				>
+				<view class="state-overview"
+					><view :class="'state-card ' + runtimeStateClass"
+						><text class="state-card-label">{{ t("运行态") }}</text
+						><text class="state-card-value">{{ runtimeStateText }}</text></view
+					><view :class="'state-card ' + channelStateClass"
+						><text class="state-card-label">{{ t("通道态") }}</text
+						><text class="state-card-value">{{ channelStateText }}</text></view
+					></view
+				>
+				<view class="status-grid"
+					><view class="status-cell"
+						><text class="cell-label">{{ t("固件版本") }}</text
+						><text class="cell-value">{{ fwText }}</text></view
+					><view class="status-cell"
+						><text class="cell-label">{{ t("设备编号") }}</text
+						><text class="cell-value">{{ deviceNumberText }}</text></view
+					><view class="status-cell"
+						><text class="cell-label">{{ t("BOOM 时戳") }}</text
+						><text class="cell-value">{{ boomTimestampText }}</text></view
+					><view class="status-cell"
+						><text class="cell-label">{{ t("生物识别") }}</text
+						><text class="cell-value cell-value-small">{{ bioText }}</text></view
+					></view
+				>
+				<view class="protocol-ready-line"
+					><cl-text :color="protocolReady ? 'success' : 'warning'" :size="12">{{
+						protocolReadyText
+					}}</cl-text></view
+				>
 			</view>
-
 			<view class="panel broadcast-panel">
-				<view class="panel-header" @tap="toggleBroadcastSection">
-					<view>
-						<cl-text color="white" :size="15" :pt="{ className: 'font-bold' }">
-							{{ t("0x50 实时广播") }}
-						</cl-text>
-						<cl-text color="gray-400" :size="12">
-							{{ broadcastSubtitleText }}
-						</cl-text>
-					</view>
-					<view class="header-actions">
-						<view :class="'state-pill ' + broadcastStateClass">
-							<text class="state-pill-text">{{ broadcastStateText }}</text>
-						</view>
-						<text class="collapse-button">{{
-							collapseText(showBroadcastSection)
-						}}</text>
-					</view>
-				</view>
-				<view v-if="showBroadcastSection">
-					<view class="broadcast-hero">
-						<view class="metric-large">
-							<text class="metric-label">{{ t("心率") }}</text>
-							<text class="metric-value">{{ rtText.hr }}</text>
-							<text class="metric-unit">bpm</text>
-						</view>
-						<view class="metric-large">
-							<text class="metric-label">{{ t("RMSSD") }}</text>
-							<text class="metric-value">{{ rtText.hrv }}</text>
-							<text class="metric-unit">ms</text>
-						</view>
-						<view class="metric-large">
-							<text class="metric-label">{{ t("血氧") }}</text>
-							<text class="metric-value">{{ rtText.spo2 }}</text>
-							<text class="metric-unit">%</text>
-						</view>
-					</view>
-					<view class="broadcast-grid">
-						<view class="broadcast-cell">
-							<text class="cell-label">{{ t("电池电压") }}</text>
-							<text class="cell-value"
-								>{{ rtText.voltage }} V / {{ rtText.voltageMv }} mV</text
-							>
-						</view>
-						<view class="broadcast-cell">
-							<text class="cell-label">PPI</text>
-							<text class="cell-value">{{ rtText.ppi }} ms</text>
-						</view>
-						<view class="broadcast-cell">
-							<text class="cell-label">{{ t("PPG 佩戴") }}</text>
-							<text class="cell-value">{{ rtText.ppgAttached }}</text>
-						</view>
-						<view class="broadcast-cell">
-							<text class="cell-label">{{ t("电池状态") }}</text>
-							<text class="cell-value">{{ rtText.battery }}</text>
-						</view>
-						<view class="broadcast-cell">
-							<text class="cell-label">{{ t("事件提示") }}</text>
-							<text class="cell-value">{{ rtText.eventNotice }}</text>
-						</view>
-						<view class="broadcast-cell">
-							<text class="cell-label">{{ t("行为 / 活动") }}</text>
-							<text class="cell-value"
-								>{{ rtText.behavior }} / {{ rtText.activity }}</text
-							>
-						</view>
-						<view class="broadcast-cell">
-							<text class="cell-label">{{ t("静息心率 BHR") }}</text>
-							<text class="cell-value">{{ rtText.bhr }} bpm</text>
-						</view>
-						<view class="broadcast-cell">
-							<text class="cell-label">{{ t("步数") }}</text>
-							<text class="cell-value">{{ rtText.steps }}</text>
-						</view>
-						<view class="broadcast-cell">
-							<text class="cell-label">{{ t("卡路里") }}</text>
-							<text class="cell-value">{{ rtText.calories }} kcal</text>
-						</view>
-						<view class="broadcast-cell">
-							<text class="cell-label">{{ t("上次接收") }}</text>
-							<text class="cell-value">{{ rtText.receivedAt }}</text>
-						</view>
-						<view class="broadcast-cell">
-							<text class="cell-label">UTC</text>
-							<text class="cell-value">{{ rtText.utc }}</text>
-						</view>
-						<view class="broadcast-cell">
-							<text class="cell-label">{{ t("时间偏差") }}</text>
-							<text class="cell-value">{{ advText.diff }}</text>
-						</view>
-					</view>
-					<view class="broadcast-debug-compact">
-						<text class="debug-line"
-							>device={{ advText.deviceId }} RSSI={{ advText.rssi }}</text
-						>
-						<text class="debug-toggle" @tap="toggleBroadcastDebug">
-							{{ showBroadcastDebug ? t("收起调试数据") : t("展开调试数据") }}
-						</text>
-					</view>
-					<view v-if="showBroadcastDebug" class="broadcast-debug">
-						<text class="debug-line">{{ advText.parsed }}</text>
-						<text class="debug-line">raw={{ advText.rawHex }}</text>
-						<text class="debug-line">v={{ advText.vHex }}</text>
-					</view>
-				</view>
-			</view>
-
-			<view>
-				<view class="section-header" @tap="toggleGattCommandsSection">
-					<text class="section-title">{{ t("BOOM GATT 协议测试") }}</text>
-					<text class="collapse-button">{{ collapseText(showGattCommandsSection) }}</text>
-				</view>
-				<view v-if="showGattCommandsSection" class="panel command-grid">
-					<view class="command-item">
-						<cl-button
-							type="primary"
-							color="#334155"
-							rounded
-							size="small"
-							class="command-button"
-							:disabled="isCommandDisabled('0x30')"
-							@tap="testReadFirmware"
-						>
-							{{ t("0x30 读固件") }}
-						</cl-button>
-					</view>
-					<view class="command-item">
-						<cl-button
-							type="primary"
-							color="#334155"
-							rounded
-							size="small"
-							class="command-button"
-							:disabled="isCommandDisabled('0x32')"
-							@tap="testReadDeviceNumber"
-						>
-							{{ t("0x32 读设备编号") }}
-						</cl-button>
-					</view>
-					<view class="command-item">
-						<cl-button
-							type="primary"
-							color="#334155"
-							rounded
-							size="small"
-							class="command-button"
-							:disabled="isCommandDisabled('0x34')"
-							@tap="testReadTimestamp"
-						>
-							{{ t("0x34 读时戳") }}
-						</cl-button>
-					</view>
-					<view class="command-item">
-						<cl-button
-							type="primary"
-							color="#334155"
-							rounded
-							size="small"
-							class="command-button"
-							:disabled="isCommandDisabled('0x36')"
-							@tap="testReadBiometric"
-						>
-							{{ t("0x36 读生物识别") }}
-						</cl-button>
-					</view>
-					<view class="command-item">
-						<cl-button
-							type="primary"
-							color="#475569"
-							rounded
-							size="small"
-							class="command-button"
-							:disabled="isCommandDisabled('0x31')"
-							@tap="openForm('0x31')"
-						>
-							{{ t("0x31 写设备编号") }}
-						</cl-button>
-					</view>
-					<view class="command-item">
-						<cl-button
-							type="primary"
-							color="#475569"
-							rounded
-							size="small"
-							class="command-button"
-							:disabled="isCommandDisabled('0x33')"
-							@tap="testSetTimestamp"
-						>
-							{{ t("0x33 写时戳") }}
-						</cl-button>
-					</view>
-					<view class="command-item">
-						<cl-button
-							type="primary"
-							color="#475569"
-							rounded
-							size="small"
-							class="command-button"
-							:disabled="isCommandDisabled('0x35')"
-							@tap="openForm('0x35')"
-						>
-							{{ t("0x35 写生物识别") }}
-						</cl-button>
-					</view>
-					<view class="command-item">
-						<cl-button
-							type="primary"
-							color="#64748b"
-							rounded
-							size="small"
-							class="command-button"
-							:disabled="isCommandDisabled('0x40')"
-							@tap="testVibration"
-						>
-							{{ t("0x40 震动马达") }}
-						</cl-button>
-					</view>
-				</view>
-
-				<view class="section-header" @tap="toggleHistoryCommandsSection">
-					<text class="section-title">{{ t("历史数据（v5 新增）") }}</text>
-					<text class="collapse-button">{{
-						collapseText(showHistoryCommandsSection)
-					}}</text>
-				</view>
-				<view v-if="showHistoryCommandsSection" class="panel command-grid">
-					<view class="command-item command-item-wide">
-						<cl-button
-							type="primary"
-							color="#047857"
-							rounded
-							size="small"
-							class="command-button"
-							:disabled="isCommandDisabled('0x3A')"
-							@tap="openForm('0x3A')"
-						>
-							{{ t("0x3A 开始生命体征") }}
-						</cl-button>
-						<cl-button
-							type="primary"
-							color="#0f766e"
-							rounded
-							size="small"
-							class="command-button-small"
-							:disabled="vitalAutoReading == false"
-							@tap="stopVitalAutoRead"
-						>
-							{{ t("停止生命体征") }}
-						</cl-button>
-					</view>
-					<view class="command-item command-item-wide">
-						<cl-button
-							type="primary"
-							color="#991b1b"
-							rounded
-							size="small"
-							class="command-button"
-							:disabled="isCommandDisabled('0x3C')"
-							@tap="openForm('0x3C')"
-						>
-							{{ t("0x3C 开始事件") }}
-						</cl-button>
-						<cl-button
-							type="primary"
-							color="#92400e"
-							rounded
-							size="small"
-							class="command-button-small"
-							:disabled="eventAutoReading == false"
-							@tap="stopEventAutoRead"
-						>
-							{{ t("停止事件") }}
-						</cl-button>
-					</view>
-				</view>
-
-				<!-- 0x3A 生命体征响应展示区 -->
-				<view v-if="hasVitalData">
-					<view class="section-header" @tap="toggleVitalResultSection">
-						<view>
-							<text class="section-title">{{ t("0x3A 生命体征响应") }}</text>
-							<text class="section-summary">{{ vitalText.summary }}</text>
-						</view>
-						<text class="collapse-button">{{
-							collapseText(showVitalResultSection)
-						}}</text>
-					</view>
-					<view v-if="showVitalResultSection" class="panel data-card">
-						<view class="data-grid">
-							<view class="data-cell">
-								<text class="cell-label">{{ t("起始时间") }}</text>
-								<text class="cell-value">{{ vitalText.start }}</text>
-							</view>
-							<view class="data-cell">
-								<text class="cell-label">{{ t("方向 / 分钟") }}</text>
-								<text class="cell-value">{{ vitalText.directionMinutes }}</text>
-							</view>
-							<view class="data-cell">
-								<text class="cell-label">{{ t("有效心率") }}</text>
-								<text class="cell-value">{{ vitalText.valid }}</text>
-							</view>
-							<view class="data-cell">
-								<text class="cell-label">PPI</text>
-								<text class="cell-value">{{ vitalText.ppi }}</text>
-							</view>
-						</view>
-						<view class="data-debug">
-							<text class="debug-line">{{ vitalText.status }}</text>
-							<text class="debug-line">RMSSD/SDNN: {{ vitalText.rmssdSdnn }}</text>
-							<text class="debug-line"
-								>{{ t("逐秒数据 (前 30 条)") }}: {{ vitalText.vital }}</text
-							>
-						</view>
-						<view class="data-debug">
-							<text class="protocol-log-line protocol-log-detail">{{
-								vitalAutoDetail
-							}}</text>
-						</view>
-					</view>
-				</view>
-
-				<!-- 0x3C/0x3D 事件响应展示区 -->
-				<view v-if="hasEventData">
-					<view class="section-header" @tap="toggleEventResultSection">
-						<view>
-							<text class="section-title">{{ t("0x3C 事件响应") }}</text>
-							<text class="section-summary">{{ eventText.summary }}</text>
-						</view>
-						<text class="collapse-button">{{
-							collapseText(showEventResultSection)
-						}}</text>
-					</view>
-					<view v-if="showEventResultSection" class="panel data-card">
-						<view class="data-grid">
-							<view class="data-cell">
-								<text class="cell-label">{{ t("事件头") }}</text>
-								<text class="cell-value">{{ eventText.header }}</text>
-							</view>
-							<view class="data-cell">
-								<text class="cell-label">{{ t("事件数量") }}</text>
-								<text class="cell-value">{{ eventText.count }}</text>
-							</view>
-						</view>
-						<view class="data-debug">
-							<text class="debug-line">{{ t("事件列表 (前 10 条)") }}:</text>
-							<text class="debug-line">{{ eventText.items }}</text>
-						</view>
-						<view class="data-debug">
-							<text class="protocol-log-line protocol-log-detail">{{
-								eventAutoDetail
-							}}</text>
-						</view>
-					</view>
-				</view>
-
-				<view class="section-header" @tap="toggleDeviceControlSection">
-					<text class="section-title">{{ t("设备控制") }}</text>
-					<text class="collapse-button">{{
-						collapseText(showDeviceControlSection)
-					}}</text>
-				</view>
-				<view v-if="showDeviceControlSection" class="panel action-grid">
-					<cl-button
-						type="primary"
-						color="#334155"
-						rounded
-						size="small"
-						class="action-button"
-						:disabled="activeCommand != ''"
-						@tap="testDisconnect"
-					>
-						{{ t("断开连接") }}
-					</cl-button>
-					<cl-button
-						type="primary"
-						color="#334155"
-						rounded
-						size="small"
-						class="action-button"
-						:disabled="activeCommand != ''"
-						@tap="testRestoreBroadcast"
-					>
-						{{ t("恢复广播") }}
-					</cl-button>
-					<cl-button
-						type="primary"
-						color="#475569"
-						rounded
-						size="small"
-						class="action-button"
-						:disabled="activeCommand != ''"
-						@tap="testClearError"
-					>
-						{{ t("清除错误") }}
-					</cl-button>
-					<cl-button
-						type="primary"
-						color="#475569"
-						rounded
-						size="small"
-						class="action-button"
-						@tap="openProtocolLog"
-					>
-						{{ t("协议日志") }}
-					</cl-button>
-				</view>
-			</view>
-
-			<view class="section-header" @tap="toggleMoreSection">
-				<text class="section-title">{{ t("更多测试") }}</text>
-				<text class="collapse-button">{{ collapseText(showMoreSection) }}</text>
-			</view>
-			<view v-if="showMoreSection" class="panel action-grid">
-				<cl-button
-					type="primary"
-					color="#256"
-					rounded
-					size="small"
-					class="action-button"
-					@tap="openDatabasePopup"
+				<view class="panel-header"
+					><view
+						><cl-text color="white" :size="15" :pt="{ className: 'font-bold' }">{{
+							t("0x50 实时广播")
+						}}</cl-text
+						><cl-text color="gray-400" :size="12">{{
+							broadcastSubtitleText
+						}}</cl-text></view
+					><view :class="'state-pill ' + broadcastStateClass"
+						><text class="state-pill-text">{{ broadcastStateText }}</text></view
+					></view
 				>
-					{{ t("数据库查询") }}
-				</cl-button>
-				<cl-button
-					type="primary"
-					color="#256"
-					rounded
-					size="small"
-					class="action-button"
-					@tap="openDiagnosticsPage"
+				<view class="broadcast-hero"
+					><view class="metric-large"
+						><text class="metric-label">{{ t("心率") }}</text
+						><text class="metric-value">{{ rtText.hr }}</text
+						><text class="metric-unit">bpm</text></view
+					><view class="metric-large"
+						><text class="metric-label">{{ t("RMSSD") }}</text
+						><text class="metric-value">{{ rtText.hrv }}</text
+						><text class="metric-unit">ms</text></view
+					><view class="metric-large"
+						><text class="metric-label">{{ t("血氧") }}</text
+						><text class="metric-value">{{ rtText.spo2 }}</text
+						><text class="metric-unit">%</text></view
+					></view
 				>
-					{{ t("诊断日志") }}
-				</cl-button>
+				<view class="broadcast-grid"
+					><view class="broadcast-cell"
+						><text class="cell-label">PPI</text
+						><text class="cell-value">{{ rtText.ppi }} ms</text></view
+					><view class="broadcast-cell"
+						><text class="cell-label">{{ t("电池电压") }}</text
+						><text class="cell-value"
+							>{{ rtText.voltage }} V / {{ rtText.voltageMv }} mV</text
+						></view
+					><view class="broadcast-cell"
+						><text class="cell-label">{{ t("PPG 佩戴") }}</text
+						><text class="cell-value">{{ rtText.ppgAttached }}</text></view
+					><view class="broadcast-cell"
+						><text class="cell-label">{{ t("事件提示") }}</text
+						><text class="cell-value">{{ rtText.eventNotice }}</text></view
+					><view class="broadcast-cell"
+						><text class="cell-label">{{ t("步数") }}</text
+						><text class="cell-value">{{ rtText.steps }}</text></view
+					><view class="broadcast-cell"
+						><text class="cell-label">{{ t("上次接收") }}</text
+						><text class="cell-value">{{ rtText.receivedAt }}</text></view
+					></view
+				>
+			</view>
+			<view class="entry-grid">
+				<cl-button
+					v-for="entry in testEntries"
+					:key="entry.key"
+					type="primary"
+					color="#334155"
+					rounded
+					size="large"
+					class="test-entry-button"
+					:disabled="isTestEntryDisabled(entry.key)"
+					@tap="openTestEntry(entry.key)"
+					>{{ entry.label }}</cl-button
+				>
 			</view>
 		</scroll-view>
-
-		<DatabaseTestPopup v-model:show="databasePopupVisible"></DatabaseTestPopup>
-
-		<!-- 参数输入子弹窗（0x31/0x35/0x3A/0x3C 共用） -->
-		<cl-popup v-model="formVisible" direction="bottom" :size="700" :title="formTitle">
-			<scroll-view class="p-4" scroll-y="true" style="height: 100%">
-				<!-- 0x31 设备编号 -->
-				<view v-if="activeForm == '0x31'">
-					<view class="mb-3">
-						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("设备编号（1~29 位，数字/字母）") }}
-							<cl-text color="error">*</cl-text>
-						</cl-text>
-						<cl-input
-							v-model="formDeviceNumber"
-							:placeholder="t('请输入设备编号')"
-							:maxlength="29"
-							clearable
-						></cl-input>
-					</view>
-				</view>
-
-				<!-- 0x35 写生物识别 -->
-				<view v-else-if="activeForm == '0x35'">
-					<view class="mb-3">
-						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("性别") }}
-							<cl-text color="error">*</cl-text>
-						</cl-text>
-						<cl-select v-model="formGender" :options="genderOptions"></cl-select>
-					</view>
-					<view class="mb-3">
-						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("体重 (×100, e.g. 7000 = 70.00kg)") }}
-							<cl-text color="error">*</cl-text>
-						</cl-text>
-						<cl-input v-model="formWeight" type="number" placeholder="7000"></cl-input>
-					</view>
-					<view class="mb-3">
-						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("身高 (×100, e.g. 18000 = 180cm)") }}
-							<cl-text color="error">*</cl-text>
-						</cl-text>
-						<cl-input v-model="formHeight" type="number" placeholder="18000"></cl-input>
-					</view>
-					<view class="mb-3">
-						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("年龄 (岁)") }}
-							<cl-text color="error">*</cl-text>
-						</cl-text>
-						<cl-input v-model="formAge" type="number" placeholder="20"></cl-input>
-					</view>
-					<view class="mb-3">
-						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("PPG 位置") }}
-							<cl-text color="error">*</cl-text>
-						</cl-text>
-						<cl-select
-							v-model="formPpgPosition"
-							:options="ppgPositionOptions"
-						></cl-select>
-					</view>
-					<view class="mb-3">
-						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("静息心率 BHR (28~240)") }}
-							<cl-text color="error">*</cl-text>
-						</cl-text>
-						<cl-input v-model="formBhr" type="number" placeholder="60"></cl-input>
-					</view>
-				</view>
-
-				<!-- 0x3A 读生命体征 -->
-				<view v-else-if="activeForm == '0x3A'">
-					<view class="mb-3">
-						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("起始时戳 (秒)") }}
-							<cl-text color="error">*</cl-text>
-						</cl-text>
-						<cl-input
-							v-model="formStartSec"
-							type="number"
-							:placeholder="t('默认 2 分钟前')"
-						></cl-input>
-					</view>
-					<view class="mb-3">
-						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("方向") }}
-							<cl-text color="error">*</cl-text>
-						</cl-text>
-						<cl-select v-model="formDirection" :options="directionOptions"></cl-select>
-					</view>
-					<view class="mb-3">
-						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("分钟数") }}
-							<cl-text color="error">*</cl-text>
-						</cl-text>
-						<cl-select v-model="formMinutes" :options="minutesOptions"></cl-select>
-					</view>
-				</view>
-
-				<!-- 0x3C 读事件 -->
-				<view v-else-if="activeForm == '0x3C'">
-					<view class="event-window-shortcuts mb-3">
-						<view class="event-window-button" @tap="setEventWindowMinutes(15)">
-							<text class="event-window-button-text">{{ t("近15分钟") }}</text>
-						</view>
-						<view class="event-window-button" @tap="setEventWindowMinutes(60)">
-							<text class="event-window-button-text">{{ t("近1小时") }}</text>
-						</view>
-						<view class="event-window-button" @tap="setEventWindowMinutes(360)">
-							<text class="event-window-button-text">{{ t("近6小时") }}</text>
-						</view>
-						<view class="event-window-button" @tap="setEventWindowMinutes(1440)">
-							<text class="event-window-button-text">{{ t("近24小时") }}</text>
-						</view>
-						<view class="event-window-button" @tap="setEventWindowMinutes(10080)">
-							<text class="event-window-button-text">{{ t("近一周") }}</text>
-						</view>
-						<view class="event-window-button" @tap="setEventWindowMinutes(43200)">
-							<text class="event-window-button-text">{{ t("近一月") }}</text>
-						</view>
-						<view class="event-window-button" @tap="setEventWindowAll">
-							<text class="event-window-button-text">{{ t("全部") }}</text>
-						</view>
-					</view>
-					<view class="mb-3">
-						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("类型") }}
-							<cl-text color="error">*</cl-text>
-						</cl-text>
-						<cl-select v-model="formType" :options="eventTypeOptions"></cl-select>
-					</view>
-					<view class="mb-3">
-						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("事件时间范围") }}
-							<cl-text color="error">*</cl-text>
-						</cl-text>
-						<cl-select-date
-							v-model:values="formEventRange"
-							type="second"
-							rangeable
-							:show-shortcuts="false"
-							value-format="YYYY-MM-DD HH:mm:ss"
-							label-format="YYYY-MM-DD HH:mm:ss"
-							:start-placeholder="t('开始时间')"
-							:end-placeholder="t('结束时间')"
-						></cl-select-date>
-						<view class="event-window-preview">
-							<text class="event-window-preview-text">
-								{{ eventWindowPreviewText }}
-							</text>
-						</view>
-					</view>
-					<view class="mb-3">
-						<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-							{{ t("每批条数") }}
-							<cl-text color="error">*</cl-text>
-						</cl-text>
-						<cl-input
-							v-model="formMaxCount"
-							type="number"
-							:placeholder="t('默认 10')"
-						></cl-input>
-					</view>
-				</view>
-
-				<!-- 快速发送示例（有文档示例时显示） -->
-				<view v-if="exampleList.length > 0" class="mt-4 p-3 bg-gray-700 rounded">
-					<cl-text color="gray-300" :size="12" :pt="{ className: 'mb-2 font-bold' }">
-						{{ t("快速发送示例（免填表单）") }}
-					</cl-text>
-					<view class="flex flex-row flex-wrap">
-						<cl-button
-							v-for="(ex, i) in exampleList"
-							:key="i"
-							type="primary"
-							color="#a0a"
-							rounded
-							size="small"
-							class="mr-1 mb-1"
-							:disabled="activeCommand != ''"
-							@tap="sendExample(ex)"
-						>
-							{{ ex.name }}
-						</cl-button>
-					</view>
-				</view>
-
-				<view class="flex flex-row mt-4">
-					<cl-button type="light" size="large" class="flex-1 mr-2" @tap="closeForm">
-						{{ t("取消") }}
-					</cl-button>
-					<cl-button
-						type="primary"
-						size="large"
-						class="flex-1 ml-2"
-						:disabled="activeCommand != ''"
-						@tap="submitForm"
-					>
-						{{ activeCommand != "" ? t("发送中") : t("发送") }}
-					</cl-button>
-				</view>
-			</scroll-view>
-		</cl-popup>
-
-		<!-- 协议日志 + 手动 raw 发送 -->
-		<cl-popup
-			v-model="protocolLogVisible"
-			direction="bottom"
-			:size="620"
-			:title="t('协议日志')"
-		>
-			<view
-				style="
-					height: 100%;
-					position: relative;
-					overflow: hidden;
-					background-color: #2b2c28;
-				"
-			>
-				<view
-					style="
-						position: absolute;
-						top: 12px;
-						left: 12px;
-						right: 12px;
-						height: 170px;
-						z-index: 2;
-						overflow: hidden;
-						background-color: #2b2c28;
-					"
-				>
-					<cl-text color="white" :size="14" :pt="{ className: 'mb-2' }">
-						{{ t("手动发送完整 hex 帧") }}
-					</cl-text>
-					<cl-textarea
-						v-model="manualRawHex"
-						:placeholder="t('例如 06C0360000000FAC')"
-						:height="90"
-					></cl-textarea>
-					<view class="flex flex-row mt-2">
-						<cl-button
-							type="primary"
-							size="small"
-							class="mr-2"
-							:disabled="activeCommand != '' || protocolReady == false"
-							@tap="sendManualRawHex"
-						>
-							{{ t("发送") }}
-						</cl-button>
-						<cl-button type="light" size="small" class="mr-2" @tap="clearManualRawHex">
-							{{ t("清空输入") }}
-						</cl-button>
-						<cl-button type="light" size="small" @tap="clearProtocolLogs">
-							{{ t("清空日志") }}
-						</cl-button>
-					</view>
-				</view>
-
-				<scroll-view
-					scroll-y="true"
-					style="
-						position: absolute;
-						top: 194px;
-						left: 12px;
-						right: 12px;
-						height: 370px;
-						z-index: 1;
-						overflow: hidden;
-					"
-				>
-					<view
-						v-for="item in protocolLogs"
-						:key="item.id"
-						class="mb-2 p-2 bg-gray-800 rounded protocol-log-item"
-						style="overflow: hidden"
-					>
-						<view class="flex flex-row items-center mb-1">
-							<cl-text :color="protocolLogColor(item.direction)" :size="12">
-								[{{ item.direction }}]
-							</cl-text>
-							<cl-text color="gray-400" :size="12" class="ml-2">
-								{{ item.time }}
-							</cl-text>
-							<cl-text color="white" :size="12" class="ml-2">
-								{{ item.title }}
-							</cl-text>
-						</view>
-						<view v-if="item.detail != ''" style="width: 100%; overflow: hidden">
-							<text class="protocol-log-line protocol-log-detail">{{
-								item.detail
-							}}</text>
-						</view>
-						<view v-if="item.hex != ''" style="width: 100%; overflow: hidden">
-							<text class="protocol-log-line protocol-log-hex">{{ item.hex }}</text>
-						</view>
-					</view>
-					<view v-if="protocolLogs.length == 0" class="py-8">
-						<cl-text color="gray-400" :size="14">{{ t("暂无协议日志") }}</cl-text>
-					</view>
-				</scroll-view>
-			</view>
-		</cl-popup>
+		<HistoryQuickReadPopup
+			v-model:show="quickHistoryPopupVisible"
+			:status="quickHistoryStatus"
+			:pages="quickHistoryPages"
+			:seconds="quickHistorySeconds"
+			:days="quickHistoryDays"
+			:busy="vitalAutoReading"
+			:export-count="vitalHistoryExportResponses.length"
+			@read-range="testVitalHistoryRange"
+			@stop="stopVitalAutoRead"
+			@export="exportVitalHistoryCsv"
+		/>
+		<HistoryGapRepairPopup
+			v-model:show="historyGapRepairPopupVisible"
+			:busy="activeCommand == 'HISTORY_GAP'"
+			:command-message="getResp('HISTORY_GAP')"
+			:revision="historyGapRevision"
+			@repair-history-gap="repairHistoryGap"
+		/>
+		<VitalProtocolPopup
+			v-model:show="vitalProtocolPopupVisible"
+			:vital-text="vitalText"
+			:has-data="hasVitalData"
+			:auto-detail="vitalAutoDetail"
+			:raw-hex="vitalRawHex"
+			:busy="vitalAutoReading"
+			@submit="submitVitalFromPopup"
+			@stop="stopVitalAutoRead"
+		/>
+		<EventProtocolPopup
+			v-model:show="eventProtocolPopupVisible"
+			:event-header="eventHeaderText"
+			:event-count="eventCountText"
+			:event-items="eventItemsText"
+			:has-data="hasEventData"
+			:auto-detail="eventAutoDetail"
+			:raw-hex="eventRawHex"
+			:busy="eventAutoReading"
+			@submit="submitEventFromPopup"
+			@stop="stopEventAutoRead"
+		/>
+		<DeviceControlPopup
+			v-model:show="deviceControlPopupVisible"
+			:busy="activeCommand != ''"
+			:is-disabled="isCommandDisabled"
+			@command="runDeviceCommand"
+			@submit-form="submitDeviceForm"
+		/>
+		<DataDiagnosticsPopup
+			v-model:show="diagnosticsPopupVisible"
+			:protocol-logs="protocolLogText"
+		/>
 	</cl-page>
 </template>
-
 <script lang="ts" setup>
 //#ifndef H5
 import { computed, reactive, ref } from "vue";
@@ -812,6 +179,7 @@ import {
 	PPG_POSITION_OPTIONS,
 	dayUts,
 	decodeAdvStatus,
+	formatRealtimeMetric,
 	router,
 	t,
 	useStore
@@ -821,12 +189,29 @@ import type {
 	VibrationResult,
 	VibrationSpec,
 	VitalBiometric,
+	VitalDataQueryResponse,
 	ProtocolLogDirection,
 	ProtocolLogItem
 } from "@/.cool";
 import type { PpgPositionOption } from "@/.cool";
 import { useUi, type ClSelectOption } from "@/uni_modules/cool-ui";
-import DatabaseTestPopup from "./components/DatabaseTestPopup.uvue";
+import type { VitalAutoReadResult } from "@/.cool/store/device/history-reader";
+import { buildVitalHistoryCsv } from "@/.cool/bluetooth/history/export";
+import { historyProgress, type HistoryTask } from "@/.cool/bluetooth/history/progress";
+import { saveCsvToDownloads } from "@/uni_modules/boom-csv-saver";
+import DataDiagnosticsPopup from "./components/DataDiagnosticsPopup.uvue";
+import HistoryGapRepairPopup from "./components/HistoryGapRepairPopup.uvue";
+import HistoryQuickReadPopup from "./components/HistoryQuickReadPopup.uvue";
+import VitalProtocolPopup from "./components/VitalProtocolPopup.uvue";
+import EventProtocolPopup from "./components/EventProtocolPopup.uvue";
+import DeviceControlPopup from "./components/DeviceControlPopup.uvue";
+import type {
+	DevicePopupPayload,
+	EventPopupPayload,
+	HistoryGapRepairPayload,
+	VitalPopupPayload,
+	VitalPopupText
+} from "./components/types";
 
 /* 0x50 实时数据展示用 computed 类型（9 字段全部 string） */
 type RtText = {
@@ -859,11 +244,40 @@ type AdvText = {
 	vHex: string;
 };
 
+type TestEntryKey = "quick" | "gap" | "vital" | "event" | "control" | "diagnostics";
+type TestEntry = { key: TestEntryKey; label: string };
+
 const ui = useUi();
 const { device: deviceStore } = useStore();
 
 const protocolLogVisible = ref(false);
 const databasePopupVisible = ref(false);
+const historyGapRepairPopupVisible = ref(false);
+/**
+ * 测试页手动补录直接调用 history.readVitalTaskGroup，不经过 sync，
+ * 因此不会更新 lastHistorySyncAt。补完必须自己抬一次版本，否则弹窗留着补之前的旧批次。
+ */
+const manualHistoryRevision = ref<number>(0);
+const historyGapRevision = computed<number>(() => {
+	const plannedAt = deviceStore.sync.lastCheckAt.value;
+	const completedAt = deviceStore.sync.lastHistorySyncAt.value;
+	const manualAt = manualHistoryRevision.value;
+	const latest = plannedAt > completedAt ? plannedAt : completedAt;
+	return manualAt > latest ? manualAt : latest;
+});
+const quickHistoryPopupVisible = ref(false);
+const vitalProtocolPopupVisible = ref(false);
+const eventProtocolPopupVisible = ref(false);
+const deviceControlPopupVisible = ref(false);
+const diagnosticsPopupVisible = ref(false);
+const testEntries: TestEntry[] = [
+	{ key: "quick", label: t("快速历史读取") },
+	{ key: "gap", label: t("历史缺口补录") },
+	{ key: "vital", label: t("生命体征协议") },
+	{ key: "event", label: t("事件协议") },
+	{ key: "control", label: t("设备控制") },
+	{ key: "diagnostics", label: t("数据诊断") }
+];
 const manualRawHex = ref("");
 const showStatusSection = ref<boolean>(true);
 const showBroadcastSection = ref<boolean>(true);
@@ -875,9 +289,39 @@ const showEventResultSection = ref<boolean>(true);
 const showDeviceControlSection = ref<boolean>(false);
 const showMoreSection = ref<boolean>(false);
 const protocolLogs = computed<ProtocolLogItem[]>((): ProtocolLogItem[] => {
-	if (protocolLogVisible.value == false) return [];
 	return deviceStore.protocolLogs.value.slice();
 });
+const protocolLogText = computed<string[]>((): string[] => {
+	const result: string[] = [];
+	for (const item of protocolLogs.value) {
+		result.push(
+			"[" +
+				item.direction +
+				"] " +
+				item.time +
+				" " +
+				item.title +
+				" " +
+				item.detail +
+				" " +
+				item.hex
+		);
+	}
+	return result;
+});
+
+function rawProtocolHex(first: string, second: string): string {
+	const result: string[] = [];
+	for (const item of protocolLogs.value) {
+		if ((item.title.indexOf(first) >= 0 || item.title.indexOf(second) >= 0) && item.hex != "") {
+			result.push(item.hex);
+		}
+	}
+	return result.length == 0 ? "-" : result.join("\n");
+}
+
+const vitalRawHex = computed<string>(() => rawProtocolHex("0x3A", "0x3B"));
+const eventRawHex = computed<string>(() => rawProtocolHex("0x3C", "0x3D"));
 
 function hasBoundBroadcastDebug(): boolean {
 	deviceStore.stateVersion.value;
@@ -1073,6 +517,11 @@ function isAlphaNumeric(value: string): boolean {
 	return true;
 }
 
+function realtimeMetricText(value: number, valid: boolean, fractionDigits: number): string {
+	const text = formatRealtimeMetric(value, valid, fractionDigits);
+	return text == "invalid" ? t("无效") : text;
+}
+
 const rtText = computed<RtText>(() => {
 	const r = deviceStore.realtime.value;
 	if (r == null) {
@@ -1096,18 +545,18 @@ const rtText = computed<RtText>(() => {
 		};
 	}
 	return {
-		hr: r.hrValid ? r.hr.toString() : `${r.hr}(${t("无效")})`,
-		spo2: r.spo2Valid ? r.spo2Pct.toFixed(1) : `${r.spo2Pct.toFixed(1)}(${t("无效")})`,
+		hr: realtimeMetricText(r.hr, r.hrValid, 0),
+		spo2: realtimeMetricText(r.spo2Pct, r.spo2Valid, 1),
 		voltage: r.voltageV.toFixed(3),
 		voltageMv: r.voltageMv.toString(),
-		ppi: r.ppiValid ? r.ppi.toString() : `${r.ppi}(${t("无效")})`,
-		hrv: r.rmssdValid ? r.hrvMs.toString() : `${r.hrvMs}(${t("无效")})`,
+		ppi: realtimeMetricText(r.ppi, r.ppiValid, 0),
+		hrv: realtimeMetricText(r.rmssd, r.rmssdValid, 0),
 		ppgAttached: r.ppgAttached ? t("已佩戴") : t("未佩戴"),
 		behavior: `${r.behavior} ${r.behaviorLabel}`,
 		activity: `${r.activity} ${r.activityLabel}`,
 		battery: `${r.batteryStatus} ${r.batteryStatusLabel}`,
 		eventNotice: `seq=${r.eventSeq} ${r.hasNewEvent ? t("有新事件") : t("无新事件")}`,
-		bhr: r.bhrValid ? r.bhr.toString() : `${r.bhr}(${t("无效")})`,
+		bhr: realtimeMetricText(r.bhr, r.bhrValid, 0),
 		steps: r.stepsEveryday.toString(),
 		calories: r.calorieKcal.toFixed(1),
 		utc: r.utc > 0 ? new Date(r.utc * 1000).toLocaleString() : "0",
@@ -1183,6 +632,34 @@ function isCommandDisabled(cmd: string): boolean {
 	return activeCommand.value != "";
 }
 
+function isTestEntryDisabled(key: TestEntryKey): boolean {
+	return activeCommand.value != "" && key != "quick" && key != "vital" && key != "event";
+}
+
+function openTestEntry(key: TestEntryKey): void {
+	if (key == "quick") {
+		quickHistoryPopupVisible.value = true;
+		return;
+	}
+	if (key == "gap") {
+		historyGapRepairPopupVisible.value = true;
+		return;
+	}
+	if (key == "vital") {
+		vitalProtocolPopupVisible.value = true;
+		return;
+	}
+	if (key == "event") {
+		eventProtocolPopupVisible.value = true;
+		return;
+	}
+	if (key == "control") {
+		deviceControlPopupVisible.value = true;
+		return;
+	}
+	diagnosticsPopupVisible.value = true;
+}
+
 function setCommandResponse(cmd: string, message: string): void {
 	const time = new Date().toLocaleTimeString();
 	lastResponse[cmd] = `${time} ${message}`;
@@ -1222,6 +699,47 @@ async function runQueuedGattCommand(cmd: string, runner: () => Promise<boolean>)
 	}
 	endCommand(cmd);
 	return ok;
+}
+
+function historyGapResultText(result: VitalAutoReadResult): string {
+	if (result.message == "0x3A send failed") return t("补录失败：0x3A 发送失败");
+	if (result.message == "0x3B send failed") return t("补录失败：0x3B 发送失败");
+	if (result.message == "wait vital response timeout") return t("补录失败：等待设备响应超时");
+	if (result.message == "gatt busy") return t("补录失败：GATT 通道忙");
+	if (result.message == "no bound device") return t("补录失败：没有绑定设备");
+	if (result.saveOk == false) return t("补录失败：页面处理未完成");
+	if (result.status != "DONE") return t("补录未完成") + "：" + result.message;
+	if (result.savedRecords == 0) return t("补录完成：设备未返回有效生命体征");
+	return t("连续缺口补录完成");
+}
+
+/** 测试页指定 SQLite 中的一条待补任务，仍复用正式的逐页落库与游标推进流程。 */
+async function repairHistoryGap(payload: HistoryGapRepairPayload): Promise<void> {
+	if (payload.taskIds.length == 0) return;
+	const ok = await runQueuedGattCommand("HISTORY_GAP", async () => {
+		try {
+			const tasks: HistoryTask[] = [];
+			for (let i = 0; i < payload.taskIds.length; i++) {
+				tasks.push(await historyProgress.getTask(payload.taskIds[i]));
+			}
+			setCommandResponse("HISTORY_GAP", `${t("连续缺口补录")} 0x3A → 0x3B`);
+			const result = await deviceStore.history.readVitalTaskGroup(tasks);
+			setCommandResponse(
+				"HISTORY_GAP",
+				`${historyGapResultText(result)}, ${t("段数")} ${payload.taskIds.length}, ${t("页数")} ${result.pages}, ${t("保存")} ${result.savedRecords}`
+			);
+			return result.saveOk && result.status == "DONE";
+		} catch (error) {
+			setCommandResponse("HISTORY_GAP", `${t("指定缺口补录失败")}: ${error}`);
+			return false;
+		}
+	});
+	// 手动补录不经过 sync，主动抬版本让弹窗重读本批缺口。
+	manualHistoryRevision.value = Date.now();
+	ui.showToast({
+		message: ok ? t("连续缺口补录已完成") : t("连续缺口补录失败"),
+		type: ok ? "success" : "error"
+	});
 }
 
 async function sendManualRawHex(): Promise<void> {
@@ -1297,8 +815,14 @@ const vitalAutoReading = ref<boolean>(false);
 const eventAutoReading = ref<boolean>(false);
 const vitalAutoDetail = ref<string>("-");
 const eventAutoDetail = ref<string>("-");
-const MAX_AUTO_PAGES = 100;
+/** 快速历史读取结束后保留本次所有页面，供 CSV 导出；不混入手动 0x3A 调试结果。 */
+const vitalHistoryExportResponses = ref<VitalDataQueryResponse[]>([]);
+const quickHistoryStatus = ref<string>(t("尚未读取"));
+const quickHistoryPages = ref<number>(0);
+const quickHistorySeconds = ref<number>(0);
+const quickHistoryDays = ref<number>(0);
 const VITAL_FORM_DEFAULT_OFFSET_SECONDS = 120;
+const VITAL_HISTORY_TEST_MINUTES = 2;
 
 /* ===== 参数输入子弹窗状态 ===== */
 
@@ -1391,8 +915,99 @@ function resetVitalFormToCurrentWindow(): void {
 	console.log(`[BOOM-TEST] 打开 0x3A 表单，刷新默认时间: nowSec=${now}, startSec=${startSec}`);
 }
 
+/** 当前整分钟是 0x3A 的查询锚点；后续 0x3B 按设备的实际页向更早时间推进。 */
+function getCurrentMinuteSec(): number {
+	return Math.floor(getNowSec() / 60) * 60;
+}
+
 function formatEventWindowTime(sec: number): string {
 	return new Date(sec * 1000).toLocaleString();
+}
+
+/**
+ * 测试页预设范围：从当前时间开始向过去连续读取。
+ * “无有效秒”不是结束条件；只在实际返回页到达目标时间或设备明确无更早页时结束。
+ */
+async function testVitalHistoryRange(days: number): Promise<void> {
+	const anchorSec = getCurrentMinuteSec();
+	const targetStartSec = anchorSec - days * 24 * 60 * 60;
+	let reachedTarget = false;
+	vitalAutoReading.value = true;
+	vitalAutoDetail.value = "-";
+	vitalHistoryExportResponses.value = [];
+	quickHistoryDays.value = days;
+	quickHistoryPages.value = 0;
+	quickHistorySeconds.value = 0;
+	quickHistoryStatus.value = `${formatEventWindowTime(targetStartSec)} ~ ${formatEventWindowTime(anchorSec)}`;
+	await runQueuedGattCommand("VITAL", async (): Promise<boolean> => {
+		setCommandResponse(
+			"VITAL",
+			`${t("开始读取近")} ${days} ${t("天")}: ${formatEventWindowTime(targetStartSec)} ~ ${formatEventWindowTime(anchorSec)}`
+		);
+		const result = await deviceStore.history.readVitalDataAuto({
+			startSec: anchorSec,
+			direction: 0,
+			minutes: VITAL_HISTORY_TEST_MINUTES,
+			// 独立测试不设总页数上限；按目标范围读取，或由用户手动停止。
+			maxPages: 0,
+			pageDelayMs: 250,
+			shouldStop: () => vitalAutoReading.value == false || reachedTarget,
+			onProgress: (p) => {
+				if (p.phase == "0x3B" && p.page % 20 == 0) {
+					setCommandResponse("VITAL", `${t("连续向前读取")} ${p.page} ${t("段")}`);
+				}
+			},
+			onPage: (response, page) => {
+				quickHistoryPages.value = page;
+				quickHistorySeconds.value += response.vitalData.length;
+				if (response.startSec > 0 && response.startSec <= targetStartSec) {
+					reachedTarget = true;
+				}
+				if (page % 20 != 0 && reachedTarget == false && response.startSec != 0) return;
+				setCommandResponse(
+					"VITAL",
+					`${page} ${t("段")} ${formatEventWindowTime(response.startSec)}${
+						reachedTarget ? ` · ${t("已到达目标时间")}` : ""
+					}`
+				);
+			}
+		});
+		vitalHistoryExportResponses.value = result.responses;
+		vitalAutoDetail.value = deviceStore.history.formatVitalAutoDetail(result.responses);
+		vitalAutoReading.value = false;
+		const completion = reachedTarget
+			? `${t("读取近")} ${days} ${t("天完成")}`
+			: result.done
+				? t("设备没有更早历史数据")
+				: result.stoppedByLimit
+					? `${t("达到页数保护上限")} ${result.pages}`
+					: t("读取已停止");
+		setCommandResponse(
+			"VITAL",
+			`${completion}: ${t("读取")} ${result.pages} ${t("段，保存")} ${result.savedRecords}`
+		);
+		quickHistoryStatus.value = `${completion} · ${t("已保留本次解析数据，可保存到下载")}`;
+		return true;
+	});
+	vitalAutoReading.value = false;
+}
+
+/** 将本次快速历史读取的全部解析秒写入手机公共 Download/BOOM 目录。 */
+function exportVitalHistoryCsv(): void {
+	if (vitalHistoryExportResponses.value.length == 0) {
+		ui.showToast({ message: t("没有可导出的历史读取结果"), type: "warn" });
+		return;
+	}
+	const csv = buildVitalHistoryCsv(vitalHistoryExportResponses.value);
+	const fileName = `boom-vital-${quickHistoryDays.value}d-${Date.now()}.csv`;
+	try {
+		const filePath = saveCsvToDownloads(fileName, csv);
+		quickHistoryStatus.value = `${t("CSV 已保存")}: ${filePath}`;
+		ui.showToast({ message: t("CSV 已保存") });
+	} catch (error) {
+		console.error("[BOOM-HISTORY] CSV 写入下载目录失败", error);
+		ui.showToast({ message: t("CSV 写入失败"), type: "error" });
+	}
 }
 
 function formatEventPickerTime(sec: number): string {
@@ -1581,7 +1196,8 @@ async function submitForm(): Promise<void> {
 					startSec,
 					direction: formDirection.value,
 					minutes: formMinutes.value,
-					maxPages: MAX_AUTO_PAGES,
+					// 手动协议测试持续读取，只有用户停止或设备结束才退出。
+					maxPages: 0,
 					pageDelayMs: 250,
 					shouldStop: () => vitalAutoReading.value == false,
 					onProgress: (p) => {
@@ -1666,7 +1282,8 @@ async function submitForm(): Promise<void> {
 					startSec,
 					endSec,
 					maxCount: finalMaxCount,
-					maxPages: MAX_AUTO_PAGES,
+					// 手动协议测试持续读取，只有用户停止或设备结束才退出。
+					maxPages: 0,
 					pageDelayMs: 250,
 					shouldStop: () => eventAutoReading.value == false,
 					onHeader: (h) => {
@@ -1717,12 +1334,41 @@ async function submitForm(): Promise<void> {
 
 function stopVitalAutoRead(): void {
 	vitalAutoReading.value = false;
-	setCommandResponse("VITAL", t("已停止自动续读"));
+	quickHistoryStatus.value = t("正在停止当前读取，等待当前页结束");
+	setCommandResponse("VITAL", t("已请求停止当前生命体征读取"));
 }
 
 function stopEventAutoRead(): void {
 	eventAutoReading.value = false;
 	setCommandResponse("EVENT", t("已停止自动续读"));
+}
+
+async function submitVitalFromPopup(payload: VitalPopupPayload): Promise<void> {
+	formStartSec.value = payload.startSec;
+	formDirection.value = payload.direction;
+	formMinutes.value = payload.minutes;
+	activeForm.value = "0x3A";
+	await submitForm();
+}
+
+async function submitEventFromPopup(payload: EventPopupPayload): Promise<void> {
+	formType.value = payload.type;
+	formStartSec.value = payload.startSec;
+	formEndSec.value = payload.endSec;
+	formMaxCount.value = payload.maxCount;
+	activeForm.value = "0x3C";
+	await submitForm();
+}
+
+async function submitDeviceForm(payload: DevicePopupPayload): Promise<void> {
+	activeForm.value = payload.type;
+	formDeviceNumber.value = payload.deviceNumber ?? "";
+	formGender.value = payload.gender ?? 0;
+	formWeight.value = payload.weight ?? "7000";
+	formHeight.value = payload.height ?? "18000";
+	formAge.value = payload.age ?? "20";
+	formBhr.value = payload.bhr ?? "60";
+	await submitForm();
 }
 
 /* ===== 7 个无参/硬编码协议命令 ===== */
@@ -1866,30 +1512,13 @@ async function testVibration(): Promise<void> {
 
 /* ===== v5 历史数据展示用 computed ===== */
 
-type VitalText = {
-	summary: string;
-	start: string;
-	directionMinutes: string;
-	valid: string;
-	ppi: string;
-	status: string;
-	rmssdSdnn: string;
-	vital: string;
-};
-type EventText = {
-	summary: string;
-	header: string;
-	count: string;
-	items: string;
-};
-
 function formatStatusByte(status: number): string {
 	const s = decodeAdvStatus(status);
 	const reserved = (status >> 6) & 0x03;
 	return `0x${toByteHex(status)} high=${reserved} behavior=${s.behaviorLabel} activity=${s.activityLabel}`;
 }
 
-const vitalText = computed<VitalText>(() => {
+const vitalText = computed<VitalPopupText>(() => {
 	const r = deviceStore.history.vitalDataResponse.value;
 	if (r == null) {
 		return {
@@ -1929,7 +1558,7 @@ const vitalText = computed<VitalText>(() => {
 	} else if (r.vitalData.length == 0) {
 		status = t("本段无逐秒数据，可点击 0x3B 继续读下一段");
 	} else if (r.vitalData.length < expectedCount) {
-		status = `${status}；${t("本段数据长度不足，后半段无有效数据，可按需续读")}`;
+		status = `${status}；${t("设备返回短页（协议允许），自动读取仍会继续发送 0x3B；不代表数据错误或停止")}`;
 	} else if (validCount == 0) {
 		status = `${status}；${t("本段全为无效或空白数据")}`;
 	}
@@ -1956,20 +1585,18 @@ const hasVitalData = computed<boolean>(() => {
 	return deviceStore.history.vitalDataResponse.value != null;
 });
 
-const eventText = computed<EventText>(() => {
+const eventHeaderText = computed<string>(() => {
 	const h = deviceStore.history.eventDataHeader.value;
-	const list = deviceStore.history.eventDataList.value;
-	if (h == null && list.length == 0) {
-		return { summary: "-", header: "-", count: "-", items: "-" };
-	}
-	const header =
-		h == null
-			? "-"
-			: `type=${h.type} sn[${h.earliestSn}~${h.latestSn}] ts[${h.earliestSec}~${h.latestSec}] ${new Date(h.earliestSec * 1000).toLocaleString()} ~ ${new Date(h.latestSec * 1000).toLocaleString()}`;
-	const count = list.length.toString();
-	const summary = `${list.length} ${t("条事件")}`;
-	const items = deviceStore.history.formatEventAutoBrief(list, 10);
-	return { summary, header, count, items };
+	if (h == null) return "-";
+	return `type=${h.type} sn[${h.earliestSn}~${h.latestSn}] ts[${h.earliestSec}~${h.latestSec}] ${new Date(h.earliestSec * 1000).toLocaleString()} ~ ${new Date(h.latestSec * 1000).toLocaleString()}`;
+});
+
+const eventCountText = computed<string>(() => {
+	return deviceStore.history.eventDataList.value.length.toString();
+});
+
+const eventItemsText = computed<string>(() => {
+	return deviceStore.history.formatEventAutoBrief(deviceStore.history.eventDataList.value, 10);
 });
 
 const hasEventData = computed<boolean>(() => {
@@ -1986,7 +1613,7 @@ function testDisconnect(): void {
 
 async function testRestoreBroadcast(): Promise<void> {
 	ui.showToast({ message: t("正在恢复广播扫描..."), type: "warn" });
-	const ok = await deviceStore.connection.switchToBroadcastMode(false);
+	const ok = await deviceStore.connection.switchToBroadcastMode();
 	ui.showToast({
 		message: ok ? t("已切回广播扫描") : t("恢复广播失败"),
 		type: ok ? "success" : "error"
@@ -1996,6 +1623,33 @@ async function testRestoreBroadcast(): Promise<void> {
 function testClearError(): void {
 	deviceStore.clearError();
 	ui.showToast({ message: t("错误已清除"), type: "success" });
+}
+
+/** UTS 按声明顺序解析：入口分发必须位于所有目标函数之后。 */
+function runDeviceCommand(command: string): void {
+	if (command == "disconnect") return testDisconnect();
+	if (command == "restore") {
+		testRestoreBroadcast();
+		return;
+	}
+	if (command == "clear-error") return testClearError();
+	if (command == "0x30") {
+		testReadFirmware();
+		return;
+	}
+	if (command == "0x32") {
+		testReadDeviceNumber();
+		return;
+	}
+	if (command == "0x34") {
+		testReadTimestamp();
+		return;
+	}
+	if (command == "0x36") {
+		testReadBiometric();
+		return;
+	}
+	if (command == "0x40") testVibration();
 }
 //#endif
 </script>
@@ -2025,7 +1679,6 @@ function testClearError(): void {
 	flex-direction: row;
 	align-items: center;
 	justify-content: space-between;
-	gap: 12px;
 	min-height: 30px;
 }
 
@@ -2058,7 +1711,6 @@ function testClearError(): void {
 	display: flex;
 	flex-direction: row;
 	align-items: center;
-	gap: 8px;
 }
 
 .collapse-button {
@@ -2093,7 +1745,6 @@ function testClearError(): void {
 .state-overview {
 	display: flex;
 	flex-direction: row;
-	gap: 8px;
 	margin-bottom: 10px;
 }
 
@@ -2162,15 +1813,15 @@ function testClearError(): void {
 	display: flex;
 	flex-direction: row;
 	flex-wrap: wrap;
-	gap: 8px;
 }
 
 .status-cell {
-	width: 48%;
+	width: 46%;
 	min-height: 46px;
 	padding: 8px;
 	border-radius: 8px;
 	background-color: rgba(255, 255, 255, 0.04);
+	margin: 4px 1%;
 }
 
 .protocol-ready-line {
@@ -2187,7 +1838,6 @@ function testClearError(): void {
 .broadcast-hero {
 	display: flex;
 	flex-direction: row;
-	gap: 8px;
 	margin-bottom: 10px;
 }
 
@@ -2219,22 +1869,21 @@ function testClearError(): void {
 	display: flex;
 	flex-direction: row;
 	flex-wrap: wrap;
-	gap: 8px;
 }
 
 .broadcast-cell {
-	width: 48%;
+	width: 46%;
 	min-height: 48px;
 	padding: 8px;
 	border-radius: 8px;
 	background-color: rgba(255, 255, 255, 0.04);
+	margin: 4px 1%;
 }
 
 .cell-value {
 	color: #ffffff;
 	font-size: 13px;
 	line-height: 18px;
-	word-break: break-all;
 }
 
 .broadcast-debug {
@@ -2254,7 +1903,6 @@ function testClearError(): void {
 	flex-direction: row;
 	align-items: center;
 	justify-content: space-between;
-	gap: 8px;
 }
 
 .debug-toggle {
@@ -2269,7 +1917,6 @@ function testClearError(): void {
 	display: flex;
 	flex-direction: row;
 	flex-wrap: wrap;
-	gap: 8px;
 	padding: 10px;
 }
 
@@ -2283,7 +1930,33 @@ function testClearError(): void {
 	display: flex;
 	flex-direction: row;
 	flex-wrap: wrap;
-	gap: 8px;
+}
+
+.quick-history-panel {
+	padding: 10px;
+	border-radius: 8px;
+	background-color: rgba(3, 105, 161, 0.12);
+	border: 1px solid rgba(56, 189, 248, 0.22);
+}
+
+.quick-history-title {
+	width: 100%;
+	color: #e0f2fe;
+	font-size: 13px;
+	font-weight: 700;
+	line-height: 18px;
+}
+
+.quick-history-status {
+	width: 100%;
+	padding: 8px;
+	border-radius: 6px;
+	background-color: rgba(2, 132, 199, 0.16);
+	display: flex;
+	flex-direction: column;
+	color: #bae6fd;
+	font-size: 11px;
+	line-height: 16px;
 }
 
 .command-button {
@@ -2298,7 +1971,6 @@ function testClearError(): void {
 	display: flex;
 	flex-direction: row;
 	flex-wrap: wrap;
-	gap: 8px;
 }
 
 .action-button {
@@ -2309,7 +1981,6 @@ function testClearError(): void {
 	display: flex;
 	flex-direction: row;
 	flex-wrap: wrap;
-	gap: 8px;
 }
 
 .event-window-button {
@@ -2346,7 +2017,6 @@ function testClearError(): void {
 	color: #9ca3af;
 	font-size: 10px;
 	line-height: 15px;
-	word-break: break-all;
 }
 
 .data-card {
@@ -2361,7 +2031,6 @@ function testClearError(): void {
 	display: flex;
 	flex-direction: row;
 	flex-wrap: wrap;
-	gap: 8px;
 }
 
 .data-cell {
@@ -2385,8 +2054,18 @@ function testClearError(): void {
 	font-size: 11px;
 	line-height: 16px;
 	white-space: normal;
-	word-break: break-all;
-	overflow-wrap: break-word;
+}
+
+.entry-grid {
+	display: flex;
+	flex-direction: row;
+	flex-wrap: wrap;
+	padding: 2px 6px 18px;
+}
+
+.test-entry-button {
+	width: 48%;
+	margin: 4px 1%;
 }
 
 .protocol-log-detail {
