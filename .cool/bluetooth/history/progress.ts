@@ -317,13 +317,16 @@ class HistoryProgress {
 				statements.push(this.taskSql(gapKind, gap.fromSec, gap.toSec, task.retryAt));
 			}
 			// 本次没比对到的更早部分：保持“待扫描”语义，不代表确认缺数据。
+			// retry_at 必须留 0：调和候选只取 retry_at 最早的 64 条，而规划出的 recent /
+			// incremental 都是 0。给 scan 一个真实时间戳会让它永远排在这批 0 后面，
+			// 任务一堆积就被挤出候选集，调和窗口在那段时间停止向前推进。
 			if (scanFrom > lower) {
-				statements.push(this.taskSql("scan", lower, scanFrom, Date.now() + 1000));
+				statements.push(this.taskSql("scan", lower, scanFrom, 0));
 			}
 			if (snapshot.checkedWithoutPpiSeconds > 0) {
 				logger.info(
 					"bluetooth",
-					`[BOOM-HISTORY] 本地缺失但设备未确认: task=${task.id}, seconds=${snapshot.checkedWithoutPpiSeconds}`
+					`[BOOM-HISTORY] 本地缺失但设备已检查: task=${task.id}, seconds=${snapshot.checkedWithoutPpiSeconds}`
 				);
 			}
 			if ((await bluetoothDatabase.transaction(statements)) == false)

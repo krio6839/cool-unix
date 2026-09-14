@@ -204,6 +204,35 @@ test("an unscanned span is reported as pending-scan, not as a confirmed gap", as
 		.all();
 	for (const item of archive) assert.ok(item.to_sec - item.from_sec <= 6 * 3600);
 });
+test("a backlog larger than the reconcile candidate limit cannot freeze the scan cursor", async (t) => {
+	const r = await setup(t);
+	const end = 1000000;
+	await r.progress.plan("device", end);
+	const before = r.db
+		.prepare("SELECT from_sec,to_sec,cursor_sec FROM vital_history_tasks WHERE kind='scan'")
+		.get();
+	// 调和候选只取 retry_at 最早的 64 条，而规划出的 recent/incremental 都是 retry_at=0。
+	// 如果 scan 带一个真实时间戳，它就会被这批 0 永远挤在候选集之外。
+	assert.equal(before.retry_at ?? 0, 0);
+	// 设备长时间连不上时任务只规划不读取，pending 会涨到 64 以上。
+	const pad = [];
+	for (let i = 0; i < 70; i++)
+		pad.push(
+			`('incremental:${800000 + i * 60}:${800060 + i * 60}','incremental',${800000 + i * 60},${800060 + i * 60},${800060 + i * 60},'pending',0,0,'')`
+		);
+	r.db.exec(`INSERT INTO vital_history_tasks VALUES ${pad.join(",")}`);
+	await r.progress.plan("device", end + 60);
+	const after = r.db
+		.prepare(
+			"SELECT from_sec,to_sec,cursor_sec FROM vital_history_tasks WHERE kind='scan' ORDER BY from_sec LIMIT 1"
+		)
+		.get();
+	// 堆积期间调和窗口仍必须向前推进，否则更早的历史永远不会被发现。
+	assert.ok(
+		after.cursor_sec < before.cursor_sec,
+		`scan cursor ${before.cursor_sec} -> ${after.cursor_sec} did not advance`
+	);
+});
 test("a gap wider than one link budget is still selected so its cursor advances", async (t) => {
 	const r = await setup(t);
 	const { groupHistoryTasksForRead } = await r.load(".cool/bluetooth/history/progress.ts");
