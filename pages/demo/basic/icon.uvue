@@ -70,7 +70,7 @@ const ui = useUi();
 const remixicon = ref<string[]>([]);
 const iconfont = ref<string[]>([]);
 
-forInObject(icons, (value, key) => {
+forInObject(icons(), (value, key) => {
 	if (key == "iconfont") {
 		iconfont.value = keys(value).slice(0, 100);
 	} else {

@@ -9,7 +9,7 @@ export const getIcon = (name: string): ClIconContent => {
 		let code = "";
 
 		// 遍历字体库查找对应图标
-		forInObject(icons, (value, key) => {
+		forInObject(icons(), (value, key) => {
 			if (has(value, name)) {
 				font = key;
 				code = get(value, name) as string;
