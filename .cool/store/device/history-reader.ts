@@ -373,6 +373,7 @@ export class DeviceHistoryReader {
 		let stopRead = false;
 		let lastStart = 0;
 		let failure = "";
+		const startedAt = Date.now();
 		try {
 			logger.info(
 				"bluetooth",
@@ -431,8 +432,11 @@ export class DeviceHistoryReader {
 							// 没有数据。按“没返回就是没有”收尾，不当作读取失败——否则同一次连接里
 							// 排在后面的缺口会被这个 break 一起放弃。
 							for (let i = 0; i < activeTasks.length; i++) {
-								if (activeTasks[i].status != "done")
+								if (activeTasks[i].status != "done") {
 									await historyProgress.noMore(activeTasks[i]);
+									// 本地副本要跟着落库结果走，否则收尾日志会把已完成的组算成未读完。
+									activeTasks[i].status = "done";
+								}
 							}
 							logger.info(
 								"bluetooth",
@@ -453,8 +457,10 @@ export class DeviceHistoryReader {
 							}
 							if (allScan == true) {
 								for (let i = 0; i < activeTasks.length; i++) {
-									if (activeTasks[i].status != "done")
+									if (activeTasks[i].status != "done") {
 										await historyProgress.noMore(activeTasks[i]);
+										activeTasks[i].status = "done";
+									}
 								}
 								logger.info(
 									"bluetooth",
@@ -503,10 +509,33 @@ export class DeviceHistoryReader {
 				result.status == "LIMIT" ||
 				!saveOk
 			) {
+				let deferred = 0;
 				for (let i = 0; i < activeTasks.length; i++) {
-					if (activeTasks[i].status != "done")
+					if (activeTasks[i].status != "done") {
 						await historyProgress.defer(activeTasks[i], result.message);
+						deferred++;
+					}
 				}
+				// 整组一起退避，按组打印一条即可；逐任务打印会把 1000 行缓冲区冲掉。
+				logger.warn(
+					"bluetooth",
+					`[BOOM-HISTORY] 缺口整组退避: tasks=${deferred}, window=${startSec}~${lastTask.toSec}, status=${result.status}, pages=${result.pages}, message=${result.message}`
+				);
+			} else {
+				// 一轮补录的最终账：读了几页、落了几条、还有几个任务没读完。
+				// 用户日志里“补录完成但缺口还在”与“根本没读到”靠这一行区分。
+				let pending = 0;
+				let nextFrom = 0;
+				for (let i = 0; i < activeTasks.length; i++) {
+					if (activeTasks[i].status == "done") continue;
+					pending++;
+					if (nextFrom == 0 || activeTasks[i].fromSec < nextFrom)
+						nextFrom = activeTasks[i].fromSec;
+				}
+				logger.info(
+					"bluetooth",
+					`[BOOM-HISTORY] 连续补录完成: tasks=${activeTasks.length}, window=${startSec}~${lastTask.toSec}, status=${result.status}, pages=${result.pages}, saved=${saved}, saveOk=${saveOk}, 未读完=${pending}, 最早未读起点=${nextFrom}, elapsed=${Math.round((Date.now() - startedAt) / 1000)}s`
+				);
 			}
 			return result;
 		} finally {

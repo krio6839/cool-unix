@@ -163,15 +163,33 @@ export class DeviceSync {
 		}
 		logger.info(
 			"bluetooth",
-			`[BOOM-SYNC] 已规划生命体征历史缺口: reason=${reason}, gaps=${plan.gaps.length}`
+			`[BOOM-SYNC] 已规划生命体征历史缺口: reason=${reason}, gaps=${plan.gaps.length}`,
+			`${this.describeGaps(plan.gaps, 8)}`
 		);
 		this.device.scheduler.enqueueHistoryRepair(reason);
 		this.requestSchedulerFlush(reason);
 		return true;
 	}
 
-	private requestSchedulerFlush(reason: DeviceSyncReason): void {
-		// 保留触发来源，方便 scheduler 日志区分启动、定时和用户手动触发。
+	/**
+	 * 把一轮规划出的缺口压成可读文本进诊断日志。
+	 * 用户日志里只有“gaps=3”没法判断到底缺哪一段、是哪种任务；带上 kind 和时间范围，
+	 * 才能对照 recent / scan 的游标看出调和有没有正常推进。
+	 */
+	private describeGaps(gaps: HistoryGap[], limit: number): string {
+		const lines: string[] = [];
+		const count = gaps.length < limit ? gaps.length : limit;
+		for (let i = 0; i < count; i++) {
+			const gap = gaps[i];
+			lines.push(
+				`  ${i + 1}. kind=${gap.kind}, ${gap.fromSec}~${gap.toSec}, cursor=${gap.cursorSec}, tasks=${gap.taskIds.length}, retryAt=${gap.retryAt}, repair=${gap.repairSeconds}s, bridge=${gap.bridgeSeconds}s`
+			);
+		}
+		if (gaps.length > count) lines.push(`  ... 其余 ${gaps.length - count} 组见缺口弹窗`);
+		return lines.join("\n");
+	}
+
+	private requestSchedulerFlush(reason: DeviceSyncReason): void {		// 保留触发来源，方便 scheduler 日志区分启动、定时和用户手动触发。
 		if (reason == "startup") {
 			this.device.scheduler.requestFlush("startup");
 		} else if (reason == "manual") {
@@ -219,6 +237,7 @@ export class DeviceSync {
 		this.busy = true;
 		this.state.value = "repairing";
 		this.lastError.value = "";
+		const startedAt = Date.now();
 		try {
 			// 执行前重新规划一次，避免队列等待期间广播已经把 gap 补上。
 			const plan = await this.planHistorySync();
@@ -266,6 +285,14 @@ export class DeviceSync {
 			if (ok == false && this.lastError.value == "") {
 				this.lastError.value = "history partial failed";
 			}
+			// 本轮每段缺口的结局：状态、页数、落库数、上传结果。没有这一行，
+			// 用户日志里只能看到“开始补”而看不到“补到哪、为什么停”。
+			// 待读与本轮读取的差额就是被时间预算留下的，下轮 backlog 会再进来。
+			logger.info(
+				"bluetooth",
+				`[BOOM-SYNC] 本轮补录结束: reason=${reason}, ok=${ok}, message=${ok ? "history repair done" : this.lastError.value}, 已规划=${plan.gaps.length}, 待读=${gaps.length}, 本轮读取=${results.length}, 预算留下=${gaps.length - results.length}, saved=${this.countSaved(results)}, elapsed=${Math.round((Date.now() - startedAt) / 1000)}s`,
+				`${this.describeResults(results, 8)}`
+			);
 			return this.makeResult(
 				ok,
 				ok ? "history repair done" : this.lastError.value,
@@ -340,8 +367,27 @@ export class DeviceSync {
 		} as HistoryGapRepairResult;
 	}
 
-	private emptyPlan(): HistorySyncPlan {
-		return {
+	private countSaved(results: HistoryGapRepairResult[]): number {
+		let saved = 0;
+		for (let i = 0; i < results.length; i++) saved += results[i].savedRecords;
+		return saved;
+	}
+
+	/** 与 describeGaps 同样的理由：分段结局必须能在日志里逐条对上。 */
+	private describeResults(results: HistoryGapRepairResult[], limit: number): string {
+		const lines: string[] = [];
+		const count = results.length < limit ? results.length : limit;
+		for (let i = 0; i < count; i++) {
+			const item = results[i];
+			lines.push(
+				`  ${i + 1}. kind=${item.gap.kind}, ${item.gap.fromSec}~${item.gap.toSec}, tasks=${item.gap.taskIds.length}, skipped=${item.skipped}, status=${item.status}, pages=${item.pages}, saved=${item.savedRecords}, saveOk=${item.saveOk}, upload=${item.uploadOk}, message=${item.message}`
+			);
+		}
+		if (results.length > count) lines.push(`  ... 其余 ${results.length - count} 段见缺口弹窗`);
+		return lines.join("\n");
+	}
+
+	private emptyPlan(): HistorySyncPlan {		return {
 			needed: false,
 			gaps: []
 		} as HistorySyncPlan;

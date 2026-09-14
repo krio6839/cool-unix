@@ -233,8 +233,52 @@ test("a backlog larger than the reconcile candidate limit cannot freeze the scan
 		`scan cursor ${before.cursor_sec} -> ${after.cursor_sec} did not advance`
 	);
 });
-test("a gap wider than one link budget is still selected so its cursor advances", async (t) => {
+test("the reconcile log reports whether the scan cursor advanced or the candidate set is full", async (t) => {
 	const r = await setup(t);
+	const end = 1000000;
+	await r.progress.plan("device", end);
+	const summary = () => {
+		const item = r.logs.filter((x) => x.items.join(" ").includes("调和完成")).pop();
+		return item == null ? null : item.items.join(" ");
+	};
+	const first = summary();
+	// 没有这一行，用户日志里看不出调和窗口有没有向前推进——scan 游标停滞类的问题
+	// 在原来的日志里是完全静默的。
+	assert.ok(first != null, "no reconcile summary was logged");
+	for (const field of ["待处理=", "候选=", "已比对=", "真缺口秒=", "最早扫描游标="]) {
+		assert.equal(first.includes(field), true, `summary missing ${field}: ${first}`);
+	}
+	// 空闲时不该出现候选集排满的告警。
+	assert.equal(
+		r.logs.some((x) => x.items.join(" ").includes("调和候选集已排满")),
+		false
+	);
+	// 设备长时间连不上时任务只规划不读取，待处理会顶满候选上限，必须显式告警。
+	const pad = [];
+	for (let i = 0; i < 70; i++)
+		pad.push(
+			`('incremental:${800000 + i * 60}:${800060 + i * 60}','incremental',${800000 + i * 60},${800060 + i * 60},${800060 + i * 60},'pending',0,0,'')`
+		);
+	r.db.exec(`INSERT INTO vital_history_tasks VALUES ${pad.join(",")}`);
+	await r.progress.plan("device", end + 60);
+	const warnings = () =>
+		r.logs.filter((x) => x.items.join(" ").includes("调和候选集已排满")).length;
+	assert.equal(warnings(), 1, "a full reconcile candidate set was not warned about");
+	// 持续顶满是一个状态而不是事件：再排几轮不能再刷同样的告警，否则 1000 行缓冲区
+	// 会被几十条重复文本冲掉，真正有用的日志反而看不到。每轮的实时值由 summary 承担。
+	await r.progress.plan("device", end + 120);
+	await r.progress.plan("device", end + 180);
+	assert.equal(warnings(), 1, "the full-candidate warning repeated on a later round");
+	const latest = r.logs.filter((x) => x.items.join(" ").includes("调和完成")).pop();
+	assert.equal(latest.items.join(" ").includes("候选已排满=1"), true);
+	// 推进扫描游标的那一条也必须留下，它是调和真的在往前走的证据。
+	assert.equal(
+		r.logs.some((x) => x.items.join(" ").includes("调和推进扫描游标")),
+		true
+	);
+});
+
+test("a gap wider than one link budget is still selected so its cursor advances", async (t) => {	const r = await setup(t);
 	const { groupHistoryTasksForRead } = await r.load(".cool/bluetooth/history/progress.ts");
 	// 一个 6 小时的 archive 窗口约 180 页，超过 120 秒预算（约 82 页）。
 	r.db.exec(

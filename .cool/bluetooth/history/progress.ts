@@ -46,6 +46,13 @@ export const HISTORY_TASK_BATCH_LIMIT = 128;
  * 因此每次只往前推进这么久，剩余部分留成 `scan` 任务下轮继续。它不代表确认缺数据。
  */
 export const HISTORY_RECONCILE_SCAN_SEC = 6 * 60 * 60;
+/**
+ * 调和每轮最多取多少条待处理任务作候选。
+ * 它是调和窗口能向前推进的前提：`scan` 任务的 retry_at 必须是 0，否则会被规划出的
+ * recent / incremental 挤出这个候选集，窗口在那段时间停止前进，更早的历史不会被发现。
+ * 调和日志会打印候选占用情况，用户日志里就看得出这个上限有没有被顶满。
+ */
+const HISTORY_RECONCILE_CANDIDATE_LIMIT = 64;
 /** 设备一页（2 分钟）的链路成本：页间 250ms + 一轮 0x3A/0x3B 往返。 */
 const HISTORY_PAGE_COST_MS = 1450;
 /** 自动补录和测试页手动补录共用的连续读取窗口。 */
@@ -215,6 +222,8 @@ function quote(value: string): string {
 class HistoryProgress {
 	/** 单设备会话标识只用于 GATT 绑定校验，不写入 SQLite。 */
 	private activeDeviceId: string = "";
+	/** 上一轮调和候选集是否已排满，用于把持续的顶满状态压成进入/离开各一条日志。 */
+	private reconcileCandidatesFull: boolean = false;
 	/** 所有补录进度错误进入诊断日志，再交给调用方停止当前页。 */
 	private fail(message: string): Error {
 		logger.error("bluetooth", `[BOOM-HISTORY] ${message}`);
@@ -292,11 +301,21 @@ class HistoryProgress {
 	 * 否则一个 archive 任务会被当成“待补 30 天”，既显示错误也会浪费一次完整 GATT 链路。
 	 */
 	async reconcilePendingTasks(nowSec: number): Promise<HistoryTask[]> {
-		const candidates = await this.listPendingTasks(64);
+		const candidates = await this.listPendingTasks(HISTORY_RECONCILE_CANDIDATE_LIMIT);
+		// 排队总数不截断，用来判断候选集是否已经被排满——那正是 scan 游标可能停住的条件。
+		const backlog = await this.countPendingTasks();
 		const retentionStart = historyCoverage.retentionStartSec(nowSec);
+		let expired = 0;
+		let compared = 0;
+		let comparedSeconds = 0;
+		let repairSeconds = 0;
+		let checkedSeconds = 0;
 		for (let i = 0; i < candidates.length; i++) {
 			const task = candidates[i];
-			if (task.kind == "recent" || task.retryAt > Date.now()) continue;
+			if (task.kind == "recent" || task.retryAt > Date.now()) {
+				expired++;
+				continue;
+			}
 			if (task.toSec <= retentionStart) {
 				await bluetoothDatabase.execute(
 					`UPDATE vital_history_tasks SET status='done',message='outside local retention window' WHERE ${this.taskGuard(task)}`
@@ -308,6 +327,10 @@ class HistoryProgress {
 			const scanFrom = Math.max(lower, task.cursorSec - HISTORY_RECONCILE_SCAN_SEC);
 			if (scanFrom >= task.cursorSec) continue;
 			const snapshot = await historyCoverage.inspect({ fromSec: scanFrom, toSec: task.cursorSec });
+			compared++;
+			comparedSeconds += task.cursorSec - scanFrom;
+			repairSeconds += snapshot.repairSeconds;
+			checkedSeconds += snapshot.checkedWithoutPpiSeconds;
 			const statements: string[] = [`DELETE FROM vital_history_tasks WHERE ${this.taskGuard(task)}`];
 			// scan 任务比对出真缺口就升级为 archive；其余保留原类型，避免 incremental/recent
 			// 的优先级和展示文案在调和后被改写。
@@ -331,6 +354,43 @@ class HistoryProgress {
 			}
 			if ((await bluetoothDatabase.transaction(statements)) == false)
 				throw this.fail("历史缺口调和保存失败");
+			// 落库成功后才算真的推进，否则日志会记下一次没发生的窗口前进。
+			if (scanFrom > lower) {
+				logger.info(
+					"bluetooth",
+					`[BOOM-HISTORY] 调和推进扫描游标: task=${task.id}, 本轮比对=${scanFrom}~${task.cursorSec}, 更早待比对=${lower}~${scanFrom}`
+				);
+			}
+		}
+		// 最早待扫描游标是调和窗口推进的唯一证据：设备长时间连不上时任务只规划不读取，
+		// backlog 会一直涨，这个值必须仍在变小。用户日志里它不动就说明调和停住了。
+		const scanCursor = await bluetoothDatabase.query(
+			"SELECT MIN(cursor_sec) FROM vital_history_tasks WHERE status!='done' AND kind='scan'"
+		);
+		const rawScanCursor =
+			scanCursor == null || scanCursor.rows.length == 0 ? null : scanCursor.rows[0][0];
+		const oldestScanCursor = rawScanCursor == null ? 0 : parseInt(rawScanCursor as string);
+		// 候选占满是一个持续状态而不是事件：设备长时间连不上会连续几十轮都顶满，
+		// 每轮都告警会把 1000 行缓冲区冲掉。只在进入/离开这个状态时各打一条，
+		// 每轮的实时值则由上面的 summary 承担。
+		const full = backlog >= HISTORY_RECONCILE_CANDIDATE_LIMIT;
+		logger.info(
+			"bluetooth",
+			`[BOOM-HISTORY] 调和完成: 待处理=${backlog}, 候选=${candidates.length}/${HISTORY_RECONCILE_CANDIDATE_LIMIT}, 候选已排满=${full ? 1 : 0}, 已比对=${compared}, 未到期跳过=${expired}, 比对秒数=${comparedSeconds}, 真缺口秒=${repairSeconds}, 设备已确认无数据秒=${checkedSeconds}, 最早扫描游标=${oldestScanCursor}`
+		);
+		if (full != this.reconcileCandidatesFull) {
+			this.reconcileCandidatesFull = full;
+			if (full == true) {
+				logger.warn(
+					"bluetooth",
+					`[BOOM-HISTORY] 调和候选集已排满(${backlog} 条待处理)，更早的 scan 任务可能取不到；scan 的 retry_at 必须保持 0 才能继续推进调和窗口`
+				);
+			} else {
+				logger.info(
+					"bluetooth",
+					`[BOOM-HISTORY] 调和候选集已回落(${backlog} 条待处理)，scan 任务重新进入候选集`
+				);
+			}
 		}
 		const result = await bluetoothDatabase.query(`SELECT ${TASK_COLUMNS} FROM vital_history_tasks
    WHERE status!='done' AND retry_at<=${Date.now()}
@@ -411,6 +471,12 @@ class HistoryProgress {
 		);
 		if ((await bluetoothDatabase.transaction(statements)) == false)
 			throw this.fail("历史同步规划保存失败");
+		// stable 是“已确认可读到的边界”，anchor 是最新窗口右端（落在下一分钟）。
+		// 两者都打印：缺口范围、最近的补录窗口全部由它们推导，用户日志里能直接核对。
+		logger.info(
+			"bluetooth",
+			`[BOOM-HISTORY] 规划完成: device=${device}, stable=${stable}, anchor=${anchor}, prevPlanned=${previous}, newlyPlanned=${stable > previous ? stable - previous : 0}s`
+		);
 		return await this.reconcilePendingTasks(nowSec);
 	}
 	/** 页面和游标一起提交。短页/跳跃产生待确认任务，而非伪造已读区间。 */
