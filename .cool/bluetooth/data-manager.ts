@@ -38,8 +38,15 @@ export class BluetoothDataManager {
 	/** 定时上传定时器 */
 	private uploadTimer: number | null = null;
 
-	/** 是否正在上传中 */
+	/**
+	 * PPI 上传锁。
+	 *
+	 * 睡眠上传用它自己的锁，不复用这一把：两者写不同接口、不同表，互不冲突，
+	 * 而 PPI 一轮最多连发 10 次请求；共用一个锁会让这期间的睡眠上传整段被丢掉。
+	 */
 	private isUploading: boolean = false;
+	/** 睡眠上传锁。 */
+	private sleepUploading: boolean = false;
 	private lastPpiUploadFailedAt: number = 0;
 	private uploadScheduled: boolean = false;
 	private lastPpiUploadAttemptAt: number = 0;
@@ -840,7 +847,6 @@ export class BluetoothDataManager {
 	async uploadSleepData(): Promise<boolean> {
 		try {
 			const unuploadedSleepData = await this.getUnuploadedSleepData();
-			logger.info("bluetooth", "未上传的睡眠数据数量:", unuploadedSleepData.length);
 			return await this.uploadSleepRecords(unuploadedSleepData);
 		} catch (error) {
 			logger.error("bluetooth", "睡眠上传检查失败:", error);
@@ -858,17 +864,29 @@ export class BluetoothDataManager {
 	}
 
 	private async uploadSleepRecords(sleepDataList: SleepData[]): Promise<boolean> {
-		if (sleepDataList.length == 0) return true;
-		if (this.isUploading == true) {
-			logger.info("bluetooth", "正在上传中，跳过睡眠数据上传");
+		// 没有待传数据不是失败。这条日志是“睡眠没上传”的第一个分岔：
+		// 它出现说明本地压根没有待传记录，问题在事件读取/落库，不在上传。
+		if (sleepDataList.length == 0) {
+			logger.info("bluetooth", "[BOOM-UPLOAD] 无待上传睡眠数据");
+			return true;
+		}
+		const ids = this.sleepRecordIds(sleepDataList);
+		if (this.sleepUploading == true) {
+			logger.info(
+				"bluetooth",
+				`[BOOM-UPLOAD] 睡眠上传跳过: 原因=上一轮睡眠上传未结束, count=${sleepDataList.length}, ids=${ids}`
+			);
 			return false;
 		}
 		if (this.deviceAddress == "") {
-			logger.info("bluetooth", "设备未连接，跳过睡眠数据上传");
+			logger.info(
+				"bluetooth",
+				`[BOOM-UPLOAD] 睡眠上传跳过: 原因=设备未连接, count=${sleepDataList.length}, ids=${ids}`
+			);
 			return false;
 		}
 
-		this.isUploading = true;
+		this.sleepUploading = true;
 		try {
 			const datas: SleepUploadDataItem[] = [];
 			for (let i = 0; i < sleepDataList.length; i++) {
@@ -885,7 +903,12 @@ export class BluetoothDataManager {
 				tiredScore: "1.0"
 			};
 
-			logger.info("bluetooth", "上传睡眠数据:", JSON.stringify(requestData));
+			// 逐秒 detail 有上万字符，整体序列化会写满诊断缓冲区。只记结构与分期统计，
+			// 分期全 0 正是“服务端判定没有睡眠数据”的信号，必须一眼可见。
+			logger.info(
+				"bluetooth",
+				`[BOOM-UPLOAD] 上传睡眠数据: count=${datas.length}, ids=${ids}, ${this.describeSleepDatas(datas)}`
+			);
 			const response = await request({
 				url: UPLOAD_SLEEP_URL,
 				strictSuccess: true,
@@ -893,23 +916,62 @@ export class BluetoothDataManager {
 				data: requestData,
 				header: { "Content-Type": "application/json" }
 			});
-			logger.info("bluetooth", "睡眠数据上传响应:", response);
+			logger.info("bluetooth", `[BOOM-UPLOAD] 睡眠数据上传响应: ${response}`);
 
-			const uploadedIds: string[] = [];
-			for (let i = 0; i < sleepDataList.length; i++) {
-				if (sleepDataList[i].id != null) uploadedIds.push(sleepDataList[i].id!);
-			}
-			if ((await this.markSleepAsUploaded(uploadedIds)) == false) {
+			if ((await this.markSleepAsUploaded(this.sleepRecordIds(sleepDataList))) == false) {
 				throw new Error("睡眠上传已确认，但本地上传标记保存失败");
 			}
-			logger.info("bluetooth", "睡眠数据上传成功");
+			logger.info("bluetooth", `[BOOM-UPLOAD] 睡眠数据上传成功: count=${datas.length}`);
 			return true;
 		} catch (error) {
-			logger.error("bluetooth", "睡眠数据上传失败:", error);
+			// 失败必须带 id 和原因：下一轮能不能补上，取决于这条记录是否还留在待传集合里。
+			logger.error(
+				"bluetooth",
+				`[BOOM-UPLOAD] 睡眠数据上传失败: count=${sleepDataList.length}, ids=${ids}`,
+				error
+			);
 			return false;
 		} finally {
-			this.isUploading = false;
+			this.sleepUploading = false;
 		}
+	}
+
+	/** 待标记的睡眠记录 id 数组（markSleepAsUploaded 需要数组）。 */
+	private sleepRecordIds(sleepDataList: SleepData[]): string[] {
+		const ids: string[] = [];
+		for (let i = 0; i < sleepDataList.length; i++) {
+			if (sleepDataList[i].id != null) ids.push(sleepDataList[i].id!);
+		}
+		return ids;
+	}
+
+	/**
+	 * 睡眠上传的可读摘要：时间、逐秒 detail 的长度与分期计数。
+	 *
+	 * detail 直接取自已构建的请求项，不重复查库。全 0 表示这段窗口没有任何有效
+	 * 睡眠分期（服务端据此判定“没有睡眠数据”），所以既打印计数也打印前若干位。
+	 */
+	private describeSleepDatas(datas: SleepUploadDataItem[]): string {
+		const parts: string[] = [];
+		for (let i = 0; i < datas.length; i++) {
+			const detail = datas[i].detail;
+			let deep = 0;
+			let light = 0;
+			let other = 0;
+			let none = 0;
+			for (let p = 0; p < detail.length; p++) {
+				const ch = detail.charAt(p);
+				if (ch == "3") deep++;
+				else if (ch == "2") light++;
+				else if (ch == "1") other++;
+				else none++;
+			}
+			const head = detail.length > 24 ? `${detail.substring(0, 24)}...` : detail;
+			parts.push(
+				`[time=${datas[i].time}, 睡眠窗口=${datas[i].bedSec}~${datas[i].wakeSec}(up=${datas[i].upSec},sleep=${datas[i].sleepSec}), detail长度=${detail.length}, 深=${deep}, 浅=${light}, 其他=${other}, 无分期=${none}, detail头=${head}]`
+			);
+		}
+		return parts.join(" ");
 	}
 
 	/** 构建睡眠上传数据项 */

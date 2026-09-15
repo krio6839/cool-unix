@@ -155,8 +155,11 @@ export class EventHandler {
 		let tlvcHex = hexData;
 		this.notifySeqValue = this.notifySeqValue + 1;
 		this.lastNotifyAtValue = now;
-		logger.info("bluetooth", `[BOOM] notify hex=${hexData}`);
-		this.device.addProtocolLog("RX", "notify", hexData, "");
+		// 每帧原始 hex 只进 logcat 和协议日志 tab。一次历史读取有上千帧，
+		// 每帧都镜像进诊断缓冲区会把业务日志挤出去；重组后的完整帧由下面的
+		// 「解析 0x..」记录，承载的是同一份数据而且更完整。
+		logger.consoleInfo("[BOOM] notify hex=" + hexData);
+		this.device.addProtocolLog("RX", "notify", hexData, "", false);
 
 		let f = decodeTlvc(tlvcHex);
 		if (f == null) {

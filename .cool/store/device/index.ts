@@ -414,12 +414,19 @@ export class Device {
 		this.touchState();
 	}
 
-	/** 追加协议调试日志，最多保留最近 80 条 */
+	/**
+	 * 追加协议调试日志，最多保留最近 80 条。
+	 *
+	 * `mirror` 控制是否同时写一份到诊断日志缓冲区。诊断缓冲区只有 1000 条，
+	 * 而一页生命体征会被底层拆成十几帧 notify，逐帧镜像会把它冲干净；
+	 * 拆帧级日志只留在协议日志 tab，诊断日志保留重组后的完整帧。
+	 */
 	addProtocolLog(
 		direction: ProtocolLogDirection,
 		title: string,
 		hex: string = "",
-		detail: string = ""
+		detail: string = "",
+		mirror: boolean = true
 	): void {
 		this._protocolLogId++;
 		const now = new Date();
@@ -433,6 +440,7 @@ export class Device {
 		};
 		const next = [item].concat(this.protocolLogs.value);
 		this.protocolLogs.value = next.slice(0, 80);
+		if (mirror == false) return;
 		const level: DiagnosticLogLevel = direction == "ERR" ? "error" : "info";
 		const hexText = hex.length > 220 ? `${hex.substring(0, 220)}...` : hex;
 		logger.record(level, "bluetooth", `[${direction}] ${title}`, `${detail}\n${hexText}`);

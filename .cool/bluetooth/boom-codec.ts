@@ -18,6 +18,16 @@ const DI_END_BIT = 0x4000; // bit14: End
 const DI_LEN_MASK = 0x03ff; // bit0-9: ValidDataNumber
 
 /**
+ * 同一类重组异常每隔多少次补记一条。
+ *
+ * 坏连接上异常会按帧重复（一页生命体征有几十帧），而每一条的内容完全相同——
+ * 有用的是发生次数，不是行数。全量记录只会冲掉诊断缓冲区、把落盘文件撑大，
+ * 还要在 BLE 回调里频繁同步写文件。所以首次必记、之后按这个间隔采样，
+ * 连续次数写在消息里，信息不丢。
+ */
+const ANOMALY_REPORT_INTERVAL = 50;
+
+/**
  * MODBUS CRC-16（poly 0xA001, init 0xFFFF）
  * 文档示例：crc16Modbus("30000000") → 0x240F（小端序 0F 24）
  */
@@ -117,6 +127,12 @@ export class DataIdentifierReassembler {
 	private isReceiving: boolean = false;
 	private pendingFrameRemainingBytes: number = 0;
 	private pendingFrameIsEnd: boolean = false;
+	/**
+	 * 同一类异常的连续发生次数。异常本身必须留痕，但它会在坏连接上按帧重复，
+	 * 逐次告警会把诊断缓冲区冲掉。首次与每第 N 次记录，其余静默。
+	 */
+	private orphanFrameCount: number = 0;
+	private sequenceGapCount: number = 0;
 
 	reset(): void {
 		this.recvBuf = [];
@@ -162,7 +178,13 @@ export class DataIdentifierReassembler {
 
 		// 不在接收状态 → 忽略
 		if (this.isReceiving != true) {
-			logger.warn("bluetooth", "[BOOM-CODEC] 收到非起始帧但未开始接收,忽略");
+			this.orphanFrameCount = this.orphanFrameCount + 1;
+			if (this.shouldReportAnomaly(this.orphanFrameCount) == true) {
+				logger.warn(
+					"bluetooth",
+					`[BOOM-CODEC] 收到非起始帧但未开始接收,忽略: 连续=${this.orphanFrameCount}`
+				);
+			}
 			return null;
 		}
 
@@ -175,9 +197,13 @@ export class DataIdentifierReassembler {
 
 		const expectedSeq = this.frameCount & 0x0f;
 		if (di.sequenceNumber != expectedSeq) {
-			logger.warn("bluetooth",
-				`[BOOM-CODEC] DI 序号不连续: expected=${expectedSeq}, actual=${di.sequenceNumber}`
-			);
+			this.sequenceGapCount = this.sequenceGapCount + 1;
+			if (this.shouldReportAnomaly(this.sequenceGapCount) == true) {
+				logger.warn(
+					"bluetooth",
+					`[BOOM-CODEC] DI 序号不连续: expected=${expectedSeq}, actual=${di.sequenceNumber}, 连续=${this.sequenceGapCount}`
+				);
+			}
 			this.reset();
 			return null;
 		}
@@ -195,9 +221,8 @@ export class DataIdentifierReassembler {
 		if (receivedBytes < di.validBytes) {
 			this.pendingFrameRemainingBytes = di.validBytes - receivedBytes;
 			this.pendingFrameIsEnd = di.isEnd;
-			logger.info("bluetooth",
-				`[BOOM-CODEC] DI payload 分片: seq=${di.sequenceNumber}, 已收=${receivedBytes}, 剩余=${this.pendingFrameRemainingBytes}`
-			);
+			// 分片是正常路径而不是事件：一页生命体征会被拆成几十帧，逐帧记录会把
+			// 1000 行诊断缓冲区冲干净。帧数与总字节数由下面的「重组完成」一条汇总。
 			return null;
 		}
 
@@ -250,9 +275,7 @@ export class DataIdentifierReassembler {
 		}
 
 		if (this.pendingFrameRemainingBytes > 0) {
-			logger.info("bluetooth",
-				`[BOOM-CODEC] DI 累计分片: seq=${di.sequenceNumber}, 已收=${this.recvBuf.length}, 剩余=${this.pendingFrameRemainingBytes}`
-			);
+			// 同上：物理续片是正常路径，逐帧记录会冲掉业务日志。
 			return null;
 		}
 
@@ -273,9 +296,7 @@ export class DataIdentifierReassembler {
 		}
 
 		if (this.pendingFrameRemainingBytes > 0) {
-			logger.info("bluetooth",
-				`[BOOM-CODEC] DI payload 续片: 已追加=${takeBytes}, 剩余=${this.pendingFrameRemainingBytes}`
-			);
+			// 物理续片属于正常路径，不逐帧记录。
 			return null;
 		}
 
@@ -304,7 +325,15 @@ export class DataIdentifierReassembler {
 		logger.info("bluetooth",
 			`[BOOM-CODEC] DI 重组完成: 帧数=${this.frameCount}, 总字节=${this.recvBuf.length}`
 		);
+		// 完整重组成功说明链路已经恢复，异常计数重新开始，下一次异常仍会立刻留痕。
+		this.orphanFrameCount = 0;
+		this.sequenceGapCount = 0;
 		this.reset();
 		return fullHex;
+	}
+
+	/** 异常首次发生与每第 ANOMALY_REPORT_INTERVAL 次各记一条，其余静默。 */
+	private shouldReportAnomaly(count: number): boolean {
+		return count == 1 || count % ANOMALY_REPORT_INTERVAL == 0;
 	}
 }

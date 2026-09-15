@@ -7,6 +7,10 @@
 					本机保留最近 {{ maxLogs }} 条，当前
 					{{ totalLogs }} 条。超过上限自动覆盖最旧日志。
 				</cl-text>
+				<cl-text :size="12" :pt="{ className: 'opacity-60 leading-5 mt-1' }">
+					完整日志按批自动存成 txt，不受 {{ maxLogs }} 条上限约束，路径
+					Download/BOOM/logs/&lt;日期&gt;/。
+				</cl-text>
 			</view>
 
 			<view class="summary-grid">
@@ -19,19 +23,14 @@
 					<text class="summary-value">{{ maxLogs }}</text>
 				</view>
 				<view class="summary-cell">
-					<text class="summary-label">复制范围</text>
-					<text class="summary-value">{{ copyModeText }}</text>
+					<text class="summary-label">显示范围</text>
+					<text class="summary-value">最近200条</text>
 				</view>
 			</view>
 
 			<view class="action-grid">
 				<view class="action-item">
-					<cl-button type="primary" size="small" @tap="copyAllLogs">复制全部</cl-button>
-				</view>
-				<view class="action-item">
-					<cl-button type="primary" size="small" @tap="copyRecentLogs">
-						复制最近200条
-					</cl-button>
+					<cl-button type="primary" size="small" @tap="archiveNow">立即落盘</cl-button>
 				</view>
 				<view class="action-item">
 					<cl-button size="small" @tap="refreshLogs">刷新</cl-button>
@@ -56,41 +55,18 @@ const logs = ref<string[]>([]);
 const text = ref("");
 const totalLogs = ref(0);
 const maxLogs = diagnostics.getMaxLogs();
-const copyModeText = ref("最近200条");
 
 async function refreshLogs(): Promise<void> {
+	// 页面只显示最近 200 条；全量按批自动落盘，不在这里渲染。
 	logs.value = await diagnostics.getLogsAsync(200);
 	totalLogs.value = await diagnostics.getLogCountAsync();
 	text.value = await diagnostics.toTextAsync(200);
-	copyModeText.value = "最近200条";
 }
 
-function copyText(value: string, message: string): void {
-	uni.setClipboardData({
-		data: value,
-		success() {
-			ui.showToast({
-				message,
-				icon: "success"
-			});
-		}
-	});
-}
-
-async function copyAllLogs(): Promise<void> {
-	logs.value = await diagnostics.getLogsAsync();
-	totalLogs.value = logs.value.length;
-	text.value = await diagnostics.toTextAsync();
-	copyModeText.value = "全部";
-	copyText(text.value, "已复制全部日志");
-}
-
-async function copyRecentLogs(): Promise<void> {
-	logs.value = await diagnostics.getLogsAsync(200);
-	totalLogs.value = await diagnostics.getLogCountAsync();
-	text.value = await diagnostics.toTextAsync(200);
-	copyModeText.value = "最近200条";
-	copyText(text.value, "已复制最近200条");
+/** 手动把还没攒够一批的日志写出去，不用等自动落盘。 */
+function archiveNow(): void {
+	diagnostics.flushArchiveNow();
+	ui.showToast({ message: "已写入 Download/BOOM/logs/", icon: "success" });
 }
 
 async function clearLogs(): Promise<void> {

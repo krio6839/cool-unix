@@ -15,12 +15,6 @@
 						@tap="loadDiagnosticLogs"
 						>刷新诊断日志</cl-button
 					>
-					<cl-button type="primary" color="#2563eb" size="small" @tap="copyVisibleLogs">
-						复制当前日志
-					</cl-button>
-					<cl-button type="primary" color="#0f766e" size="small" @tap="exportVisibleLogs">
-						导出当前日志
-					</cl-button>
 				</view>
 				<text
 					v-for="(line, i) in tab == 'protocol' ? protocolLogs : diagnosticRows"
@@ -201,7 +195,6 @@ import type {
 	HistorySessionDiagnostics
 } from "@/.cool";
 import type { DataDiagnosticsPopupProps } from "./types";
-import { saveCsvToDownloads } from "@/uni_modules/boom-csv-saver";
 
 const show = defineModel("show", {
 	default: false
@@ -220,51 +213,12 @@ const diagnosticLogs = computed<string[]>((): string[] => {
 const diagnosticRows = ref<string[]>(diagnosticLogs.value);
 const tab = ref<"database" | "protocol" | "diagnostic">("database");
 
-function visibleLogLines(): string[] {
-	return tab.value == "protocol" ? protocolLogs.value : diagnosticRows.value;
-}
-
-function visibleLogText(): string {
-	return visibleLogLines().join("\n");
-}
-
-function copyVisibleLogs(): void {
-	const text = visibleLogText();
-	if (text.length == 0) {
-		uni.showToast({ title: t("暂无日志"), icon: "none" });
-		return;
-	}
-	uni.setClipboardData({
-		data: text,
-		success: () => {
-			uni.showToast({ title: t("已复制当前日志"), icon: "success" });
-		}
-	});
-}
-
-function exportVisibleLogs(): void {
-	const text = visibleLogText();
-	if (text.length == 0) {
-		uni.showToast({ title: t("暂无日志"), icon: "none" });
-		return;
-	}
-	const prefix = tab.value == "protocol" ? "protocol-log" : "diagnostic-log";
-	const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-	try {
-		const path = saveCsvToDownloads(`${prefix}-${stamp}.txt`, text);
-		uni.showToast({ title: `${t("已导出")}: ${path}`, icon: "success" });
-	} catch (e) {
-		uni.showToast({ title: `${t("导出失败")}: ${e}`, icon: "none" });
-	}
-}
-
 async function loadDiagnosticLogs(): Promise<void> {
 	diagnosticRows.value = await diagnostics.getLogsAsync(200);
 }
 watch(show, (visible: boolean) => {
 	if (visible) void loadDiagnosticLogs();
 });
-
 const loading = ref<boolean>(false);
 const titleText = ref<string>("-");
 const rows = ref<string[]>([]);

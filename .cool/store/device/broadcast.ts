@@ -588,8 +588,12 @@ export class DeviceBroadcast {
 		});
 		if (record != null) {
 			realtime.setBroadcastRecord(record);
-			await this.storeBroadcastPpiData(r);
 		}
+		// 入库失败只影响展示用的广播表。PPI 与睡眠分期各自独立落库：
+		// 睡眠分期是"上传时按事件窗口组装 detail"的唯一来源，把它挂在
+		// realtime_broadcast_data 的写入结果上，会让一张展示表的失败连带
+		// 整晚的分期丢失——症状是上传时 detail 全 0、服务端判定没有睡眠数据。
+		await this.storeBroadcastPpiData(r);
 	}
 
 	private async storeBroadcastPpiData(r: RealtimeBroadcast): Promise<void> {

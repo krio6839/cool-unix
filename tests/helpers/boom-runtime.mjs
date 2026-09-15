@@ -12,6 +12,10 @@ export async function createRuntime(t) {
 		posts: [],
 		logs: [],
 		timers: [],
+		storage: {},
+		archived: [],
+		/** 测试拨动时钟用，单位毫秒。 */
+		dateOffsetMs: 0,
 		response: { status: "success" },
 		executeFailure: false,
 		queryFailure: false,
@@ -38,9 +42,22 @@ export async function createRuntime(t) {
 		},
 		requestError() {}
 	};
+	/**
+	 * 可拨动的时钟。默认偏移为 0，行为与原生 Date 完全一致；
+	 * 需要验证“隔一段时间才发生”的逻辑时，测试改 state.dateOffsetMs 即可，不用真的等。
+	 */
+	class OffsetDate extends Date {
+		constructor(...args) {
+			if (args.length === 0) super(Date.now() + state.dateOffsetMs);
+			else super(...args);
+		}
+		static now() {
+			return Date.now() + state.dateOffsetMs;
+		}
+	}
 	const context = {
 		console: { log() {} },
-		Date,
+		Date: OffsetDate,
 		Map,
 		Math,
 		JSON,
@@ -90,7 +107,11 @@ export async function createRuntime(t) {
 				}
 			}
 		},
-		"@/config": { isDev: false, ignoreTokens: [], config: { baseUrl: "https://test.invalid" } },
+		"@/config": {
+			isDev: false,
+			ignoreTokens: [],
+			config: { name: "BOOM", baseUrl: "https://test.invalid" }
+		},
 		"../locale": { locale: { value: "zh" }, t: (x) => x },
 		"../utils": {
 			getErrorMessage: (e, fallback) => e?.message ?? fallback,
@@ -103,9 +124,32 @@ export async function createRuntime(t) {
 		},
 		"../store": { useStore: () => ({ user: state.user }) },
 		"./error-notice": { defaultErrorNotice: { show() {} } },
+		"../../bluetooth/kux": {
+			onCharacteristicValueChange() {},
+			disconnect() {},
+			closeAdapter() {}
+		},
 		"./logger": { logger },
 		"../../service/logger": { logger },
 		"../service/logger": { logger },
+		"../router": { router: { path: () => "/device" } },
+		"../utils/storage": {
+			storage: {
+				get: (key) => state.storage[key] ?? null,
+				set: (key, value) => {
+					state.storage[key] = value;
+				},
+				remove: (key) => {
+					delete state.storage[key];
+				}
+			}
+		},
+		"@/uni_modules/boom-csv-saver": {
+			saveLogToDownloads: (fileName, content) => {
+				state.archived.push({ fileName, content });
+				return "Download/BOOM/logs/" + fileName;
+			}
+		},
 		"../utils/day": { dayUts: (ms) => ({ format: () => new Date(ms).toISOString() }) },
 		"./constants": {
 			UPLOAD_INTERVAL: 30000,
@@ -195,20 +239,26 @@ export async function createRuntime(t) {
 		if (mod.status !== "evaluated") await mod.evaluate();
 		return mod.namespace;
 	};
+	// 事件类型/命令码与解析函数用真实实现：桩成空对象会让 LOG_EVENT_TYPE.SleepResult
+	// 变成 undefined，睡眠事件在测试里被全部跳过，掩盖真实链路；解析函数桩成空壳则
+	// 让事件读取永远拿到空批次，同样测不出东西。
+	const btConstants = (await load(".cool/bluetooth/boom-constants.ts")).namespace;
+	const btParser = (await load(".cool/bluetooth/boom-parser.ts")).namespace;
 	mocks["../../bluetooth"] = {
 		bluetoothDataManager: manager,
-		BOOM_CMD: {},
-		LOG_EVENT_NAMES: {},
-		LOG_EVENT_TYPE: {},
-		parseEventDataHeader() {},
-		parseLogDataList() {},
-		parseVitalDataResponse() {}
+		BOOM_CMD: btConstants.BOOM_CMD,
+		LOG_EVENT_NAMES: btConstants.LOG_EVENT_NAMES,
+		LOG_EVENT_TYPE: btConstants.LOG_EVENT_TYPE,
+		parseEventDataHeader: btParser.parseEventDataHeader,
+		parseLogDataList: btParser.parseLogDataList,
+		parseVitalDataResponse: btParser.parseVitalDataResponse
 	};
 	const readerModule = await load(".cool/store/device/history-reader.ts");
 	await readerModule.evaluate();
 	state.DeviceHistoryReader = readerModule.namespace.DeviceHistoryReader;
 	const syncModule = await load(".cool/store/device/sync.ts");
 	await syncModule.evaluate();
+	state.diagnostics = (await load(".cool/service/diagnostics.ts")).namespace.diagnostics;
 	state.manager = manager;
 	state.DeviceSync = syncModule.namespace.DeviceSync;
 	state.request = cache.get(".cool/service/index.ts").namespace.request;

@@ -388,7 +388,7 @@ export class DeviceGattScheduler {
 		}
 		logger.info(
 			"bluetooth",
-			`[BOOM-EVENT] 新事件读取完成: status=${result.status}, pages=${result.pages}, items=${result.items.length}, savedSleep=${result.savedSleepRecords}, upload=${result.uploadOk}`
+			`[BOOM-EVENT] 新事件读取完成: status=${result.status}, pages=${result.pages}, items=${result.items.length}, savedSleep=${result.savedSleepRecords}, saveOk=${result.saveOk}, 上传已尝试=${result.uploadAttempted}, upload=${result.uploadOk}`
 		);
 		if (result.items.length > 0) {
 			logger.info(

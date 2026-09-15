@@ -15,6 +15,49 @@ const page = (startSec, n = 2, count = n * 60) => ({
 	rmssdSdnn: Array.from({ length: n }, () => ({ rmssd: -1, sdnn: -1 })),
 	vitalData: Array.from({ length: count }, () => ({ hr: 60, ppi: 1000, valid: true }))
 });
+/** 4 字节小端 hex：协议里所有多字节整数都是 LE。 */
+const le = (value, bytes) => {
+	let hex = "";
+	for (let i = 0; i < bytes; i++) hex += (((value >> (8 * i)) & 0xff).toString(16)).padStart(2, "0");
+	return hex;
+};
+/**
+ * 按 2.1.4 拼一条 Log_Data_t。
+ * 头部 4B(flag,flag2,crc8,payload_len) + sn(2) + global_sn(4) + ts(4) + tick(4)
+ * + eventType(1) + dataLen(1) + eventData = 40B 固定段 + eventData。
+ */
+const logDataItem = (eventType, eventDataHex, { ts = 1700000000, globalSn = 0 } = {}) =>
+	"a5" +
+	"00" +
+	"00" +
+	"00" +
+	le(1, 2) +
+	le(globalSn, 4) +
+	le(ts, 4) +
+	le(0, 4) +
+	eventType.toString(16).padStart(2, "0") +
+	(eventDataHex.length / 2).toString(16).padStart(2, "0") +
+	eventDataHex;
+/** 2.1.4.2.6 LogEvent_SleepResult：六个字段全 LE，22 字节。 */
+const sleepResultEvent = (options = {}) =>
+	logDataItem(
+		8,
+		le(options.sleepOnsetTime ?? 7 * 3600, 4) +
+			le(options.awakeTime ?? 1800, 4) +
+			le(options.lightSleepPeriod ?? 4 * 3600, 4) +
+			le(options.deepSleepPeriod ?? 2 * 3600, 4) +
+			le(options.otherSleepPeriod ?? 1800, 4) +
+			le(options.heartRateRest ?? 55, 2),
+		options
+	);
+/** 0x3C 事件头：17 字节（type 1 + 四个 u32）。 */
+const eventHeader = (earliestSn, latestSn) =>
+	le(0, 1) + le(earliestSn, 4) + le(1700000000, 4) + le(latestSn, 4) + le(1700000000, 4);
+/**
+ * 0x3D 的 V 字段：首字节固定为 0，其后才是 Log_Data_t 串联
+ * （状态说明.txt 表格「0x3D Byte 0: 0」）。读取端就是按 1 字节偏移解析的。
+ */
+const eventBatch = (...items) => "00" + items.join("");
 
 test("vital reads do not spread callback options through Android JSON serialization", async () => {
 	const source = await readFile(".cool/store/device/history-reader.ts", "utf8");
@@ -209,15 +252,17 @@ test("a gap with no device data does not abort the remaining gaps in one connect
 	assert.deepEqual(attempted, ["recent"]);
 });
 
-test("data diagnostics popup offers copy and export actions for visible logs", async () => {
+test("data diagnostics popup shows logs and defers full export to auto-archived files", async () => {
 	const source = await readFile("pages/device/components/DataDiagnosticsPopup.uvue", "utf8");
-	assert.equal(source.includes("saveCsvToDownloads"), true);
-	assert.equal(source.includes("uni.setClipboardData"), true);
-	assert.equal(source.includes("复制当前日志"), true);
-	assert.equal(source.includes("导出当前日志"), true);
-	assert.equal(source.includes('"diagnostic-log"'), true);
-	assert.equal(source.includes('"protocol-log"'), true);
-	assert.equal(source.includes(".txt`"), true);
+	// 面板只渲染最近 200 条；全量日志靠自动落盘，不在弹窗里复制/导出。
+	assert.equal(source.includes("getLogsAsync(200)"), true);
+	assert.equal(source.includes("loadDiagnosticLogs"), true);
+	assert.equal(source.includes("刷新诊断日志"), true);
+	// 手动复制/导出已移除：它们只覆盖面板这一段，而落盘文件没有 1000 条上限。
+	assert.equal(source.includes("uni.setClipboardData"), false);
+	assert.equal(source.includes("saveCsvToDownloads"), false);
+	assert.equal(source.includes("复制当前日志"), false);
+	assert.equal(source.includes("导出当前日志"), false);
 });
 
 test("data diagnostics log card uses high-contrast colors", async () => {
@@ -555,6 +600,200 @@ test("sleep failure is preserved and contributes to uploadData result", async (t
 	assert.equal(r.db.prepare("SELECT uploaded FROM sleep_data").get().uploaded, 1);
 });
 
+test("an in-flight PPI upload does not silently drop the sleep upload", async (t) => {
+	const r = await createRuntime(t);
+	r.seed(30);
+	r.db.exec("INSERT INTO sleep_data VALUES ('1000', 1000, 60, 60, 0, 0, '', 0)");
+	// PPI 挂起不返回，模拟它连发多批占用上传通道的窗口；睡眠请求立即成功。
+	const pending = [];
+	r.respond = (options) => {
+		if (options.url.indexOf("/sleep") >= 0)
+			return options.success({ statusCode: 200, data: { status: "success" } });
+		pending.push(options);
+	};
+	const ppi = r.manager.uploadPpiData();
+	await new Promise((s) => setTimeout(s, 5));
+	assert.equal(r.manager.isUploading, true);
+	// 事件读取结束时正是这个调用顺序。共用一个上传锁时，它只会打一条 info 然后
+	// 返回 false，记录留在 uploaded=0——“有睡眠事件但没上传”就是这样发生的。
+	assert.equal(await r.manager.uploadSleepData(), true);
+	assert.equal(r.db.prepare("SELECT uploaded FROM sleep_data").get().uploaded, 1);
+	assert.equal(r.posts.filter((p) => p.url.indexOf("/sleep") >= 0).length, 1);
+	for (const item of pending) item.success({ statusCode: 200, data: { status: "success" } });
+	await ppi;
+});
+
+test("sleep upload logs why it skipped and how the detail staged", async (t) => {
+	const r = await createRuntime(t);
+	r.db.exec("INSERT INTO sleep_data VALUES ('1000', 1000, 60, 60, 0, 0, '', 0)");
+	assert.equal(await r.manager.uploadSleepData(), true);
+	const line = r.logs.map((x) => x.items.join(" ")).find((x) => x.includes("上传睡眠数据:"));
+	assert.ok(line != null, "no sleep upload line was logged");
+	// 没有这一行，日志里就看不出 detail 是不是全 0——而全 0 正是服务端
+	// 判定“没有睡眠数据”的依据。25200 字符的 detail 不能原样打印，只报统计。
+	for (const field of ["count=", "ids=", "detail长度=", "无分期=", "detail头="]) {
+		assert.equal(line.includes(field), true, `sleep log missing ${field}: ${line}`);
+	}
+	assert.equal(line.includes("000000000000000000000000"), true);
+	// 设备未连接时跳过必须报出原因，否则只剩一个 false 无法定位。
+	const offline = await createRuntime(t);
+	offline.db.exec("INSERT INTO sleep_data VALUES ('1000', 1000, 60, 60, 0, 0, '', 0)");
+	offline.manager.setDeviceInfo("BOOM", "");
+	assert.equal(await offline.manager.uploadSleepData(), false);
+	assert.equal(
+		offline.logs.some((x) => x.items.join(" ").includes("原因=设备未连接")),
+		true
+	);
+});
+
+test("per-frame reassembly noise cannot flush the diagnostic buffer", async (t) => {
+	const r = await createRuntime(t);
+	const { DataIdentifierReassembler } = await r.load(".cool/bluetooth/boom-codec.ts");
+	const reassembler = new DataIdentifierReassembler();
+	const before = r.logs.length;
+	// 坏连接上同一类异常会按帧重复；一页生命体征就有几十帧，逐帧告警足以把
+	// 1000 行缓冲区冲干净。首次必记，之后按间隔采样，连续次数写在日志里。
+	for (let i = 0; i < 120; i++)
+		reassembler.push("4000" + "aa".repeat(8)); // 非起始帧
+	const orphan = r.logs
+		.slice(before)
+		.filter((x) => x.items.join(" ").includes("收到非起始帧"));
+	assert.ok(orphan.length > 0, "the first orphan frame was not reported");
+	assert.ok(orphan.length <= 4, `orphan frames flooded the log: ${orphan.length}`);
+	assert.equal(orphan[0].items.join(" ").includes("连续=1"), true);
+});
+
+test("diagnostic logs archive to txt in batches instead of only living in the 1000-line buffer", async (t) => {
+	const r = await createRuntime(t);
+	r.diagnostics.init();
+	// 排空 init 那一行，计数从 0 开始。
+	r.diagnostics.flushArchiveNow();
+	const base = r.archived.length;
+	const record = (count, tag) => {
+		for (let i = 0; i < count; i++) r.diagnostics.record("info", "t", `${tag}-${i}`);
+	};
+
+	// 内存/SQLite 只留最近 1000 条；落盘是另一条不受上限约束的路径。
+	record(499, "a");
+	assert.equal(r.archived.length - base, 0, "archived before the batch was full");
+	record(1, "a");
+	assert.equal(r.archived.length - base, 1, "a full batch was not archived");
+	const file = r.archived[base];
+	assert.equal(file.content.includes("a-0"), true, "oldest line of the batch was dropped");
+	assert.equal((file.content.match(/a-/g) ?? []).length, 500, "batch did not contain 500 lines");
+	// 文件名只有时刻和序号：日期由 Download/BOOM/logs/<yyyyMMdd>/ 目录表达。
+	assert.match(file.fileName, /^diagnostic-\d{6}-\d+\.txt$/);
+
+	// 不足一批时手动 flush 把余量也写出去。
+	record(3, "b");
+	assert.equal(r.archived.length - base, 1, "a partial batch was archived without being asked");
+	r.diagnostics.flushArchiveNow();
+	assert.equal(r.archived.length - base, 2, "flushArchiveNow did not write the remainder");
+	assert.equal((r.archived[base + 1].content.match(/b-/g) ?? []).length, 3);
+	r.diagnostics.flushArchiveNow();
+	assert.equal(r.archived.length - base, 2, "an empty buffer wrote an empty file");
+
+	// 清空要把没落盘的余量先写出去，否则用户以为清掉的是屏幕上这些。
+	record(2, "c");
+	await r.diagnostics.clear();
+	assert.equal(r.archived.length - base, 3, "clear dropped un-archived logs");
+	assert.equal(r.diagnostics.getLogs().length, 0);
+});
+
+test("an idle app still archives its logs instead of holding them in memory", async (t) => {
+	const r = await createRuntime(t);
+	r.diagnostics.init();
+	r.diagnostics.flushArchiveNow();
+	const base = r.archived.length;
+	// 低于下限时即使时间到了也不写碎文件。
+	for (let i = 0; i < 28; i++) r.diagnostics.record("info", "t", `idle-${i}`);
+	r.dateOffsetMs = 6 * 60 * 1000;
+	r.diagnostics.record("info", "t", "idle-28");
+	assert.equal(r.archived.length - base, 0, "a sub-threshold batch was archived");
+
+	// 到达下限且已超时 → 落盘。只按数量触发的话，空闲期这些日志会一直留在内存里。
+	r.diagnostics.record("info", "t", "idle-29");
+	assert.equal(r.archived.length - base, 1, "an overdue batch was never archived");
+	assert.equal((r.archived[base].content.match(/idle-/g) ?? []).length, 30);
+
+	// 落盘后计时重置：紧接着再攒够下限也不该立刻又写一个文件。
+	for (let i = 0; i < 30; i++) r.diagnostics.record("info", "t", `reset-${i}`);
+	assert.equal(r.archived.length - base, 1, "the interval did not reset after archiving");
+	r.dateOffsetMs += 6 * 60 * 1000;
+	r.diagnostics.record("info", "t", "tick");
+	assert.equal(r.archived.length - base, 2, "the next overdue batch was not archived");
+});
+
+test("broadcast ingest keeps sleep staging independent of the display table", async (t) => {
+	// 睡眠分期（sleep_status_data）只在广播每秒落库，上传时按事件窗口组装 detail。
+	// 它必须独立于 realtime_broadcast_data —— 后者是首页展示用的表，写入失败时
+	// 若连带跳过分期，整晚的 detail 会全 0，服务端据此判定“没有睡眠数据”。
+	const source = await readFile(".cool/store/device/broadcast.ts", "utf8");
+	const start = source.indexOf("private async storeBroadcastRecordByDevice");
+	assert.ok(start > 0, "storeBroadcastRecordByDevice not found");
+	// 取到下一个方法定义为止：这里要检查的是“谁在 record != null 里面”。
+	const body = source.slice(start, source.indexOf("\n\tprivate ", start + 10));
+	const guard = body.indexOf("if (record != null)");
+	assert.ok(guard > 0, "the record guard is gone");
+	// 落库结果只允许控制展示缓存，不能再包住任何落库调用。
+	const guardedBlock = body.slice(guard, body.indexOf("}", guard));
+	assert.equal(
+		guardedBlock.includes("storeBroadcastPpiData"),
+		false,
+		"PPI storage is still inside the record != null block"
+	);
+	assert.equal(
+		guardedBlock.includes("storeBroadcastSleepActivity"),
+		false,
+		"sleep staging is still inside the record != null block"
+	);
+	// 两个落库调用都必须在 guard 之后发生（无论它们在哪个方法里）。
+	assert.ok(
+		body.indexOf("storeBroadcastPpiData") > guard,
+		"PPI storage happens before the record guard"
+	);
+	const stagingCall = source.indexOf("storeBroadcastSleepActivity", start);
+	assert.ok(stagingCall > 0, "sleep staging call not found after the ingest entry point");
+
+	// 运行时确认两张表互不牵连：广播表写失败时，分期照样能落库并读回。
+	const r = await createRuntime(t);
+	r.executeFailure = true;
+	const failed = await r.manager.storeRealtimeBroadcast({
+		broadcast: {
+			receivedAt: 1700000000000,
+			utc: 1700000000,
+			voltageMv: 3900,
+			ppgAttached: true,
+			behavior: 0,
+			activity: 2,
+			hr: 60,
+			hrValid: true,
+			spo2Pct: 98,
+			spo2Valid: true,
+			ppi: 500,
+			ppiValid: true,
+			hrvMs: 30,
+			rmssdValid: true,
+			bhr: 55,
+			bhrValid: true,
+			stepsEveryday: 100,
+			calorieEveryday: 10,
+			eventSeq: 5,
+			hasNewEvent: false,
+			batteryStatus: 0,
+			deviceId: "AA:BB"
+		},
+		rawHex: "50",
+		vHex: "50",
+		deviceId: "AA:BB"
+	});
+	assert.equal(failed, null, "the display table write was expected to fail");
+	r.executeFailure = false;
+	assert.equal(await r.manager.storeBroadcastSleepActivity(1700000000, 2), true);
+	const staged = await r.manager.getSleepActivitiesBetween(1699999999, 1700000001);
+	assert.equal(staged.get(1700000000), 2, "sleep staging was collateral damage");
+});
+
 test("ordinary API response compatibility is preserved", async (t) => {
 	const r = await createRuntime(t);
 	r.response = { legacy: true };
@@ -784,4 +1023,65 @@ test("disconnected GATT clients are closed so stale callbacks cannot replay fram
 	assert.equal(closeFn.includes("this.retireGattClient(deviceId, gatt);"), true);
 	assert.equal(closeFn.includes("gatt.disconnect();"), true);
 	assert.equal(closeFn.includes("gatt.close()"), false);
+});
+
+test("a sleep result event read from the device lands in sleep_data", async (t) => {
+	const r = await createRuntime(t);
+	const device = {
+		boundDeviceId: "device",
+		beginGattTask: () => true,
+		endGattTask() {},
+		event: { resetDataIdentifierReassembler() {} },
+		protocol: {
+			// 0x3C 头必须走真实解析：earliestSn/latestSn 为 0 会让读取直接判定“无事件数据”，
+			// 根本进不到 0x3D 循环。
+			async readEventData() {
+				reader.handleEventData(eventHeader(1, 1), 0x3c);
+				return true;
+			},
+			async continueReadEventData() {
+				// 一页一条睡眠事件；数量不足 maxCount，读取会在本页自然收敛。
+				reader.handleEventData(eventBatch(sleepResultEvent()), 0x3d);
+				return true;
+			}
+		}
+	};
+	const reader = new r.DeviceHistoryReader(device);
+	reader.sleep = async () => {};
+	const read = await reader.readEventDataAuto({
+		// 与调度层一致：EVENT_QUERY_TYPE_BY_TIME。
+		type: 1,
+		startSec: 1699900000,
+		endSec: 1700100000,
+		maxCount: 10,
+		maxPages: 5,
+		// 批次要静默 EVENT_BATCH_SETTLE_MS 才算收齐，超时必须留出这段静默窗口。
+		timeoutMs: 3000,
+		pageDelayMs: 0,
+		persistSleepData: true,
+		uploadAfterSave: true
+	});
+	assert.equal(read.status, "DONE");
+	assert.equal(read.items.length, 1);
+	assert.equal(read.savedSleepRecords, 1, "睡眠事件没有被保存");
+	assert.equal(read.uploadAttempted, true);
+	assert.equal(read.uploadOk, true);
+	// uploaded=1 是 uploadAfterSave 的正常结果：落库与上传在同一次事件读取里完成，
+	// 「最近睡眠」查的就是这张表。
+	assert.deepEqual(rows(r.db, "SELECT * FROM sleep_data"), [
+		{
+			id: "1700000000",
+			report_timestamp: 1700000000,
+			bedtime: 25200,
+			sleep_time: 23400,
+			wake_time: 1800,
+			getup_time: 0,
+			detail: "",
+			uploaded: 1
+		}
+	]);
+	assert.equal(r.posts.length, 1);
+	const recent = await r.manager.getRecentSleepData(10, null);
+	assert.equal(recent.length, 1);
+	assert.equal(recent[0].reportTimestamp, 1700000000);
 });

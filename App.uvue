@@ -45,6 +45,8 @@ export default {
 	},
 	onHide: function () {
 		console.log("App Hide");
+		// 进程随时可能被系统回收：把还没攒够一批的日志先落盘，否则这段就丢了。
+		// diagnostics.flushArchiveNow();
 		runKeepAliveTick("hide");
 	},
 	onExit: function () {

@@ -6,15 +6,39 @@ import OutputStreamWriter from "java.io.OutputStreamWriter";
 /**
  * Android 10 及以后通过 MediaStore 写公共下载目录，不依赖应用私有沙盒路径。
  * 系统文件管理器中路径为 Download/BOOM/<fileName>。
+ *
+ * MIME 必须与扩展名一致：MediaStore 会用 MIME 反查扩展名，两者不符时会在
+ * DISPLAY_NAME 后面再追加 MIME 对应的扩展名——导出 .txt 的日志会变成 .txt.csv。
  */
 export function saveCsvToDownloads(fileName: string, content: string): string {
+	return writeToDownloads(Environment.DIRECTORY_DOWNLOADS + "/BOOM", fileName, content);
+}
+
+/**
+ * 把日志正文写到 Download/BOOM/logs/<yyyyMMdd>/<fileName>。
+ *
+ * 按天分子目录：日志按批量自动落盘，一天能写十几个文件，平铺在 logs 下很快
+ * 就翻不动了。按日期分目录后，排查哪一天的问题就进哪个目录。
+ * CSV 导出不按天分——那是用户主动导出的一次性文件。
+ */
+export function saveLogToDownloads(fileName: string, content: string): string {
+	const now = new Date();
+	const day = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}`;
+	return writeToDownloads(Environment.DIRECTORY_DOWNLOADS + "/BOOM/logs/" + day, fileName, content);
+}
+
+function pad2(value: number): string {
+	return value < 10 ? `0${value}` : `${value}`;
+}
+
+function writeToDownloads(relativePath: string, fileName: string, content: string): string {
 	const activity = UTSAndroid.getUniActivity();
 	if (activity == null) throw new Error("当前没有可用的 Android Activity");
 
 	const values = new ContentValues();
 	values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
-	values.put(MediaStore.MediaColumns.MIME_TYPE, "text/csv");
-	values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/BOOM");
+	values.put(MediaStore.MediaColumns.MIME_TYPE, mimeTypeOf(fileName));
+	values.put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath);
 
 	const resolver = activity.getContentResolver();
 	const uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
@@ -29,5 +53,13 @@ export function saveCsvToDownloads(fileName: string, content: string): string {
 	} finally {
 		writer.close();
 	}
-	return "Download/BOOM/" + fileName;
+	return relativePath + "/" + fileName;
+}
+
+/** 按扩展名给出 MIME，保证 MediaStore 不会追加第二个扩展名。 */
+function mimeTypeOf(fileName: string): string {
+	const lower = fileName.toLowerCase();
+	if (lower.endsWith(".csv")) return "text/csv";
+	if (lower.endsWith(".txt") || lower.endsWith(".log")) return "text/plain";
+	return "application/octet-stream";
 }

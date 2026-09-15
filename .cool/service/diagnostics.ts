@@ -15,6 +15,8 @@ import type {
 	SelectSqlResult
 	//@ts-ignore
 } from "@/uni_modules/meibao-Sqlite";
+//@ts-ignore
+import { saveLogToDownloads } from "@/uni_modules/boom-csv-saver";
 //#endif
 
 export type DiagnosticLogLevel = "debug" | "info" | "warn" | "error";
@@ -32,6 +34,28 @@ export type DiagnosticRequestContext = {
 const LOG_STORAGE_KEY = "boom_diagnostic_logs";
 const DB_NAME = "diagnostics_db";
 const MAX_LOGS = 1000;
+/**
+ * 累积多少条就自动落盘一个 txt。
+ *
+ * 内存和 SQLite 都只保留最近 MAX_LOGS 条，长时间运行的详细日志会被覆盖掉。
+ * 落盘的是另一条不受上限约束的路径：攒够一批就写进 Download/BOOM/logs，
+ * 排查时按时间取文件即可，不再受“1000 行缓冲区”限制。
+ *
+ * 500 条约 100KB：一轮 120 秒补录（约 82 页）大致就是一个文件，既能一次看完整轮，
+ * 又不会大到打不开。
+ */
+const ARCHIVE_FLUSH_COUNT = 500;
+/**
+ * 即使没攒够，每隔这么久也落盘一次（前提是已有 ARCHIVE_FLUSH_MIN_COUNT 条）。
+ *
+ * 只按数量触发的话，空闲期那点零散日志会一直留在内存里，进程被杀就没了；
+ * 这条时间线保证“每隔一段时间存成一个文件”在空闲时也成立。
+ * 下限用于避免空闲时每 5 分钟写出一个只有几行的碎文件。
+ */
+const ARCHIVE_FLUSH_INTERVAL_MS = 5 * 60 * 1000;
+const ARCHIVE_FLUSH_MIN_COUNT = 30;
+/** 落盘缓冲的上限，防止写文件持续失败时内存无限增长。 */
+const ARCHIVE_BUFFER_LIMIT = 5000;
 
 function stringify(value: any | null): string {
 	if (value == null) return "";
@@ -70,10 +94,18 @@ class Diagnostics {
 	private dbAvailable = false;
 	private dbReadyTask: Promise<boolean> | null = null;
 	private writeTask: Promise<void> = Promise.resolve();
+	/** 待落盘的日志。攒够一批或超时就写一个 txt 文件。 */
+	private archiveBuffer: string[] = [];
+	/** 已落盘的文件数，用于文件名去重。 */
+	private archiveSeq = 0;
+	/** 上次落盘的时间，用于空闲期定时落盘。 */
+	private lastArchiveAt = 0;
 
 	init(): void {
 		if (this.initialized) return;
 		this.initialized = true;
+		// 时间线从启动开始算：空转的进程不会因为“距上次落盘很久”立刻写出碎文件。
+		this.lastArchiveAt = new Date().getTime();
 		const legacyLogs = readLogs();
 		this.logs = legacyLogs;
 		this.dbReadyTask = this.initDatabase(legacyLogs);
@@ -98,6 +130,7 @@ class Diagnostics {
 		if (this.logs.length > MAX_LOGS) {
 			this.logs = this.logs.slice(this.logs.length - MAX_LOGS);
 		}
+		this.appendArchive(item);
 
 		try {
 			if (this.dbAvailable) {
@@ -108,6 +141,68 @@ class Diagnostics {
 		} catch (_e) {
 			// Storage full or unavailable. Keep the in-memory buffer for this session.
 		}
+	}
+
+	/**
+	 * 把日志追加进落盘缓冲，攒够一批就异步写文件。
+	 *
+	 * 这里不 await：record 会被 BLE 回调高频调用，同步写文件会拖住调用方。
+	 * 写失败只丢这一批缓冲，不影响内存与 SQLite 里的日志。
+	 */
+	private appendArchive(item: string): void {
+		this.archiveBuffer.push(item);
+		if (this.archiveBuffer.length > ARCHIVE_BUFFER_LIMIT) {
+			this.archiveBuffer = this.archiveBuffer.slice(
+				this.archiveBuffer.length - ARCHIVE_BUFFER_LIMIT
+			);
+		}
+		this.maybeFlushArchive();
+	}
+
+	/**
+	 * 攒够 ARCHIVE_FLUSH_COUNT 条，或距上次落盘超过 ARCHIVE_FLUSH_INTERVAL_MS
+	 * 且已有 ARCHIVE_FLUSH_MIN_COUNT 条，就落盘一批。
+	 *
+	 * 时间条件在每条日志上顺带检查，不用另起定时器：缓冲区里有内容，说明日志正在
+	 * 流动，下一条日志自然会来做这次检查。
+	 */
+	private maybeFlushArchive(): void {
+		if (this.archiveBuffer.length == 0) return;
+		if (this.archiveBuffer.length >= ARCHIVE_FLUSH_COUNT) return this.flushArchive();
+		const overdue =
+			this.archiveBuffer.length >= ARCHIVE_FLUSH_MIN_COUNT &&
+			new Date().getTime() - this.lastArchiveAt >= ARCHIVE_FLUSH_INTERVAL_MS;
+		if (overdue == true) this.flushArchive();
+	}
+
+	private flushArchive(): void {
+		if (this.archiveBuffer.length == 0) return;
+		const batch = this.archiveBuffer;
+		this.archiveBuffer = [];
+		try {
+			//#ifdef APP-ANDROID
+			saveLogToDownloads(`diagnostic-${this.archiveStamp()}.txt`, this.formatText(batch));
+			//#endif
+			this.lastArchiveAt = new Date().getTime();
+		} catch (_e) {
+			// 落盘失败不影响内存/数据库日志，也不重试：下一次攒够会再写一个新文件。
+		}
+	}
+
+	/**
+	 * 把尚未落盘的余量写成文件。App 切到后台时调用：进程随时可能被系统回收，
+	 * 缓冲区里的日志还没进过磁盘，丢了就再也拿不回来。
+	 */
+	flushArchiveNow(): void {
+		this.flushArchive();
+	}
+
+	/** 文件名用当天内的时刻，便于同一目录里按时间排序；日期已由目录表达。 */
+	private archiveStamp(): string {
+		this.archiveSeq = this.archiveSeq + 1;
+		const now = new Date();
+		const pad = (value: number): string => (value < 10 ? `0${value}` : `${value}`);
+		return `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}-${this.archiveSeq}`;
 	}
 
 	captureException(error: any | null, tag: string = "exception"): void {
@@ -179,12 +274,17 @@ class Diagnostics {
 	}
 
 	async clear(): Promise<void> {
-		this.logs = [];
-		storage.remove(LOG_STORAGE_KEY);
+		// 清空前先把没落盘的余量写到文件：缓冲区里的内容还没进过磁盘，
+		// 直接丢掉等于用户以为“清空的是屏幕上这些”，实际连同没看过的日志一起没了。
+		this.flushArchive();
+		// 先等初始化读完库再重置内存：initDatabase 结束时会把读到的历史日志回填进
+		// logs，早于它清空就会被这次回填覆盖——刚启动就点清空会看起来没生效。
 		if (this.dbReadyTask != null) {
 			await this.dbReadyTask;
 		}
 		await this.writeTask;
+		this.logs = [];
+		storage.remove(LOG_STORAGE_KEY);
 		if (this.dbAvailable && this.dbReady) {
 			await this.execute("DELETE FROM diagnostic_logs");
 		}
