@@ -929,8 +929,10 @@ export class DeviceHistoryReader {
 				);
 				continue;
 			}
-			await bluetoothDataManager.storeSleepData(sleepData);
-			saved++;
+			// 只有真的写进去了才计数：INSERT OR IGNORE 遇到约束冲突不报错，
+			// 按调用次数计数会让日志里的 saved 涨着、库里却一行没有。
+			const stored = await bluetoothDataManager.storeSleepData(sleepData);
+			if (stored == true) saved++;
 		}
 		if (found > 0 || saved > 0 || skipped > 0) {
 			logger.info(

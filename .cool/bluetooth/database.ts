@@ -20,6 +20,18 @@ import { logger } from "../service/logger";
 
 const DB_NAME = "bluetooth_db";
 
+/** sleep_data 的当前结构。重建旧表时复用同一份 DDL，避免两处定义漂移。 */
+const sleepTableSql = (tableName: string): string => `CREATE TABLE IF NOT EXISTS ${tableName} (
+        id TEXT PRIMARY KEY,
+        report_timestamp INTEGER NOT NULL,
+        bedtime INTEGER NOT NULL,
+        sleep_time INTEGER NOT NULL,
+        wake_time INTEGER NOT NULL,
+        getup_time INTEGER NOT NULL,
+        detail TEXT NOT NULL DEFAULT '',
+        uploaded INTEGER DEFAULT 0
+      )`;
+
 class BluetoothDatabase {
 	private isOpen: boolean = false;
 	private operations: Promise<void> = Promise.resolve();
@@ -160,17 +172,8 @@ class BluetoothDatabase {
 	private async initTables(): Promise<void> {
 		await this.execute("DROP TABLE IF EXISTS bluetooth_data");
 
-		await this.execute(`CREATE TABLE IF NOT EXISTS sleep_data (
-        id TEXT PRIMARY KEY,
-        report_timestamp INTEGER NOT NULL,
-        bedtime INTEGER NOT NULL,
-        sleep_time INTEGER NOT NULL,
-        wake_time INTEGER NOT NULL,
-        getup_time INTEGER NOT NULL,
-        detail TEXT NOT NULL DEFAULT '',
-        uploaded INTEGER DEFAULT 0
-      )`);
-		await this.removeSleepRecordCountColumn();
+		await this.execute(sleepTableSql("sleep_data"));
+		await this.migrateSleepTable();
 
 		await this.execute(
 			"CREATE INDEX IF NOT EXISTS idx_sleep_report ON sleep_data(report_timestamp)"
@@ -246,9 +249,66 @@ class BluetoothDatabase {
 		return false;
 	}
 
-	private async removeSleepRecordCountColumn(): Promise<void> {
-		if ((await this.hasColumn("sleep_data", "record_count")) == false) return;
-		await this.execute("ALTER TABLE sleep_data DROP COLUMN record_count");
+	/**
+	 * 把旧结构的 sleep_data 迁到当前结构。
+	 *
+	 * 不能用 `ALTER TABLE ... DROP COLUMN`：那需要 SQLite 3.35+（Android 14 才带），
+	 * minSdk 21 的机器上会直接语法报错。旧表一旦带着 `record_count INTEGER NOT NULL`
+	 * 留在原地，`storeSleepData` 的 `INSERT OR IGNORE` 会把 NOT NULL 冲突当成"可忽略"
+	 * 静默跳过——行没写进去，SQL 却算执行成功，表现为「事件里明明有睡眠、saved 也涨，
+	 * 但睡眠库始终为空，且日志里一条错都没有」。
+	 *
+	 * 所以改成整表重建：按当前结构建一张临时表，按列名交集搬数据，再替换旧表。
+	 * 全程只用 CREATE / INSERT SELECT / DROP / RENAME，不依赖高版本语法。
+	 */
+	private async migrateSleepTable(): Promise<void> {
+		const columns = await this.sleepTableColumns();
+		if (columns.length == 0) return;
+		const upToDate = columns.includes("detail") == true && columns.includes("record_count") == false;
+		if (upToDate == true) return;
+
+		logger.info("bluetooth", `[DB] sleep_data 结构过旧,重建: 现有列=${columns.join(",")}`);
+		// 旧库没有的列用默认值补齐；detail 从旧 sleep_status 表合并而来，历史行无从还原，补空串。
+		const targets = [
+			"id",
+			"report_timestamp",
+			"bedtime",
+			"sleep_time",
+			"wake_time",
+			"getup_time",
+			"detail",
+			"uploaded"
+		];
+		const sources: string[] = [];
+		for (let i = 0; i < targets.length; i++) {
+			const name = targets[i];
+			if (columns.includes(name) == true) sources.push(name);
+			else if (name == "detail") sources.push("''");
+			else sources.push("0");
+		}
+
+		const rebuilt = await this.transaction([
+			sleepTableSql("sleep_data_migrating"),
+			`INSERT INTO sleep_data_migrating (${targets.join(", ")}) SELECT ${sources.join(", ")} FROM sleep_data`,
+			"DROP TABLE sleep_data",
+			"ALTER TABLE sleep_data_migrating RENAME TO sleep_data"
+		]);
+		if (rebuilt == false) {
+			// 重建失败时旧表还在（事务已回滚）。这里必须抛：留着旧结构继续跑，
+			// 睡眠会一直"保存成功"却一行都写不进去。
+			throw new Error("sleep_data 结构重建失败");
+		}
+		logger.info("bluetooth", "[DB] sleep_data 结构重建完成");
+	}
+
+	private async sleepTableColumns(): Promise<string[]> {
+		const result = await this.query("PRAGMA table_info(sleep_data)");
+		if (result == null) return [];
+		const names: string[] = [];
+		for (let i = 0; i < result.rows.length; i++) {
+			names.push(result.rows[i][1] as string);
+		}
+		return names;
 	}
 
 	/** realtime_broadcast_data 只是实时缓存；旧结构直接丢弃重建，避免无意义迁移。 */

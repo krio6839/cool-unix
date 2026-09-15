@@ -632,16 +632,25 @@ export class BluetoothDataManager {
 	 * 存储睡眠数据
 	 * 用 INSERT OR IGNORE 防御性去重：相同 reportTimestamp 已存在则静默跳过；
 	 * 配合 fetchAllSleepData 断点续传后，从源头避免重复存储与 uploaded 状态被重置。
+	 *
+	 * 返回是否真的写进去了：`INSERT OR IGNORE` 会把约束冲突（例如旧表残留的
+	 * NOT NULL 列）当成"可忽略"而不报错，只看 execute 的返回值会把"一行都没写"
+	 * 当成成功。调用方必须按这个返回值计数，否则日志里 saved 会涨而库是空的。
 	 * @param sleepData 睡眠数据
+	 * @returns 行是否落入库中
 	 */
-	async storeSleepData(sleepData: SleepData): Promise<void> {
+	async storeSleepData(sleepData: SleepData): Promise<boolean> {
 		const { reportTimestamp, bedtime, sleepTime, wakeTime, getupTime, detail } = sleepData;
 		const sleepId = reportTimestamp.toString();
 		const safeDetail = this.escapeSqlText(detail);
 		const sleepSql = `INSERT OR IGNORE INTO sleep_data
 			(id, report_timestamp, bedtime, sleep_time, wake_time, getup_time, detail, uploaded)
 			VALUES ('${sleepId}', ${reportTimestamp}, ${bedtime}, ${sleepTime}, ${wakeTime}, ${getupTime}, '${safeDetail}', 0)`;
-		await this.execute(sleepSql);
+		const ok = await this.execute(sleepSql);
+		if (ok == false) {
+			logger.error("bluetooth", `[BOOM] 睡眠数据写入失败: report_timestamp=${reportTimestamp}`);
+		}
+		return ok;
 	}
 
 	/**

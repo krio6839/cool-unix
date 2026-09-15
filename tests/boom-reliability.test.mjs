@@ -1085,3 +1085,107 @@ test("a sleep result event read from the device lands in sleep_data", async (t) 
 	assert.equal(recent.length, 1);
 	assert.equal(recent[0].reportTimestamp, 1700000000);
 });
+
+test("a sleep event whose write fails is not reported as saved", async (t) => {
+	const r = await createRuntime(t);
+	const device = {
+		boundDeviceId: "device",
+		beginGattTask: () => true,
+		endGattTask() {},
+		event: { resetDataIdentifierReassembler() {} },
+		protocol: {
+			async readEventData() {
+				reader.handleEventData(eventHeader(1, 1), 0x3c);
+				return true;
+			},
+			async continueReadEventData() {
+				reader.handleEventData(eventBatch(sleepResultEvent()), 0x3d);
+				return true;
+			}
+		}
+	};
+	const reader = new r.DeviceHistoryReader(device);
+	reader.sleep = async () => {};
+	// 落库失败时，savedSleep 必须为 0：否则日志里 saved 在涨、库里一行没有，
+	// 「读到睡眠却查不到」就会被这条日志掩盖过去。
+	r.executeFailure = true;
+	const read = await reader.readEventDataAuto({
+		type: 1,
+		startSec: 1699900000,
+		endSec: 1700100000,
+		maxCount: 10,
+		maxPages: 5,
+		timeoutMs: 3000,
+		pageDelayMs: 0,
+		persistSleepData: true,
+		uploadAfterSave: true
+	});
+	assert.equal(read.savedSleepRecords, 0);
+	// 写入失败要留下明确的一行，而不是静默。
+	assert.equal(
+		r.logs.some((entry) => entry.items.join(" ").includes("睡眠数据写入失败")),
+		true
+	);
+	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM sleep_data").get().n, 0);
+});
+
+test("a legacy sleep_data table is rebuilt so sleep results can actually be stored", async (t) => {
+	const r = await createRuntime(t);
+	// 复刻旧结构：多一个 NOT NULL 无默认值的 record_count、少一个 detail。
+	r.db.exec("DROP TABLE IF EXISTS sleep_data");
+	r.db.exec(`CREATE TABLE sleep_data (
+    id TEXT PRIMARY KEY, report_timestamp INTEGER NOT NULL, bedtime INTEGER NOT NULL,
+    sleep_time INTEGER NOT NULL, wake_time INTEGER NOT NULL, getup_time INTEGER NOT NULL,
+    record_count INTEGER NOT NULL, uploaded INTEGER DEFAULT 0)`);
+	r.db.exec("INSERT INTO sleep_data VALUES ('1699999999',1699999999,25200,23000,1500,0,1200,1)");
+
+	const btDb = (await r.load(".cool/bluetooth/database.ts")).bluetoothDatabase;
+	await btDb.close();
+	await btDb.open();
+
+	assert.deepEqual(
+		r.db
+			.prepare("PRAGMA table_info(sleep_data)")
+			.all()
+			.map((row) => row.name),
+		["id", "report_timestamp", "bedtime", "sleep_time", "wake_time", "getup_time", "detail", "uploaded"]
+	);
+	// 历史行必须保留（含 uploaded 状态），只有无从还原的 detail 补空串。
+	assert.deepEqual(rows(r.db, "SELECT id, uploaded, detail FROM sleep_data"), [
+		{ id: "1699999999", uploaded: 1, detail: "" }
+	]);
+
+	// 旧结构下 INSERT OR IGNORE 会把 NOT NULL 冲突静默吞掉：execute 返回 true、行没进去。
+	const stored = await r.manager.storeSleepData({
+		reportTimestamp: 1700000000,
+		bedtime: 25200,
+		sleepTime: 23400,
+		wakeTime: 1800,
+		getupTime: 0,
+		detail: ""
+	});
+	assert.equal(stored, true);
+	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM sleep_data").get().n, 2);
+	assert.equal((await r.manager.getUnuploadedSleepData()).length, 1);
+});
+
+test("a failed sleep insert is reported instead of counted as saved", async (t) => {
+	const r = await createRuntime(t);
+	r.executeFailure = true;
+	// 写入失败必须能被调用方看见：否则日志里 saved 在涨、库里一行没有。
+	assert.equal(
+		await r.manager.storeSleepData({
+			reportTimestamp: 1700000000,
+			bedtime: 25200,
+			sleepTime: 23400,
+			wakeTime: 1800,
+			getupTime: 0,
+			detail: ""
+		}),
+		false
+	);
+	assert.equal(
+		r.logs.some((entry) => entry.items.join(" ").includes("睡眠数据写入失败")),
+		true
+	);
+});
