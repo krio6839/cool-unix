@@ -81,12 +81,18 @@ export type UploadTableStats = {
 	latestUnuploadedTimestamp: number;
 };
 
-/** 当前 App 会话内的历史补录与 PPI 上传诊断摘要。 */
+/** 当前 App 会话内的基准补录与 PPI 上传诊断摘要。 */
 export type HistorySessionDiagnostics = {
-	pendingTasks: number;
-	firstPendingFromSec: number;
-	lastPendingToSec: number;
-	confirmedRanges: number;
+	/** 基准时间：`[0, baselineSec)` 已全部记账完毕。 */
+	baselineSec: number;
+	/** 记账右端，同时也是缺口右端。 */
+	stableCeilingSec: number;
+	/** 当前可读缺口的分组数（含桥接合并）。 */
+	gapGroups: number;
+	/** 缺口里真正要补的秒数，不含桥接跨过的部分。 */
+	gapSeconds: number;
+	/** `vital_ready_ranges` 的行数。运行时通常接近 0——建完就被推进消费掉。 */
+	readyRanges: number;
 	unuploadedCount: number;
 	earliestUnuploadedSec: number;
 	latestUnuploadedSec: number;

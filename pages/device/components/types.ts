@@ -19,11 +19,26 @@ export type HistoryQuickReadPopupProps = {
 	busy: boolean;
 	exportCount: number;
 };
-export type HistoryGapRepairPayload = { taskIds: string[] };
+/** 补录只按缺口端点走，不再有任务 id：缺口是推算出来的，没有可寻址的行。 */
+export type HistoryGapRepairPayload = { fromSec: number; toSec: number };
 export type HistoryGapRepairPopupProps = {
 	busy: boolean;
 	commandMessage: string;
 	revision: number;
+};
+/** 补录参数弹窗：四个运行时可调项 + 生效值。 */
+export type HistoryTunePopupProps = {
+	busy: boolean;
+	commandMessage: string;
+};
+export type HistoryTuneItem = {
+	key: string;
+	label: string;
+	unit: string;
+	description: string;
+	value: number;
+	defaultValue: number;
+	overridden: boolean;
 };
 export type VitalPopupText = {
 	summary: string;

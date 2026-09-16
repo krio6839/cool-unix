@@ -1,12 +1,15 @@
 import { bluetoothDatabase } from "../database";
-import {
-	analyzeLocalCoverage,
-	type HistoryTimeRange,
-	type LocalCoverageSnapshot
-} from "./coverage";
+import type { HistoryTimeRange } from "./coverage";
 
 export const HISTORY_PPI_RETENTION_SEC = 30 * 24 * 60 * 60;
 
+/**
+ * 本地 PPI 覆盖查询。
+ *
+ * 这里**只碰 `ppi_data`**。「设备已确认」的那一半由 `vital_ready_ranges` 承担，
+ * 直接通过 `historyBaseline.listReadyRanges()` 读取——本文件不再提供转发方法，
+ * 因为那会引入 `baseline.ts` ⇄ `coverage-service.ts` 的循环导入。
+ */
 class HistoryCoverageService {
 	retentionStartSec(nowSec: number): number {
 		return Math.max(1, nowSec - HISTORY_PPI_RETENTION_SEC);
@@ -21,28 +24,6 @@ class HistoryCoverageService {
 		const values: number[] = [];
 		for (let i = 0; i < result.rows.length; i++) values.push(parseInt(result.rows[i][0] as string));
 		return values;
-	}
-
-	async getCheckedRanges(range: HistoryTimeRange): Promise<HistoryTimeRange[]> {
-		if (range.toSec <= range.fromSec) return [];
-		const result = await bluetoothDatabase.query(
-			`SELECT from_sec,to_sec FROM vital_history_ranges WHERE from_sec<${range.toSec} AND to_sec>${range.fromSec} ORDER BY from_sec ASC`
-		);
-		if (result == null) throw new Error("读取历史确认范围失败");
-		const values: HistoryTimeRange[] = [];
-		for (let i = 0; i < result.rows.length; i++) {
-			values.push({
-				fromSec: parseInt(result.rows[i][0] as string),
-				toSec: parseInt(result.rows[i][1] as string)
-			});
-		}
-		return values;
-	}
-
-	async inspect(range: HistoryTimeRange): Promise<LocalCoverageSnapshot> {
-		const timestamps = await this.getPpiTimestamps(range);
-		const checkedRanges = await this.getCheckedRanges(range);
-		return analyzeLocalCoverage(range, timestamps, checkedRanges);
 	}
 }
 

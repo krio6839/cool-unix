@@ -3,12 +3,12 @@
  * 负责蓝牙数据的存储、管理和上传
  */
 import { bluetoothDatabase } from "./database";
-import { historyProgress } from "./history/progress";
+import { historyBaseline, BASELINE_SCHEMA } from "./history/baseline";
 import { HISTORY_PPI_RETENTION_SEC } from "./history/coverage-service";
 import { request } from "../service";
 import { logger } from "../service/logger";
 import { dayUts } from "../utils/day";
-import { UPLOAD_INTERVAL, UPLOAD_PPI_URL, UPLOAD_SLEEP_URL } from "./constants";
+import { UPLOAD_PPI_URL, UPLOAD_SLEEP_URL } from "./constants";
 import type { SelectSqlResult } from "@/uni_modules/meibao-Sqlite";
 import type {
 	SleepData,
@@ -29,6 +29,8 @@ const PPI_UPLOAD_MIN_INTERVAL_MS = 30 * 1000;
 /** 单个请求最多 300 秒数据，每轮最多 10 批，防止长期占用上传通道。 */
 const PPI_UPLOAD_MAX_RECORDS = 300;
 const PPI_UPLOAD_MAX_BATCHES = 10;
+/** 定时兜底的上传检查间隔。主触发是广播跨整分钟的 `onMinuteCompleted()`，这里只做重试与排空。 */
+const UPLOAD_RETRY_INTERVAL_MS = 60 * 1000;
 
 /**
  * 蓝牙数据管理器类
@@ -88,13 +90,13 @@ export class BluetoothDataManager {
 	private async initDatabase(): Promise<boolean> {
 		const opened = await bluetoothDatabase.open();
 		if (opened == false) return false;
-		// 补录进度跨冷启动保留。数据库重开或 App 重启都不能让永久缺失的旧区间重新入队；
-		// 产品在重新绑定时由 clearAllData() 一并清除旧设备进度。
+		// 基准时间跨冷启动保留。数据库重开或 App 重启都不能让已记账的时间重新变成缺口；
+		// 产品在重新绑定时由 clearAllData() 一并清除。
 		try {
-			if ((await historyProgress.initializeSessionSchema()) == false) return false;
+			if ((await bluetoothDatabase.transaction(BASELINE_SCHEMA)) == false) return false;
 			return true;
 		} catch (error) {
-			logger.error("bluetooth", "[BOOM-DATA] 初始化补录进度表失败", error);
+			logger.error("bluetooth", "[BOOM-DATA] 初始化基准时间表失败", error);
 			return false;
 		}
 	}
@@ -334,17 +336,17 @@ export class BluetoothDataManager {
 
 	/** 供本地测试页排查“未读取、未落库、未上传”三个阶段。 */
 	async getHistorySessionDiagnostics(): Promise<HistorySessionDiagnostics> {
+		const baseline = await historyBaseline.getBaseline();
+		const nowSec = Math.floor(Date.now() / 1000);
+		const ceiling = historyBaseline.stableCeiling(nowSec);
+		const gaps = await historyBaseline.listRepairGaps(nowSec);
+		const readyRanges = await historyBaseline.listReadyRanges();
 		return {
-			pendingTasks: await this.queryCount(
-				"SELECT COUNT(*) FROM vital_history_tasks WHERE status != 'done'"
-			),
-			firstPendingFromSec: await this.queryTimestamp(
-				"SELECT MIN(from_sec) FROM vital_history_tasks WHERE status != 'done'"
-			),
-			lastPendingToSec: await this.queryTimestamp(
-				"SELECT MAX(to_sec) FROM vital_history_tasks WHERE status != 'done'"
-			),
-			confirmedRanges: await this.queryCount("SELECT COUNT(*) FROM vital_history_ranges"),
+			baselineSec: baseline,
+			stableCeilingSec: ceiling,
+			gapGroups: gaps.length,
+			gapSeconds: historyBaseline.sumRepairSeconds(gaps),
+			readyRanges: readyRanges.length,
 			unuploadedCount: await this.getUnuploadedPpiCount(),
 			earliestUnuploadedSec: await this.queryTimestamp(
 				"SELECT MIN(timestamp) FROM ppi_data WHERE uploaded = 0"
@@ -595,9 +597,8 @@ export class BluetoothDataManager {
 			"DELETE FROM ppi_data",
 			"DELETE FROM sleep_status_data",
 			"DELETE FROM realtime_broadcast_data",
-			"DELETE FROM vital_history_ranges",
-			"DELETE FROM vital_history_tasks",
-			"DELETE FROM vital_history_state"
+			"DELETE FROM vital_ready_ranges",
+			"DELETE FROM vital_sync_state"
 		]);
 		if (cleared == false) {
 			logger.error("bluetooth", "[BOOM-DATA] 清空旧设备数据失败");
@@ -606,25 +607,23 @@ export class BluetoothDataManager {
 		logger.info("bluetooth", "数据库数据清空完成");
 	}
 
-	/** 显式清空当前绑定的补录进度，不影响已经保存和待上传的每秒数据。 */
+	/** 显式清空当前绑定的基准时间与已记账区间，不影响已经保存和待上传的每秒数据。 */
 	async clearHistorySession(): Promise<void> {
 		try {
 			if ((await this.clearHistorySessionRaw()) == false)
-				throw new Error("清空历史补录进度失败");
+				throw new Error("清空基准补录进度失败");
 		} catch (error) {
-			logger.error("bluetooth", "[BOOM-DATA] 清空历史补录进度失败", error);
+			logger.error("bluetooth", "[BOOM-DATA] 清空基准补录进度失败", error);
 			throw error;
 		}
-		logger.info("bluetooth", "已清空当前绑定的历史补录进度");
+		logger.info("bluetooth", "已清空当前绑定的基准补录进度");
 	}
 
 	private async clearHistorySessionRaw(): Promise<boolean> {
-		if ((await bluetoothDatabase.execute("DELETE FROM vital_history_ranges")) == false)
-			throw new Error("清空历史补录范围失败");
-		if ((await bluetoothDatabase.execute("DELETE FROM vital_history_tasks")) == false)
-			throw new Error("清空历史补录任务失败");
-		if ((await bluetoothDatabase.execute("DELETE FROM vital_history_state")) == false)
-			throw new Error("清空历史补录规划状态失败");
+		if ((await bluetoothDatabase.execute("DELETE FROM vital_ready_ranges")) == false)
+			throw new Error("清空已记账区间失败");
+		if ((await bluetoothDatabase.execute("DELETE FROM vital_sync_state")) == false)
+			throw new Error("清空基准时间失败");
 		return true;
 	}
 
@@ -1030,6 +1029,21 @@ export class BluetoothDataManager {
 		return ppiOk && sleepOk;
 	}
 
+	/**
+	 * 广播 `utc` 跨过整分钟时调用：上传刚走完的那一分钟。
+	 *
+	 * 上传与合格判定是两件事——判定依据是本地的 `ppi_data`，不是上传结果。
+	 * 上传失败时 `uploaded` 保持 0，由重试路径继续消费，不会因为弱网把已经收齐的
+	 * 分钟判成待补。所以这里只负责把这一分钟的秒推上去，不参与基准时间推进。
+	 */
+	async onMinuteCompleted(minuteSec: number): Promise<void> {
+		const ok = await this.uploadData();
+		logger.info(
+			"bluetooth",
+			`[BOOM-UPLOAD] 分钟上传: minute=${minuteSec}, ok=${ok}`
+		);
+	}
+
 	/** 历史落库后独立触发上传，不让网络请求阻塞 GATT 释放和广播恢复。 */
 	scheduleUpload(): void {
 		if (this.uploadScheduled == true) return;
@@ -1050,14 +1064,15 @@ export class BluetoothDataManager {
 	}
 
 	/**
-	 * 启动定时上传定时器
+	 * 定时兜底已降级为**重试与排空**：主触发是 `onMinuteCompleted()`，
+	 * 这里只为消费 `uploaded=0` 的积压和失败重试。
 	 */
 	startUploadTimer(): void {
 		this.stopUploadTimer();
 		//@ts-ignore
 		this.uploadTimer = setInterval(() => {
 			this.uploadData();
-		}, UPLOAD_INTERVAL);
+		}, UPLOAD_RETRY_INTERVAL_MS);
 	}
 
 	/**

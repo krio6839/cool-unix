@@ -314,7 +314,7 @@ function formatStats(item: UploadTableStats): string {
 }
 
 function formatHistorySession(item: HistorySessionDiagnostics): string {
-	return `history session: pending=${item.pendingTasks}, pendingRange=${formatSecTime(item.firstPendingFromSec)} -> ${formatSecTime(item.lastPendingToSec)}, confirmedRanges=${item.confirmedRanges}, unuploaded=${item.unuploadedCount}, unuploadedRange=${formatSecTime(item.earliestUnuploadedSec)} -> ${formatSecTime(item.latestUnuploadedSec)}`;
+	return `history baseline: B=${formatSecTime(item.baselineSec)}, stableCeiling=${formatSecTime(item.stableCeilingSec)}, gapGroups=${item.gapGroups}, gapSeconds=${item.gapSeconds}, readyRanges=${item.readyRanges}, unuploaded=${item.unuploadedCount}, unuploadedRange=${formatSecTime(item.earliestUnuploadedSec)} -> ${formatSecTime(item.latestUnuploadedSec)}`;
 }
 
 async function loadOverview(): Promise<void> {

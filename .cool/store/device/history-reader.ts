@@ -1,9 +1,6 @@
-import {
-	canReadHistoryTaskGroup,
-	historyProgress,
-	historyStableBefore
-} from "../../bluetooth/history/progress";
-import type { HistoryTask } from "../../bluetooth/history/progress";
+import { historyBaseline } from "../../bluetooth/history/baseline";
+import type { HistoryGap } from "../../bluetooth/history/baseline";
+import { bluetoothDatabase } from "../../bluetooth/database";
 import {
 	BOOM_CMD,
 	bluetoothDataManager,
@@ -46,7 +43,6 @@ export type VitalAutoReadOptions = {
 	onProgress?: (progress: HistoryReadProgress) => void;
 	onPage?: (response: VitalDataQueryResponse, page: number) => void;
 	persistPage?: (response: VitalDataQueryResponse) => Promise<boolean>;
-	deadlineAt?: number;
 };
 
 export type VitalAutoReadResult = {
@@ -290,7 +286,6 @@ export class DeviceHistoryReader {
 				shouldStop: options.shouldStop,
 				onProgress: options.onProgress,
 				onPage: options.onPage,
-				deadlineAt: options.deadlineAt,
 				persistPage: async (response: VitalDataQueryResponse) => {
 					// 保留调用方页回调；其拒绝时不能继续读取或写入本地数据。
 					if (callerPersistPage != null && (await callerPersistPage(response)) == false)
@@ -329,41 +324,67 @@ export class DeviceHistoryReader {
 	}
 
 	/**
-	 * 连续任务组只建立一次 0x3A 查询上下文，随后持续发送 0x3B。
-	 * 每个响应页按时间交集提交给对应的底层任务，因此各任务仍保留自己的
-	 * cursor/retry 状态；自动补录和测试页手动补录共用此方法。
+	 * 读一个缺口组：整组只建立一次 `0x3A` 查询上下文，随后持续发送 `0x3B` 向更早翻页。
+	 *
+	 * 缺口由 `historyBaseline.listRepairGaps()` 推导，不落库；每页落库后按记账规则
+	 * 把该页**可确认的范围**并入 `vital_ready_ranges`——只记到 `stableCeiling`，
+	 * 超出部分等它自然稳定。所以「读到了」和「记账了」是两件事，不能混。
+	 *
+	 * 设备返回段早于整个缺口（`startSec == 0` 或已翻到缺口起点之前）是**正常路径**：
+	 * 设备关机 / 未佩戴就是这样，它把整段确认成「无数据」并记账，不是失败。
 	 */
-	async readVitalTaskGroup(
-		tasks: HistoryTask[],
-		deadlineAt: number = 0
+	async readVitalGapGroup(gap: HistoryGap): Promise<VitalAutoReadResult> {
+		return await this.readVitalRange(
+			"缺口组",
+			gap.fromSec,
+			gap.toSec,
+			`缺口秒=${gap.repairSeconds}, bridge秒=${gap.bridgeSeconds}`
+		);
+	}
+
+	/**
+	 * 连接尾巴补读（方案 9.3）：读这条连接自己留下的空洞。
+	 *
+	 * 只在空洞宽度超过 `broadcastResumeGraceSec` 时由 scheduler 调用——小空洞由广播
+	 * 接续判定免费消化，不值得为它多占一轮 GATT（那又制造新的空洞）。大空洞则相反：
+	 * 补录驱动的连接可能长达几分钟，用户在这段时间是戴着设备的，那些秒在设备 flash
+	 * 里有真数据，不读就只剩强制推进、永久丢掉。
+	 *
+	 * `anchor` 取断开时刻的原始秒、**不对齐**：对齐会把窗口末端往回推，几十秒的空洞
+	 * 可能被直接推空。
+	 */
+	async readVitalTailHole(holeFromSec: number, disconnectAtSec: number): Promise<VitalAutoReadResult> {
+		return await this.readVitalRange(
+			"连接尾巴",
+			holeFromSec,
+			disconnectAtSec,
+			`空洞秒=${disconnectAtSec - holeFromSec}`
+		);
+	}
+
+	/**
+	 * 读 `[fromSec, toSec)` 这一段：整段只建立一次 `0x3A` 查询上下文，随后持续发送
+	 * `0x3B` 向更早翻页。
+	 *
+	 * 缺口由 `historyBaseline.listRepairGaps()` 推导，不落库；每页落库后按记账规则
+	 * 把该页**可确认的范围**并入 `vital_ready_ranges`——只记到 `stableCeiling`，
+	 * 超出部分等它自然稳定。所以「读到了」和「记账了」是两件事，不能混。
+	 *
+	 * 设备返回段早于目标窗口（`startSec == 0` 或已翻到窗口起点之前）是**正常路径**：
+	 * 设备关机 / 未佩戴就是这样，它把整段确认成「无数据」并记账，不是失败。
+	 */
+	private async readVitalRange(
+		label: string,
+		fromSec: number,
+		toSec: number,
+		extraLog: string
 	): Promise<VitalAutoReadResult> {
-		if (tasks.length == 0)
-			return this.makeVitalResult("STOPPED", "empty history task group", 0, []);
 		const boundDeviceId = this.device.boundDeviceId;
 		if (boundDeviceId == "") return this.makeVitalResult("STOPPED", "no bound device", 0, []);
-		const activeTasks = tasks.slice();
-		for (let i = 1; i < activeTasks.length; i++) {
-			const value = activeTasks[i];
-			let index = i - 1;
-			while (index >= 0 && activeTasks[index].fromSec > value.fromSec) {
-				activeTasks[index + 1] = activeTasks[index];
-				index--;
-			}
-			activeTasks[index + 1] = value;
-		}
-		const firstTask = activeTasks[0];
-		const lastTask = activeTasks[activeTasks.length - 1];
-		if (canReadHistoryTaskGroup(activeTasks) == false) {
-			const message = "history task group is not readable in one chain";
-			logger.warn("bluetooth", `[BOOM-HISTORY] 连续补录拒绝: ${message}`);
-			return this.makeVitalResult("STOPPED", message, 0, []);
-		}
-		const startSec = firstTask.fromSec;
-		const anchor = lastTask.cursorSec;
+		const startSec = fromSec;
+		const anchor = toSec;
 		if (anchor <= startSec) {
-			const message = "history task group is already complete";
-			logger.warn("bluetooth", `[BOOM-HISTORY] 连续补录跳过: ${message}`);
-			return this.makeVitalResult("STOPPED", message, 0, []);
+			return this.makeVitalResult("STOPPED", "gap is already complete", 0, []);
 		}
 		if (this.device.beginGattTask("vitalGap") == false)
 			return this.makeVitalResult("STOPPED", "gatt busy", 0, []);
@@ -371,20 +392,20 @@ export class DeviceHistoryReader {
 		let saved = 0;
 		let saveOk = true;
 		let stopRead = false;
+		let confirmed = 0;
 		let lastStart = 0;
 		let failure = "";
 		const startedAt = Date.now();
 		try {
 			logger.info(
 				"bluetooth",
-				`[BOOM-HISTORY] 连续补录: tasks=${activeTasks.length}, window=${startSec}~${lastTask.toSec}, anchor=${anchor}, minutes=2`
+				`[BOOM-HISTORY] ${label}开始: window=${startSec}~${anchor}, ${extraLog}, anchor=${anchor}, minutes=${VITAL_GAP_READ_MINUTES}, direction=${VITAL_GAP_READ_DIRECTION}`
 			);
 			const result = await this.readVitalDataAutoInner({
 				startSec: anchor,
 				direction: VITAL_GAP_READ_DIRECTION,
 				minutes: VITAL_GAP_READ_MINUTES,
-				maxPages: 300,
-				deadlineAt,
+				maxPages: 0,
 				timeoutMs: DEFAULT_TIMEOUT_MS,
 				pageDelayMs: DEFAULT_PAGE_DELAY_MS,
 				shouldStop: () => stopRead || this.device.boundDeviceId != boundDeviceId,
@@ -393,7 +414,17 @@ export class DeviceHistoryReader {
 						if (this.device.boundDeviceId != boundDeviceId)
 							throw new Error("绑定设备已改变");
 						if (response.startSec == 0) {
-							saveOk = false;
+							// 设备声明没有更多数据：整个窗口确认无数据。
+							const nowSec = Math.floor(Date.now() / 1000);
+							if (startSec < anchor) {
+								await historyBaseline.markReady(startSec, anchor, nowSec);
+								confirmed = anchor - startSec;
+							}
+							logger.info(
+								"bluetooth",
+								`[BOOM-HISTORY] 设备无数据确认: window=${startSec}~${anchor}, confirmed秒=${confirmed}`
+							);
+							stopRead = true;
 							return true;
 						}
 						if (lastStart > 0 && response.startSec >= lastStart)
@@ -413,79 +444,28 @@ export class DeviceHistoryReader {
 							(response.vitalData.length == 0
 								? response.n * 60
 								: response.vitalData.length);
-						let pageSaved = 0;
-						let matchedTask = false;
-						for (let i = 0; i < activeTasks.length; i++) {
-							const item = activeTasks[i];
-							if (actualEnd <= item.fromSec || response.startSec >= item.toSec)
-								continue;
-							matchedTask = true;
-							pageSaved += await historyProgress.savePage(
-								item,
-								response,
-								historyStableBefore(Math.floor(Date.now() / 1000))
-							);
-							activeTasks[i] = await historyProgress.getTask(item.id);
-						}
-						if (matchedTask == false && actualEnd <= startSec) {
-							// 设备可以直接跳到目标窗口之前：它已经越过整个窗口，说明这段区间设备
-							// 没有数据。按“没返回就是没有”收尾，不当作读取失败——否则同一次连接里
-							// 排在后面的缺口会被这个 break 一起放弃。
-							for (let i = 0; i < activeTasks.length; i++) {
-								if (activeTasks[i].status != "done") {
-									await historyProgress.noMore(activeTasks[i]);
-									// 本地副本要跟着落库结果走，否则收尾日志会把已完成的组算成未读完。
-									activeTasks[i].status = "done";
-								}
-							}
+						if (actualEnd <= startSec) {
+							// 设备直接跳到目标窗口之前：它已越过整个窗口，说明这段区间
+							// 设备没有数据。按「没返回就是没有」收尾，不当作读取失败。
+							const nowSec = Math.floor(Date.now() / 1000);
+							await historyBaseline.markReady(startSec, anchor, nowSec);
+							confirmed = anchor - startSec;
 							logger.info(
 								"bluetooth",
-								`[BOOM-HISTORY] 设备返回段早于目标窗口，按无数据收尾: page=${response.startSec}, window=${startSec}~${lastTask.toSec}`
+								`[BOOM-HISTORY] 设备返回段早于目标窗口，按无数据收尾: page=${response.startSec}, window=${startSec}~${anchor}, confirmed秒=${confirmed}`
 							);
 							stopRead = true;
 							return true;
 						}
-						// 待扫描区间：设备没有返回任何有效秒就说明这段时间确实没数据，
-						// 直接收尾。若不收尾，每轮都会为同一段“没佩戴”重新占用一次 GATT 链路。
-						if (matchedTask == true && pageSaved == 0) {
-							let allScan = true;
-							for (let i = 0; i < activeTasks.length; i++) {
-								if (activeTasks[i].kind != "scan") {
-									allScan = false;
-									break;
-								}
-							}
-							if (allScan == true) {
-								for (let i = 0; i < activeTasks.length; i++) {
-									if (activeTasks[i].status != "done") {
-										await historyProgress.noMore(activeTasks[i]);
-										activeTasks[i].status = "done";
-									}
-								}
-								logger.info(
-									"bluetooth",
-									`[BOOM-HISTORY] 待扫描区间设备无数据，按已确认收尾: page=${response.startSec}, window=${startSec}~${lastTask.toSec}`
-								);
-								stopRead = true;
-								return true;
-							}
-						}
+						const pageSaved = await this.saveVitalPage(response, startSec, anchor, boundDeviceId);
 						saved += pageSaved;
 						lastStart = response.startSec;
-						let pending = false;
-						for (let i = 0; i < activeTasks.length; i++) {
-							if (
-								activeTasks[i].status != "done" &&
-								activeTasks[i].retryAt <= Date.now()
-							)
-								pending = true;
-						}
-						stopRead = response.startSec <= startSec || pending == false;
+						stopRead = response.startSec <= startSec;
 						return true;
 					} catch (error) {
 						saveOk = false;
 						failure = `${error}`;
-						logger.error("bluetooth", "[BOOM-HISTORY] 连续缺口页面处理失败", error);
+						logger.error("bluetooth", `[BOOM-HISTORY] ${label}页面处理失败`, error);
 						return false;
 					}
 				}
@@ -500,49 +480,94 @@ export class DeviceHistoryReader {
 				saveOk
 			) {
 				result.status = "DONE";
-				result.message = "target window complete";
+				result.message = "target gap complete";
+			}
+			if (result.status == "DONE" && saved == 0 && confirmed == 0) {
+				// 一页都没读到、也没走到确认分支：设备从窗口起点之前的更早处开始返回时
+				// 只可能出现在 anchor 已经过期的情况，明确标成无进展便于日志定位。
+				result.message = "gap read made no progress";
 			}
 			if (failure != "") result.message = failure;
-			if (
-				result.status == "TIMEOUT" ||
-				result.status == "SEND_FAILED" ||
-				result.status == "LIMIT" ||
-				!saveOk
-			) {
-				let deferred = 0;
-				for (let i = 0; i < activeTasks.length; i++) {
-					if (activeTasks[i].status != "done") {
-						await historyProgress.defer(activeTasks[i], result.message);
-						deferred++;
-					}
-				}
-				// 整组一起退避，按组打印一条即可；逐任务打印会把 1000 行缓冲区冲掉。
-				logger.warn(
-					"bluetooth",
-					`[BOOM-HISTORY] 缺口整组退避: tasks=${deferred}, window=${startSec}~${lastTask.toSec}, status=${result.status}, pages=${result.pages}, message=${result.message}`
-				);
-			} else {
-				// 一轮补录的最终账：读了几页、落了几条、还有几个任务没读完。
-				// 用户日志里“补录完成但缺口还在”与“根本没读到”靠这一行区分。
-				let pending = 0;
-				let nextFrom = 0;
-				for (let i = 0; i < activeTasks.length; i++) {
-					if (activeTasks[i].status == "done") continue;
-					pending++;
-					if (nextFrom == 0 || activeTasks[i].fromSec < nextFrom)
-						nextFrom = activeTasks[i].fromSec;
-				}
-				logger.info(
-					"bluetooth",
-					`[BOOM-HISTORY] 连续补录完成: tasks=${activeTasks.length}, window=${startSec}~${lastTask.toSec}, status=${result.status}, pages=${result.pages}, saved=${saved}, saveOk=${saveOk}, 未读完=${pending}, 最早未读起点=${nextFrom}, elapsed=${Math.round((Date.now() - startedAt) / 1000)}s`
-				);
-			}
+			logger.info(
+				"bluetooth",
+				`[BOOM-HISTORY] ${label}结束: window=${startSec}~${anchor}, status=${result.status}, pages=${result.pages}, 落库=${saved}, 已记账=${confirmed}s, elapsed=${Math.round((Date.now() - startedAt) / 1000)}s`
+			);
 			return result;
+		} catch (error) {
+			logger.error("bluetooth", `[BOOM-HISTORY] ${label}异常: ${error}`);
+			throw error;
 		} finally {
 			if (saved > 0) bluetoothDataManager.scheduleUpload();
 			this.setDisplaySuspended(false);
 			this.device.endGattTask("vitalGap");
 		}
+	}
+
+	/**
+	 * 落一页数据并记账。
+	 *
+	 * 两件事分开做，顺序固定：
+	 * 1. 有效秒写入 `ppi_data`（`uploaded=0`），先把数据留住。
+	 * 2. 把该页**可确认的范围**并入 `vital_ready_ranges`。`markReady` 内部会按
+	 *    `stableCeiling` 封顶，所以调用方不需要自己算右端。
+	 *
+	 * 无效秒（全 `FF`）不写 `ppi_data`，但它们同样是「设备确认这里没有」——所以
+	 * 整页范围仍然记账。这正是「任何一次读取都会让缺口消解」的落点：
+	 * 若只有取到数据才算消解，设备确实没记录的那一分钟会永远不合格、`B` 永远卡死。
+	 */
+	private async saveVitalPage(
+		page: VitalDataQueryResponse,
+		fromSec: number,
+		toSec: number,
+		boundDeviceId: string
+	): Promise<number> {
+		const nowSec = Math.floor(Date.now() / 1000);
+		const pageEnd =
+			page.startSec + (page.vitalData.length == 0 ? page.n * 60 : page.vitalData.length);
+		const statements: string[] = [];
+		const values: string[] = [];
+		for (let i = 0; i < page.vitalData.length; i++) {
+			const timestamp = page.startSec + i;
+			const item = page.vitalData[i];
+			if (item.valid == false) continue;
+			if (timestamp < fromSec || timestamp >= toSec) continue;
+			if (timestamp >= nowSec) continue;
+			values.push(`('${timestamp}',${timestamp},${item.hr},0,${item.ppi},0)`);
+		}
+		if (values.length > 0) {
+			// 先补全曾保存的占位值，再写入此前不存在的秒数据。
+			for (let i = 0; i < page.vitalData.length; i++) {
+				const timestamp = page.startSec + i;
+				const item = page.vitalData[i];
+				if (item.valid == false) continue;
+				if (timestamp < fromSec || timestamp >= toSec) continue;
+				if (timestamp >= nowSec) continue;
+				if (item.hr != 255 || item.ppi != 65535)
+					statements.push(`UPDATE ppi_data SET hr=${item.hr},ppi=${item.ppi},uploaded=0
+   WHERE id='${timestamp}' AND hr=255 AND ppi=65535`);
+			}
+			statements.push(
+				`INSERT OR IGNORE INTO ppi_data (id,timestamp,hr,spo2,ppi,uploaded) VALUES ${values.join(",")}`
+			);
+		}
+		if (statements.length > 0) {
+			if ((await bluetoothDatabase.transaction(statements)) == false)
+				throw new Error("缺口页面落库失败");
+		}
+		// 整页可确认范围记账：从页起点到页终点，右端由 markReady 封顶在 stableCeiling。
+		const from = Math.max(fromSec, page.startSec);
+		const to = Math.min(toSec, pageEnd);
+		let accounted = 0;
+		if (to > from) {
+			await historyBaseline.markReady(from, to, nowSec);
+			accounted = Math.min(to, historyBaseline.stableCeiling(nowSec)) - from;
+			if (accounted < 0) accounted = 0;
+		}
+		logger.info(
+			"bluetooth",
+			`[BOOM-HISTORY] 页落库: page=${page.startSec}, 新增秒=${values.length}, 记账=${from}~${Math.min(to, historyBaseline.stableCeiling(nowSec))}`
+		);
+		return values.length;
 	}
 
 	private async readVitalDataAutoInner(
@@ -562,18 +587,6 @@ export class DeviceHistoryReader {
 
 		if (options.onProgress != null) {
 			options.onProgress!({ phase: "0x3A", page, message: "start" });
-		}
-		if (
-			options.deadlineAt != null &&
-			options.deadlineAt! > 0 &&
-			Date.now() + timeoutMs >= options.deadlineAt!
-		) {
-			return this.makeVitalResult(
-				"STOPPED",
-				"history repair budget reached",
-				page,
-				responses
-			);
 		}
 		this.device.event.resetDataIdentifierReassembler();
 		let beforeSeq = this.vitalDataResponseSeqValue;
@@ -634,18 +647,6 @@ export class DeviceHistoryReader {
 				await this.sleep(pageDelayMs);
 			}
 
-			if (
-				options.deadlineAt != null &&
-				options.deadlineAt! > 0 &&
-				Date.now() + timeoutMs >= options.deadlineAt!
-			) {
-				return this.makeVitalResult(
-					"STOPPED",
-					"history repair budget reached",
-					page,
-					responses
-				);
-			}
 			ok = await this.device.protocol.continueReadVitalData(options.minutes);
 			if (ok == false) {
 				return this.makeVitalResult("SEND_FAILED", "0x3B send failed", page, responses);

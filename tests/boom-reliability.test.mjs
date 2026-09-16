@@ -63,7 +63,7 @@ test("vital reads do not spread callback options through Android JSON serializat
 	const source = await readFile(".cool/store/device/history-reader.ts", "utf8");
 	const method = source.slice(
 		source.indexOf("async readVitalDataAuto("),
-		source.indexOf("async readVitalTaskGroup(")
+		source.indexOf("async readVitalGapGroup(")
 	);
 	assert.equal(method.includes("...options"), false);
 });
@@ -119,12 +119,14 @@ test("history-gap repair has one independent popup entry", async () => {
 	assert.equal(gapPopup.includes("连续读取窗口"), true);
 	assert.equal(gapPopup.includes("实际待补"), true);
 	assert.equal(gapPopup.includes("窗口内非待补"), true);
-	assert.equal(gapPopup.includes("当前游标"), true);
+	// 缺口是推算出来的，没有游标、重试时间这些任务态字段。
+	assert.equal(gapPopup.includes("当前游标"), false);
+	assert.equal(gapPopup.includes("下次重试"), false);
 	assert.equal(gapPopup.includes("watch(revision"), true);
 	assert.equal(gapPopup.includes("scheduleVisibleRefresh"), false);
 });
 
-test("test page exposes six independent full-height popup entry points", async () => {
+test("test page exposes seven independent full-height popup entry points", async () => {
 	const source = await readFile("pages/device/test.uvue", "utf8");
 	for (const name of [
 		"HistoryQuickReadPopup",
@@ -132,13 +134,14 @@ test("test page exposes six independent full-height popup entry points", async (
 		"VitalProtocolPopup",
 		"EventProtocolPopup",
 		"DeviceControlPopup",
-		"DataDiagnosticsPopup"
+		"DataDiagnosticsPopup",
+		"HistoryTunePopup"
 	]) {
 		assert.equal(source.includes(`<${name}`), true, `${name} is mounted`);
 	}
 	assert.equal(source.includes("历史读取与协议调试"), false);
 	assert.equal(source.includes("<DatabaseTestPopup"), false);
-	for (const key of ["quick", "gap", "vital", "event", "control", "diagnostics"]) {
+	for (const key of ["quick", "gap", "vital", "event", "control", "diagnostics", "tune"]) {
 		assert.equal(source.includes(`key: "${key}"`), true, `entry: ${key}`);
 	}
 	assert.equal(source.includes('v-for="entry in testEntries"'), true);
@@ -158,14 +161,15 @@ test("test page exposes six independent full-height popup entry points", async (
 	assert.equal(source.includes("DataDiagnosticsPopup"), true);
 });
 
-test("six popup components keep their responsibilities and bottom full-height presentation", async () => {
+test("seven popup components keep their responsibilities and bottom full-height presentation", async () => {
 	const expectations = {
 		HistoryQuickReadPopup: ["read-range", "stop", "export"],
-		HistoryGapRepairPopup: ["repairGroup", "listPendingTaskGroups", "countPendingTasks", "scheduleOpenRefresh"],
+		HistoryGapRepairPopup: ["repairGroup", "historyBaseline.snapshot", "scheduleOpenRefresh"],
 		VitalProtocolPopup: ["0x3A", "0x3B", "cl-select-date", "协议秒"],
 		EventProtocolPopup: ["0x3C", "0x3D", "cl-select-date", "协议秒"],
 		DeviceControlPopup: ["disconnect", "restore", "clear-error"],
-		DataDiagnosticsPopup: ["upload", "协议日志", "诊断日志"]
+		DataDiagnosticsPopup: ["upload", "协议日志", "诊断日志"],
+		HistoryTunePopup: ["minuteSettleSec", "setHistoryTunable", "resetHistoryTunables"]
 	};
 	for (const [name, markers] of Object.entries(expectations)) {
 		const source = await readFile(`pages/device/components/${name}.uvue`, "utf8");
@@ -176,24 +180,63 @@ test("six popup components keep their responsibilities and bottom full-height pr
 	}
 });
 
-test("automatic history repair uses the same grouped read window as the manual popup", async () => {
-	const progress = await readFile(".cool/bluetooth/history/progress.ts", "utf8");
+test("automatic history repair plans from the baseline cursor, not a task queue", async () => {
 	const sync = await readFile(".cool/store/device/sync.ts", "utf8");
-	assert.equal(progress.includes("groupHistoryTasksForRead"), true);
-	assert.equal(progress.includes("listPendingTaskGroups"), true);
-	// 自动补录不再直接读 plan() 的固定批次，而是按剩余时间预算挑任务。
-	assert.equal(sync.includes("historyProgress.listBudgetedTasks(deadlineAt)"), true);
-	assert.equal(sync.includes("groupHistoryTasksForRead(budgeted)"), true);
-	assert.equal(sync.includes("readVitalTaskGroup(gap.tasks, deadlineAt)"), true);
+	assert.equal(sync.includes("historyBaseline.classify("), true);
+	assert.equal(sync.includes("historyBaseline.advanceBaseline("), true);
+	assert.equal(sync.includes("historyBaseline.listRepairGaps("), true);
+	assert.equal(sync.includes("readVitalGapGroup(gap)"), true);
+	// 老的任务表规划路径不应再出现。
+	assert.equal(sync.includes("historyProgress"), false);
+	assert.equal(sync.includes("groupHistoryTasksForRead"), false);
+	assert.equal(sync.includes("readVitalTaskGroup"), false);
 	assert.equal(sync.includes("lastCheckAt.value = Date.now()"), true);
 });
-test("the GATT link budget leaves room for broadcast between repair rounds", async () => {
+
+test("a connection has no duration budget and closes its own hole before disconnecting", async () => {
 	const scheduler = await readFile(".cool/store/device/gatt-scheduler.ts", "utf8");
 	const sync = await readFile(".cool/store/device/sync.ts", "utf8");
-	// 补录期间广播是停的：单次预算必须有界，且回访间隔要留出广播时间。
-	assert.equal(scheduler.includes("const GATT_FLUSH_BUDGET_MS = 120 * 1000"), true);
-	assert.equal(sync.includes("HISTORY_AUTO_BACKLOG_INTERVAL_MS"), true);
-	assert.equal(sync.includes("backlog ? HISTORY_AUTO_BACKLOG_INTERVAL_MS"), true);
+	// 连接不设时长上限：单次预算存在时，它留下的空洞会被反复转交给下一次连接。
+	assert.equal(scheduler.includes("GATT_FLUSH_BUDGET_MS"), false);
+	assert.equal(sync.includes("HISTORY_AUTO_BACKLOG_INTERVAL_MS"), false);
+	// 9.3 的大空洞补读必须在断开前执行，且只在空洞超过宽限值时执行。
+	assert.equal(scheduler.includes("readConnectionTailHoleBeforeDisconnect"), true);
+	assert.equal(scheduler.includes("readVitalTailHole(holeFrom, disconnectAt)"), true);
+	// 判据必须走运行时可调参数（方案第 14 节）。写死成常量会让调参只对一部分路径
+	// 生效，日志里就会出现「说改了、行为没变」。
+	assert.equal(scheduler.includes("const BROADCAST_RESUME_GRACE_SEC"), false);
+	assert.equal(scheduler.includes("getHistoryTunables().broadcastResumeGraceSec"), true);
+	assert.equal(scheduler.includes("if (tail <= grace)"), true);
+	// 补读闭环后必须清空洞标记。两个闭环条件是二选一（`clearConnectionHole()` 的注释
+	// 写明了「广播接续判定 / 已读设备补回」），漏掉后者会让标记一直挂着：`markConnectionHoleStart()`
+	// 不覆盖已有值，下一次连接就沿用这个更早的 `holeFrom`，算出大得多的 tail。
+	const tailRead = scheduler.slice(
+		scheduler.indexOf("private async readConnectionTailHoleBeforeDisconnect("),
+		scheduler.indexOf("private async runTask(")
+	);
+	assert.equal(tailRead.includes("clearConnectionHole()"), true);
+	// 判据用 `B` 的位置而不是 `status`：补读只拿回一部分时 `B` 停在中间，必须留着标记。
+	assert.equal(
+		tailRead.includes("if (baseline >= historyBaseline.stableCeiling(disconnectAt))"),
+		true
+	);
+	// 小空洞分支绝不能清：那正是要留给 7.2 接续判定消费的标记。
+	const smallHole = tailRead.slice(0, tailRead.indexOf("try {"));
+	assert.equal(smallHole.includes("clearConnectionHole()"), false);
+});
+
+test("connection records the hole start right after the broadcast scan stops", async () => {
+	const source = await readFile(".cool/store/device/connection.ts", "utf8");
+	const mode = source.slice(
+		source.indexOf("async switchToConnectMode("),
+		source.indexOf("private async disconnectStaleConnection(")
+	);
+	const stopIndex = mode.indexOf("await this.stopBluetoothSearch();");
+	const markIndex = mode.indexOf("this.markConnectionHoleStart();");
+	assert.ok(markIndex > 0, "hole start is recorded");
+	assert.ok(markIndex > stopIndex, "recorded after the scan actually stops");
+	// 重复调用不覆盖：一条连接里可能有多次停扫描，空洞要从最早那次算。
+	assert.equal(source.includes("if (this._connectionHoleFrom > 0) return;"), true);
 });
 
 test("history-gap popup still maps a no-data gap result to readable text", async () => {
@@ -218,12 +261,12 @@ test("a gap with no device data does not abort the remaining gaps in one connect
 	const sync = new r.DeviceSync({ boundDeviceId: "device" });
 	const attempted = [];
 	const gaps = [
-		{ deviceId: "device", kind: "recent", tasks: [{ id: "recent" }] },
-		{ deviceId: "device", kind: "archive", tasks: [{ id: "archive:a" }] }
+		{ fromSec: 1000, toSec: 1120, repairSeconds: 120, bridgeSeconds: 0 },
+		{ fromSec: 2000, toSec: 2120, repairSeconds: 120, bridgeSeconds: 0 }
 	];
 	const noData = {
 		status: "DONE",
-		message: "target window complete",
+		message: "target gap complete",
 		pages: 1,
 		savedRecords: 0,
 		saveOk: true
@@ -235,21 +278,21 @@ test("a gap with no device data does not abort the remaining gaps in one connect
 		savedRecords: 0,
 		saveOk: true
 	};
-	let script = { recent: noData, "archive:a": noData };
+	let script = { 1000: noData, 2000: noData };
 	sync.device.history = {
-		async readVitalTaskGroup(tasks) {
-			attempted.push(tasks[0].id);
-			return script[tasks[0].id];
+		async readVitalGapGroup(gap) {
+			attempted.push(gap.fromSec);
+			return script[gap.fromSec];
 		}
 	};
 	// 前一个缺口“设备没数据”不是失败：同一次连接里后面的缺口仍然要读。
-	await sync.runVitalGaps(gaps, Date.now() + 60000);
-	assert.deepEqual(attempted, ["recent", "archive:a"]);
+	await sync.runVitalGaps(gaps);
+	assert.deepEqual(attempted, [1000, 2000]);
 	// 真正的链路失败仍然中止本轮，避免在坏连接上反复超时。
 	attempted.length = 0;
-	script = { recent: linkFailure, "archive:a": linkFailure };
-	await sync.runVitalGaps(gaps, Date.now() + 60000);
-	assert.deepEqual(attempted, ["recent"]);
+	script = { 1000: linkFailure, 2000: linkFailure };
+	await sync.runVitalGaps(gaps);
+	assert.deepEqual(attempted, [1000]);
 });
 
 test("data diagnostics popup shows logs and defers full export to auto-archived files", async () => {
@@ -295,9 +338,11 @@ test("event popup crosses the native component boundary with scalar display prop
 test("a grouped history-gap repair uses one continuous 0x3A/0x3B reader", async () => {
 	const page = await readFile("pages/device/test.uvue", "utf8");
 	const reader = await readFile(".cool/store/device/history-reader.ts", "utf8");
-	assert.equal(page.includes("readVitalTaskGroup(tasks)"), true);
-	assert.equal(reader.includes("readVitalTaskGroup"), true);
-	assert.equal(reader.includes("连续补录"), true);
+	assert.equal(page.includes("readVitalGapGroup(gap)"), true);
+	assert.equal(reader.includes("readVitalGapGroup"), true);
+	// 一组缺口只建立一次 0x3A 上下文，之后连续 0x3B；两个入口共用同一段读取链路。
+	assert.equal(reader.includes("private async readVitalRange("), true);
+	assert.equal(reader.includes("readVitalTailHole"), true);
 });
 
 test("a valid all-zero broadcast second enters the PPI upload queue", async (t) => {
@@ -808,10 +853,8 @@ test("automatic history releases GATT without waiting for slow upload responses"
 	r.respond = (options) => {
 		pendingRequest = options;
 	};
-	const { historyProgress } = await r.load(".cool/bluetooth/history/progress.ts");
-	const task = (await historyProgress.plan("device", 100000)).find((x) => x.kind === "archive");
 	const device = {
-		boundDeviceId: task.deviceId,
+		boundDeviceId: "device",
 		beginGattTask: () => true,
 		endGattTask: () => {
 			released = true;
@@ -830,7 +873,9 @@ test("automatic history releases GATT without waiting for slow upload responses"
 	};
 	const reader = new r.DeviceHistoryReader(device);
 	reader.sleep = async () => {};
-	const reading = reader.readVitalTaskGroup([task]);
+	// 缺口端点直接当读取窗口：末端作 anchor，向更早翻页。
+	const gap = { fromSec: 100000, toSec: 101200, repairSeconds: 1200, bridgeSeconds: 0 };
+	const reading = reader.readVitalGapGroup(gap);
 	const outcome = await Promise.race([
 		reading,
 		new Promise((resolve) => setTimeout(() => resolve(null), 30))
@@ -899,24 +944,11 @@ test("backward history starts at the newer edge and stops at the older edge", as
 			}
 		}
 	};
-	// 直接落一条已规划任务，让读取链路从 101200 反向走到 100000。
-	r.db.exec(
-		"INSERT INTO vital_history_tasks VALUES ('archive:100000:101200','archive',100000,101200,101200,'pending',0,0,'')"
-	);
-	const task = {
-		id: "archive:100000:101200",
-		deviceId: "device",
-		kind: "archive",
-		fromSec: 100000,
-		toSec: 101200,
-		cursorSec: 101200,
-		status: "pending",
-		retryAt: 0,
-		attempts: 0
-	};
+	// 缺口 [100000, 101200)：anchor 取末端，让读取链路反向走到 100000。
 	const reader = new r.DeviceHistoryReader(device);
 	reader.sleep = async () => {}; // Omit native inter-command delay; keep the real read loop.
-	const read = await reader.readVitalTaskGroup([task]);
+	const gap = { fromSec: 100000, toSec: 101200, repairSeconds: 1200, bridgeSeconds: 0 };
+	const read = await reader.readVitalGapGroup(gap);
 	assert.equal(queries[0].startSec, 101200);
 	assert.equal(queries[0].direction, 0);
 	assert.equal(read.pages, 10);
@@ -930,9 +962,8 @@ test("backward history starts at the newer edge and stops at the older edge", as
 
 test("recent window queries next minute and excludes future seconds", async (t) => {
 	const r = await createRuntime(t);
-	const { historyProgress } = await r.load(".cool/bluetooth/history/progress.ts");
 	let query;
-	let stopped = false;
+	let continues = 0;
 	const device = {
 		boundDeviceId: "device",
 		beginGattTask: () => true,
@@ -950,29 +981,41 @@ test("recent window queries next minute and excludes future seconds", async (t) 
 				return true;
 			},
 			async continueReadVitalData() {
-				stopped = true;
-				return false;
+				continues++;
+				if (continues > 1) return false;
+				reader.latestVitalDataResponse = page(before - 240);
+				reader.vitalDataResponseSeqValue++;
+				return true;
 			}
 		}
 	};
 	const before = Math.floor(Date.now() / 1000);
-	// recent 任务的窗口就是 [stable, 下一整分钟)，直接驱动它走的同一条读取链路。
-	const recent = (await historyProgress.plan("device", before)).find(
-		(x) => x.kind === "recent"
-	);
+	// 缺口窗口就是 [B, stableCeiling)，anchor 取末端——与自动路径同一条读取链路。
+	// 窗口必须跨页（>120 秒），否则第一页就翻到窗口起点之前、读取立刻结束，
+	// 看不到「锚点在未来」这一条路径。
+	const gap = {
+		fromSec: before - 300,
+		toSec: before + 60,
+		repairSeconds: 360,
+		bridgeSeconds: 0
+	};
 	const reader = new r.DeviceHistoryReader(device);
 	reader.sleep = async () => {};
-	const read = await reader.readVitalTaskGroup([recent]);
+	const read = await reader.readVitalGapGroup(gap);
 	const after = Math.floor(Date.now() / 1000);
-	assert.equal(stopped, true);
-	assert.equal(query.startSec, recent.cursorSec);
+	// 锚点就是缺口右端本身，不做分钟对齐：对齐会把窗口末端往回推，窄缺口会被推空。
+	assert.equal(query.startSec, gap.toSec);
 	assert.ok(query.startSec >= before && query.startSec <= after + 60);
 	assert.equal(query.direction, 0);
-	// 锚点在未来，因此只有已经产生的秒入库。
-	assert.ok(read.savedRecords >= 60 && read.savedRecords <= 120);
+	// 锚点在未来，因此只有已经产生的秒入库；未到来的秒既不落库也不记账。
+	assert.ok(read.savedRecords > 0);
 	assert.equal(
 		r.db.prepare("SELECT MAX(timestamp) AS last FROM ppi_data").get().last < after,
 		true
+	);
+	assert.equal(
+		r.db.prepare("SELECT COUNT(*) AS n FROM vital_ready_ranges WHERE to_sec > " + after).get().n,
+		0
 	);
 });
 

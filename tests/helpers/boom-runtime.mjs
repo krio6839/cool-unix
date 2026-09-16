@@ -78,6 +78,18 @@ export async function createRuntime(t) {
 		}
 	};
 	const cache = new Map();
+	/** 运行时可调参数（`history/tunables.ts`）直接落在 state.storage 上，测试可预置覆盖值。 */
+	const storageStub = {
+		storage: {
+			get: (key) => state.storage[key] ?? null,
+			set: (key, value) => {
+				state.storage[key] = value;
+			},
+			remove: (key) => {
+				delete state.storage[key];
+			}
+		}
+	};
 	const mocks = {
 		"@/uni_modules/meibao-Sqlite": {
 			openDatabase: (o) => o.success({}),
@@ -133,17 +145,9 @@ export async function createRuntime(t) {
 		"../../service/logger": { logger },
 		"../service/logger": { logger },
 		"../router": { router: { path: () => "/device" } },
-		"../utils/storage": {
-			storage: {
-				get: (key) => state.storage[key] ?? null,
-				set: (key, value) => {
-					state.storage[key] = value;
-				},
-				remove: (key) => {
-					delete state.storage[key];
-				}
-			}
-		},
+		"../utils/storage": storageStub,
+		// 与 ../utils/storage 同一个桩：调参模块从 .cool/bluetooth/history/ 下引用它。
+		"../../utils/storage": storageStub,
 		"@/uni_modules/boom-csv-saver": {
 			saveLogToDownloads: (fileName, content) => {
 				state.archived.push({ fileName, content });
@@ -152,17 +156,32 @@ export async function createRuntime(t) {
 		},
 		"../utils/day": { dayUts: (ms) => ({ format: () => new Date(ms).toISOString() }) },
 		"./constants": {
-			UPLOAD_INTERVAL: 30000,
 			UPLOAD_PPI_URL: "/ppi",
 			UPLOAD_SLEEP_URL: "/sleep"
 		},
 		vue: { ref: (value) => ({ value }) },
 		"../../utils": { sleepTimeout: (ms) => state.sleep(ms) }
 	};
+	/**
+	 * 相对说明符 → 仓库内路径。先试 `<dir>/<spec>.ts`，再试 `<dir>/<spec>/index.ts`
+	 * （`../service`、`./history` 这类目录导入）。
+	 */
+	async function resolveRelative(fromPath, specifier) {
+		const base = posix.normalize(posix.join(posix.dirname(fromPath), specifier));
+		const candidates = [base + ".ts", posix.join(base, "index.ts")];
+		for (const candidate of candidates) {
+			try {
+				await readFile(new URL("../../" + candidate, import.meta.url), "utf8");
+				return candidate;
+			} catch (e) {
+				continue;
+			}
+		}
+		throw new Error(`无法解析依赖 ${specifier}（来自 ${fromPath}）`);
+	}
 	async function load(path) {
 		if (cache.has(path)) return cache.get(path);
-		let source = await readFile(new URL("../../" + path, import.meta.url), "utf8");
-		if (path.endsWith("/database.ts"))
+		let source = await readFile(new URL("../../" + path, import.meta.url), "utf8");		if (path.endsWith("/database.ts"))
 			source = source.replace(/\/\/ #ifndef APP-ANDROID[\s\S]*$/, "");
 		source = stripTypeScriptTypes(source);
 		const args = Object.keys(context),
@@ -173,37 +192,16 @@ export async function createRuntime(t) {
 		for (const match of imports) {
 			const specifier = match[2];
 			let dependency;
-			if (
-				[
-					"./database",
-					"../database",
-					"./history-schema",
-					"./history-progress",
-					"./history-coverage",
-					"./history-coverage-service",
-					"./coverage",
-					"./coverage-service",
-					"../boom-types",
-					"./history/progress",
-					"./history/coverage-service",
-					"../../bluetooth/history-progress",
-					"../../bluetooth/history/progress",
-					"./boom-parser",
-					"./boom-bytes",
-					"./boom-constants"
-				].includes(specifier)
-			) {
-				dependency = (
-					await load(posix.normalize(posix.join(posix.dirname(path), specifier + ".ts")))
-				).namespace;
-			} else if (specifier === "../service")
-				dependency = (await load(".cool/service/index.ts")).namespace;
-			else if (specifier === "../../bluetooth/data-manager")
-				dependency = (await load(".cool/bluetooth/data-manager.ts")).namespace;
-			else {
-				if (!(specifier in mocks))
-					throw new Error(`Unmocked native import ${specifier} in ${path}`);
+			if (specifier in mocks) {
+				// 原生边界（App/BLE/网络/日志）必须显式桩掉，不允许悄悄走真实实现。
 				dependency = mocks[specifier];
+			} else if (specifier.startsWith(".")) {
+				// 项目内的相对 TS 依赖一律按相对路径加载，不再维护一份易漏的别名白名单：
+				// 漏一个条目只会在某次改动后才炸，且炸成「Unmocked native import」这种
+				// 指错方向的报错。桩只用于真正的原生边界，见上面的 mocks。
+				dependency = (await load(await resolveRelative(path, specifier))).namespace;
+			} else {
+				throw new Error(`Unmocked native import ${specifier} in ${path}`);
 			}
 			const depName = "__dep" + args.length;
 			args.push(depName);
