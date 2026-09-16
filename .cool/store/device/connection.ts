@@ -69,19 +69,6 @@ export class DeviceConnection {
 	private _ignoreConnectionStateChange: boolean = false;
 	private _isSwitchingToBroadcastMode: boolean = false;
 	private _isRequestingBackgroundAccess: boolean = false;
-	/**
-	 * 最近一次停广播（进入连接模式）的整秒时刻，`0` 表示当前没有未闭环的连接空洞。
-	 *
-	 * 连接期间广播是停的，而广播不携带历史秒，所以这段空洞只有设备读取能拿回来。
-	 * 缺口补录据此判定「这条连接留下了多大的空洞」（方案 9.3）：小空洞交给广播接续
-	 * 判定消化，大空洞在断开前读一次设备。
-	 *
-	 * **取的是停广播那一刻，不是 `connectedAt`。** 停广播从 `switchToConnectMode()`
-	 * 的 `stopBluetoothSearch()` 开始，比连接成功早若干秒；用后者会漏掉这段秒，
-	 * 判出来的空洞偏小，本该读回的真数据就被放弃了。
-	 */
-	private _connectionHoleFrom: number = 0;
-
 	constructor(device: Device) {
 		this.device = device;
 	}
@@ -702,7 +689,6 @@ export class DeviceConnection {
 		logger.info("bluetooth", `[BOOM] 切换连接模式: reason=${reason}, bound=${boundId}`);
 		if (boundId == "") return false;
 		await this.stopBluetoothSearch();
-		this.markConnectionHoleStart();
 		if (this.device.currentDeviceId != "") {
 			logger.info(
 				"bluetooth",
@@ -955,31 +941,6 @@ export class DeviceConnection {
 	/** 主动断开当前设备 */
 	async disconnectDevice(): Promise<void> {
 		await this.switchToBroadcastMode();
-	}
-
-	/**
-	 * 记录连接空洞的左端。停广播之后立刻调用，重复调用不覆盖已有值——
-	 * 一条连接里可能有多次 `stopBluetoothSearch()`（重试、恢复），空洞要从最早那次算。
-	 */
-	private markConnectionHoleStart(): void {
-		if (this._connectionHoleFrom > 0) return;
-		this._connectionHoleFrom = Math.floor(Date.now() / 1000);
-		logger.info("bluetooth", `[BOOM-ADV] 连接空洞起点: holeFrom=${this._connectionHoleFrom}`);
-	}
-
-	/** 当前连接留下的空洞左端，`0` 表示没有待闭环的空洞。 */
-	getConnectionHoleFrom(): number {
-		return this._connectionHoleFrom;
-	}
-
-	/**
-	 * 空洞闭环后清除（广播已恢复并完成接续判定、或已读设备补回）。
-	 * 不清会让下一次连接沿用旧的 `holeFrom`，算出一个大得多的空洞去读设备。
-	 */
-	clearConnectionHole(): void {
-		if (this._connectionHoleFrom == 0) return;
-		logger.info("bluetooth", `[BOOM-ADV] 连接空洞闭环: holeFrom=${this._connectionHoleFrom}`);
-		this._connectionHoleFrom = 0;
 	}
 
 	/** 内部：清空连接相关字段 */

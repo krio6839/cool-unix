@@ -4,7 +4,7 @@ import { logger } from "../../service/logger";
 /**
  * 基准补录的运行时可调参数。
  *
- * 这四个值只有真机数据才能定，而「改一次代码、重装一次」的调参节奏不可接受，
+ * 这两个值只有真机数据才能定，而「改一次代码、重装一次」的调参节奏不可接受，
  * 所以它们不写死在常量里：默认值仍定义在这里，本地覆盖走 uni storage 持久化。
  * 所有读取点都必须调用 `getHistoryTunables()`，不允许别处直接引用默认常量——
  * 否则调参只对一部分路径生效，日志里会看到「文档说改了、行为没变」。
@@ -12,12 +12,8 @@ import { logger } from "../../service/logger";
 export type HistoryTunables = {
 	/** 记账余量：`stableCeiling = now - minuteSettleSec`。唯一会造成数据错误的参数。 */
 	minuteSettleSec: number;
-	/** 广播接续宽限：连接留下的空洞超过它就值得多读一次设备。 */
-	broadcastResumeGraceSec: number;
 	/** 桥接：相距这么近的缺口合并成一条读取链路。 */
 	bridgeSec: number;
-	/** 加急缺口连接的最小间隔，比常规连接间隔短。 */
-	urgentGapIntervalMs: number;
 };
 
 /** 缺口桥接的默认值，沿用老流程的 `HISTORY_GATT_READ_BRIDGE_SEC`。 */
@@ -25,18 +21,11 @@ export const HISTORY_GATT_READ_BRIDGE_SEC = 120;
 
 const DEFAULT_TUNABLES: HistoryTunables = {
 	minuteSettleSec: 10,
-	broadcastResumeGraceSec: 60,
-	bridgeSec: HISTORY_GATT_READ_BRIDGE_SEC,
-	urgentGapIntervalMs: 2 * 60 * 1000
+	bridgeSec: HISTORY_GATT_READ_BRIDGE_SEC
 } as HistoryTunables;
 
 const TUNE_PREFIX = "boom_history_tune_";
-const TUNE_KEYS: string[] = [
-	"minuteSettleSec",
-	"broadcastResumeGraceSec",
-	"bridgeSec",
-	"urgentGapIntervalMs"
-];
+const TUNE_KEYS: string[] = ["minuteSettleSec", "bridgeSec"];
 
 /**
  * 生效值缓存。
@@ -49,9 +38,7 @@ let cached: HistoryTunables | null = null;
 
 function defaultValueOf(key: string): number {
 	if (key == "minuteSettleSec") return DEFAULT_TUNABLES.minuteSettleSec;
-	if (key == "broadcastResumeGraceSec") return DEFAULT_TUNABLES.broadcastResumeGraceSec;
 	if (key == "bridgeSec") return DEFAULT_TUNABLES.bridgeSec;
-	if (key == "urgentGapIntervalMs") return DEFAULT_TUNABLES.urgentGapIntervalMs;
 	return 0;
 }
 
@@ -71,18 +58,14 @@ function readOverride(key: string): number {
 function buildTunables(): HistoryTunables {
 	const result: HistoryTunables = {
 		minuteSettleSec: DEFAULT_TUNABLES.minuteSettleSec,
-		broadcastResumeGraceSec: DEFAULT_TUNABLES.broadcastResumeGraceSec,
-		bridgeSec: DEFAULT_TUNABLES.bridgeSec,
-		urgentGapIntervalMs: DEFAULT_TUNABLES.urgentGapIntervalMs
+		bridgeSec: DEFAULT_TUNABLES.bridgeSec
 	} as HistoryTunables;
 	for (let i = 0; i < TUNE_KEYS.length; i++) {
 		const key = TUNE_KEYS[i];
 		const override = readOverride(key);
 		if (override <= 0) continue;
 		if (key == "minuteSettleSec") result.minuteSettleSec = override;
-		else if (key == "broadcastResumeGraceSec") result.broadcastResumeGraceSec = override;
 		else if (key == "bridgeSec") result.bridgeSec = override;
-		else if (key == "urgentGapIntervalMs") result.urgentGapIntervalMs = override;
 	}
 	return result;
 }
@@ -97,9 +80,7 @@ export function getHistoryTunables(): HistoryTunables {
 export function getHistoryTunable(key: string): number {
 	const current = getHistoryTunables();
 	if (key == "minuteSettleSec") return current.minuteSettleSec;
-	if (key == "broadcastResumeGraceSec") return current.broadcastResumeGraceSec;
 	if (key == "bridgeSec") return current.bridgeSec;
-	if (key == "urgentGapIntervalMs") return current.urgentGapIntervalMs;
 	return 0;
 }
 

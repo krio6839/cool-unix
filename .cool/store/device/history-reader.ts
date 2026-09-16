@@ -343,26 +343,6 @@ export class DeviceHistoryReader {
 	}
 
 	/**
-	 * 连接尾巴补读（方案 9.3）：读这条连接自己留下的空洞。
-	 *
-	 * 只在空洞宽度超过 `broadcastResumeGraceSec` 时由 scheduler 调用——小空洞由广播
-	 * 接续判定免费消化，不值得为它多占一轮 GATT（那又制造新的空洞）。大空洞则相反：
-	 * 补录驱动的连接可能长达几分钟，用户在这段时间是戴着设备的，那些秒在设备 flash
-	 * 里有真数据，不读就只剩强制推进、永久丢掉。
-	 *
-	 * `anchor` 取断开时刻的原始秒、**不对齐**：对齐会把窗口末端往回推，几十秒的空洞
-	 * 可能被直接推空。
-	 */
-	async readVitalTailHole(holeFromSec: number, disconnectAtSec: number): Promise<VitalAutoReadResult> {
-		return await this.readVitalRange(
-			"连接尾巴",
-			holeFromSec,
-			disconnectAtSec,
-			`空洞秒=${disconnectAtSec - holeFromSec}`
-		);
-	}
-
-	/**
 	 * 读 `[fromSec, toSec)` 这一段：整段只建立一次 `0x3A` 查询上下文，随后持续发送
 	 * `0x3B` 向更早翻页。
 	 *

@@ -353,52 +353,6 @@ test("readiness inside the gap does not manufacture a ready range", async (t) =>
 	assert.equal(gaps[0].fromSec, 1);
 });
 
-/* ===== 广播接续判定 ===== */
-
-test("broadcast resume accounts a small hole and advances the baseline past it", async (t) => {
-	const r = await setup(t);
-	const now = 210000;
-	await r.prime(209700);
-	seedPpi(r.db, 209700, 210000);
-	await r.baseline.classify(now);
-	const baseline = await r.baseline.advanceBaseline(now);
-	assert.equal(baseline, historyCeiling(now));
-
-	// T0 落在宽限值（60 秒）之内：整段按「确认无数据」记账并推进 B。
-	const t0 = now + 30;
-	const after = await r.baseline.markBroadcastResume(t0);
-	assert.equal(after, historyCeiling(t0));
-	// 这不是容差吸收，是有意丢掉这段秒：必须真的记账，只推 B 的循环一步都不会动。
-	assert.equal(after > baseline, true);
-	assert.deepEqual(await r.baseline.listRepairGaps(t0), []);
-});
-
-test("broadcast resume leaves a hole wider than the grace to the device", async (t) => {
-	const r = await setup(t);
-	const now = 210000;
-	await r.prime(209700);
-	seedPpi(r.db, 209700, 210000);
-	await r.baseline.classify(now);
-	const baseline = await r.baseline.advanceBaseline(now);
-	// T0 - B = 300s > 60s：放弃推进，交给设备补读把真数据拿回来。
-	const t0 = now + 300;
-	assert.equal(await r.baseline.markBroadcastResume(t0), -1);
-	assert.equal(await r.baseline.getBaseline(), baseline);
-	const gaps = await r.baseline.listRepairGaps(t0);
-	assert.equal(gaps.length, 1);
-	assert.equal(gaps[0].fromSec, baseline);
-});
-
-test("broadcast resume is a no-op when there is nothing to advance", async (t) => {
-	const r = await setup(t);
-	const now = 210000;
-	await r.prime(209700);
-	// T0 早于 stableCeiling：ceiling <= B，没有可记账的秒。
-	assert.equal(await r.baseline.markBroadcastResume(now - 100), -1);
-	// 无效 T0 同样不动。
-	assert.equal(await r.baseline.markBroadcastResume(0), -1);
-});
-
 /* ===== 快照与诊断 ===== */
 
 test("the snapshot reports the baseline, ceiling, ready ranges and derived gaps", async (t) => {
@@ -489,12 +443,7 @@ test("writing ready ranges survives Android SQLite without upsert syntax", async
 test("tunables fall back to their defaults and expose them for display", async (t) => {
 	const r = await setup(t);
 	const keys = r.tunables.getHistoryTunableKeys();
-	assert.deepEqual(keys, [
-		"minuteSettleSec",
-		"broadcastResumeGraceSec",
-		"bridgeSec",
-		"urgentGapIntervalMs"
-	]);
+	assert.deepEqual(keys, ["minuteSettleSec", "bridgeSec"]);
 	for (const key of keys) {
 		assert.equal(r.tunables.getHistoryTunable(key), r.tunables.getHistoryTunableDefault(key));
 		assert.equal(r.tunables.isHistoryTunableOverridden(key), false);
@@ -844,37 +793,6 @@ test("a zero start page accounts the whole gap and stops the read", async (t) =>
 	assert.equal(result.status, "DONE");
 	assert.equal(continues, 0);
 	assert.equal(readyRanges(r.db)[0].fromSec, from);
-});
-
-test("a tail-hole read uses the raw disconnect second as its anchor", async (t) => {
-	const r = await setup(t);
-	const holeFrom = 208800;
-	const disconnectAt = 209137;
-	let query;
-	const device = {
-		boundDeviceId: "device",
-		beginGattTask: () => true,
-		endGattTask() {},
-		event: { resetDataIdentifierReassembler() {} },
-		protocol: {
-			async readVitalData(value) {
-				query = value;
-				reader.latestVitalDataResponse = page(value.startSec - 120);
-				reader.vitalDataResponseSeqValue++;
-				return true;
-			},
-			async continueReadVitalData() {
-				return false;
-			}
-		}
-	};
-	const reader = new r.DeviceHistoryReader(device);
-	reader.sleep = async () => {};
-	const result = await reader.readVitalTailHole(holeFrom, disconnectAt);
-	// 不对齐到分钟：对齐会把窗口末端往回推，几十秒的空洞可能被直接推空。
-	assert.equal(query.startSec, disconnectAt);
-	assert.equal(query.direction, 0);
-	assert.ok(result.pages >= 1);
 });
 
 test("persistPage rejection stops the read without saving anything further", async (t) => {

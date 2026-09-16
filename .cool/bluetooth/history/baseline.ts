@@ -479,48 +479,6 @@ class HistoryBaseline {
 		return baseline;
 	}
 
-	/**
-	 * 广播接续判定：连接留下空洞后，广播恢复的第一帧 `T0` 到达时调用。
-	 *
-	 * 连接一定会留下缺秒，而连接又只由「有缺口」触发——不在同一轮消化掉，
-	 * 下一次检查就会再拉起一条连接，后者又留下新的缺秒，循环自己咬住自己。
-	 * 这里把 `[B, ceiling)` 整段按「确认无数据」记账并推进 `B`。
-	 *
-	 * 两个必须遵守的点：
-	 * 1. **必须记账，不能只推 `B`。** `advanceBaseline()` 的循环是「`B` 落在
-	 *    `ready[0]` 内就前进」，没有对应区间它一步都不动。
-	 * 2. **这不是容差吸收，是有意丢掉这段秒。** 容差的连续缺失条件是 < 9 秒，
-	 *    而连接空洞是连续的，所以只有 ≤ 8 秒才真落在容差内；9 秒到宽限值之间
-	 *    是本设计主动放弃的真数据，换来的是不反复连接。
-	 *
-	 * @returns 推进后的 `B`；判定不成立（gap 大于宽限、或 `B` 已经到位）返回 `-1`。
-	 */
-	async markBroadcastResume(t0Sec: number): Promise<number> {
-		if (t0Sec <= 0) return -1;
-		// 先钳制再量 gap：`gap = T0 - B` 必须是「从有意义的基准起」的量。
-		// 不钳制的话全新安装的 `B = 1` 会量出几十年的空洞，判断虽然同样是「交给设备」，
-		// 但那条 `[1, ceiling)` 一旦被误当成小空洞，就会把几十年直接记成「确认无数据」。
-		const baseline = await this.clampToRetention(t0Sec);
-		const ceiling = this.stableCeiling(t0Sec);
-		if (ceiling <= baseline) return -1;
-		const gap = t0Sec - baseline;
-		const grace = getHistoryTunables().broadcastResumeGraceSec;
-		if (gap > grace) {
-			logger.info(
-				"bluetooth",
-				`[BOOM-ADV] 广播接续: T0=${t0Sec}, B=${baseline}, gap=${gap}s, 宽限=${grace}s, 决策=交给设备`
-			);
-			return -1;
-		}
-		await this.markReady(baseline, ceiling, t0Sec);
-		const after = await this.advanceBaseline(t0Sec);
-		logger.info(
-			"bluetooth",
-			`[BOOM-ADV] 广播接续: T0=${t0Sec}, B=${baseline}->${after}, gap=${gap}s, 宽限=${grace}s, 决策=推进`
-		);
-		return after;
-	}
-
 	/** 只读快照，供测试页展示。 */
 	async snapshot(nowSec: number): Promise<BaselineSnapshot> {
 		return {

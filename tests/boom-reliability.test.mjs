@@ -193,50 +193,20 @@ test("automatic history repair plans from the baseline cursor, not a task queue"
 	assert.equal(sync.includes("lastCheckAt.value = Date.now()"), true);
 });
 
-test("a connection has no duration budget and closes its own hole before disconnecting", async () => {
+test("a connection has no duration budget and does nothing special about its own hole", async () => {
 	const scheduler = await readFile(".cool/store/device/gatt-scheduler.ts", "utf8");
 	const sync = await readFile(".cool/store/device/sync.ts", "utf8");
+	const connection = await readFile(".cool/store/device/connection.ts", "utf8");
 	// 连接不设时长上限：单次预算存在时，它留下的空洞会被反复转交给下一次连接。
 	assert.equal(scheduler.includes("GATT_FLUSH_BUDGET_MS"), false);
 	assert.equal(sync.includes("HISTORY_AUTO_BACKLOG_INTERVAL_MS"), false);
-	// 9.3 的大空洞补读必须在断开前执行，且只在空洞超过宽限值时执行。
-	assert.equal(scheduler.includes("readConnectionTailHoleBeforeDisconnect"), true);
-	assert.equal(scheduler.includes("readVitalTailHole(holeFrom, disconnectAt)"), true);
-	// 判据必须走运行时可调参数（方案第 14 节）。写死成常量会让调参只对一部分路径
-	// 生效，日志里就会出现「说改了、行为没变」。
-	assert.equal(scheduler.includes("const BROADCAST_RESUME_GRACE_SEC"), false);
-	assert.equal(scheduler.includes("getHistoryTunables().broadcastResumeGraceSec"), true);
-	assert.equal(scheduler.includes("if (tail <= grace)"), true);
-	// 补读闭环后必须清空洞标记。两个闭环条件是二选一（`clearConnectionHole()` 的注释
-	// 写明了「广播接续判定 / 已读设备补回」），漏掉后者会让标记一直挂着：`markConnectionHoleStart()`
-	// 不覆盖已有值，下一次连接就沿用这个更早的 `holeFrom`，算出大得多的 tail。
-	const tailRead = scheduler.slice(
-		scheduler.indexOf("private async readConnectionTailHoleBeforeDisconnect("),
-		scheduler.indexOf("private async runTask(")
-	);
-	assert.equal(tailRead.includes("clearConnectionHole()"), true);
-	// 判据用 `B` 的位置而不是 `status`：补读只拿回一部分时 `B` 停在中间，必须留着标记。
-	assert.equal(
-		tailRead.includes("if (baseline >= historyBaseline.stableCeiling(disconnectAt))"),
-		true
-	);
-	// 小空洞分支绝不能清：那正是要留给 7.2 接续判定消费的标记。
-	const smallHole = tailRead.slice(0, tailRead.indexOf("try {"));
-	assert.equal(smallHole.includes("clearConnectionHole()"), false);
-});
-
-test("connection records the hole start right after the broadcast scan stops", async () => {
-	const source = await readFile(".cool/store/device/connection.ts", "utf8");
-	const mode = source.slice(
-		source.indexOf("async switchToConnectMode("),
-		source.indexOf("private async disconnectStaleConnection(")
-	);
-	const stopIndex = mode.indexOf("await this.stopBluetoothSearch();");
-	const markIndex = mode.indexOf("this.markConnectionHoleStart();");
-	assert.ok(markIndex > 0, "hole start is recorded");
-	assert.ok(markIndex > stopIndex, "recorded after the scan actually stops");
-	// 重复调用不覆盖：一条连接里可能有多次停扫描，空洞要从最早那次算。
-	assert.equal(source.includes("if (this._connectionHoleFrom > 0) return;"), true);
+	// 连接留下的缺秒就是普通缺口，由下一次连接顺带补掉（方案 9.2/9.3）。
+	// 所以没有任何「识别连接空洞」的机制：不记录起点、不读尾巴、不判定接续。
+	assert.equal(connection.includes("ConnectionHole"), false);
+	assert.equal(scheduler.includes("readConnectionTailHoleBeforeDisconnect"), false);
+	assert.equal(scheduler.includes("readVitalTailHole"), false);
+	assert.equal(sync.includes("markBroadcastResume"), false);
+	assert.equal(sync.includes("onBoundBroadcastFrame"), false);
 });
 
 test("history-gap popup still maps a no-data gap result to readable text", async () => {
@@ -340,9 +310,8 @@ test("a grouped history-gap repair uses one continuous 0x3A/0x3B reader", async 
 	const reader = await readFile(".cool/store/device/history-reader.ts", "utf8");
 	assert.equal(page.includes("readVitalGapGroup(gap)"), true);
 	assert.equal(reader.includes("readVitalGapGroup"), true);
-	// 一组缺口只建立一次 0x3A 上下文，之后连续 0x3B；两个入口共用同一段读取链路。
+	// 一组缺口只建立一次 0x3A 上下文，之后连续 0x3B。
 	assert.equal(reader.includes("private async readVitalRange("), true);
-	assert.equal(reader.includes("readVitalTailHole"), true);
 });
 
 test("a valid all-zero broadcast second enters the PPI upload queue", async (t) => {

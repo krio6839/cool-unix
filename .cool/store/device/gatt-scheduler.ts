@@ -1,6 +1,4 @@
 import { EVENT_QUERY_TYPE_BY_TIME } from "../../bluetooth";
-import { historyBaseline } from "../../bluetooth/history/baseline";
-import { getHistoryTunables } from "../../bluetooth/history/tunables";
 import { sleepTimeout } from "../../utils";
 import type { Device } from "./index";
 import type { DeviceSyncReason, HistoryRepairResult } from "./sync";
@@ -229,8 +227,6 @@ export class DeviceGattScheduler {
 			logger.warn("bluetooth", "[BOOM-SCHED] 队列执行异常:", e);
 		} finally {
 			if (connected == true) {
-				// 大空洞补读必须在断开之前：断开之后 GATT 已释放，读不了了。
-				await this.readConnectionTailHoleBeforeDisconnect();
 				if (this.shouldRestoreBroadcast() == true) {
 					try {
 						await this.device.connection.switchToBroadcastMode();
@@ -297,74 +293,6 @@ export class DeviceGattScheduler {
 			return false;
 		}
 		return true;
-	}
-
-	/**
-	 * 9.3 大空洞补读：断开前读一次这条连接自己留下的空洞。
-	 *
-	 * **这是整套设计里唯一一次「为连接自己的尾巴读设备」的读取。** 连接期间广播停了，
-	 * 广播又不携带历史秒，所以这段空洞只有 `0x3A`/`0x3B` 能拿回来。
-	 *
-	 * 判据是**空洞宽度**，不是连接时长：留不留缺口取决于空洞形状——连接 12:00:20~12:00:30
-	 * 只跨 10 秒，却让 `[12:00,12:01)` 连续缺 10 秒；反过来一条 3 分钟的连接如果中途广播
-	 * 短暂恢复，空洞反而可能很小。
-	 *
-	 * ```
-	 * tail > BROADCAST_RESUME_GRACE_SEC → 读设备把真数据拿回来（用户连接期间戴着设备，
-	 *                                    那几十秒在 flash 里真实存在，放弃就等于永久丢掉）
-	 * tail <= BROADCAST_RESUME_GRACE_SEC → 不读。1~2 页的读取要额外几秒 GATT 占用，
-	 *                                    那几秒又在制造新空洞，而它买来的只是「B 到位」，
-	 *                                    9.4 的广播接续判定在同样的小空洞上能免费给出同样结果
-	 * ```
-	 *
-	 * 右端按**断开时刻**重算，不取开始时的值：补录期间时间在走，断开时算出的
-	 * `stableCeiling` 比开始时大得多。`anchor` 取断开时刻的原始秒、不对齐（8.1）。
-	 */
-	private async readConnectionTailHoleBeforeDisconnect(): Promise<void> {
-		const holeFrom = this.device.connection.getConnectionHoleFrom();
-		if (holeFrom <= 0) return;
-		if (this.device.boundDeviceId == "") return;
-		const disconnectAt = Math.floor(Date.now() / 1000);
-		const tail = disconnectAt - holeFrom;
-		const grace = getHistoryTunables().broadcastResumeGraceSec;
-		if (tail <= grace) {
-			// 小空洞：B 停在这里，整段交给 9.4 的广播接续判定。
-			logger.info(
-				"bluetooth",
-				`[BOOM-ADV] 连接尾巴: holeFrom=${holeFrom}, disconnectAt=${disconnectAt}, tail=${tail}s, 宽限=${grace}s, 决策=交给广播接续`
-			);
-			return;
-		}
-		try {
-			logger.info(
-				"bluetooth",
-				`[BOOM-ADV] 连接尾巴: holeFrom=${holeFrom}, disconnectAt=${disconnectAt}, tail=${tail}s, 宽限=${grace}s, 决策=读设备`
-			);
-			const result = await this.device.history.readVitalTailHole(holeFrom, disconnectAt);
-			const baseline = await historyBaseline.advanceBaseline(disconnectAt);
-			// 空洞被这次补读闭环了就清标记——`clearConnectionHole()` 写明了两个闭环条件，
-			// 「已读设备补回」就是这一条。不清的话，只要广播恢复时的 `gap > 宽限`
-			// （`markBroadcastResume()` 返回 -1、`tryBroadcastResume()` 提前返回），标记
-			// 就会一直挂着；而 `markConnectionHoleStart()` 不覆盖已有值，于是**下一次连接
-			// 沿用这个更早的 `holeFrom`**，算出大得多的 tail，把设备里已经读过的秒再读一遍，
-			// 且每轮连接都更长一点。
-			//
-			// 判据用 `B` 的位置而不是 `status`：只有 `B` 推到 `stableCeiling` 才说明整段
-			// 都记了账。补读只拿回一部分时 `B` 停在中间，**必须留着标记**——那时 `B` 仍在
-			// 空洞里，下一次连接从原始 `holeFrom` 重读才是对的（`gap > 宽限` 时 9.4 的
-			// 接续判定帮不上忙，它只覆盖宽限以内的空洞）。
-			if (baseline >= historyBaseline.stableCeiling(disconnectAt)) {
-				this.device.connection.clearConnectionHole();
-			}
-			logger.info(
-				"bluetooth",
-				`[BOOM-ADV] 连接尾巴补读完成: status=${result.status}, pages=${result.pages}, 落库=${result.savedRecords}, saveOk=${result.saveOk}, B=${baseline}`
-			);
-		} catch (e) {
-			// 补读失败不回退 flush：缺口仍在，下一次连接至少 10 分钟后才来（9.7），
-			// 天然退避；这段秒也还有 9.4 的接续判定兜底。
-			logger.warn("bluetooth", "[BOOM-ADV] 连接尾巴补读异常:", e);
-		}
 	}
 
 	private async runTask(task: GattQueueTask): Promise<void> {

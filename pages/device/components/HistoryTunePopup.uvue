@@ -97,25 +97,17 @@ const overriddenCount = computed<number>(() => {
 
 const LABELS: Record<string, string> = {
 	minuteSettleSec: "记账余量",
-	broadcastResumeGraceSec: "广播接续宽限",
-	bridgeSec: "缺口桥接距离",
-	urgentGapIntervalMs: "加急连接最小间隔"
+	bridgeSec: "缺口桥接距离"
 };
 const UNITS: Record<string, string> = {
 	minuteSettleSec: "秒",
-	broadcastResumeGraceSec: "秒",
-	bridgeSec: "秒",
-	urgentGapIntervalMs: "毫秒"
+	bridgeSec: "秒"
 };
 const DESCRIPTIONS: Record<string, string> = {
 	minuteSettleSec:
 		"记账右端 = now - 该值，缺口右端与分类右端共用。这是唯一会影响数据正确性的参数：调小会让尚未稳定的秒被记为「确认无数据」，调大只是让基准时间落后一些。",
-	broadcastResumeGraceSec:
-		"连接留下的空洞超过它就值得多读一次设备；不超过则整段按「确认无数据」推进基准时间。注意它不是容差：容差只覆盖 8 秒以内的连续空洞，9 秒到该值之间是有意放弃的真数据。",
 	bridgeSec:
-		"相距这么近的缺口合并成一条读取链路，跨过的秒本地已有、不重复入库。调大能减少连接次数，代价是每轮多读一些已有的秒。",
-	urgentGapIntervalMs:
-		"8.4 加急缺口连接的最小间隔。完全放开会让「广播质量差 → 频繁连接 → 广播更长时间停摆」形成恶性循环；复用常规的 10 分钟又让加急失去意义。"
+		"相距这么近的缺口合并成一条读取链路，跨过的秒本地已有、不重复入库。调大能减少连接次数，代价是每轮多读一些已有的秒。"
 };
 
 function loadItems(): void {

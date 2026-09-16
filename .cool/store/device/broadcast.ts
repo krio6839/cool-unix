@@ -30,11 +30,6 @@ const BOUND_BROADCAST_SCAN_NO_CALLBACK_MS = 12 * 1000;
 const BOUND_BROADCAST_SCAN_STALE_MS = 18 * 1000;
 const BROADCAST_RECOVERY_ERROR_TEXT =
 	"未收到设备广播，请确认设备在附近、电量充足且系统蓝牙权限正常";
-/**
- * 距上一帧绑定广播超过这个间隔，就认为广播经历过一段静默。
- * 这是 8.4 第一类加急触发的判据（App 被后台冻结 / 走出范围的确切信号）。
- */
-const BROADCAST_SILENT_RECOVERY_MS = 3 * 60 * 1000;
 
 export class DeviceBroadcast {
 	private device: Device;
@@ -60,8 +55,6 @@ export class DeviceBroadcast {
 	private hardRecoveryPendingValidation: boolean = false;
 	private broadcastScanRestartBusy: boolean = false;
 	private boundBroadcastScanGeneration: number = 0;
-	/** 上一帧绑定广播到达时刻（毫秒），用于识别「静默后恢复」这个 8.4 加急触发。 */
-	private lastBoundBroadcastArrivedAt: number = 0;
 	/** 上一帧广播 `utc` 所在的整分钟起点，跨过新的整分钟时触发分钟上传。 */
 	private lastBroadcastMinuteSec: number = 0;
 	/** 分钟上传的串行标志：上传是网络请求，不能每帧都并发拉起。 */
@@ -332,34 +325,12 @@ export class DeviceBroadcast {
 
 	private acceptBroadcastRecord(ctx: BroadcastPacketContext, r: RealtimeBroadcast): void {
 		if (this.isBoundBroadcastRecord(ctx) == true) {
-			const silentRecovered = this.markBoundBroadcastArrived();
-			// 9.4 的接续判定必须在缺口推导之前发生：它依赖「刚恢复的第一帧 T0」，
-			// 而缺口推导（分类 / 列缺口）跑的时候广播可能已经稳定了很久，那时这段
-			// 连接空洞已经变成缺口、必然触发一次新连接，判定就晚了。
-			this.device.sync.onBoundBroadcastFrame(r, silentRecovered).catch((e) => {
-				logger.warn("bluetooth", "[BOOM-BASE] 广播帧基准处理异常:", e);
-			});
 			this.markBroadcastRecoveryOk();
 		}
 		this.markBroadcastEventNotice(ctx.deviceId, r);
 		this.device.realtime.value = r;
 		this.storeBroadcastRecordByDevice(ctx, r);
 		this.publishDebugInfoByDevice(ctx, r);
-	}
-
-	/**
-	 * 记录一帧绑定广播到达，并回答「这是不是一个静默期的第一帧」。
-	 *
-	 * 静默恢复是 8.4 的第一类加急触发：App 被后台冻结 / 用户走出范围时广播会整段
-	 * 消失，恢复时积压已确定存在，检查一次几乎零风险。判据用「距上一帧的间隔」
-	 * 而不是扫描状态——扫描回调可能还在（管线没停），只是收不到这个设备。
-	 */
-	private markBoundBroadcastArrived(): boolean {
-		const now = Date.now();
-		const previous = this.lastBoundBroadcastArrivedAt;
-		this.lastBoundBroadcastArrivedAt = now;
-		if (previous <= 0) return false;
-		return now - previous >= BROADCAST_SILENT_RECOVERY_MS;
 	}
 
 	private isBoundBroadcastRecord(ctx: BroadcastPacketContext): boolean {
