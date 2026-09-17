@@ -168,7 +168,7 @@ export class DeviceSync {
 		}
 		logger.info(
 			"bluetooth",
-			`[BOOM-BASE] 基准停驻: B=${plan.baseline}, 阻塞分钟=${plan.gaps[0].fromSec}, 缺口组=${plan.gaps.length}, 缺口秒=${plan.totalRepairSeconds}, reason=${reason}`
+			`[BOOM-BASE] 基准停驻: B=${plan.baseline}, 阻塞起点=${plan.gaps[0].fromSec}, 缺口组=${plan.gaps.length}, 缺口秒=${plan.totalRepairSeconds}, reason=${reason}`
 		);
 		this.device.scheduler.enqueueHistoryRepair(reason);
 		this.requestSchedulerFlush(reason);
@@ -228,7 +228,7 @@ export class DeviceSync {
 			const baseline = await historyBaseline.advanceBaseline(nowSec);
 			logger.info(
 				"bluetooth",
-				`[BOOM-BASE] 分钟边界: minute=${minuteSec}, 未记账=${classified.unclassifiedSeconds}s, 新记账=${classified.qualifiedSeconds}s, 不合格分钟=${classified.unqualifiedMinutes}, B=${baseline}, stableCeiling=${classified.ceiling}`
+				`[BOOM-BASE] 分钟边界: minute=${minuteSec}, 未记账=${classified.unclassifiedSeconds}s, 新记账=${classified.qualifiedSeconds}s, 不合格段=${classified.unqualifiedSegments}, B=${baseline}, stableCeiling=${classified.ceiling}`
 			);
 			this.lastPlan.value = null;
 		} catch (e) {
@@ -275,7 +275,7 @@ export class DeviceSync {
 
 			logger.info(
 				"bluetooth",
-				`[BOOM-HISTORY] 开始补录: B=${plan.baseline}, 缺口组=${plan.gaps.length}, 缺口秒=${plan.totalRepairSeconds}, 连接开始=${startedAt}`
+				`[BOOM-HISTORY] 开始补录: B=${plan.baseline}, 缺口组=${plan.gaps.length}, 缺口秒=${plan.totalRepairSeconds}, bridge秒=${historyBaseline.sumBridgeSeconds(plan.gaps)}, stableCeiling=${plan.ceiling}, 连接开始=${startedAt}`
 			);
 			const results = await this.runVitalGaps(plan.gaps);
 			let ok = true;
@@ -296,9 +296,15 @@ export class DeviceSync {
 			// 收尾重算：`B` 推到哪、还剩多少活，都由重新规划的缺口给出确切数字。
 			const after = await historyBaseline.advanceBaseline(Math.floor(Date.now() / 1000));
 			const remaining = await historyBaseline.listRepairGaps(Math.floor(Date.now() / 1000));
+			let failedGroups = 0;
+			for (let i = 0; i < results.length; i++) {
+				const item = results[i];
+				if (item.status == "TIMEOUT" || item.status == "SEND_FAILED" || item.saveOk == false)
+					failedGroups++;
+			}
 			logger.info(
 				"bluetooth",
-				`[BOOM-HISTORY] 补录结束: B=${plan.baseline}->${after}, 已补组=${results.length}, 落库秒=${this.countSaved(results)}, 剩余缺口=${remaining.length}, 剩余秒=${historyBaseline.sumRepairSeconds(remaining)}, 连接时长=${Math.round((Date.now() - startedAt) / 1000)}s, ok=${ok}`
+				`[BOOM-HISTORY] 补录结束: B=${plan.baseline}->${after}, 已补组=${results.length - failedGroups}, 失败组=${failedGroups}, 落库秒=${this.countSaved(results)}, 剩余缺口=${remaining.length}, 剩余秒=${historyBaseline.sumRepairSeconds(remaining)}, stableCeiling=${historyBaseline.stableCeiling(Math.floor(Date.now() / 1000))}, 连接时长=${Math.round((Date.now() - startedAt) / 1000)}s, ok=${ok}`
 			);
 			return this.makeResult(
 				ok,
@@ -317,10 +323,20 @@ export class DeviceSync {
 
 	private async runVitalGaps(gaps: HistoryGap[]): Promise<HistoryGapRepairResult[]> {
 		const results: HistoryGapRepairResult[] = [];
+		const total = gaps.length;
 		for (let i = 0; i < gaps.length; i++) {
 			const gap = gaps[i];
 			if (this.device.boundDeviceId == "") break;
+			// 每组记账推进了多少，用 `B` 的前后差量度量。这是核对「记账是否按预期推进」
+			// 的直接证据：`B` 没动就说明这一组的读取没有转成记账（被 `stableCeiling`
+			// 封顶、或落库失败），而这在 `落库秒` 上完全看不出来——两者是两件事。
+			const before = await historyBaseline.advanceBaseline(Math.floor(Date.now() / 1000));
 			const result = await this.device.history.readVitalGapGroup(gap);
+			const after = await historyBaseline.advanceBaseline(Math.floor(Date.now() / 1000));
+			logger.info(
+				"bluetooth",
+				`[BOOM-HISTORY] 缺口组结束: ${i + 1}/${total}, window=${gap.fromSec}~${gap.toSec}, 缺口秒=${gap.repairSeconds}, bridge秒=${gap.bridgeSeconds}, status=${result.status}, pages=${result.pages}, 落库=${result.savedRecords}, B=${before}->${after}, 本组推进=${after - before}s`
+			);
 			results.push(this.makeGapResult(gap, result));
 			if (result.status == "TIMEOUT" || result.status == "SEND_FAILED" || !result.saveOk)
 				break;

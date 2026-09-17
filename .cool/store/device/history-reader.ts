@@ -335,7 +335,7 @@ export class DeviceHistoryReader {
 	 */
 	async readVitalGapGroup(gap: HistoryGap): Promise<VitalAutoReadResult> {
 		return await this.readVitalRange(
-			"缺口组",
+			"缺口组读取",
 			gap.fromSec,
 			gap.toSec,
 			`缺口秒=${gap.repairSeconds}, bridge秒=${gap.bridgeSeconds}`
@@ -375,6 +375,12 @@ export class DeviceHistoryReader {
 		let confirmed = 0;
 		let lastStart = 0;
 		let failure = "";
+		// 页层诊断计数：累计到整组结束一并打印。逐页打印会把诊断缓冲区冲掉，而
+		// 「补录卡在某一段」的线索全在累计值里——`全FF秒` 与页数一致说明设备确实
+		// 没记这段；`有效秒` 远小于页数说明解码有问题。
+		let pageSeconds = 0;
+		let validSeconds = 0;
+		let invalidSeconds = 0;
 		const startedAt = Date.now();
 		try {
 			logger.info(
@@ -437,6 +443,13 @@ export class DeviceHistoryReader {
 							stopRead = true;
 							return true;
 						}
+						// 页层诊断计数：这一页有多少秒、其中多少是可用的（非全 FF）。
+						// 累计后由整组结束那一行打印，见下面的「缺口组读取结束」。
+						for (let i = 0; i < response.vitalData.length; i++) {
+							pageSeconds++;
+							if (response.vitalData[i].valid == true) validSeconds++;
+							else invalidSeconds++;
+						}
 						const pageSaved = await this.saveVitalPage(response, startSec, anchor, boundDeviceId);
 						saved += pageSaved;
 						lastStart = response.startSec;
@@ -468,10 +481,19 @@ export class DeviceHistoryReader {
 				result.message = "gap read made no progress";
 			}
 			if (failure != "") result.message = failure;
+			// 页层诊断合并到整组一行：逐页打印会把诊断缓冲区冲掉，而「补录卡在某一段」
+			// 的线索全在累计值里——`全FF秒` 与页数一致说明设备确实没记这段；`有效秒`
+			// 远小于页数说明解码有问题；`页未向更早推进` 说明固件在空转。
 			logger.info(
 				"bluetooth",
-				`[BOOM-HISTORY] ${label}结束: window=${startSec}~${anchor}, status=${result.status}, pages=${result.pages}, 落库=${saved}, 已记账=${confirmed}s, elapsed=${Math.round((Date.now() - startedAt) / 1000)}s`
+				`[BOOM-HISTORY] ${label}结束: window=${startSec}~${anchor}, status=${result.status}, pages=${result.pages}, 秒记录=${pageSeconds}, 有效秒=${validSeconds}, 全FF秒=${invalidSeconds}, 落库=${saved}, 已记账=${confirmed}s, elapsed=${Math.round((Date.now() - startedAt) / 1000)}s`
 			);
+			if (result.status == "TIMEOUT" || result.status == "SEND_FAILED" || saveOk == false) {
+				logger.warn(
+					"bluetooth",
+					`[BOOM-HISTORY] ${label}失败: window=${startSec}~${anchor}, status=${result.status}, pages=${result.pages}, message=${result.message}`
+				);
+			}
 			return result;
 		} catch (error) {
 			logger.error("bluetooth", `[BOOM-HISTORY] ${label}异常: ${error}`);
@@ -537,15 +559,11 @@ export class DeviceHistoryReader {
 		// 整页可确认范围记账：从页起点到页终点，右端由 markReady 封顶在 stableCeiling。
 		const from = Math.max(fromSec, page.startSec);
 		const to = Math.min(toSec, pageEnd);
-		let accounted = 0;
-		if (to > from) {
-			await historyBaseline.markReady(from, to, nowSec);
-			accounted = Math.min(to, historyBaseline.stableCeiling(nowSec)) - from;
-			if (accounted < 0) accounted = 0;
-		}
+		const accountedTo = Math.min(to, historyBaseline.stableCeiling(nowSec));
+		if (to > from) await historyBaseline.markReady(from, to, nowSec);
 		logger.info(
 			"bluetooth",
-			`[BOOM-HISTORY] 页落库: page=${page.startSec}, 新增秒=${values.length}, 记账=${from}~${Math.min(to, historyBaseline.stableCeiling(nowSec))}`
+			`[BOOM-HISTORY] 页落库: page=${page.startSec}, 新增秒=${values.length}, 记账=${from}~${accountedTo}`
 		);
 		return values.length;
 	}

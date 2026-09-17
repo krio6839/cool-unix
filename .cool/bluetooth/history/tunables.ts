@@ -71,9 +71,13 @@ function buildTunables(): HistoryTunables {
 }
 
 export function getHistoryTunables(): HistoryTunables {
-	if (cached != null) return cached;
-	cached = buildTunables();
-	return cached;
+	// 必须先落到局部变量再判空：UTS 对可变属性不做智能转换，
+	// 直接写 `if (cached != null) return cached` 会编译失败（属性可能被并发改写）。
+	const current = cached;
+	if (current != null) return current;
+	const next = buildTunables();
+	cached = next;
+	return next;
 }
 
 /** 某个参数的当前生效值。 */

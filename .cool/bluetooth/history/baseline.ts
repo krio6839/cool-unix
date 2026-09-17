@@ -20,9 +20,16 @@ export const BASELINE_SCHEMA: string[] = [
 	`CREATE TABLE IF NOT EXISTS vital_ready_ranges (from_sec INTEGER NOT NULL, to_sec INTEGER NOT NULL, PRIMARY KEY(from_sec,to_sec))`
 ];
 
-/** 一分钟合格判定的两个阈值，见方案第 3 节。 */
-const MINUTE_MAX_MISSING = 20;
+/**
+ * 一分钟合格判定的连续缺失阈值，见方案第 3 节。
+ *
+ * 缺失总量那一关不在这里——它是 `missing * 100 < 窗口长度 * MISSING_TOTAL_PERCENT`，
+ * 按窗口长度等比缩放，所以不是一个常量。
+ */
 const MINUTE_MAX_MISSING_RUN_SEC = 9;
+
+/** 缺失总量容差：缺的秒数占窗口的百分比，`< 30%` 才算合格。 */
+const MISSING_TOTAL_PERCENT = 30;
 
 /** 一个待补缺口。`bridgeSeconds` 是合并相邻缺口时跨过的、本地已有的秒。 */
 export type HistoryGap = {
@@ -40,28 +47,17 @@ export type BaselineClassifyResult = {
 	unclassifiedSeconds: number;
 	qualifiedSeconds: number;
 	gapSeconds: number;
-	unqualifiedMinutes: number;
+	unqualifiedSegments: number;
 };
 
-/** 一分钟的判定明细。`accountTo` 是这段可以记账到的秒；`blockedRun > 0` 表示被某段缺失卡住。 */
-export type MinuteAssessment = {
-	minuteSec: number;
+/** 一个段的判定明细。`ready` 是段内可记账的子区间；`blockedRuns` 是真缺口的个数。 */
+export type SegmentAssessment = {
+	ready: HistoryTimeRange[];
 	missingSeconds: number;
 	longestMissingRun: number;
-	accountTo: number;
-	blockedRun: number;
+	blockedRuns: number;
+	blockedSeconds: number;
 };
-
-function minuteStartsIn(fromSec: number, toSec: number): number[] {
-	const result: number[] = [];
-	if (toSec <= fromSec) return result;
-	let minute = Math.floor(fromSec / 60) * 60;
-	while (minute < toSec) {
-		if (minute + 60 > fromSec) result.push(minute);
-		minute += 60;
-	}
-	return result;
-}
 
 /** 把秒列表压成连续区间。输入允许乱序。 */
 function timestampsToRanges(timestamps: number[]): HistoryTimeRange[] {
@@ -159,7 +155,7 @@ class HistoryBaseline {
 	/**
 	 * 整表归一化写入。
 	 *
-	 * 区间行数受「不合格分钟段数」约束而不是时间长度（`B` 卡一天的代价是 1 条
+	 * 区间行数受「不合格段数」约束而不是时间长度（`B` 卡一天的代价是 1 条
 	 * ready 区间，不是 1440 行），所以整体重写的成本可以忽略，而它天然完成
 	 * 相邻合并，不需要逐条 diff 的脆弱 SQL。
 	 */
@@ -178,80 +174,93 @@ class HistoryBaseline {
 	}
 
 	/**
-	 * 判定一个分钟窗口，返回「这段能记账到哪一秒」。
+	 * 判定一段 `[fromSec, toSec)`，返回其中「可以记账」的子区间。
 	 *
-	 * 窗口是 `[windowFrom, windowTo)`，两端都可能被截断：左端被 `B` 或前一条已记账
-	 * 区间截断，右端被分钟末尾、`stableCeiling` 或已记账区间截断。判定按缺失段顺序
-	 * 逐段推进，每段都要过三关：
+	 * **不按分钟切，也不整段一刀切。** 判的只有两件事——缺的秒一共多少、最长的一段
+	 * 连续缺了多少——两条都不需要知道分钟边界。做法分两遍：
 	 *
-	 * 1. **缺失总量**：`missing * 3 < 窗口长度`。完整分钟下就是第 3 节的
-	 *    `missing * 3 < 60`（missing ≤ 19）；窗口被截断时按长度等比缩放，
-	 *    这样同一分钟内分两次判定的容忍度相加仍等于完整分钟的那一份，不会放大。
-	 * 2. **连续缺失**：每段 `< 9` 秒。连接空洞是连续的，所以这一条才是真正起作用的
-	 *    约束——它把容差的实际覆盖范围压在 8 秒以内。
-	 * 3. **这一段是否已经看完**。缺失段贴着窗口右端时，右端之外还没判到，
-	 *    这段可能还更长，不能按当前长度放过；只有分钟已走完（`windowTo` 到达
-	 *    分钟末尾）或窗口右端是被已记账区间截断（右端之外已经确认过）时，
-	 *    才认为这一段是完整的。不设这一关，一个横跨 `stableCeiling` 的 11 秒
-	 *    空洞会被拆成两段各 8 秒以内，被容差整段吃掉。
+	 * 1. **连续缺失**（逐段）：每段 `< 9` 秒才算过。空口空洞是连续的，所以这一条是
+	 *    真正起作用的约束，它把容差的实际覆盖范围压在 8 秒以内。不过关的段就是
+	 *    **真缺口**，把这一段切成若干候选区。
+	 * 2. **缺失总量**（逐候选区）：`missing * 100 < 区长度 * 30`（缺的不到 30%）。
+	 *    它防的是「很多段各 8 秒、加起来占了一大半」这种稀疏情形——只看连续缺失
+	 *    是看不出来的。不过关则整个候选区都不记账。
 	 *
-	 * 不满足的段就是 `B` 的停驻点：它自己成为缺口，由读取路径消费。
+	 * 第 1 遍先切、第 2 遍再算总量，是因为两者管的是不同粒度：总量是「这一片有多
+	 * 稀疏」的度量，必须在一个不被真缺口打断的连续区域里算，否则一处真缺口会把它
+	 * 后面几十秒在场的数据一起作废——`B` 停在缺口前面，后面合格的秒照常记进
+	 * `vital_ready_ranges` 等它（5.6）。整段一刀切就会犯这个错。
+	 *
+	 * 第 3 关「这一段是否已经看完」只作用于贴着右端的段：右端之外还没判到，它可能
+	 * 还更长，不能按当前长度放过。`endConfirmed` 为 true 表示右端之外已经确认过
+	 * （那一段已被记账，所以未记账区间在此收尾），此时贴着右端的段才给结论。
+	 * 不设这一关，一个横跨 `stableCeiling` 的 11 秒空洞会被拆成两段各 8 秒以内，
+	 * 被容差整段吃掉。
 	 */
-	private assessMinute(
-		minuteSec: number,
-		windowFrom: number,
-		windowTo: number,
-		windowEndsPiece: boolean,
+	private assessSegment(
+		fromSec: number,
+		toSec: number,
+		endConfirmed: boolean,
 		presentRanges: HistoryTimeRange[]
-	): MinuteAssessment {
-		const window: HistoryTimeRange = { fromSec: windowFrom, toSec: windowTo };
+	): SegmentAssessment {
+		const window: HistoryTimeRange = { fromSec, toSec };
 		const missingRanges = subtractRanges([window], presentRanges);
-		const windowLength = windowTo - windowFrom;
+		const result: SegmentAssessment = {
+			ready: [],
+			missingSeconds: 0,
+			longestMissingRun: 0,
+			blockedRuns: 0,
+			blockedSeconds: 0
+		} as SegmentAssessment;
 		let missing = 0;
-		let longestRun = 0;
 		for (let i = 0; i < missingRanges.length; i++) {
 			const width = missingRanges[i].toSec - missingRanges[i].fromSec;
 			missing += width;
-			if (width > longestRun) longestRun = width;
+			if (width > result.longestMissingRun) result.longestMissingRun = width;
 		}
-		// 缺失总量这一关先算，它是对整个窗口的约束，不随逐段推进而改变。
-		const withinTotal = missing * 3 < windowLength;
-		let accountTo = windowFrom;
-		let blockedRun = 0;
-		if (missingRanges.length > 0) {
-			// 第一个缺失段之前一定是在场秒：它们确实已收齐，记账永远安全。
-			accountTo = missingRanges[0].fromSec;
-			for (let i = 0; i < missingRanges.length; i++) {
-				const run = missingRanges[i];
-				const runSeconds = run.toSec - run.fromSec;
-				const knownEnd = run.toSec < windowTo || windowTo >= minuteSec + 60 || windowEndsPiece;
-				if (withinTotal == false || knownEnd == false || runSeconds >= MINUTE_MAX_MISSING_RUN_SEC) {
-					blockedRun = runSeconds;
-					break;
-				}
-				// 这一段过了容差，等同于「设备确认这里没有」：缺的秒连同它之前在场的秒一起记账。
-				accountTo = run.toSec;
+		result.missingSeconds = missing;
+		if (missingRanges.length == 0) {
+			result.ready.push({ fromSec, toSec });
+			return result;
+		}
+
+		// 第 1 遍：按连续缺失把整段切成候选区。真缺口本身不属于任何候选区。
+		const regions: HistoryTimeRange[] = [];
+		let start = fromSec;
+		for (let i = 0; i < missingRanges.length; i++) {
+			const run = missingRanges[i];
+			const runSeconds = run.toSec - run.fromSec;
+			// 缺失段贴着整段右端、而右端又没确认时，它可能还更长，这一轮不给结论。
+			const knownEnd = run.toSec < toSec || endConfirmed == true;
+			if (knownEnd == false || runSeconds >= MINUTE_MAX_MISSING_RUN_SEC) {
+				if (run.fromSec > start) regions.push({ fromSec: start, toSec: run.fromSec });
+				start = run.toSec;
+				result.blockedRuns = result.blockedRuns + 1;
+				result.blockedSeconds += runSeconds;
 			}
-			// 最后一段缺失之后到窗口右端全是在场秒，同样已收齐。不补这一步，一个
-			// 合格的分钟会在最后一个缺失段处被截断，尾巴上的在场秒白判一轮。
-			if (blockedRun == 0) accountTo = windowTo;
-		} else {
-			accountTo = windowTo;
 		}
-		return {
-			minuteSec,
-			missingSeconds: missing,
-			longestMissingRun: longestRun,
-			accountTo,
-			blockedRun
-		} as MinuteAssessment;
+		if (toSec > start) regions.push({ fromSec: start, toSec });
+
+		// 第 2 遍：逐个候选区算缺失总量。过了才记账。
+		for (let i = 0; i < regions.length; i++) {
+			const region = regions[i];
+			const regionMissing = subtractRanges([region], presentRanges);
+			let regionMissingSeconds = 0;
+			for (let j = 0; j < regionMissing.length; j++) {
+				regionMissingSeconds += regionMissing[j].toSec - regionMissing[j].fromSec;
+			}
+			if (regionMissingSeconds * 100 < (region.toSec - region.fromSec) * MISSING_TOTAL_PERCENT) {
+				result.ready.push(region);
+			}
+		}
+		return result;
 	}
 
 	/**
 	 * 保留窗口钳制：`B` 早于 30 天保留起点时一次性跳过去。
 	 *
-	 * 必须**在分类之前**跑：分类是逐分钟走的，全新安装时 `B = 1`，不先钳制就要从
-	 * 1970 年判到今天（约 3000 万个分钟）——那既不是要判的东西，也会直接把内存撑爆。
+	 * 必须**在分类之前**跑：分类要遍历 `[B, stableCeiling)`，全新安装时 `B = 1`，
+	 * 不先钳制就要从 1970 年判到今天——那既不是要判的东西，也会直接把内存撑爆。
 	 * 30 天保留窗口本身也是唯一的时间约束（设备更早的秒补不回来），所以跳过去没有
 	 * 语义损失：早于保留起点的 ready 区间一并删掉，那些秒永远补不回来，留着只会在
 	 * 弹窗和启动时被反复遍历。
@@ -276,7 +285,7 @@ class HistoryBaseline {
 	/**
 	 * 把 `[B, 分类右端)` 从「未分类」变成「已记账」或「缺口」。
 	 *
-	 * 幂等：已记账的分钟先被减掉，不重判。所以每轮都从 `B` 走一遍没有副作用，
+	 * 幂等：已记账的部分先被减掉，不重判。所以每轮都从 `B` 走一遍没有副作用，
 	 * 走得快慢只取决于 `ppi_data` 的行数——这也是不需要「已分类游标」的原因。
 	 */
 	async classify(nowSec: number): Promise<BaselineClassifyResult> {
@@ -290,7 +299,7 @@ class HistoryBaseline {
 			unclassifiedSeconds: 0,
 			qualifiedSeconds: 0,
 			gapSeconds: 0,
-			unqualifiedMinutes: 0
+			unqualifiedSegments: 0
 		} as BaselineClassifyResult;
 		if (ceiling <= baseline) return result;
 
@@ -306,7 +315,7 @@ class HistoryBaseline {
 		result.unclassifiedSeconds = unclassifiedSeconds;
 		if (unclassifiedSeconds == 0) return result;
 
-		// 一次查询覆盖全部未记账分钟，不做单轮上限：查询范围本来就排除了已记账部分，
+		// 一次查询覆盖全部未记账区间，不做单轮上限：查询范围本来就排除了已记账部分，
 		// App 关闭期间 ppi_data 为空（零行返回），区间算术在内存里做，没有截断的理由。
 		const timestamps = await historyCoverage.getPpiTimestamps({
 			fromSec: unclassified[0].fromSec,
@@ -314,47 +323,32 @@ class HistoryBaseline {
 		} as HistoryTimeRange);
 		const presentRanges = timestampsToRanges(timestamps);
 
-		// 逐分钟判定：判定单元是分钟（阈值是按一分钟定义的），但每一分钟的可判范围是
-		// [M, min(M+60, ceiling))，不再被整分钟下界一笔勾销。
+		// 判定单元是**整个未记账区间**，不按分钟切。判的只有「缺了多少秒」和
+		// 「最长连续缺了多少秒」两件事，两条都与分钟边界无关——按分钟切反而会在
+		// 边界上把一个连续缺失段拆成两半，各自都小于 9 秒而被容差误吃。
 		const newReady: HistoryTimeRange[] = [];
 		for (let i = 0; i < unclassified.length; i++) {
 			const piece = unclassified[i];
-			const minutes = minuteStartsIn(piece.fromSec, piece.toSec);
-			for (let j = 0; j < minutes.length; j++) {
-				const minute = minutes[j];
-				const windowFrom = Math.max(minute, piece.fromSec);
-				const windowTo = Math.min(minute + 60, piece.toSec, ceiling);
-				if (windowTo <= windowFrom) continue;
-				// 这一段的右端若就是本次未记账区间的右端，说明右端之外已被记账过
-				// （`stableCeiling` 不会切在中间——它是这次查询的右端），
-				// 那么贴着右端的缺失段是完整的，可以按容差判。
-				const endsPiece = piece.toSec < ceiling && windowTo == piece.toSec;
-				const assessed = this.assessMinute(
-					minute,
-					windowFrom,
-					windowTo,
-					endsPiece,
-					presentRanges
-				);
-				if (assessed.accountTo > windowFrom) {
-					newReady.push({ fromSec: windowFrom, toSec: assessed.accountTo });
-				}
-				if (assessed.blockedRun > 0) {
-					result.unqualifiedMinutes = result.unqualifiedMinutes + 1;
-					// 只在真正有定论的失败上打这一行：贴着 `stableCeiling` 的失败只是
-					// 还没等到数据，下一轮会重判，打出来会把日志冲满。
-					if (windowTo < ceiling || endsPiece == true) {
-						logger.info(
-							"bluetooth",
-							`[BOOM-BASE] 分钟不合格: minute=${minute}, 窗口=${windowFrom}~${windowTo}, missing=${assessed.missingSeconds}, 最长连续缺失=${assessed.longestMissingRun}, 阻塞段=${assessed.blockedRun}, 阈值=缺失<1/3, 连续<${MINUTE_MAX_MISSING_RUN_SEC}`
-						);
-					}
-					// **不 break**：这一分钟成为缺口、`B` 停在它前面就够了，后面的分钟照判。
-					// 合格的那些必须照常记进 `vital_ready_ranges`，否则它们既不在 `[0,B)`
-					// 里、也没被标记，下轮还要从头重判——`B` 卡一天就白判一天。
-					// 5.6 说的「后面合格的分钟堆在 ready 里等它」、8.2 桥接的
-					// 「12:05 不合格、12:06 合格 → ready[0] = [12:06,12:07)」都依赖这一点。
-					continue;
+			if (piece.toSec <= piece.fromSec) continue;
+			// 右端之外已确认（这一段的右端是被已记账区间截断的，不是 `stableCeiling`）
+			// 时，贴着右端的缺失段是完整的，可以按容差判。
+			const endConfirmed = piece.toSec < ceiling;
+			const assessed = this.assessSegment(
+				piece.fromSec,
+				piece.toSec,
+				endConfirmed,
+				presentRanges
+			);
+			for (let j = 0; j < assessed.ready.length; j++) newReady.push(assessed.ready[j]);
+			if (assessed.blockedRuns > 0) {
+				result.unqualifiedSegments = result.unqualifiedSegments + assessed.blockedRuns;
+				// 只在真正有定论的失败上打这一行：贴着 `stableCeiling` 的失败只是
+				// 还没等到数据，下一轮会重判，打出来会把日志冲满。
+				if (endConfirmed == true) {
+					logger.info(
+						"bluetooth",
+						`[BOOM-BASE] 段不合格: 区间=${piece.fromSec}~${piece.toSec}, 长度=${piece.toSec - piece.fromSec}s, 缺失=${assessed.missingSeconds}s, 最长连续缺失=${assessed.longestMissingRun}s, 阻塞段数=${assessed.blockedRuns}, 阻塞秒=${assessed.blockedSeconds}s, 阈值=缺失<${MISSING_TOTAL_PERCENT}%, 连续<${MINUTE_MAX_MISSING_RUN_SEC}`
+					);
 				}
 			}
 		}
@@ -366,7 +360,7 @@ class HistoryBaseline {
 		result.gapSeconds = unclassifiedSeconds - result.qualifiedSeconds;
 		logger.info(
 			"bluetooth",
-			`[BOOM-BASE] 分类完成: 未记账=${unclassifiedSeconds}s, 新记账=${result.qualifiedSeconds}s, 新缺口=${result.gapSeconds}s, 不合格分钟=${result.unqualifiedMinutes}, 分类右端=${ceiling}, B=${baseline}, 用时=${Date.now() - startedAt}ms`
+			`[BOOM-BASE] 分类完成: 未记账=${unclassifiedSeconds}s, 新记账=${result.qualifiedSeconds}s, 新缺口=${result.gapSeconds}s, 不合格段=${result.unqualifiedSegments}, 分类右端=${ceiling}, B=${baseline}, 用时=${Date.now() - startedAt}ms`
 		);
 		return result;
 	}
@@ -447,6 +441,7 @@ class HistoryBaseline {
 	 */
 	async advanceBaseline(nowSec: number): Promise<number> {
 		let baseline = await this.clampToRetention(nowSec);
+		const baselineBefore = baseline;
 		let consumed = 0;
 		while (true) {
 			const ready = await this.listReadyRanges();
@@ -470,13 +465,18 @@ class HistoryBaseline {
 			);
 			consumed++;
 		}
+		const after = await this.getBaseline();
+		// 只在真动了的时候打：`advanceBaseline()` 在每次分类后、每组缺口读取前后都会调用，
+		// 没推进也打一行会把诊断缓冲区冲掉。`落后` 是「B 卡住不动」的第一现场——
+		// 正常情况下它贴着 0（几秒的落库延迟），明显大于 0 就说明前面有真缺口。
 		if (consumed > 0) {
+			const ceiling = this.stableCeiling(nowSec);
 			logger.info(
 				"bluetooth",
-				`[BOOM-BASE] 基准推进: B=${baseline}, 消费ready区间=${consumed}, 原因=ready`
+				`[BOOM-BASE] 基准推进: B=${baselineBefore}->${after}, 消费ready区间=${consumed}, 原因=ready, stableCeiling=${ceiling}, 落后=${ceiling - after}s`
 			);
 		}
-		return baseline;
+		return after;
 	}
 
 	/** 只读快照，供测试页展示。 */

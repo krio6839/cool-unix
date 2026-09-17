@@ -26,20 +26,6 @@ export type HistoryGapRepairPopupProps = {
 	commandMessage: string;
 	revision: number;
 };
-/** 补录参数弹窗：四个运行时可调项 + 生效值。 */
-export type HistoryTunePopupProps = {
-	busy: boolean;
-	commandMessage: string;
-};
-export type HistoryTuneItem = {
-	key: string;
-	label: string;
-	unit: string;
-	description: string;
-	value: number;
-	defaultValue: number;
-	overridden: boolean;
-};
 export type VitalPopupText = {
 	summary: string;
 	start: string;

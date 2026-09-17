@@ -217,11 +217,6 @@
 			v-model:show="diagnosticsPopupVisible"
 			:protocol-logs="protocolLogText"
 		/>
-		<HistoryTunePopup
-			v-model:show="historyTunePopupVisible"
-			:busy="false"
-			:command-message="t('参数即时生效：保存后下一次分类、补录与连接判定就会用新值')"
-		/>
 	</cl-page>
 </template>
 <script lang="ts" setup>
@@ -258,7 +253,6 @@ import { saveCsvToDownloads } from "@/uni_modules/boom-csv-saver";
 import DataDiagnosticsPopup from "./components/DataDiagnosticsPopup.uvue";
 import HistoryGapRepairPopup from "./components/HistoryGapRepairPopup.uvue";
 import HistoryQuickReadPopup from "./components/HistoryQuickReadPopup.uvue";
-import HistoryTunePopup from "./components/HistoryTunePopup.uvue";
 import VitalProtocolPopup from "./components/VitalProtocolPopup.uvue";
 import EventProtocolPopup from "./components/EventProtocolPopup.uvue";
 import DeviceControlPopup from "./components/DeviceControlPopup.uvue";
@@ -301,7 +295,7 @@ type AdvText = {
 	vHex: string;
 };
 
-type TestEntryKey = "quick" | "gap" | "vital" | "event" | "control" | "diagnostics" | "tune";
+type TestEntryKey = "quick" | "gap" | "vital" | "event" | "control" | "diagnostics";
 type TestEntry = { key: TestEntryKey; label: string };
 
 const ui = useUi();
@@ -347,6 +341,19 @@ const baselinePanel = ref<BaselinePanelState>({
 	gapLines: [],
 	errorText: ""
 });
+/**
+ * UTS 把 script setup 编译成 Kotlin 函数体，局部函数没有提升：调用点必须写在
+ * 声明之后。下面两个格式化/取时工具被 `refreshBaselinePanel()` 和 0x3A 表单共用，
+ * 因此声明必须留在它们最早的调用点之前，不能挪到文件下方。
+ */
+function getNowSec(): number {
+	return Math.floor(Date.now() / 1000);
+}
+
+function formatEventWindowTime(sec: number): string {
+	return new Date(sec * 1000).toLocaleString();
+}
+
 async function refreshBaselinePanel(): Promise<void> {
 	if (baselineLoading.value) return;
 	baselineLoading.value = true;
@@ -393,15 +400,13 @@ const vitalProtocolPopupVisible = ref(false);
 const eventProtocolPopupVisible = ref(false);
 const deviceControlPopupVisible = ref(false);
 const diagnosticsPopupVisible = ref(false);
-const historyTunePopupVisible = ref(false);
 const testEntries: TestEntry[] = [
 	{ key: "quick", label: t("快速历史读取") },
 	{ key: "gap", label: t("历史缺口补录") },
 	{ key: "vital", label: t("生命体征协议") },
 	{ key: "event", label: t("事件协议") },
 	{ key: "control", label: t("设备控制") },
-	{ key: "diagnostics", label: t("数据诊断") },
-	{ key: "tune", label: t("补录参数") }
+	{ key: "diagnostics", label: t("数据诊断") }
 ];
 const manualRawHex = ref("");
 const showStatusSection = ref<boolean>(true);
@@ -786,7 +791,6 @@ function openTestEntry(key: TestEntryKey): void {
 		diagnosticsPopupVisible.value = true;
 		return;
 	}
-	historyTunePopupVisible.value = true;
 }
 
 function setCommandResponse(cmd: string, message: string): void {
@@ -1034,10 +1038,6 @@ const exampleList = computed<DocExample[]>(() => {
 	return DOC_EXAMPLES_BY_T.get(tCode) ?? [];
 });
 
-function getNowSec(): number {
-	return Math.floor(Date.now() / 1000);
-}
-
 function resetVitalFormToCurrentWindow(): void {
 	const now = getNowSec();
 	const startSec = now - VITAL_FORM_DEFAULT_OFFSET_SECONDS;
@@ -1050,10 +1050,6 @@ function resetVitalFormToCurrentWindow(): void {
 /** 当前整分钟是 0x3A 的查询锚点；后续 0x3B 按设备的实际页向更早时间推进。 */
 function getCurrentMinuteSec(): number {
 	return Math.floor(getNowSec() / 60) * 60;
-}
-
-function formatEventWindowTime(sec: number): string {
-	return new Date(sec * 1000).toLocaleString();
 }
 
 /**

@@ -608,8 +608,8 @@ export class DeviceBroadcast {
 		const ppi = r.ppi;
 		const ok = await bluetoothDataManager.storeBroadcastPpiData(timestamp, hr, spo2, ppi);
 		await bluetoothDataManager.storeBroadcastSleepActivity(timestamp, r.activity);
+		// 这里只落库，不驱动上传：秒级实时流不是上传触发点，主触发是下面这个跨整分钟。
 		if (ok == true) {
-			await bluetoothDataManager.requestPpiUpload();
 			this.uploadCompletedMinuteIfCrossed(timestamp);
 		}
 	}
@@ -617,10 +617,11 @@ export class DeviceBroadcast {
 	/**
 	 * 广播 `utc` 跨过整分钟时上传刚走完的那一分钟。
 	 *
-	 * 这是**主上传触发**：原来「30 条 / 30 秒」的批量策略被整分钟取代，定时兜底
-	 * 降级为只消费 `uploaded=0` 的积压和失败重试。上传与合格判定是两件事——判定
-	 * 依据是本地的 `ppi_data`，不是上传结果；上传失败时 `uploaded` 保持 0，由重试
-	 * 路径继续消费，不会因为弱网把已经收齐的分钟判成待补。
+	 * 这是**主上传触发**，也是秒级实时流唯一能影响上传的地方——每秒落库的广播本身
+	 * 不驱动上传，只在跨过分钟边界时触发一次。定时兜底降级为只消费 `uploaded=0`
+	 * 的积压和失败重试。上传与合格判定是两件事——判定依据是本地的 `ppi_data`，
+	 * 不是上传结果；上传失败时 `uploaded` 保持 0，由重试路径继续消费，不会因为
+	 * 弱网把已经收齐的分钟判成待补。
 	 *
 	 * 跨分钟判定用广播 `utc`（设备时钟）而不是手机时钟：分钟边界属于设备的数据
 	 * 时间轴，两者的偏差由校时链路处理，不在这里再用手机时钟切一刀。

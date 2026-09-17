@@ -108,25 +108,65 @@ test("a fully present minute is accounted to its own right edge", async (t) => {
 	assert.deepEqual(readyRanges(r.db), [{ fromSec: 199800, toSec: 199990 }]);
 });
 
-test("missing seconds inside the total tolerance are absorbed when they are inside one minute", async (t) => {
+test("missing seconds inside the total tolerance are absorbed", async (t) => {
 	const r = await setup(t);
 	const now = 200000;
 	await r.prime(199920);
-	// [199920, 199990) 里丢 8 秒连续（199920~199928）：连续缺失 < 9，总量也够，整分钟记账。
-	// 缺口正好落在这一分钟内部，右端之外还有在场秒，所以不是 knownEnd 那一类。
+	// [199920, 199990) 里丢 8 秒连续（199920~199928）：连续缺失 < 9，总量也够（8/70），
+	// 整段记账——连开头那 8 秒一起，因为它等同于「设备确认这里没有」。
 	seedPpi(r.db, 199928, 199990);
 	await r.baseline.classify(now);
 	assert.deepEqual(readyRanges(r.db), [{ fromSec: 199920, toSec: 199990 }]);
 });
 
-test("a missing run that straddles a minute boundary is judged in each minute separately", async (t) => {
+test("a real gap does not invalidate the present seconds that follow it", async (t) => {
 	const r = await setup(t);
 	const now = 200000;
 	await r.prime(199900);
-	// 一段 8 秒的缺失横跨 199960 这条分钟边界（199956~199964）。
-	// 判定单元是分钟，所以两个分钟各自只看到 4 秒连续缺失——都过得了连续缺失这一关，
-	// 整段被吸收。反过来，若按「一段 8 秒」判，结论相同；真正的分水岭是第 5 个用例
-	// 的 9 秒（跨不跨边界都会被挡），所以这里验的是「跨界不会让某一分钟多吃到秒」。
+	// 12 秒连续缺失（199930~199942）是真缺口。它后面 [199942, 199990) 有 48 秒在场数据，
+	// 只缺 0 秒——整段一刀切会把这 48 秒跟着缺口一起作废，那既让 B 白等一轮，
+	// 也让缺口虚报成 90 秒。必须切成两段分别判。
+	seedPpi(r.db, 199900, 199930);
+	seedPpi(r.db, 199942, 199990);
+	await r.baseline.classify(now);
+	// 缺口之前那段（30 秒全在场）和之后那段（48 秒全在场）都记账；缺口本身不记。
+	assert.deepEqual(readyRanges(r.db), [
+		{ fromSec: 199900, toSec: 199930 },
+		{ fromSec: 199942, toSec: 199990 }
+	]);
+	// `B` 照常消费缺口之前那一段、停在真缺口前面（不是停在整段起点）。
+	assert.equal(await r.baseline.advanceBaseline(now), 199930);
+	const gaps = await r.baseline.listRepairGaps(now);
+	assert.equal(gaps.length, 1);
+	assert.equal(gaps[0].fromSec, 199930);
+	assert.equal(gaps[0].toSec, 199942);
+	assert.equal(gaps[0].repairSeconds, 12);
+});
+
+test("a sparse region fails the total gate even when every run is under nine seconds", async (t) => {
+	const r = await setup(t);
+	const now = 200000;
+	await r.prime(199900);
+	// 每段都只缺 8 秒（连续缺失那一关都过），但 5 段加起来 40 秒，占 90 秒的 44%
+	// ——总量那一关挡住。只看连续缺失是看不出这种稀疏的，所以第 2 遍必须有。
+	let cursor = 199900;
+	for (let i = 0; i < 5; i++) {
+		seedPpi(r.db, cursor, cursor + 10);
+		cursor += 18;
+	}
+	seedPpi(r.db, cursor, 199990);
+	await r.baseline.classify(now);
+	assert.deepEqual(readyRanges(r.db), []);
+	assert.equal(await r.baseline.advanceBaseline(now), 199900);
+});
+
+test("an eight-second run straddling a minute boundary is absorbed, and a nine-second one is not", async (t) => {
+	const r = await setup(t);
+	const now = 200000;
+	await r.prime(199900);
+	// 8 秒缺失（199956~199964）横跨 199960 这条分钟边界。判定不看分钟边界，所以
+	// 它就是「一段 8 秒」：连续缺失 < 9、总量 8/90 也够，整段吸收。
+	// 按分钟切反而有风险——边界会把一段连续缺失拆成两个 4 秒，各自都更容易过关。
 	seedPpi(r.db, 199900, 199956);
 	seedPpi(r.db, 199964, 199990);
 	await r.baseline.classify(now);
@@ -134,22 +174,45 @@ test("a missing run that straddles a minute boundary is judged in each minute se
 	assert.equal(await r.baseline.advanceBaseline(now), 199990);
 });
 
-test("a nine-second run stops the baseline even when the total tolerance would allow it", async (t) => {
+test("a nine-second run straddling a minute boundary is still a real gap", async (t) => {
+	const r = await setup(t);
+	const now = 200000;
+	await r.prime(199900);
+	// 同一位置、同样横跨 199960，但这次是 9 秒（199956~199965）。按分钟切会把它
+	// 拆成 4 秒 + 5 秒，两半都过得了连续缺失那一关，整段 9 秒被误吃——这正是
+	// 「判定不按分钟切」要避免的那个错误。
+	seedPpi(r.db, 199900, 199956);
+	seedPpi(r.db, 199965, 199990);
+	await r.baseline.classify(now);
+	assert.deepEqual(readyRanges(r.db), [
+		{ fromSec: 199900, toSec: 199956 },
+		{ fromSec: 199965, toSec: 199990 }
+	]);
+	assert.equal(await r.baseline.advanceBaseline(now), 199956);
+	const gaps = await r.baseline.listRepairGaps(now);
+	assert.equal(gaps.length, 1);
+	assert.equal(gaps[0].fromSec, 199956);
+	assert.equal(gaps[0].toSec, 199965);
+});
+
+test("a nine-second run is a real gap even when the total tolerance would allow it", async (t) => {
 	const r = await setup(t);
 	const now = 200000;
 	await r.prime(199920);
-	// 一共只缺 9 秒，总量那一关（9 * 3 = 27 < 70）过得去，但连续缺失这一关挡住：
-	// [199920, 199980) 这一分钟一点都不记，B 停在它前面。
+	// 缺 [199920, 199929) 共 9 秒。判定不按分钟切，所以这是**一段**而不是一分钟：
+	// 9 秒占整段（199920~199990，70 秒）的 13%，总量那一关过得去，但连续缺失
+	// 这一关挡住（9 不小于 9）。真缺口把这一段切开，B 停在它前面。
 	seedPpi(r.db, 199929, 199990);
 	await r.baseline.classify(now);
 	assert.equal(await r.baseline.advanceBaseline(now), 199920);
-	// 阻塞分钟本身不记；它后面那一分钟（被 ceiling 截到 10 秒）数据齐全，照常记账，
-	// 只是 B 过不去——这条 ready 就是 8.2 桥接要跨过的那种区间。
-	assert.deepEqual(readyRanges(r.db), [{ fromSec: 199980, toSec: 199990 }]);
+	// 缺口之后的秒是另一个候选区：61 秒里只缺 9 秒（14.8%），照常记账，只是 B
+	// 过不去——这条 ready 就是 8.2 桥接要跨过的那种区间。缺口不会因为它多占一秒。
+	assert.deepEqual(readyRanges(r.db), [{ fromSec: 199929, toSec: 199990 }]);
 	const gaps = await r.baseline.listRepairGaps(now);
 	assert.equal(gaps.length, 1);
 	assert.equal(gaps[0].fromSec, 199920);
-	assert.equal(gaps[0].toSec, 199980);
+	assert.equal(gaps[0].toSec, 199929);
+	assert.equal(gaps[0].repairSeconds, 9);
 });
 
 test("a missing run touching the ceiling is not counted as complete", async (t) => {

@@ -24,8 +24,11 @@ import type {
 	HistorySessionDiagnostics
 } from "./types";
 
-const PPI_UPLOAD_BATCH_SIZE = 30;
-const PPI_UPLOAD_MIN_INTERVAL_MS = 30 * 1000;
+/**
+ * 失败后的退避。失败批保持 `uploaded=0`，但不要随每次触发反复重试——
+ * 触发点里有整分钟和 60 秒定时兜底，不退避就会把失败请求打成密集重试。
+ */
+const UPLOAD_FAILURE_BACKOFF_MS = 60 * 1000;
 /** 单个请求最多 300 秒数据，每轮最多 10 批，防止长期占用上传通道。 */
 const PPI_UPLOAD_MAX_RECORDS = 300;
 const PPI_UPLOAD_MAX_BATCHES = 10;
@@ -49,9 +52,9 @@ export class BluetoothDataManager {
 	private isUploading: boolean = false;
 	/** 睡眠上传锁。 */
 	private sleepUploading: boolean = false;
+	/** 上一次 PPI 上传失败发生的时刻，用于 `UPLOAD_FAILURE_BACKOFF_MS` 退避。 */
 	private lastPpiUploadFailedAt: number = 0;
 	private uploadScheduled: boolean = false;
-	private lastPpiUploadAttemptAt: number = 0;
 	private databaseReady: Promise<boolean>;
 
 	/** 设备名称 */
@@ -821,26 +824,25 @@ export class BluetoothDataManager {
 		}
 	}
 
-	/** true 表示本次检查无待传数据，或本轮已全部传完；延后/忙/失败返回 false。 */
-	async requestPpiUpload(): Promise<boolean> {
+	/**
+	 * 有待传记录、且不处于失败退避时上传。
+	 *
+	 * 没有条数与间隔阈值：上传节奏由**触发点**决定（整分钟 / 60 秒定时兜底 / 补录落库后），
+	 * 不在这里再节流一次。曾经的「攒够 30 条 或 距上次 30 秒」既让实时流成了真正的驱动源，
+	 * 又把整分钟触发挡在门外（分钟边界那一刻两条判据都为真），已经删掉。
+	 *
+	 * true 表示无待传数据或本轮已传完；退避中、通道忙、仍有积压或失败返回 false。
+	 */
+	private async uploadPpiIfPending(): Promise<boolean> {
 		if (this.isUploading == true) return false;
 		try {
 			const count = await this.getUnuploadedPpiCount();
 			if (count == 0) return true;
-			const now = Date.now();
-			// 失败后即使数量超过触发阈值，也不要随每秒广播反复请求。
 			if (
 				this.lastPpiUploadFailedAt > 0 &&
-				now - this.lastPpiUploadFailedAt < PPI_UPLOAD_MIN_INTERVAL_MS
+				Date.now() - this.lastPpiUploadFailedAt < UPLOAD_FAILURE_BACKOFF_MS
 			)
 				return false;
-			if (this.lastPpiUploadAttemptAt == 0) {
-				this.lastPpiUploadAttemptAt = now;
-				if (count < PPI_UPLOAD_BATCH_SIZE) return false;
-			}
-			const elapsed = now - this.lastPpiUploadAttemptAt;
-			if (count < PPI_UPLOAD_BATCH_SIZE && elapsed < PPI_UPLOAD_MIN_INTERVAL_MS) return false;
-			this.lastPpiUploadAttemptAt = now;
 			return await this.uploadPpiData();
 		} catch (error) {
 			logger.error("bluetooth", "PPI上传检查失败:", error);
@@ -1020,11 +1022,14 @@ export class BluetoothDataManager {
 	}
 
 	/**
-	 * 上传所有数据（PPI数据和睡眠数据）
-	 * @returns 是否上传成功
+	 * 自动上传的**唯一入口**：PPI 与睡眠各走各的锁，都成功才返回 `true`。
+	 *
+	 * 三个触发点都调它，没有第二个自动上传入口：广播跨整分钟的 `onMinuteCompleted()`、
+	 * 60 秒定时兜底、以及历史补录落库后的 `scheduleUpload()`。手动路径（测试页）直接
+	 * 调 `uploadPpiData()` / `uploadSleepData()`，不经这里的退避。
 	 */
 	async uploadData(): Promise<boolean> {
-		const ppiOk = await this.requestPpiUpload();
+		const ppiOk = await this.uploadPpiIfPending();
 		const sleepOk = await this.uploadSleepData();
 		return ppiOk && sleepOk;
 	}

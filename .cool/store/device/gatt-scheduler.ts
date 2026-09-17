@@ -187,7 +187,6 @@ export class DeviceGattScheduler {
 		this.pauseCurrentFlush = false;
 		this.flushDeferredKeys.clear();
 		let shouldContinueFlush = false;
-		const startedAt = Date.now();
 		let connected = false;
 		try {
 			// 一轮 flush 只占用一次 GATT：停广播、连接、按优先级执行、最后恢复广播。
@@ -211,12 +210,12 @@ export class DeviceGattScheduler {
 			}
 			await sleepTimeout(EVENT_SYNC_AFTER_CONNECT_DELAY_MS);
 			// 没有时长上限：需要补的缺口就一直补，补到没有缺口再断开。原来「120 秒必须
-			// 断开把通道还给广播」的约束由收尾的大空洞补读取代（9.3）——长连接留下的
-			// 空洞在断开前就地消化，不再转交给下一次连接。
+			// 断开把通道还给广播」的约束取消了——连接期间掐掉广播留下的缺秒就是普通缺口，
+			// 断开时不为它做任何事，由下一次连接顺带补掉（方案 9.1、9.3）。
 			while (this.tasks.length > 0) {
 				const task = this.takeNextTask();
 				if (task == null) break;
-				await this.runTask(task, startedAt);
+				await this.runTask(task);
 				if (this.pauseCurrentFlush == true) {
 					logger.info("bluetooth", "[BOOM-SCHED] GATT 通道忙，暂停本轮执行");
 					break;
@@ -241,8 +240,6 @@ export class DeviceGattScheduler {
 					}
 				}
 			}
-			// 空洞标记**不在这里清**：小空洞（tail <= 宽限）正是靠保留它、由 9.4 的
-			// 广播接续判定消费；清掉就等于把这段秒漏给下一次连接。
 			this.flushing = false;
 			if (shouldContinueFlush == true && this.tasks.length > 0) {
 				let nextReason: GattFlushReason = "timer";
@@ -395,8 +392,8 @@ export class DeviceGattScheduler {
 				`[BOOM-EVENT] 新事件解析结果:\n${this.device.history.formatEventAutoBrief(result.items, 20)}`
 			);
 		}
-		// 读事件期间停广播留下的秒级空洞不在这里补：交给下一轮自动历史检查，
-		// 由 recent / incremental 任务按统一记账补回，避免第二条绕过任务表的写入路径。
+		// 读事件期间停广播留下的缺秒不在这里补：它是普通缺口，由下一次连接
+		// （10 分钟自动检查，或任何本来就要连的任务）按统一记账补掉。
 	}
 
 	private async runHistoryRepair(task: GattQueueTask): Promise<HistoryRepairResult | null> {

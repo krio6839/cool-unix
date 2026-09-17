@@ -126,7 +126,7 @@ test("history-gap repair has one independent popup entry", async () => {
 	assert.equal(gapPopup.includes("scheduleVisibleRefresh"), false);
 });
 
-test("test page exposes seven independent full-height popup entry points", async () => {
+test("test page exposes six independent full-height popup entry points", async () => {
 	const source = await readFile("pages/device/test.uvue", "utf8");
 	for (const name of [
 		"HistoryQuickReadPopup",
@@ -134,14 +134,13 @@ test("test page exposes seven independent full-height popup entry points", async
 		"VitalProtocolPopup",
 		"EventProtocolPopup",
 		"DeviceControlPopup",
-		"DataDiagnosticsPopup",
-		"HistoryTunePopup"
+		"DataDiagnosticsPopup"
 	]) {
 		assert.equal(source.includes(`<${name}`), true, `${name} is mounted`);
 	}
 	assert.equal(source.includes("历史读取与协议调试"), false);
 	assert.equal(source.includes("<DatabaseTestPopup"), false);
-	for (const key of ["quick", "gap", "vital", "event", "control", "diagnostics", "tune"]) {
+	for (const key of ["quick", "gap", "vital", "event", "control", "diagnostics"]) {
 		assert.equal(source.includes(`key: "${key}"`), true, `entry: ${key}`);
 	}
 	assert.equal(source.includes('v-for="entry in testEntries"'), true);
@@ -161,15 +160,14 @@ test("test page exposes seven independent full-height popup entry points", async
 	assert.equal(source.includes("DataDiagnosticsPopup"), true);
 });
 
-test("seven popup components keep their responsibilities and bottom full-height presentation", async () => {
+test("six popup components keep their responsibilities and bottom full-height presentation", async () => {
 	const expectations = {
 		HistoryQuickReadPopup: ["read-range", "stop", "export"],
 		HistoryGapRepairPopup: ["repairGroup", "historyBaseline.snapshot", "scheduleOpenRefresh"],
 		VitalProtocolPopup: ["0x3A", "0x3B", "cl-select-date", "协议秒"],
 		EventProtocolPopup: ["0x3C", "0x3D", "cl-select-date", "协议秒"],
 		DeviceControlPopup: ["disconnect", "restore", "clear-error"],
-		DataDiagnosticsPopup: ["upload", "协议日志", "诊断日志"],
-		HistoryTunePopup: ["minuteSettleSec", "setHistoryTunable", "resetHistoryTunables"]
+		DataDiagnosticsPopup: ["upload", "协议日志", "诊断日志"]
 	};
 	for (const [name, markers] of Object.entries(expectations)) {
 		const source = await readFile(`pages/device/components/${name}.uvue`, "utf8");
@@ -434,6 +432,30 @@ test("uploadData reports failure instead of unconditional success", async (t) =>
 	assert.equal(await r.manager.uploadData(), false);
 });
 
+test("upload has one automatic entry point and no count/interval gate", async (t) => {
+	// 上传节奏由触发点决定（广播跨整分钟 / 60 秒定时兜底 / 补录落库后），不在这里再节流。
+	// 老的「攒够 30 条 或 距上次 30 秒」既让秒级实时流成了真正的驱动源，又把整分钟触发
+	// 挡在门外（分钟边界那一刻两条判据都为真），所以连常量一起删掉。
+	const manager = await readFile(".cool/bluetooth/data-manager.ts", "utf8");
+	assert.equal(manager.includes("PPI_UPLOAD_BATCH_SIZE"), false);
+	assert.equal(manager.includes("PPI_UPLOAD_MIN_INTERVAL_MS"), false);
+	assert.equal(manager.includes("lastPpiUploadAttemptAt"), false);
+	assert.equal(manager.includes("requestPpiUpload"), false);
+	// 退避仍然要有：失败批保持 uploaded=0，但不能随每次触发反复重试。
+	assert.equal(manager.includes("UPLOAD_FAILURE_BACKOFF_MS"), true);
+	assert.equal(manager.includes("private async uploadPpiIfPending()"), true);
+
+	// 秒级广播只落库，不驱动上传。
+	const broadcast = await readFile(".cool/store/device/broadcast.ts", "utf8");
+	const store = broadcast.slice(
+		broadcast.indexOf("private async storeBroadcastPpiData"),
+		broadcast.indexOf("private getBroadcastTimestamp")
+	);
+	assert.equal(store.includes("requestPpiUpload"), false);
+	assert.equal(store.includes("uploadPpiIfPending"), false);
+	assert.equal(store.includes("uploadCompletedMinuteIfCrossed"), true);
+});
+
 test("expired credentials reject instead of leaving upload locked indefinitely", async (t) => {
 	const r = await createRuntime(t);
 	r.seed(30);
@@ -550,26 +572,26 @@ test("refresh failure rejects all queued requests and allows a later refresh", a
 	assert.equal(r.posts[0].header.Authorization, "renewed");
 });
 
-test("failed upload waits for retry instead of re-requesting on every broadcast", async (t) => {
+test("a failed upload backs off instead of re-requesting on every trigger", async (t) => {
 	const r = await createRuntime(t);
 	r.seed(30);
 	r.respond = (options) => options.fail({ message: "offline" });
-	assert.equal(await r.manager.requestPpiUpload(), false);
-	assert.equal(await r.manager.requestPpiUpload(), false);
+	assert.equal(await r.manager.uploadData(), false);
+	assert.equal(await r.manager.uploadData(), false);
 	assert.equal(r.posts.length, 1);
 	r.respond = null;
-	r.manager.lastPpiUploadFailedAt -= 31000;
-	assert.equal(await r.manager.requestPpiUpload(), true);
+	r.manager.lastPpiUploadFailedAt -= 61000;
+	assert.equal(await r.manager.uploadData(), true);
 });
 
-test("a small throttled batch is pending, not reported as uploaded", async (t) => {
+test("a small batch uploads immediately instead of waiting for a count threshold", async (t) => {
 	const r = await createRuntime(t);
 	r.seed(2);
-	assert.equal(await r.manager.uploadData(), false);
-	assert.equal(r.posts.length, 0);
-	r.manager.lastPpiUploadAttemptAt -= 31000;
+	// 上传节奏由触发点决定（整分钟 / 定时兜底 / 补录落库后），不再有「攒够 30 条」这一关：
+	// 触发点认为该传了，两条也要传上去，否则这两秒会一直等到下一次触发。
 	assert.equal(await r.manager.uploadData(), true);
 	assert.equal(r.posts.length, 1);
+	assert.equal(r.posts[0].data.datas.length, 2);
 });
 
 test("live broadcasts arriving mid-run do not extend it to the batch cap", async (t) => {
