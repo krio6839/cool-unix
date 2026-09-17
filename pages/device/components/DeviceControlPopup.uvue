@@ -97,10 +97,13 @@
 <script lang="ts" setup>
 import { ref } from "vue";
 import { t } from "@/.cool";
-import type { DeviceControlPopupProps, DeviceReadItem } from "./types";
+import type { DeviceControlPopupProps, DevicePopupPayload, DeviceReadItem } from "./types";
 const show = defineModel("show", { default: false });
 const props = defineProps<DeviceControlPopupProps>();
-const emit = defineEmits(["command", "submit-form"]);
+const emit = defineEmits<{
+	(e: "command", cmd: string): void;
+	(e: "submit-form", payload: DevicePopupPayload): void;
+}>();
 const form = ref<"" | "0x31" | "0x35">("");
 const deviceNumber = ref("");
 const gender = ref(0);
@@ -113,17 +116,24 @@ const genderOptions = [
 	{ label: t("女 (1)"), value: 1 }
 ];
 function submitForm(): void {
-	if (form.value == "0x31")
-		emit("submit-form", { type: form.value, deviceNumber: deviceNumber.value });
-	if (form.value == "0x35")
-		emit("submit-form", {
+	if (form.value == "0x31") {
+		const payload: DevicePopupPayload = {
+			type: form.value,
+			deviceNumber: deviceNumber.value
+		};
+		emit("submit-form", payload);
+	}
+	if (form.value == "0x35") {
+		const payload: DevicePopupPayload = {
 			type: form.value,
 			gender: gender.value,
 			weight: weight.value,
 			height: height.value,
 			age: age.value,
 			bhr: bhr.value
-		});
+		};
+		emit("submit-form", payload);
+	}
 	form.value = "";
 }
 const reads: DeviceReadItem[] = [

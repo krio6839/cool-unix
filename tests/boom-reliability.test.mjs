@@ -303,6 +303,27 @@ test("event popup crosses the native component boundary with scalar display prop
 	assert.equal(popup.includes("props.eventHeader"), true);
 });
 
+test("protocol popups declare typed emit payloads so the page receives typed objects", async () => {
+	// 对象字面量直传 emit 会被编组成 UTSJSONObject，父页面强类型入参收下它就会抛
+	// IllegalArgumentException；载荷必须先在弹窗侧声明类型再 emit。
+	const popups = {
+		VitalProtocolPopup: ["VitalPopupPayload", "submitVitalFromPopup", "VitalPopupPayload"],
+		EventProtocolPopup: ["EventPopupPayload", "submitEventFromPopup", "EventPopupPayload"],
+		DeviceControlPopup: ["DevicePopupPayload", "submitDeviceForm", "DevicePopupPayload"]
+	};
+	for (const [name, [payloadType, handler]] of Object.entries(popups)) {
+		const source = await readFile(`pages/device/components/${name}.uvue`, "utf8");
+		assert.equal(source.includes(`const emit = defineEmits<{`), true, `${name}: typed emits`);
+		assert.equal(source.includes(`payload: ${payloadType}`), true, `${name}: typed payload`);
+		assert.equal(source.includes(`const payload: ${payloadType} = {`), true, `${name}: typed local`);
+		assert.match(source, /emit\("[a-z-]+", payload\)/, `${name}: emits the typed local`);
+		// 对象字面量不得再直接进 emit。
+		assert.equal(/emit\("[a-z-]+",\s*\{/.test(source), false, `${name}: no inline object emit`);
+		const page = await readFile("pages/device/test.uvue", "utf8");
+		assert.equal(page.includes(handler), true, `${name}: ${handler} still wired`);
+	}
+});
+
 test("a grouped history-gap repair uses one continuous 0x3A/0x3B reader", async () => {
 	const page = await readFile("pages/device/test.uvue", "utf8");
 	const reader = await readFile(".cool/store/device/history-reader.ts", "utf8");

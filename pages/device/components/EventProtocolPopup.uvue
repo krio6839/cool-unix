@@ -57,10 +57,14 @@
 import { computed, ref } from "vue";
 import { dayUts, t } from "@/.cool";
 import type { ClSelectOption } from "@/uni_modules/cool-ui";
-import type { EventProtocolPopupProps } from "./types";
+import type { EventPopupPayload, EventProtocolPopupProps } from "./types";
 const show = defineModel("show", { default: false });
 const props = defineProps<EventProtocolPopupProps>();
-const emit = defineEmits(["submit", "stop"]);
+// 声明载荷类型：对象字面量直传 emit 会被编组成 UTSJSONObject，父页面强类型入参会抛 IllegalArgumentException。
+const emit = defineEmits<{
+	(e: "submit", payload: EventPopupPayload): void;
+	(e: "stop"): void;
+}>();
 const type = ref(1);
 const timeFormat = "YYYY-MM-DD HH:mm:ss";
 function formatPickerTime(sec: number): string {
@@ -104,12 +108,13 @@ function submitEvent(): void {
 		}
 	}
 	formError.value = "";
-	emit("submit", {
+	const payload: EventPopupPayload = {
 		type: type.value,
 		startSec: startSec.toString(),
 		endSec: endSec.toString(),
 		maxCount: maxCount.value
-	});
+	};
+	emit("submit", payload);
 }
 </script>
 <style lang="scss" scoped>
