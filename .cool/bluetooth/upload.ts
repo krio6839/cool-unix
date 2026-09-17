@@ -30,16 +30,15 @@ import type {
  * 退避只作用于自动路径，测试页手动上传直接调 `uploadPpiData()`，不受影响。
  */
 const UPLOAD_FAILURE_BACKOFF_MS = 60 * 1000;
-/** 单个请求最多 300 秒数据，每轮最多 10 批，防止长期占用上传通道。 */
-const PPI_UPLOAD_MAX_RECORDS = 300;
+/**
+ * 每轮最多 10 批，防止长期占用上传通道。
+ *
+ * 单批的条数上限不在这里，而是 `data-manager.ts` 的 `PPI_UPLOAD_PAGE_SIZE`（SQL LIMIT）——
+ * 分页是查询的属性，编排层再放一个同名的常量只会让人以为改它可以改批大小。
+ */
 const PPI_UPLOAD_MAX_BATCHES = 10;
-/** 定时兜底的上传检查间隔。主触发是心跳，这里只为消费积压与失败重试。 */
-const UPLOAD_RETRY_INTERVAL_MS = 60 * 1000;
 
 export class BluetoothUploader {
-	/** 定时上传定时器 */
-	private uploadTimer: number | null = null;
-
 	/**
 	 * PPI 上传锁。
 	 *
@@ -383,31 +382,6 @@ export class BluetoothUploader {
 					logger.error("bluetooth", "[BOOM-UPLOAD] 历史落库后上传异常:", error);
 				});
 		}, 0);
-	}
-
-	/**
-	 * 定时兜底。
-	 *
-	 * **有意保留、但当前没有调用方**：主触发是心跳（`device-tick.ts`），那里每轮都调
-	 * `uploadData()`，已覆盖这条定时器要做的全部事情（消费积压 + 失败重试）。它留在
-	 * 这里是为了「定时器还会跑」这一种极端情况——心跳若因任何原因停摆，一行
-	 * `startUploadTimer()` 就能接回节奏，而不必重新写一遍退避与批次逻辑。
-	 * 不接的话它不产生任何行为，不会变成第二个隐式节奏来源。
-	 */
-	startUploadTimer(): void {
-		this.stopUploadTimer();
-		//@ts-ignore
-		this.uploadTimer = setInterval(() => {
-			this.uploadData();
-		}, UPLOAD_RETRY_INTERVAL_MS);
-	}
-
-	stopUploadTimer(): void {
-		const timer = this.uploadTimer;
-		if (timer != null) {
-			clearInterval(timer);
-			this.uploadTimer = null;
-		}
 	}
 }
 

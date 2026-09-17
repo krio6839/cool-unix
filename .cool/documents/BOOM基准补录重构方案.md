@@ -256,8 +256,8 @@ stableCeiling(nowSec) = nowSec - MINUTE_SETTLE_SEC   -- 记账右端，也是缺
 - **入口只有一个**：三个触发点都调 `uploadData()`，PPI 那侧只做「有待传记录 + 不在失败退避中就传」，**没有条数与间隔阈值**。节奏由触发点决定，不在入口再节流一次；失败后退避 `UPLOAD_FAILURE_BACKOFF_MS = 60 秒`，退避只作用于自动路径，手动上传不受影响。
 - **判定与上传是两件事**：一轮心跳里先判定（`classify` + `advanceBaseline`）再上传。**判定依据是本地的 `ppi_data`，不是上传结果**——基准时间描述的是「数据是否收齐」，上传是独立的可重试动作。上传失败时 `uploaded` 保持 0，由重试路径继续消费，不会因为弱网把已经收齐的秒判成待补。
 - **上传节奏因此是「约 60 秒一批」而不是「一整分钟一批」**：心跳可能落在分钟中间，同一条实时流的秒会分两次上传（例如 12:00:35 传 35 秒，12:01:35 传剩下 25 秒 + 下一分钟）。服务端按 `time` 逐秒接收，这不影响正确性。这是收掉整分钟概念后接受的代价——想恢复整分钟批次就得把「已完成的那一分钟」这个概念请回来，与本次简化的方向相反。
-- 保留 `PPI_UPLOAD_MAX_RECORDS = 300` / `PPI_UPLOAD_MAX_BATCHES = 10` 作为**积压排空**的上限（历史补录落库的秒可能远超一分钟），但正常实时路径每轮心跳只有一批。
-- 保留 `upload.ts` 里的 60 秒定时兜底（`UPLOAD_RETRY_INTERVAL_MS`）作为「定时器还会跑」这一种极端情况的保底，不构成第二个节奏来源。
+- 保留 `PPI_UPLOAD_MAX_BATCHES = 10` 作为**积压排空**的上限（历史补录落库的秒可能远超一分钟），但正常实时路径每轮心跳只有一批。**单批的条数上限不在编排层**，而是 `data-manager.ts` 的 `PPI_UPLOAD_PAGE_SIZE = 300`（SQL `LIMIT`）——分页是查询的属性，编排层再放一个同名常量（曾有过一个没人用的 `PPI_UPLOAD_MAX_RECORDS`）会让人以为改它能改批大小。
+- **编排层不带定时器。** `upload.ts` 里那套没人调用的 60 秒定时兜底（`startUploadTimer` / `stopUploadTimer` / `UPLOAD_RETRY_INTERVAL_MS`）已删除：心跳每轮都调 `uploadData()`，已覆盖它要做的全部事情（消费积压 + 失败重试），留着等于留了第二个节奏来源。
 
 ## 8. 补数据：一次一个缺口，补完推进再下一个
 
@@ -481,11 +481,11 @@ stableCeiling(nowSec) = nowSec - MINUTE_SETTLE_SEC   -- 记账右端，也是缺
 | `.cool/bluetooth/data-manager.ts` | 建表语句换新；`clearAllData` 的表名；诊断计数的表名。**只做数据库读写**——上传编排整体搬到 `upload.ts`，本文件不 import 上传代码。 |
 | `.cool/bluetooth/upload.ts` | **新增**。PPI / 睡眠的上传编排：批循环、失败退避、定时兜底、设备身份。导出 `bluetoothUploader`。依赖方向单向：`upload.ts → data-manager.ts`。 |
 | `.cool/store/device/device-tick.ts` | **新增**。全套后台节奏的**唯一决策点**：`poke()` 限流、每轮 `classify` → `advanceBaseline` → `uploadData`、每 10 分钟 `maybeConnect()`。替代 `sync.ts` 的 `runAutoLoop` + `onMinuteBoundary`，并吸收广播的整分钟判定。 |
-| `.cool/store/device/history-repair.ts` | **新增**。`repairAllGaps(reader)` —— 一次连接内把 `listRepairGaps()` 的缺口读完。只依赖一个 `GapReader`，不 import `Device`，因此可以配假 reader 独立测试。 |
+| `.cool/store/device/history-repair.ts` | **新增**。`repairAllGaps(reader): Promise<void>` —— 一次连接内把 `listRepairGaps()` 的缺口读完。只依赖一个 `GapReader`，不 import `Device`，因此可以配假 reader 独立测试。**不返回结果对象**：唯一的调用方是 GATT 队列，拿到也无处可用，逐组的数字留在自己的两行日志里。 |
 | `.cool/store/device/broadcast.ts` | 落库广播秒后只喊一声 `tick.poke("broadcast")`。**不认识「分钟」「判定」「上传」任何一个概念**（9.2：连接空洞是普通缺口）。 |
 | `.cool/store/device/history-reader.ts` | `readVitalTaskGroup` → 读缺口组；`savePage` → 缺口页落库并记账；删除预算参数。 |
 | `.cool/bluetooth/history/tunables.ts` | **新增**。第 14 节的运行时可调参数：默认值 + 本地覆盖 + 读写/重置。 |
-| `.cool/store/device/gatt-scheduler.ts` | 删除 `GATT_FLUSH_BUDGET_MS`；**收尾不需要特殊动作**（9.1）；`runHistoryRepair()` 收缩成 `repairAllGaps(this.device.history)` 加收尾。 |
+| `.cool/store/device/gatt-scheduler.ts` | 删除 `GATT_FLUSH_BUDGET_MS`；**收尾不需要特殊动作**（9.1）；`runHistoryRepair()` 收缩成 `await repairAllGaps(this.device.history)` 加 `markHistorySynced()`，不接返回值。 |
 | `.cool/store/device/connection.ts` | **不需要改动。** |
 | `.cool/store/device/sync.ts` | **删除**。规划三步并入 `device-tick.ts`，缺口读取并入 `history-repair.ts`，类型分别落到两处；`Device` 上的 `sync` 字段换成 `tick: DeviceTick`。 |
 | `pages/device/components/HistoryGapRepairPopup.uvue` | 列表改为缺口，去掉 kind 文案。 |
@@ -510,7 +510,7 @@ stableCeiling(nowSec) = nowSec - MINUTE_SETTLE_SEC   -- 记账右端，也是缺
 - `HISTORY_AUTO_BACKLOG_INTERVAL_MS`（取消预算上限后一轮排空，不再需要）。
 - **整分钟触发**：`broadcast.ts` 的 `uploadCompletedMinuteIfCrossed()`、`lastBroadcastMinuteSec`、`minuteUploadBusy`，`data-manager.ts` 的 `onMinuteCompleted()`。上传主触发改为心跳。
 - `sync.ts` 整个文件、`DeviceSync` 类型、`DeviceSyncState` / `DeviceSyncReason`、`startAutoRepair()` / `stopAutoRepair()` / `runAutoLoop()`、`HISTORY_AUTO_INITIAL_DELAY_MS` 的「启动延迟 15 秒」（第一次 tick 就该把关闭期间积压的时间判完）。
-- `data-manager.ts` 的 `startUploadTimer()` 与构造函数里的定时器（改由 `deviceTick.start()` 驱动）。
+- `data-manager.ts` 的 `startUploadTimer()` 与构造函数里的定时器（改由 `deviceTick.start()` 驱动）；`upload.ts` 里继承下来的那套同名定时器也在（八）里删掉。
 - `ACCOUNT_MARGIN_SEC` 页面记账专用余量（两条写入路径统一用 `MINUTE_SETTLE_SEC`）。
 - 缺口表的 `retry_at` / `attempts` 持久退避（改由 10 分钟连接间隔天然提供）。
 - 「30 条 / 30 秒」上传触发。
@@ -672,7 +672,7 @@ export function resetHistoryTunables(): void;
 | **删除 `PPI_UPLOAD_BATCH_SIZE = 30` 与 `PPI_UPLOAD_MIN_INTERVAL_MS`**（第 7 节） | `count < 30 && elapsed < 30000` 让「攒够 30 条」和「距上次 30 秒」**各自单独放行**，实测每 30 秒一批。上传节奏应该由触发点决定，不该在入口再节流一次 |
 | **整分钟触发原本被架空** | `onMinuteCompleted()` 走的是 `uploadData()` → 同一道闸门；分钟边界那一刻 `count < 30` 且 `elapsed < 30000` 两条都为真，直接 `return false`。所谓「主触发是整分钟」实际一次都没生效 |
 | **`broadcast.ts` 删掉逐秒的 `requestPpiUpload()`** | 它在每条广播上都调，秒级实时流才是真正的驱动源，与「秒级的实时流不再驱动上传」正好相反。秒级广播改为只落库，上传只在跨整分钟那一次发生 |
-| **入口收敛为 `uploadData()` 一个** | 五个入口（`requestPpiUpload` / `uploadData` / `scheduleUpload` / `startUploadTimer` / `onMinuteCompleted`）各带一套隐式节流，散落难查。现在三个触发点都调同一个入口，`requestPpiUpload()` 降为私有的 `uploadPpiIfPending()`，只剩「有待传记录 + 不在退避中就传」 |
+| **入口收敛为 `uploadData()` 一个** | 五个入口（`requestPpiUpload` / `uploadData` / `scheduleUpload` / `startUploadTimer` / `onMinuteCompleted`）各带一套隐式节流，散落难查。现在三个触发点都调同一个入口，`requestPpiUpload()` 降为私有的 `uploadPpiIfPending()`，只剩「有待传记录 + 不在退避中就传」。其中 `startUploadTimer` 那条兜底定时器此后一直无调用方，（八）里删除 |
 | **退避值 30 秒 → `UPLOAD_FAILURE_BACKOFF_MS = 60 秒`** | 流程文档原本就写着「自动上传至少等待 60 秒再重试」，代码是 30 秒——又一处文档与代码不一致，一并对齐。退避只加在自动路径，`uploadPpiData()` 保持无节流的 worker 语义，测试页手动上传不受影响 |
 
 **这一版之后**，第 7 节与 §12 的「『30 条 / 30 秒』上传触发」才是事实。真机验证形态：`[BOOM-UPLOAD] 分钟上传: minute=...` 每 60 秒一条，紧随其后 `上传PPI数据: batch=1, count≈60`。
@@ -693,6 +693,27 @@ export function resetHistoryTunables(): void;
 | **`broadcast.ts` 退回纯采集** | 落库成功后只剩一行 `this.device.tick.poke("broadcast")`，不认识「分钟」「判定」「上传」任何一个概念。两次误读（修订六的 `requestPpiUpload`、本轮的整分钟）都出自这个文件对下游节奏的插手 |
 | **测试页的 revision 挂到 `deviceStore.tick`** | `lastCheckAt` / `lastHistorySyncAt` 两个 ref 从 `sync` 整体搬到 `device-tick`，语义不变 |
 | **测试改为按新骨架断言，并新增三条用例** | 旧用例断言的 `sync.ts` / `runVitalGaps` 已不存在。新增：一轮 tick 的三步顺序、`poke()` 的 60 秒限流与重入守卫、`broadcast.ts` 里不再有任何分钟相关标识符 |
+
+### 2026-09-18 修订（八）：收束之后的清账
+
+（七）是「搬 + 改指向」，搬完之后必然留下一些没人引用的东西。这一版逐个核实（全仓标识符边界匹配，排除定义处）后清掉，并顺手把一轮心跳里的重复查库收拢。**这一版不改变任何行为**，只改「代码里有什么」和「一轮 tick 读几次库」。
+
+| 决定 | 理由 |
+| --- | --- |
+| **删掉上传定时器那套**（`upload.ts` 的 `uploadTimer` / `startUploadTimer` / `stopUploadTimer` / `UPLOAD_RETRY_INTERVAL_MS`） | 它从搬过去那天起就没有调用方。上一版在注释里把它标成「有意保留」，但**保留的理由本身是错的**：它存在的意义是「心跳若停摆，一行就能接回节奏」——而心跳每轮已经调 `uploadData()`，接回去等于重新引入第二个节奏来源，正是（七）要消掉的东西。真出问题该修心跳，不该并存一条旁路 |
+| **删掉 `state`（`device-tick.ts`）** | 只有本文件写，全仓零读者。同一批 ref 里的 `lastCheckAt` / `lastHistorySyncAt` 有测试页读，它没有 |
+| **`lastError` 不删，接到测试页** | 它是整轮 tick 抛出时除日志外**唯一**的落点，而两份文档都已经写着「看测试页的 `deviceStore.tick.lastError`」——文档悬空，接上就成立。删掉信号只会让「心跳在跑但什么都没做」更难发现 |
+| **删掉 `PPI_UPLOAD_MAX_RECORDS`（`upload.ts`）** | 没人用。真正生效的是 `data-manager.ts` 的 `PPI_UPLOAD_PAGE_SIZE = 300`（SQL `LIMIT`）。两个同值的常量分居两处，会让人以为改编排层那个能改批大小 |
+| **删掉 `data-manager.ts` 的 `getPpiTimestampsBetween` / `getLatestSleepData` / `destroy()`** | 都没有调用方。`getPpiTimestampsBetween` 还是 `historyCoverage.getPpiTimestamps` 的重复实现，**且边界不一致（`<=` vs `<`）**——「本地有没有这一秒」有两个说法本身就是隐患。`destroy()` 的 `destroy` 在删除上传定时器后彻底失去意义 |
+| **删掉 `connection.ts` 里 `bluetoothDataManager` 的死 import** | 上传搬走后它就没用了 |
+| **`history-repair.ts` 不再返回 `HistoryRepairResult`** | `repairAllGaps()` 花约 40 行组装结果对象（`HistorySyncPlan`、逐组字段拷贝、`countSaved`），唯一的调用方 `gatt-scheduler` 拿到就丢，`runTask` 更是直接忽略返回值；三个类型从 `index.ts` 再导出也零消费者。改成 `Promise<void>`，逐组数字留在日志里——那才是排查「补了但没记账」时真正会看的地方。`HistoryGapRepairResult` 也顺带从「六个字段纯搬运」改成 `{ gap, read }` |
+| **删掉 `advanceBaseline()` 里不可达的分支** | 该分支的条件是 `first.fromSec > baseline`，而它能被求值就说明上一轮已经保证不成立——是个恒假判断。**但同一处的 `listReadyRanges()` 不能在循环里重查**（见下），两件事在同一次改动里，容易一起改错 |
+| **一轮 tick 里 `B` 只读一次** | `runTick()` 开头读一次，作为参数传给 `classify` / `advanceBaseline` / `maybeConnect` / `listRepairGaps`（新签名 `knownBaseline`）。分类只写 `vital_ready_ranges` 不改 `B`，所以那个值对整轮都成立。省一次跨桥查询，也少一个断网时的异常点（`getBaseline()` 读失败会抛） |
+| **`advanceBaseline()` 的消费循环不再每轮重查全表** | `mergeReadyRanges` 是整表归一化写入，区间条数受「不合格段数」约束，长时间不补录会累起来——正是这里最坏。改成一次读出、`shift()` 就地消费。**注意这不能和「删不可达分支」一起做错**：`first.fromSec > baseline` 那个 `break` 必须留着，它正是「`B` 停在缺口前面」的实现 |
+| **`mergeReadyRanges(ranges, existing?)` 由 `classify` 传入已读列表** | `classify` 本来就为减法读了它，而写入只发生在这一次调用里，中间没有别的写入者 |
+| **`runVitalGaps` 复用上一组的 `after` 作为下一组的 `before`** | 现在是每组调两次 `advanceBaseline`；两组之间没有别的写入者，第 i 组的 `after` 就是第 i+1 组的 `before` |
+| **明确不做：不跨 `classify` → `advanceBaseline` 缓存 `ready`** | `classify` 刚写完 `vital_ready_ranges`，`advanceBaseline` 必须看到新写的行才能推进 `B`。复用旧快照会让 `B` 落后一整轮。「循环内部复用自己刚读的」与这个是两回事 |
+| **实测效果** | 积压场景（40 条相邻 ready 区间等着被消费）一轮 tick：查询 51 次 → **7 次**，事务 40 次 → **2 次**；正常在线场景：17 次 → **11 次** |
 
 ## 16. 待真机验证的数值
 

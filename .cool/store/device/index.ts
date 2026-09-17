@@ -648,4 +648,3 @@ export type {
 export type { HistoryGap } from "../../bluetooth/history/baseline";
 export type { SyncReason } from "./types/gatt-types";
 export type { TickReason } from "./device-tick";
-export type { HistoryGapRepairResult, HistoryRepairResult, HistorySyncPlan } from "./history-repair";

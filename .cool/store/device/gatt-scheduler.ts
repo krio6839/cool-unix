@@ -2,7 +2,6 @@ import { EVENT_QUERY_TYPE_BY_TIME } from "../../bluetooth";
 import { sleepTimeout } from "../../utils";
 import { repairAllGaps } from "./history-repair";
 import type { Device } from "./index";
-import type { HistoryRepairResult } from "./history-repair";
 import type {
 	GattFlushReason,
 	GattQueuePriority,
@@ -402,17 +401,16 @@ export class DeviceGattScheduler {
 		// （10 分钟自动检查，或任何本来就要连的任务）按统一记账补掉。
 	}
 
-	private async runHistoryRepair(task: GattQueueTask): Promise<HistoryRepairResult | null> {
+	private async runHistoryRepair(task: GattQueueTask): Promise<void> {
 		// 缺口不截断、连接不设时长：一轮把 `listRepairGaps()` 的缺口全部读完。
 		// 连接本身由本调度器持有（停广播 → 连接 → 跑任务 → 恢复广播），
 		// `repairAllGaps()` 只负责在已连接的通道上把缺口读掉，不碰连接。
+		// 它也**不返回结果**：补录的数字都在自己的日志里，这里拿到也无处可用。
 		try {
-			const result = await repairAllGaps(this.device.history);
+			await repairAllGaps(this.device.history);
 			this.device.tick.markHistorySynced();
-			return result;
 		} catch (e) {
 			logger.warn("bluetooth", "[BOOM-HISTORY] 补录异常:", e);
-			return null;
 		}
 	}
 

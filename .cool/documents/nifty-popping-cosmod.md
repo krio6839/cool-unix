@@ -177,3 +177,132 @@ export async function repairAllGaps(reader: GapReader): Promise<HistoryRepairRes
    - `[BOOM-HISTORY] 补录结束` 的 `连接时长` 稳定在一个小值
    - `broadcast.ts` 相关日志里不再出现「分钟」
 3. 关键回归：App 关闭数小时后再开 → 首次 tick 立刻 `分类完成` 报出大段缺口 → 10 分钟间隔内入队一次连接把它读完，`B` 追上 `stableCeiling`。
+
+
+
+# 收束之后的第二轮：清账
+
+## Context
+
+上一轮的重构（一个心跳、三个文件各管一件事，`sync.ts` 删除、`device-tick.ts` / `upload.ts` / `history-repair.ts` 建立）已经全部落地，117 条测试全绿。这一轮问的是「还有精简空间吗」——有，而且是可核实的，不是风格问题。三类：
+
+**一、重构留下的死代码。** 上一轮是「搬 + 改指向」，搬完之后有些东西没了引用者，但文件还在。逐个核实过（全仓 `\bname\b` 边界匹配，排除定义处）：
+
+| 位置 | 事实 |
+| --- | --- |
+| `.cool/store/device/device-tick.ts:47` `state` | 只有本文件写，全仓**零读者**（`lastCheckAt` / `lastHistorySyncAt` 有 test.uvue 读，它没有） |
+| `.cool/store/device/device-tick.ts:48` `lastError` | 只有本文件写 + 测试读。**两份文档都写着「看测试页的 `deviceStore.tick.lastError`」，而 test.uvue 压根没读它** —— 文档悬空 |
+| `.cool/store/device/connection.ts:15` | `bluetoothDataManager` 已随上传搬走，这个 import 是死引用 |
+| `.cool/bluetooth/upload.ts:34` | `PPI_UPLOAD_MAX_RECORDS = 300` 定义了没人用；真正生效的是 `data-manager.ts:26` 的 `PPI_UPLOAD_PAGE_SIZE = 300`（SQL LIMIT） |
+| `.cool/bluetooth/upload.ts:41,397-411` | 上传定时器四件套（`uploadTimer` / `startUploadTimer` / `stopUploadTimer` / `UPLOAD_RETRY_INTERVAL_MS`）零调用方 |
+| `.cool/bluetooth/data-manager.ts:426` | `getPpiTimestampsBetween` 全仓无人用，且是 `historyCoverage.getPpiTimestamps` 的重复实现（边界一个 `<=` 一个 `<`） |
+| `.cool/bluetooth/data-manager.ts:677` | `getLatestSleepData` 全仓无人用 |
+| `.cool/bluetooth/data-manager.ts:697-698` | `destroy()` 零调用方，方法体只留一句注释说定时器归 uploader 管 |
+| `.cool/bluetooth/history/baseline.ts` | `advanceBaseline` 的 `while(true)` 里第 451 行分支**不可达**：能进循环体说明 `first.fromSec <= baseline`，于是要么 `first.toSec > baseline`（走 462 行推进 `B`），要么 `first.toSec <= baseline`（走 452 行删除）。推进路径把 `baseline = first.toSec`，下一轮 `first` 若是同一条，`fromSec <= baseline = toSec` 且 `toSec > baseline` 不成立 → 必走删除分支。两条路都不产生 `fromSec > baseline` 后继续循环的情形 |
+
+**二、造出来就被丢掉的返回值链。** `repairAllGaps()` 花了 ~40 行组装 `HistoryRepairResult`（含 `HistorySyncPlan`、逐组 `HistoryGapRepairResult` 的字段拷贝、`countSaved`），唯一的调用方 [gatt-scheduler.ts:410](.cool/store/device/gatt-scheduler.ts#L410) 拿到手就丢；`runTask` 在 317 行 `await this.runHistoryRepair(task);` 更是直接忽略返回值。三个类型从 `index.ts:651` 再导出，**全仓零消费者**。测试也不看它——`tests/boom-reliability.test.mjs` 里那三处 `savedRecords` 断言读的是 `reader.readVitalGapGroup()` 的返回（t:1078），不是这个。
+
+**三、每轮心跳重复查库。** 一次 tick 的调用链里同一份数据被反复读：
+
+- `getBaseline()` 一轮 **3 次**：`classify` → `clampToRetention`、`advanceBaseline` → `clampToRetention`、`maybeConnect:148`。而 `advanceBaseline` 刚把 `B` 算好返回给 `runTick`，`runTick` 拿它打了条日志就扔了。
+- `listReadyRanges()` 一轮 **≥3 次**：`classify`、`advanceBaseline` 的循环（**每轮迭代各一次**）、`listRepairGaps`。
+- `clampToRetention()` 一轮 3 次（上面两个方法各一次 + `listRepairGaps` 一次），每次都要读 `B`。
+
+断网时 `getBaseline` 会 throw（`baseline.ts:110`），一次 tick 里 3 次跨桥调用就是 3 次异常风险 —— 这条链本身也是重复。
+
+目标：**删掉没人用的东西，把返回值收敛到真正要用的形状，把一轮 tick 的重复读降到必要次数。**
+
+## 一、删死代码
+
+全部是删除动作，没有替代实现：
+
+- `device-tick.ts`：`state` 字段与 113 / 130 两行赋值。
+- `connection.ts:15`：import 里去掉 `bluetoothDataManager`。
+- `upload.ts`：`PPI_UPLOAD_MAX_RECORDS`；`uploadTimer` 字段、`startUploadTimer()`、`stopUploadTimer()`、`UPLOAD_RETRY_INTERVAL_MS`。整段「有意保留、当前无调用方」的注释一并删除——**它的保留理由是「定时器还会跑时可以一行接回去」，而心跳每轮已经调 `uploadData()`，接回去就是重新引入第二个节奏来源，正是上轮要消掉的东西**。真出问题该修心跳。
+- `data-manager.ts`：`getPpiTimestampsBetween()`、`getLatestSleepData()`、`destroy()`。`destroy()` 删掉后 697 行那句「上传定时器由 `bluetoothUploader.stopUploadTimer()` 管」的注释也没了归属（那个方法本轮也删了）。
+- `baseline.ts:451-458`：删掉不可达的 `if (first.toSec <= baseline)` 分支 —— 连同 `while` 里的 `consumed++` 计数一并调整（推进分支保留计数）。
+
+## 二、返回值收敛到 void
+
+- `history-repair.ts` 的 `HistoryRepairResult` 与 `HistorySyncPlan` 两个类型删除，`repairAllGaps()` 改成 `Promise<void>`：内部保留 `plan`（日志要用它的字段）、保留逐组结果数组（收尾日志要 `results.length - failedGroups` 与 `countSaved`），只是不再打包成对象返回。
+- `HistoryGapRepairResult` 不再逐字段拷贝 `VitalAutoReadResult`（`status`/`message`/`pages`/`savedRecords`/`saveOk`/`uploadScheduled` 六个字段是纯搬运），改成 `{ gap, read: VitalAutoReadResult }`。`VitalAutoReadResult` 从 `./history-reader` 本来就是 `import type`，不新增依赖方向。
+- `gatt-scheduler.ts:405`：`runHistoryRepair()` 返回类型改 `Promise<void>`，内部 `try/catch` 保留（异常要吞掉并记 warn），去掉 `return result` / `return null`。
+- `index.ts:651`：删除 `HistoryGapRepairResult, HistoryRepairResult, HistorySyncPlan` 的再导出。**注意 `HistoryGap` / `TickReason` / `SyncReason` 三条导出有人用，保留。**
+
+净效果：`history-repair.ts` 从 151 行降到约 110 行，且「补录结果」这条链上不再有第二个真相来源。
+
+## 三、每轮 tick 的重复读
+
+只做**可证明等价**的部分。每条都独立，任一条觉得不划算可以单独砍掉：
+
+1. **`advanceBaseline` 用自己的累加器，不再每轮迭代查全表。**
+   把 `let ready = await this.listReadyRanges()` 提到循环外，删除分支里从数组头部 `shift()`（它是按 `from_sec` 排好序的），推进分支删掉刚消费的那一条。省的是「消费 N 条区间时的 N-1 次全表读」——`mergeReadyRanges` 是整表归一化写入，区间条数受「不合格段数」约束，长时间不补录时会累起来，这里正是它最坏的地方。
+
+2. **`mergeReadyRanges(ranges, existing?)` 由 `classify` 传入已读的列表。**
+   `classify:306` 已经读了 `ready`，`mergeReadyRanges:164` 又读一遍。加一个可选参数，`classify` 传进去。`markReady` 那条路径（`history-reader` 每页调一次）没有现成列表，继续走原路。
+
+3. **`maybeConnect(nowSec, baseline)`：`baseline` 由 `runTick` 传。**
+   `runTick:117` 刚从 `advanceBaseline` 拿到 `baseline`，打个日志就扔，然后 `maybeConnect:148` 再 `getBaseline()` 读一次同样的值。直接传参。这同时省掉断网时的一次跨桥异常点。
+
+4. **`clampToRetention` 接一个「调用方已读到的 `B`」。**
+   签名改 `clampToRetention(nowSec, knownBaseline?)`：`knownBaseline` 有值且 `>= retentionStart` 时直接返回，不再 `getBaseline()`。三个调用点各传自己已有的值——`classify` 传 `runTick` 给的、`advanceBaseline` 传上一轮返回的、`listRepairGaps` 不传（它没有）。**保留全部钳制语义**：`knownBaseline` 缺失或低于保留起点时，照旧读库、跳 `B`、删过期区间。
+
+5. **`runVitalGaps` 把上一组的 `after` 当下一组的 `before`。**
+   现在是每组 `advanceBaseline` 调两次（110 / 112 行），N 组就 2N 次。第 i 组的 `after` 就是第 i+1 组的 `before`（组之间没有别的写入者）。改成进循环前先取一次，循环里只取 `after`。省 N 次。
+
+**明确不做的一件事**：不把 `ready` 列表跨 `classify` → `advanceBaseline` 缓存复用。`classify` 刚写完 `vital_ready_ranges`，`advanceBaseline` 必须看到新写的行才能推进 `B`；复用旧快照会让 `B` 落后一整轮。第 1 条是「循环内部复用自己刚读的」，与这个是两回事。
+
+## 四、`lastError` 接到测试页
+
+`runTick` 的 catch 是整轮 tick 抛出时**唯一**留下错误文本的地方（日志之外），而两份文档都已经让用户去测试页看它。补上落点而不是删掉信号：
+
+- `pages/device/test.uvue`：在基准面板附近显示 `deviceStore.tick.lastError.value`，为空时不显示。测试页已有 `tick.lastCheckAt` / `tick.lastHistorySyncAt` 的 `historyGapRevision` 计算属性，按同一风格接。
+- 两份文档里指向 `deviceStore.tick.lastError` 的句子**本轮不动**——它们原来悬空，接完就成立了。
+
+## 五、测试
+
+`npm run test:boom`（`node --test tests/boom-reliability.test.mjs tests/boom-history-progress.test.mjs`）必须全绿。受影响的：
+
+- **`history-repair.ts` 的返回签名**：`tests/boom-reliability.test.mjs:359,364` 只 `await r.historyRepair.repairAllGaps(reader)` 不看返回值，签名改 void 后无需改动。
+- **删掉的东西要能被断言「不再回来」**：在已有的源码断言用例里追加（沿用现有 `readFile` + `includes` 的写法）：
+  - `upload.ts` 不含 `startUploadTimer` / `stopUploadTimer` / `UPLOAD_RETRY_INTERVAL_MS` / `PPI_UPLOAD_MAX_RECORDS`
+  - `data-manager.ts` 不含 `getPpiTimestampsBetween` / `getLatestSleepData`
+  - `device-tick.ts` 不含 `state = ref`
+- **本轮已有的行为用例是第三层的兜底**，必须逐条盯：
+  - `one tick does classification, baseline advance, and upload in a fixed order`（断言 `deepEqual(order, ["classify","advance","upload"])` 与 `baseline === now - 10`）—— 覆盖第 3、4 条
+  - `automatic history repair plans from the baseline cursor, not a task queue`
+  - `a gap with no device data does not abort the remaining gaps in one connection`（假 reader，两组缺口）—— 覆盖第 5 条
+  - `poke is rate-limited to one tick per minute and never re-enters`
+  - `data diagnostics popup shows logs and defers full export to auto-archived files`（源码断言，接 `lastError` 时留意别写坏）
+- 顺带确认 `tests/helpers/boom-runtime.mjs` 里 `state.historyRepair` 仍能加载（类型导出变了但模块还在）。
+
+**第三层的额外验证**：跑一条端到端场景断言「一次 tick 内 `bluetoothDatabase.query` 的调用次数」比改动前少。运行时已经有 `r.db`（in-memory SQLite），给 `bluetoothDatabase.query` 包一层计数即可，比读源码断言可靠。
+
+## 六、文档
+
+两份都要改，改动都不大：
+
+**`.cool/documents/BOOM蓝牙运行流程.md`**
+- 181 行：删「`upload.ts` 里的 60 秒定时兜底（`UPLOAD_RETRY_INTERVAL_MS`）…保底」整条——定时器已删。
+- 182 行：`PPI_UPLOAD_MAX_RECORDS = 300` 改成实际生效的 `PPI_UPLOAD_PAGE_SIZE`（在 `data-manager.ts`），并说明单批上限来自 SQL LIMIT 而不是编排层的常量。
+- 802 行：保留（`lastError` 接上测试页后这句话成立）。
+- 核对 §8.13 日志清单里是否还有被删方法产生的日志行。
+
+**`.cool/documents/BOOM基准补录重构方案.md`**（本轮重构的临时文档）
+- 259 / 260 行：同上的两条清理。
+- 513 行：`data-manager.ts` 的 `startUploadTimer()` 已不在（上轮删过一次，这里是残留描述）。
+- 484 / 488 行：`history-repair.ts` 的描述里 `repairAllGaps(reader)` 补一句「返回 `void`，结果只进日志」。
+- 675 行：入口收敛表里 `startUploadTimer` 已不存在，从历史对照里划掉或注明已删。
+- §15 变更记录：新增一条「2026-09-18 修订（八）：收束后的清账」，记三类清理与「为什么不保留上传定时器」。
+
+## 验证
+
+1. `npm run test:boom` 全绿。
+2. 所有改动的 TS 文件过一遍 `stripTypeScriptTypes` 解析（沿用上轮的检查方式）。
+3. 全局搜一遍被删标识符，确认零残留：`getPpiTimestampsBetween`、`getLatestSleepData`、`startUploadTimer`、`stopUploadTimer`、`UPLOAD_RETRY_INTERVAL_MS`、`PPI_UPLOAD_MAX_RECORDS`、`HistorySyncPlan`、`HistoryRepairResult`、`HistoryGapRepairResult`。
+4. **一次 tick 的查询次数**（第三层的成败判据）：用测试运行时包一层计数，断言改动后一次 tick 的 `query` 次数低于改动前。断网场景额外确认 `getBaseline` 只在必要处被调用。
+5. 真机日志形态核对（应与上轮一致，本轮**不应**产生任何行为差异）：
+   - `[BOOM-BASE] 刻度` 仍约每 60 秒一条，`B` 仍贴着 `stableCeiling`
+   - `[BOOM-HISTORY] 缺口组结束` 的 `本组推进` 仍能报出非零值（第 5 条改动直接喂这行）
+   - `[BOOM-HISTORY] 补录结束` 的 `剩余缺口` / `剩余秒` 仍准确（第二层改签名后这行必须原样成立）
+   - 测试页打开后，人为制造一次整轮失败（如断网 + 清库），`lastError` 文本出现在页面上

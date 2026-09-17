@@ -244,6 +244,42 @@ test("one tick does classification, baseline advance, and upload in a fixed orde
 	assert.equal(order.includes("connect"), false);
 });
 
+test("one tick reads the baseline once and never re-scans ready ranges in a loop", async (t) => {
+	// 一次 tick 里 `B` 是一个值：分类只写 `vital_ready_ranges` 不改 `B`，所以推进和
+	// 列缺口都该复用 tick 开头读到的那一份。重读不但浪费，断网时每次重读都是一个
+	// 新的异常点（`getBaseline()` 读失败会抛）。
+	const r = await createRuntime(t);
+	const now = Math.floor(Date.now() / 1000);
+	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
+	r.db.exec(`INSERT INTO vital_sync_state (id,baseline_sec) VALUES (1,${now - 3000})`);
+	// 40 条首尾相接的已记账区间：消费循环要把它们整段吃掉，正是「循环里重查全表」
+	// 最坏的情形（改回旧写法这里会是 40 次读）。
+	for (let i = 0; i < 40; i++) {
+		const from = now - 3000 + i * 60;
+		r.db.exec(`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${from},${from + 60})`);
+	}
+	const counts = { getBaseline: 0, listReadyRanges: 0 };
+	for (const name of Object.keys(counts)) {
+		const original = baseline[name].bind(baseline);
+		baseline[name] = async (...args) => {
+			counts[name] += 1;
+			return original(...args);
+		};
+	}
+	const tick = new r.DeviceTick({
+		boundDeviceId: "device",
+		scheduler: { enqueueHistoryRepair() {}, requestFlush() {} }
+	});
+	await tick.runTick("timer");
+	assert.equal(tick.lastError.value, "");
+	assert.equal(counts.getBaseline, 1);
+	// 分类前、推进前、列缺口前各一次，每次前面都有一次写入——不能跨写复用。
+	assert.equal(counts.listReadyRanges, 3);
+	// 消费循环真的跑完了：`B` 追到区间右端，40 条区间被清空。
+	assert.equal(await baseline.getBaseline(), now - 3000 + 40 * 60);
+	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM vital_ready_ranges").get().n, 0);
+});
+
 test("poke is rate-limited to one tick per minute and never re-enters", async (t) => {
 	const r = await createRuntime(t);
 	// 用真实的 `runTick`：限流与重入守卫都在它内部，绕开它测的就不是被测对象了。
@@ -587,6 +623,39 @@ test("upload has one automatic entry point and no count/interval gate", async (t
 	assert.equal(broadcast.includes("minuteUploadBusy"), false);
 	assert.equal(broadcast.includes("onMinuteCompleted"), false);
 	assert.equal(store.includes('this.device.tick.poke("broadcast")'), true);
+});
+
+test("the upload timer is gone instead of being kept as an uncalled second rhythm", async (t) => {
+	// 心跳每轮都调 uploadData()，已经覆盖了定时兜底要做的一切（消费积压 + 失败重试）。
+	// 把定时器留着「以备不时之需」等于留了第二个节奏来源：它一旦被接回去，上传节奏就
+	// 又有两个互不知情的驱动了。真出问题该修心跳，而不是并存一条旁路。
+	const uploader = await readFile(".cool/bluetooth/upload.ts", "utf8");
+	assert.equal(uploader.includes("startUploadTimer"), false);
+	assert.equal(uploader.includes("stopUploadTimer"), false);
+	assert.equal(uploader.includes("UPLOAD_RETRY_INTERVAL_MS"), false);
+	assert.equal(uploader.includes("uploadTimer"), false);
+	// 单批条数上限来自 SQL LIMIT（data-manager 的 PPI_UPLOAD_PAGE_SIZE）。
+	// 编排层再放一个同名常量会让人以为改它能改批大小。
+	assert.equal(uploader.includes("PPI_UPLOAD_MAX_RECORDS"), false);
+	assert.equal(uploader.includes("PPI_UPLOAD_MAX_BATCHES"), true);
+});
+
+test("the database layer keeps only what something actually reads", async (t) => {
+	// 这两个方法没有任何调用方，且 getPpiTimestampsBetween 与
+	// historyCoverage.getPpiTimestamps 是同一件事的两份实现（边界一个 <= 一个 <），
+	// 留着只会让「本地有没有这一秒」有两个说法。
+	const manager = await readFile(".cool/bluetooth/data-manager.ts", "utf8");
+	assert.equal(manager.includes("getPpiTimestampsBetween"), false);
+	assert.equal(manager.includes("getLatestSleepData"), false);
+	// 关库的入口没人调，上传定时器也随本轮删除，destroy() 整个失去意义。
+	assert.equal(manager.includes("async destroy()"), false);
+
+	// 心跳的运行状态只有一个读者（测试页）。state 只写不读，删掉。
+	const tick = await readFile(".cool/store/device/device-tick.ts", "utf8");
+	assert.equal(tick.includes("state = ref"), false);
+	assert.equal(tick.includes('"ticking"'), false);
+	// lastError 有读者（测试页），必须留着。
+	assert.equal(tick.includes("lastError = ref"), true);
 });
 
 test("expired credentials reject instead of leaving upload locked indefinitely", async (t) => {

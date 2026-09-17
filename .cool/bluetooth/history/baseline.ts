@@ -158,11 +158,18 @@ class HistoryBaseline {
 	 * 区间行数受「不合格段数」约束而不是时间长度（`B` 卡一天的代价是 1 条
 	 * ready 区间，不是 1440 行），所以整体重写的成本可以忽略，而它天然完成
 	 * 相邻合并，不需要逐条 diff 的脆弱 SQL。
+	 *
+	 * `existing` 是调用方**刚刚读到**的现有区间。`classify` 本来就为减法读了它，
+	 * 而 `classify` 的写入只发生在这一次调用里，中间没有别的写入者，所以那份列表
+	 * 就是当前值。不传则自己读（`markReady` 那条路径没有现成列表）。
 	 */
-	private async mergeReadyRanges(ranges: HistoryTimeRange[]): Promise<void> {
+	private async mergeReadyRanges(
+		ranges: HistoryTimeRange[],
+		existing: HistoryTimeRange[] | null = null
+	): Promise<void> {
 		if (ranges.length == 0) return;
-		const existing = await this.listReadyRanges();
-		const merged = normalizeRanges(existing.concat(ranges));
+		const current = existing != null ? existing : await this.listReadyRanges();
+		const merged = normalizeRanges(current.concat(ranges));
 		const statements: string[] = ["DELETE FROM vital_ready_ranges"];
 		for (let i = 0; i < merged.length; i++) {
 			statements.push(
@@ -266,10 +273,21 @@ class HistoryBaseline {
 	 * 弹窗和启动时被反复遍历。
 	 *
 	 * 幂等：已经超过保留起点时什么都不做。分类和推进各自调用一次，谁先来都成立。
+	 *
+	 * `knownBaseline` 是调用方**刚读到**的 `B`。同一轮心跳里 `classify` →
+	 * `advanceBaseline` → `listRepairGaps` 会连着跑，每一步都重读一次库是浪费：
+	 * `B` 在一次 tick 内不会因为别的原因变化。传进来且已越过保留起点时直接返回。
+	 * 传 `null`（或不传）时照旧自己读——**钳制语义一个字没变**，只是省一次读。
 	 */
-	private async clampToRetention(nowSec: number): Promise<number> {
-		const baseline = await this.getBaseline();
+	private async clampToRetention(
+		nowSec: number,
+		knownBaseline: number | null = null
+	): Promise<number> {
 		const retentionStart = historyCoverage.retentionStartSec(nowSec);
+		// 只有「已知的 B 确实越过保留起点」才能跳过读库：低于时还要走下面的跳转，
+		// 而低于保留起点正是全新安装的常见情形，不能拿旧值当结论。
+		if (knownBaseline != null && knownBaseline >= retentionStart) return knownBaseline;
+		const baseline = knownBaseline != null ? knownBaseline : await this.getBaseline();
 		if (baseline >= retentionStart) return baseline;
 		await this.setBaseline(retentionStart);
 		await bluetoothDatabase.execute(
@@ -288,10 +306,10 @@ class HistoryBaseline {
 	 * 幂等：已记账的部分先被减掉，不重判。所以每轮都从 `B` 走一遍没有副作用，
 	 * 走得快慢只取决于 `ppi_data` 的行数——这也是不需要「已分类游标」的原因。
 	 */
-	async classify(nowSec: number): Promise<BaselineClassifyResult> {
+	async classify(nowSec: number, knownBaseline: number | null = null): Promise<BaselineClassifyResult> {
 		const startedAt = Date.now();
 		const ceiling = this.stableCeiling(nowSec);
-		const baseline = await this.clampToRetention(nowSec);
+		const baseline = await this.clampToRetention(nowSec, knownBaseline);
 		const result: BaselineClassifyResult = {
 			ceiling,
 			baselineBefore: baseline,
@@ -356,7 +374,7 @@ class HistoryBaseline {
 		for (let i = 0; i < newReady.length; i++) {
 			result.qualifiedSeconds += newReady[i].toSec - newReady[i].fromSec;
 		}
-		await this.mergeReadyRanges(newReady);
+		await this.mergeReadyRanges(newReady, ready);
 		result.gapSeconds = unclassifiedSeconds - result.qualifiedSeconds;
 		logger.info(
 			"bluetooth",
@@ -373,10 +391,10 @@ class HistoryBaseline {
 	 *
 	 * 缺口不存表：它由 `B` 和 `vital_ready_ranges` 相减直接得出，天然有序。
 	 */
-	async listRepairGaps(nowSec: number): Promise<HistoryGap[]> {
+	async listRepairGaps(nowSec: number, knownBaseline: number | null = null): Promise<HistoryGap[]> {
 		const ceiling = this.stableCeiling(nowSec);
 		// 同样先钳制：全新安装时 `B = 1`，不钳制就会报出一个从 1970 年起的缺口。
-		const baseline = await this.clampToRetention(nowSec);
+		const baseline = await this.clampToRetention(nowSec, knownBaseline);
 		const ready = await this.listReadyRanges();
 		const gaps: HistoryGap[] = [];
 		let cursor = baseline;
@@ -436,36 +454,45 @@ class HistoryBaseline {
 	 * 推进 `B`：纯表操作，不查 `ppi_data`，也不做任何 clamp。
 	 *
 	 * 上界由记账规则保证（写进 `vital_ready_ranges` 的右端不超过 `stableCeiling`），
-	 * 所以这里只剩「`B` 落在 `ready[0]` 内就前进」这一个循环。
-	 * `ready[0]` 被消费后 `ready[1]` 顶上来，下一个缺口自动浮现，不需要重新枚举。
+	 * 所以这里只剩「`B` 落在 `ready[0]` 内就前进」这一个循环。**`B` 会停在缺口
+	 * 前面**：`ready[0]` 的起点大于 `B` 时循环立刻结束，后面那些合格的区间原样留着，
+	 * 等缺口被补掉之后再消费（5.6）。
+	 *
+	 * `ready` 一次读出、在循环里就地消费：它是按 `from_sec` 升序的，消费一条就
+	 * 去掉头部一条，不需要每轮重查全表。整条被 `B` 覆盖的区间在这里删掉——
+	 * `[0, B)` 已经是「全部记账完毕」，留一条被完全覆盖的区间没有意义。
 	 */
-	async advanceBaseline(nowSec: number): Promise<number> {
-		let baseline = await this.clampToRetention(nowSec);
+	async advanceBaseline(nowSec: number, knownBaseline: number | null = null): Promise<number> {
+		let baseline = await this.clampToRetention(nowSec, knownBaseline);
 		const baselineBefore = baseline;
+		const ready = await this.listReadyRanges();
 		let consumed = 0;
-		while (true) {
-			const ready = await this.listReadyRanges();
-			if (ready.length == 0) break;
+		const covered: HistoryTimeRange[] = [];
+		while (ready.length > 0) {
 			const first = ready[0];
+			// `B` 停在缺口前面：后面的区间是合格的，但 `B` 过不去，这一轮到此为止。
 			if (first.fromSec > baseline) break;
 			if (first.toSec <= baseline) {
-				// 整条都落在 `B` 之内：已被记账覆盖，删掉即可。
-				await bluetoothDatabase.execute(
-					`DELETE FROM vital_ready_ranges WHERE from_sec=${first.fromSec} AND to_sec=${first.toSec}`
-				);
+				// 整条都落在 `B` 之内：已被记账覆盖，删掉即可，`B` 不动。
+				covered.push(first);
+				ready.shift();
 				consumed++;
 				continue;
 			}
-			// `B` 落在这一条里面：直接跳到它的右端。整条随之被 `B` 覆盖，同样删除——
-			// `[0, B)` 已经是「全部记账完毕」，再留一条被完全覆盖的区间没有意义。
+			// `B` 落在这一条里面：直接跳到它的右端，然后继续看下一条——
+			// 相邻的区间首尾相接，一轮循环能把它们整段吃掉。
 			baseline = first.toSec;
-			await this.setBaseline(baseline);
-			await bluetoothDatabase.execute(
-				`DELETE FROM vital_ready_ranges WHERE from_sec=${first.fromSec} AND to_sec=${first.toSec}`
-			);
+			covered.push(first);
+			ready.shift();
 			consumed++;
 		}
-		const after = await this.getBaseline();
+		// 先落库再返回。被覆盖的区间无论推进与否都要清掉——留着它们会在每轮 tick
+		// 里被反复读出来。`B` 的落库失败会在 `setBaseline()` 里抛出，所以这里
+		// 直接返回内存里的值即可，不需要再回读一次确认。
+		if (covered.length > 0) {
+			if (baseline != baselineBefore) await this.setBaseline(baseline);
+			await this.deleteReadyRanges(covered);
+		}
 		// 只在真动了的时候打：`advanceBaseline()` 在每次分类后、每组缺口读取前后都会调用，
 		// 没推进也打一行会把诊断缓冲区冲掉。`落后` 是「B 卡住不动」的第一现场——
 		// 正常情况下它贴着 0（几秒的落库延迟），明显大于 0 就说明前面有真缺口。
@@ -473,10 +500,22 @@ class HistoryBaseline {
 			const ceiling = this.stableCeiling(nowSec);
 			logger.info(
 				"bluetooth",
-				`[BOOM-BASE] 基准推进: B=${baselineBefore}->${after}, 消费ready区间=${consumed}, 原因=ready, stableCeiling=${ceiling}, 落后=${ceiling - after}s`
+				`[BOOM-BASE] 基准推进: B=${baselineBefore}->${baseline}, 消费ready区间=${consumed}, 原因=ready, stableCeiling=${ceiling}, 落后=${ceiling - baseline}s`
 			);
 		}
-		return after;
+		return baseline;
+	}
+
+	/** 批量删除被 `B` 覆盖的区间，一条事务写完。 */
+	private async deleteReadyRanges(ranges: HistoryTimeRange[]): Promise<void> {
+		const statements: string[] = [];
+		for (let i = 0; i < ranges.length; i++) {
+			statements.push(
+				`DELETE FROM vital_ready_ranges WHERE from_sec=${ranges[i].fromSec} AND to_sec=${ranges[i].toSec}`
+			);
+		}
+		if ((await bluetoothDatabase.transaction(statements)) == false)
+			throw new Error("清理已记账区间失败");
 	}
 
 	/** 只读快照，供测试页展示。 */

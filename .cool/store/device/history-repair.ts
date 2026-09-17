@@ -8,43 +8,25 @@
  * 这里**不 import `Device`**：只依赖一个「能按缺口读一段」的 reader，所以它可以
  * 配一个假 reader 独立测试，不需要构造整个设备栈。连接由调用方（gatt-scheduler）
  * 负责，本文件不碰。
+ *
+ * **不返回结果对象**：唯一的调用方是 GATT 队列，它拿到结果也无处可用——连接已经
+ * 跑完，该记的都在这两行日志里了。逐组的数字（`本组推进`、`落库秒`）留在日志中，
+ * 那才是排查「补了但没记账」时真正会去看的地方。
  */
 import { historyBaseline } from "../../bluetooth/history/baseline";
 import { logger } from "../../service/logger";
 import type { HistoryGap } from "../../bluetooth/history/baseline";
-import type { HistoryReadStatus, VitalAutoReadResult } from "./history-reader";
+import type { VitalAutoReadResult } from "./history-reader";
 
 /** 补数据只需要 reader 的这一个能力。`DeviceHistoryReader` 天然满足它。 */
 export type GapReader = {
 	readVitalGapGroup(gap: HistoryGap): Promise<VitalAutoReadResult>;
 };
 
-/** 一次补录规划的结果。 */
-export type HistorySyncPlan = {
-	needed: boolean;
-	gaps: HistoryGap[];
-	baseline: number;
-	ceiling: number;
-	totalRepairSeconds: number;
-};
-
-/** 单个缺口在一次 GATT 连接中的补拉结果。 */
-export type HistoryGapRepairResult = {
+/** 一个缺口、以及它在这一次连接里的读取结果。 */
+type GapOutcome = {
 	gap: HistoryGap;
-	status: HistoryReadStatus;
-	message: string;
-	pages: number;
-	savedRecords: number;
-	saveOk: boolean;
-	uploadScheduled: boolean;
-};
-
-export type HistoryRepairResult = {
-	ok: boolean;
-	message: string;
-	plan: HistorySyncPlan;
-	results: HistoryGapRepairResult[];
-	savedRecords: number;
+	read: VitalAutoReadResult;
 };
 
 /**
@@ -53,98 +35,70 @@ export type HistoryRepairResult = {
  * 执行前重新规划一次，避免队列等待期间广播已经把缺口补上；收尾再重算一次，
  * 用 `B` 的前后差量给出「本轮到底推进了多少」的确切数字。
  */
-export async function repairAllGaps(reader: GapReader): Promise<HistoryRepairResult> {
+export async function repairAllGaps(reader: GapReader): Promise<void> {
 	const startedAt = Date.now();
 	const nowSec = Math.floor(Date.now() / 1000);
 	await historyBaseline.classify(nowSec);
-	const baseline = await historyBaseline.advanceBaseline(nowSec);
-	const gaps = await historyBaseline.listRepairGaps(nowSec);
-	const plan: HistorySyncPlan = {
-		needed: gaps.length > 0,
-		gaps,
-		baseline,
-		ceiling: historyBaseline.stableCeiling(nowSec),
-		totalRepairSeconds: historyBaseline.sumRepairSeconds(gaps)
-	} as HistorySyncPlan;
-	if (plan.needed == false) {
-		return makeResult(true, "no history gaps", plan, []);
-	}
+	const baseline = await historyBaseline.advanceBaseline(nowSec, null);
+	const gaps = await historyBaseline.listRepairGaps(nowSec, baseline);
+	if (gaps.length == 0) return;
+	const ceiling = historyBaseline.stableCeiling(nowSec);
+	const totalRepairSeconds = historyBaseline.sumRepairSeconds(gaps);
 
 	logger.info(
 		"bluetooth",
-		`[BOOM-HISTORY] 开始补录: B=${plan.baseline}, 缺口组=${plan.gaps.length}, 缺口秒=${plan.totalRepairSeconds}, bridge秒=${historyBaseline.sumBridgeSeconds(plan.gaps)}, stableCeiling=${plan.ceiling}, 连接开始=${startedAt}`
+		`[BOOM-HISTORY] 开始补录: B=${baseline}, 缺口组=${gaps.length}, 缺口秒=${totalRepairSeconds}, bridge秒=${historyBaseline.sumBridgeSeconds(gaps)}, stableCeiling=${ceiling}, 连接开始=${startedAt}`
 	);
-	const results = await runVitalGaps(reader, plan.gaps);
-	let ok = true;
+	const outcomes = await runVitalGaps(reader, gaps, baseline);
 	let failedGroups = 0;
-	for (let i = 0; i < results.length; i++) {
-		const item = results[i];
-		if (item.status == "TIMEOUT" || item.status == "SEND_FAILED" || item.saveOk == false) {
-			ok = false;
+	for (let i = 0; i < outcomes.length; i++) {
+		const read = outcomes[i].read;
+		if (read.status == "TIMEOUT" || read.status == "SEND_FAILED" || read.saveOk == false)
 			failedGroups++;
-		}
 	}
 	// 收尾重算：`B` 推到哪、还剩多少活，都由重新规划的缺口给出确切数字。
 	// 落库的秒由 `readVitalRange` 的 finally 通过 `scheduleUpload()` 排空，这里不重复触发。
 	const afterSec = Math.floor(Date.now() / 1000);
-	const after = await historyBaseline.advanceBaseline(afterSec);
-	const remaining = await historyBaseline.listRepairGaps(afterSec);
+	const after = await historyBaseline.advanceBaseline(afterSec, null);
+	const remaining = await historyBaseline.listRepairGaps(afterSec, after);
 	logger.info(
 		"bluetooth",
-		`[BOOM-HISTORY] 补录结束: B=${plan.baseline}->${after}, 已补组=${results.length - failedGroups}, 失败组=${failedGroups}, 落库秒=${countSaved(results)}, 剩余缺口=${remaining.length}, 剩余秒=${historyBaseline.sumRepairSeconds(remaining)}, stableCeiling=${historyBaseline.stableCeiling(afterSec)}, 连接时长=${Math.round((Date.now() - startedAt) / 1000)}s, ok=${ok}`
+		`[BOOM-HISTORY] 补录结束: B=${baseline}->${after}, 已补组=${outcomes.length - failedGroups}, 失败组=${failedGroups}, 落库秒=${countSaved(outcomes)}, 剩余缺口=${remaining.length}, 剩余秒=${historyBaseline.sumRepairSeconds(remaining)}, stableCeiling=${historyBaseline.stableCeiling(afterSec)}, 连接时长=${Math.round((Date.now() - startedAt) / 1000)}s, ok=${failedGroups == 0}`
 	);
-	return makeResult(ok, ok ? "history repair done" : "history partial failed", plan, results);
 }
 
 async function runVitalGaps(
 	reader: GapReader,
-	gaps: HistoryGap[]
-): Promise<HistoryGapRepairResult[]> {
-	const results: HistoryGapRepairResult[] = [];
+	gaps: HistoryGap[],
+	startBaseline: number
+): Promise<GapOutcome[]> {
+	const outcomes: GapOutcome[] = [];
 	const total = gaps.length;
+	// 上一组的 `B` 就是下一组的起点：两组之间没有别的写入者，中间那次
+	// `advanceBaseline()` 因此是重复调用。
+	let before = startBaseline;
 	for (let i = 0; i < gaps.length; i++) {
 		const gap = gaps[i];
+		const read = await reader.readVitalGapGroup(gap);
 		// 每组记账推进了多少，用 `B` 的前后差量度量。这是核对「记账是否按预期推进」
 		// 的直接证据：`B` 没动就说明这一组的读取没有转成记账（被 `stableCeiling`
 		// 封顶、或落库失败），而这在 `落库秒` 上完全看不出来——两者是两件事。
-		const before = await historyBaseline.advanceBaseline(Math.floor(Date.now() / 1000));
-		const result = await reader.readVitalGapGroup(gap);
-		const after = await historyBaseline.advanceBaseline(Math.floor(Date.now() / 1000));
+		const after = await historyBaseline.advanceBaseline(Math.floor(Date.now() / 1000), before);
 		logger.info(
 			"bluetooth",
-			`[BOOM-HISTORY] 缺口组结束: ${i + 1}/${total}, window=${gap.fromSec}~${gap.toSec}, 缺口秒=${gap.repairSeconds}, bridge秒=${gap.bridgeSeconds}, status=${result.status}, pages=${result.pages}, 落库=${result.savedRecords}, B=${before}->${after}, 本组推进=${after - before}s`
+			`[BOOM-HISTORY] 缺口组结束: ${i + 1}/${total}, window=${gap.fromSec}~${gap.toSec}, 缺口秒=${gap.repairSeconds}, bridge秒=${gap.bridgeSeconds}, status=${read.status}, pages=${read.pages}, 落库=${read.savedRecords}, B=${before}->${after}, 本组推进=${after - before}s`
 		);
-		results.push({
-			gap,
-			status: result.status,
-			message: result.message,
-			pages: result.pages,
-			savedRecords: result.savedRecords,
-			saveOk: result.saveOk,
-			uploadScheduled: result.uploadScheduled
-		} as HistoryGapRepairResult);
-		if (result.status == "TIMEOUT" || result.status == "SEND_FAILED" || !result.saveOk) break;
+		outcomes.push({ gap, read } as GapOutcome);
+		before = after;
+		// 链路断了就停：后面的组只会在坏连接上再超时一遍。
+		// 「设备这段没数据」（status=DONE、落库 0）不是失败，继续读下一组。
+		if (read.status == "TIMEOUT" || read.status == "SEND_FAILED" || !read.saveOk) break;
 	}
-	return results;
+	return outcomes;
 }
 
-function countSaved(results: HistoryGapRepairResult[]): number {
+function countSaved(outcomes: GapOutcome[]): number {
 	let saved = 0;
-	for (let i = 0; i < results.length; i++) saved += results[i].savedRecords;
+	for (let i = 0; i < outcomes.length; i++) saved += outcomes[i].read.savedRecords;
 	return saved;
-}
-
-function makeResult(
-	ok: boolean,
-	message: string,
-	plan: HistorySyncPlan,
-	results: HistoryGapRepairResult[]
-): HistoryRepairResult {
-	return {
-		ok,
-		message,
-		plan,
-		results,
-		savedRecords: countSaved(results)
-	} as HistoryRepairResult;
 }

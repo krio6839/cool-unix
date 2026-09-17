@@ -12,7 +12,7 @@
 import { t } from "../../locale";
 import { TARGET_DEVICE_NAME_PREFIX } from "./types/wear-location";
 import type { ConnectModeReason, ScanPurpose } from "./types/device-state-types";
-import { BOOM_GATT_SERVICE_UUID, bluetoothDataManager, bluetoothUploader } from "../../bluetooth";
+import { BOOM_GATT_SERVICE_UUID, bluetoothUploader } from "../../bluetooth";
 
 //#ifndef H5
 import {

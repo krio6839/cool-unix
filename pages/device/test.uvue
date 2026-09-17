@@ -140,6 +140,10 @@
 				<text v-if="baselinePanel.errorText != ''" class="baseline-error">{{
 					baselinePanel.errorText
 				}}</text>
+				<!-- 心跳整轮抛出时留下的错误文本。为空时整条不占位，不干扰面板观感。 -->
+				<text v-if="tickError != ''" class="baseline-error">{{
+					t("心跳异常") + ": " + tickError
+				}}</text>
 				<text v-if="baselinePanel.gapLines.length == 0" class="baseline-empty">{{
 					t("当前没有待补的历史缺口")
 				}}</text>
@@ -310,6 +314,13 @@ const historyGapRepairPopupVisible = ref(false);
  * 留着补录之前的旧缺口。
  */
 const manualHistoryRevision = ref<number>(0);
+/**
+ * 心跳整轮抛出时留下的错误文本。
+ *
+ * 单轮失败不改变行为（下一轮照跑），所以它不会让任何东西变红；但**连续出现说明有
+ * 真问题**，而这是除日志外唯一的落点。没有它，「心跳在跑但什么都没做」只能靠翻日志。
+ */
+const tickError = computed<string>(() => deviceStore.tick.lastError.value);
 const historyGapRevision = computed<number>(() => {
 	const plannedAt = deviceStore.tick.lastCheckAt.value;
 	const completedAt = deviceStore.tick.lastHistorySyncAt.value;
