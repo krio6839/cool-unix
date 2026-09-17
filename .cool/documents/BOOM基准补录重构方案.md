@@ -208,20 +208,18 @@ stableCeiling(nowSec) = nowSec - MINUTE_SETTLE_SEC   -- 记账右端，也是缺
 
 `B` 的上界由 5.4 的记账规则自动保证：写进 `vital_ready_ranges` 的每一段右端都不超过 `stableCeiling`。
 
-**消费 `ready[0]` 要区分整条删除和拆条**：
+**消费 `ready[0]` 就是整条删除**：`B` 落在 `ready[0]` 内时前进到 `ready[0].toSec` 并删掉这一行。
 
-- `ready[0].toSec <= B` → 整条删除（这一整段都已记账）。
-- `ready[0].fromSec < B < ready[0].toSec` → **只改 `from_sec` 为 `B`，不删行**。例如 `B` 推进到 12:30:20 而 `ready[0] = [12:10, 13:00)`，`to_sec` 之后的 40 分钟还没被消费。
-
+这条曾经写成「整条删除 / 拆条」两条分支，但拆条那条不可达：`B` 前进只会前进到 `ready[0].toSec`，所以要么 `ready[0].toSec <= B`（上一轮已经消费过），要么 `B` 就等于它自己的 `fromSec` 起点（`B` 停驻时 `[B, fromSec)` 正是那个活跃缺口，`B` 不可能落在区间内部）。代码里已经是单一的分支，这里同步收掉说明。
 **`B` 落在 ready[0] 之前是正常停驻，不是错误。** ready 区间都是秒级的（5.1），`B` 可能停在任意秒上；`[B, ready[0].fromSec)` 就是当前那个唯一的活跃缺口（5.2）。
 
 保留窗口那一步必须**直接跳到保留起点**，不能逐分钟放行：`B` 可能因设备长期连不上而停在几个月前，逐分钟是几万次带表查询的循环。跳到保留起点是一次操作，同时删除早于保留起点的 ready 区间——那些秒永远补不回来了，留着只会在弹窗和启动时被反复遍历。
 
 调用时机：
 
-1. **广播跨整分钟**（正常路径）。分类推进到 `stableCeiling(now)`，把本轮新稳定的秒并进 ready 区间，再推进 `B`。
+1. **心跳**（唯一入口，`device-tick.ts` 的 `runTick()`）。每轮顺序做 `classify()` → `advanceBaseline()` → `uploadData()`，分类推进到 `stableCeiling(now)`，把本轮新稳定的秒并进 ready 区间，再推进 `B`。
 2. **连接结束**：不需要特殊动作。连接期间停广播产生的缺秒按普通缺口处理，下一次连接补（9.3）。
-3. **10 分钟自动检查**。兜底，处理广播长时间没来之后的情况。
+3. **连接的检查**另按 10 分钟节流（`maybeConnect()`），心跳每 60 秒跑一次但只有超过 10 分钟才看缺口。
 
 ### 5.6 为什么 ready 区间要单独存
 
@@ -243,21 +241,23 @@ stableCeiling(nowSec) = nowSec - MINUTE_SETTLE_SEC   -- 记账右端，也是缺
 
 **设备一跳就能确认掉「确实没数据」的整段。** 如果设备在这期间没被佩戴，查 `anchor=now` 向更早翻时首页的 `startSec` 会直接落在缺口起点之前——一次 `0x3A` 就把整段确认成已记账，不会翻几千页。只有设备**真有数据**时才逐页读，而那正是我们要读的。所以「App 关 3 天」的代价：没佩戴 → 一次往返；佩戴了 → 读 3 天的数据（本来就要读）。
 
-## 7. 分钟级上传
+## 7. 上传节奏
 
-上传策略整体替换掉老的「30 条 / 30 秒」批量触发。三个触发点，一个入口 `uploadData()`：
+上传策略整体替换掉老的「30 条 / 30 秒」批量触发。三个触发点，一个入口 `uploadData()`（在 `upload.ts`，`BluetoothUploader`）：
 
 | 触发点 | 位置 | 职责 |
 | --- | --- | --- |
-| 广播跨整分钟（主） | `broadcast.ts` 的 `uploadCompletedMinuteIfCrossed` → `onMinuteCompleted` | 上传刚走完的那一分钟 |
-| 60 秒定时兜底 | `startUploadTimer` | 消费 `uploaded=0` 积压 + 失败重试 |
+| 心跳（主） | `device-tick.ts` 的 `runTick()` 每轮调一次 | 上传本轮所有待传记录 |
 | 历史补录落库后 | `readVitalRange` 的 finally → `scheduleUpload` | 异步排空，不阻塞 GATT 释放 |
+| 保活 tick | `keepalive.ts` 的 `runKeepAliveTickAsync` | 后台消费积压 + 失败重试 |
 
-- **触发点**：广播 `utc` 跨过整分钟时，上传刚走完的那一分钟。**秒级广播本身只落库，不驱动上传**——每秒一帧的实时流唯一能影响上传的地方就是跨过分钟边界那一次。
+- **触发点是心跳，不再是广播，也不再有「整分钟」。** 秒级广播落库后只喊一声 `tick.poke("broadcast")`，由心跳按 60 秒限流统一决定判不判、传不传。早先的 `uploadCompletedMinuteIfCrossed` / `onMinuteCompleted` 连同 `lastBroadcastMinuteSec`、`minuteUploadBusy` 一起删除（12 节）。
+- **「整分钟」是纯粹的历史包袱**：判定早已不按分钟切（第 3 节），`B` 和 ready 区间都是秒级的，而上传取的是「所有 `timestamp <= 冻结上界` 的待传记录」，根本不关心分钟。它当时唯一的作用是「触发上传刚走完的那一分钟」。
 - **入口只有一个**：三个触发点都调 `uploadData()`，PPI 那侧只做「有待传记录 + 不在失败退避中就传」，**没有条数与间隔阈值**。节奏由触发点决定，不在入口再节流一次；失败后退避 `UPLOAD_FAILURE_BACKOFF_MS = 60 秒`，退避只作用于自动路径，手动上传不受影响。
-- **判定与上传是两件事**：先上传该分钟的未上传秒，再做合格判定。**判定依据是本地的 `ppi_data`，不是上传结果**——基准时间描述的是「数据是否收齐」，上传是独立的可重试动作。上传失败时 `uploaded` 保持 0，由重试路径继续消费，不会因为弱网把已经收齐的分钟判成待补。
-- 保留 `PPI_UPLOAD_MAX_RECORDS = 300` / `PPI_UPLOAD_MAX_BATCHES = 10` 作为**积压排空**的上限（历史补录落库的秒可能远超一分钟），但正常实时路径每个整分钟只有一批。
-- 保留定时兜底，但降级为**重试与排空**：间隔 `UPLOAD_RETRY_INTERVAL_MS = 60 * 1000`，只为消费 `uploaded=0` 的积压和失败重试，不再作为主触发。
+- **判定与上传是两件事**：一轮心跳里先判定（`classify` + `advanceBaseline`）再上传。**判定依据是本地的 `ppi_data`，不是上传结果**——基准时间描述的是「数据是否收齐」，上传是独立的可重试动作。上传失败时 `uploaded` 保持 0，由重试路径继续消费，不会因为弱网把已经收齐的秒判成待补。
+- **上传节奏因此是「约 60 秒一批」而不是「一整分钟一批」**：心跳可能落在分钟中间，同一条实时流的秒会分两次上传（例如 12:00:35 传 35 秒，12:01:35 传剩下 25 秒 + 下一分钟）。服务端按 `time` 逐秒接收，这不影响正确性。这是收掉整分钟概念后接受的代价——想恢复整分钟批次就得把「已完成的那一分钟」这个概念请回来，与本次简化的方向相反。
+- 保留 `PPI_UPLOAD_MAX_RECORDS = 300` / `PPI_UPLOAD_MAX_BATCHES = 10` 作为**积压排空**的上限（历史补录落库的秒可能远超一分钟），但正常实时路径每轮心跳只有一批。
+- 保留 `upload.ts` 里的 60 秒定时兜底（`UPLOAD_RETRY_INTERVAL_MS`）作为「定时器还会跑」这一种极端情况的保底，不构成第二个节奏来源。
 
 ## 8. 补数据：一次一个缺口，补完推进再下一个
 
@@ -419,7 +419,7 @@ stableCeiling(nowSec) = nowSec - MINUTE_SETTLE_SEC   -- 记账右端，也是缺
 
 ### 9.6 连接最小间隔
 
-`MIN_CONNECT_INTERVAL_MS = 10 * 60 * 1000`。自动检查按这个间隔跑;一轮连接把积压补完,下一次连接至少 10 分钟后。这也顺带提供了缺口读取失败的天然退避(缺口不落库,没有 `retry_at`)。
+`CONNECT_INTERVAL_MS = 10 * 60 * 1000`（定义在 `device-tick.ts`）。心跳的 `maybeConnect()` 按这个间隔检查缺口;一轮连接把积压补完,下一次连接至少 10 分钟后。这也顺带提供了缺口读取失败的天然退避(缺口不落库,没有 `retry_at`)。
 
 **加急任务不受这个间隔限制**:校时、广播 `eventSeq` 变化触发的事件读取、用户手动的设置类命令(0x31/0x35 等)都立即连接——这些本来就是「必须连」的事。**缺口不在这里**:没有加急缺口(8.4),缺口只等这个 10 分钟的间隔。
 
@@ -469,19 +469,25 @@ stableCeiling(nowSec) = nowSec - MINUTE_SETTLE_SEC   -- 记账右端，也是缺
 
 ## 11. 模块划分
 
+> 本轮（2026-09-17 修订七）收束了驱动骨架：新增 `device-tick.ts` / `upload.ts` / `history-repair.ts`，删除 `sync.ts`。下表已按收束后的形态更新。
+
+
 | 文件 | 变化 |
 | --- | --- |
 | `.cool/bluetooth/history/baseline.ts` | **新增**。`B` 游标、合格判定（`assessSegment()`）、`classify()`、`listRepairGaps()`、`advanceBaseline()`、`vital_ready_ranges` 读写。替代 `progress.ts` 的规划职责。 |
 | `.cool/bluetooth/history/coverage.ts` | 保留区间工具（`normalizeRanges` / `subtractRanges` / `countRangeSeconds` / `rangesFromTimestamps`）。 |
 | `.cool/bluetooth/history/coverage-service.ts` | 保留 `getPpiTimestamps` 与 30 天保留窗口；`getCheckedRanges` 改为读 `vital_ready_ranges`。 |
 | `.cool/bluetooth/history/progress.ts` | **删除**。相邻合并逻辑移入读窗口分组。 |
-| `.cool/bluetooth/data-manager.ts` | 建表语句换新；`onMinuteCompleted` 的分钟上传；`clearAllData` 的表名；诊断计数的表名。 |
-| `.cool/store/device/broadcast.ts` | 落库广播秒后，跨整分钟时调用 `onMinuteCompleted`。**没有别的改动**（9.2：连接空洞是普通缺口）。 |
+| `.cool/bluetooth/data-manager.ts` | 建表语句换新；`clearAllData` 的表名；诊断计数的表名。**只做数据库读写**——上传编排整体搬到 `upload.ts`，本文件不 import 上传代码。 |
+| `.cool/bluetooth/upload.ts` | **新增**。PPI / 睡眠的上传编排：批循环、失败退避、定时兜底、设备身份。导出 `bluetoothUploader`。依赖方向单向：`upload.ts → data-manager.ts`。 |
+| `.cool/store/device/device-tick.ts` | **新增**。全套后台节奏的**唯一决策点**：`poke()` 限流、每轮 `classify` → `advanceBaseline` → `uploadData`、每 10 分钟 `maybeConnect()`。替代 `sync.ts` 的 `runAutoLoop` + `onMinuteBoundary`，并吸收广播的整分钟判定。 |
+| `.cool/store/device/history-repair.ts` | **新增**。`repairAllGaps(reader)` —— 一次连接内把 `listRepairGaps()` 的缺口读完。只依赖一个 `GapReader`，不 import `Device`，因此可以配假 reader 独立测试。 |
+| `.cool/store/device/broadcast.ts` | 落库广播秒后只喊一声 `tick.poke("broadcast")`。**不认识「分钟」「判定」「上传」任何一个概念**（9.2：连接空洞是普通缺口）。 |
 | `.cool/store/device/history-reader.ts` | `readVitalTaskGroup` → 读缺口组；`savePage` → 缺口页落库并记账；删除预算参数。 |
 | `.cool/bluetooth/history/tunables.ts` | **新增**。第 14 节的运行时可调参数：默认值 + 本地覆盖 + 读写/重置。 |
-| `.cool/store/device/gatt-scheduler.ts` | 删除 `GATT_FLUSH_BUDGET_MS`；**收尾不需要特殊动作**（9.1）；自动检查间隔改为 `MIN_CONNECT_INTERVAL_MS`。 |
+| `.cool/store/device/gatt-scheduler.ts` | 删除 `GATT_FLUSH_BUDGET_MS`；**收尾不需要特殊动作**（9.1）；`runHistoryRepair()` 收缩成 `repairAllGaps(this.device.history)` 加收尾。 |
 | `.cool/store/device/connection.ts` | **不需要改动。** |
-| `.cool/store/device/sync.ts` | 规划改为「分类 + 推进基准 + 列出缺口」；删除 backlog 相关的双间隔逻辑。**没有加急缺口判定**（8.4），缺口只等 `MIN_CONNECT_INTERVAL_MS`。 |
+| `.cool/store/device/sync.ts` | **删除**。规划三步并入 `device-tick.ts`，缺口读取并入 `history-repair.ts`，类型分别落到两处；`Device` 上的 `sync` 字段换成 `tick: DeviceTick`。 |
 | `pages/device/components/HistoryGapRepairPopup.uvue` | 列表改为缺口，去掉 kind 文案。 |
 | `pages/device/test.uvue` | 展示 `B`、`vital_ready_ranges`、当前缺口。 |
 | `tests/*.mjs` | 按新模型改写。 |
@@ -502,6 +508,9 @@ stableCeiling(nowSec) = nowSec - MINUTE_SETTLE_SEC   -- 记账右端，也是缺
 - 广播接续判定、force-B、断开前的定向补读（9.1~9.3：不为连接自己的空洞做任何特殊动作）。
 - 加急缺口连接（8.4）与 `urgentGapIntervalMs`：缺口只等 10 分钟自动检查，不制造连接。
 - `HISTORY_AUTO_BACKLOG_INTERVAL_MS`（取消预算上限后一轮排空，不再需要）。
+- **整分钟触发**：`broadcast.ts` 的 `uploadCompletedMinuteIfCrossed()`、`lastBroadcastMinuteSec`、`minuteUploadBusy`，`data-manager.ts` 的 `onMinuteCompleted()`。上传主触发改为心跳。
+- `sync.ts` 整个文件、`DeviceSync` 类型、`DeviceSyncState` / `DeviceSyncReason`、`startAutoRepair()` / `stopAutoRepair()` / `runAutoLoop()`、`HISTORY_AUTO_INITIAL_DELAY_MS` 的「启动延迟 15 秒」（第一次 tick 就该把关闭期间积压的时间判完）。
+- `data-manager.ts` 的 `startUploadTimer()` 与构造函数里的定时器（改由 `deviceTick.start()` 驱动）。
 - `ACCOUNT_MARGIN_SEC` 页面记账专用余量（两条写入路径统一用 `MINUTE_SETTLE_SEC`）。
 - 缺口表的 `retry_at` / `attempts` 持久退避（改由 10 分钟连接间隔天然提供）。
 - 「30 条 / 30 秒」上传触发。
@@ -512,17 +521,18 @@ stableCeiling(nowSec) = nowSec - MINUTE_SETTLE_SEC   -- 记账右端，也是缺
 [BOOM-BASE] 分类完成: 未记账=...s, 新记账=...s, 新缺口=...s, 不合格段=..., 分类右端=..., B=..., 用时=...ms
 [BOOM-BASE] 段不合格: 区间=...~..., 长度=...s, 缺失=...s, 最长连续缺失=...s, 阻塞段数=..., 阻塞秒=...s, 阈值=缺失<30%, 连续<9
 [BOOM-BASE] 基准推进: B=...->..., 消费ready区间=..., 原因=ready/expired, stableCeiling=..., 落后=...s
-[BOOM-BASE] 基准停驻: B=..., 阻塞起点=..., 缺口组=..., 缺口秒=...
-[BOOM-BASE] 刻度: now=..., stableCeiling=..., B=...
-[BOOM-BASE] 分钟边界: minute=..., 未记账=...s, 新记账=...s, 不合格段=..., B=..., stableCeiling=...
-[BOOM-UPLOAD] 分钟上传: minute=..., ok=...
+[BOOM-BASE] 基准停驻: B=..., 阻塞起点=..., 缺口组=..., 缺口秒=... / B=..., 缺口组=0, 缺口秒=0
+[BOOM-BASE] 刻度: now=..., stableCeiling=..., B=..., reason=startup/broadcast/keepalive/timer
+[BOOM-TICK] 已启动基准时间心跳
+[BOOM-TICK] 本轮心跳异常，下轮继续
 ```
 
 - `分类完成`：每轮判了多少秒、产出多少缺口。**分类永不停止是设计前提**，这一行长期不动说明 `ppi_data` 查询或区间算术出了问题。`分类右端` 就是 `stableCeiling`，便于核对它是否等于 `now - minuteSettleSec`。
 - `段不合格`：哪一段因为什么判失败。`区间` 是这一整段未记账区间（右端可能被已记账区间截断、也可能就是 `stableCeiling`），`缺失` 与 `最长连续缺失` 直接对应第 3 节的两条判据，`阻塞段数`/`阻塞秒` 是真正卡住的连续缺失（真缺口）有几个、一共多少秒，`阈值` 把判定线一并打出来，不用回翻代码。**贴着 `stableCeiling` 的失败不打这行**——那只是还没等到数据、下一轮会重判，打出来会把日志冲满。
 - `基准推进` / `基准停驻`：`B` 为什么动或不动，后面还积压多少缺口。**`落后`（= `stableCeiling - B`）是排查「`B` 卡住不动」的第一现场**——两者都是秒级的、不整分钟对齐，所以正常情况下它贴着 0（几秒的落库延迟）。明显大于 0 说明前面有真缺口；`基准推进` 只在真动了的时候打印，所以「日志里一直看不到它」本身就是停驻的信号，此时去看 `基准停驻` 的 `缺口组` 与 `段不合格`。
-- `刻度`：三个时间值一起打印，每轮自动检查一次。
-- 连接层的 `开始补录` / `补录结束` 是「这次连接值不值」的结论，见第 10 节。**连接的稳定形态是「每 10 分钟一次，每次补掉上一次留下的几秒」**（9.3），所以 `[BOOM-SCHED] 开始执行队列` 的间隔稳定在 `HISTORY_AUTO_CHECK_INTERVAL_MS` 附近、且 `补录结束` 的 `连接时长` 稳定在一个小值上，就是健康状态——那个小值就是连接的固定开销。如果 `连接时长` 随时间**持续增长**，说明连接在补的缺口比它自己留下的更大（有外部缺口积压），去看 `基准停驻` 的 `缺口组`。
+- `刻度`：三个时间值一起打印，每轮心跳一次（约 60 秒），`reason` 说明这一轮被谁唤醒。这一行就是一轮 tick 的起点，紧随其后应当出现 `分类完成` 与 `[BOOM-UPLOAD] 上传PPI数据`。
+- `[BOOM-TICK] 本轮心跳异常，下轮继续`：一轮 tick 抛异常被兜住。心跳是个长驻循环，一轮失败不能让它停摆；但**连续出现说明有真问题**——看测试页的 `deviceStore.tick.lastError`，那里留着最后一次的异常文本。
+- 连接层的 `开始补录` / `补录结束` 是「这次连接值不值」的结论，见第 10 节。**连接的稳定形态是「每 10 分钟一次，每次补掉上一次留下的几秒」**（9.3），所以 `[BOOM-SCHED] 开始执行队列` 的间隔稳定在 `CONNECT_INTERVAL_MS` 附近、且 `补录结束` 的 `连接时长` 稳定在一个小值上，就是健康状态——那个小值就是连接的固定开销。如果 `连接时长` 随时间**持续增长**，说明连接在补的缺口比它自己留下的更大（有外部缺口积压），去看 `基准停驻` 的 `缺口组`。
 
 连接检查点与四层补录日志见第 9、10 节。
 
@@ -546,7 +556,7 @@ export function resetHistoryTunables(): void;
 
 **持久化用 `.cool/utils/storage.ts` 的 `storage.set(key, value, 0)`**，key 前缀 `boom_history_tune_`。**必须持久化**：这些是被长期观测的量，App 重启就丢会让「调一次、观察几天」变得不可能。`resetHistoryTunables()` 清掉全部覆盖、回落到默认值。
 
-**读取点必须是调用时读，不能模块加载时快照。** 这些是长驻服务（`sync` / `broadcast` / `gatt-scheduler`），常量一旦在模块顶层读进变量，改了要重启 App 才生效，那就失去了可调的意义。每处用到的地方调用 `getHistoryTunables().xxx`。
+**读取点必须是调用时读，不能模块加载时快照。** 这些是长驻服务（`device-tick` / `broadcast` / `gatt-scheduler`），常量一旦在模块顶层读进变量，改了要重启 App 才生效，那就失去了可调的意义。每处用到的地方调用 `getHistoryTunables().xxx`。
 
 **没有界面入口。** 早先设计过一个测试页弹窗（`HistoryTunePopup`：数值输入 + 生效值 + 「默认/已覆盖」标记 + 重置 + 当前日志），**已删除**——两个参数在真机跑过之后都没再动过，弹窗的维护成本（一个完整的读写/草稿/校验 UI）换不来实际收益。`tunables.ts` 的覆盖机制保留：默认值即代码常量，要临时改一个值仍是 `setHistoryTunable()` 一行，改完立刻生效。
 
@@ -642,7 +652,9 @@ export function resetHistoryTunables(): void;
 | 删除 `minuteStartsIn()` / `MinuteAssessment` / `unqualifiedMinutes` | 判定单位没了,这些随之下线。`MINUTE_MAX_MISSING = 20` 也是死代码（声明了从未被读） |
 | 日志 `分钟不合格` → `段不合格`（第 13 节） | 打的是未记账区间,不是分钟。字段同步改为 `区间` / `长度` / `阻塞段数` / `阻塞秒` |
 
-**未变的部分**:一分钟这个刻度仍然留在它该在的地方——**分钟级上传**（第 7 节）按广播的整分钟边界触发,与合格判定无关。判定与上传本来就是两件事（第 7 节）。
+**当时未变的部分**:一分钟这个刻度留在**分钟级上传**（第 7 节）里,按广播的整分钟边界触发,与合格判定无关。判定与上传本来就是两件事。
+
+> 下一版（修订七）把这个残留也收掉了——上传改由心跳触发，「整分钟」这个概念从代码里彻底消失。
 
 ### 2026-09-17 修订（五）：删掉补录参数弹窗
 
@@ -665,6 +677,23 @@ export function resetHistoryTunables(): void;
 
 **这一版之后**，第 7 节与 §12 的「『30 条 / 30 秒』上传触发」才是事实。真机验证形态：`[BOOM-UPLOAD] 分钟上传: minute=...` 每 60 秒一条，紧随其后 `上传PPI数据: batch=1, count≈60`。
 
+### 2026-09-17 修订（七）：收束驱动骨架——一个心跳、三个文件各管一件事
+
+起因是排查上传节奏时发现：**同一件事被三处代码各驱动一遍**。广播每收一帧自己判断「跨没跨整分钟」（`uploadCompletedMinuteIfCrossed`），跨了就同时喊两声——一声给判断（`sync.onMinuteBoundary`），一声给上传（`onMinuteCompleted`）；而 `sync.ts` 另有一个「启动延迟 15 秒 → 每 10 分钟」的循环，`data-manager.ts` 构造函数里又起了第三个 60 秒定时器。三个定时器、三种节流，谁都不知道别人在做什么。
+
+| 决定 | 理由 |
+| --- | --- |
+| **新增 `device-tick.ts`，作为全套后台节奏的唯一决策点** | 三件事各归各的模块（广播采集、判断推进、补数据连接），但它们之间需要一个时序约定，而这个约定只能有一份。心跳做三件事且顺序固定：`classify` → `advanceBaseline` → `uploadData`；连接另按 10 分钟节流（`maybeConnect`）。`poke()` 被广播每帧调用，**限流在它内部**——调用方只管说「有新数据了」，不需要自己判断该不该跑 |
+| **删掉「整分钟」触发**（第 7 节、§12） | 它唯一的作用是「上传刚走完的那一分钟」，而上收取的是「所有 `timestamp <= 冻结上界` 的待传记录」，根本不关心分钟；判定更早已不按分钟切（第 3 节，修订四）。一个不承载语义的刻度，换来两个类字段和一个跨模块的隐式约定 |
+| **接受「约 60 秒一批」而不是「一整分钟一批」** | 心跳可能落在分钟中间，同一条实时流的秒会分两次上传。服务端按 `time` 逐秒接收，不影响正确性。**想让服务端看到整分钟批次就得把「已完成的那一分钟」请回来，与本次方向相反**——这是收掉整分钟概念后主动接受的代价 |
+| **新增 `upload.ts`，`data-manager.ts` 只剩数据库** | 1107 行里一半是增删查改、一半是上传编排，两半唯一的联系是「上传要读数据库」。拆开后依赖方向单向：`upload.ts → data-manager.ts`。上传的身份信息（`deviceName` / `deviceAddress`）随上传一起搬走 |
+| **新增 `store/device/history-repair.ts`，不 import `Device`** | 补数据只需要一个「能按缺口读一段」的 reader（`GapReader`）。这样它可以配假 reader 独立测试，不需要构造整个设备栈；连接由调用方 `gatt-scheduler` 持有，本文件不碰 |
+| **删除 `sync.ts`** | 重构后它只剩「分类 + 推进 + 列缺口」约 40 行，而这三步本来就是每个心跳该做的事，不构成一个独立模块。`planHistorySync()` 并入 `runTick()` / `maybeConnect()` |
+| **删除「启动延迟 15 秒」** | 第一次 tick 就该把 App 关闭期间积压的时间判完（第 6 节），延迟只让首次补录更晚 |
+| **`broadcast.ts` 退回纯采集** | 落库成功后只剩一行 `this.device.tick.poke("broadcast")`，不认识「分钟」「判定」「上传」任何一个概念。两次误读（修订六的 `requestPpiUpload`、本轮的整分钟）都出自这个文件对下游节奏的插手 |
+| **测试页的 revision 挂到 `deviceStore.tick`** | `lastCheckAt` / `lastHistorySyncAt` 两个 ref 从 `sync` 整体搬到 `device-tick`，语义不变 |
+| **测试改为按新骨架断言，并新增三条用例** | 旧用例断言的 `sync.ts` / `runVitalGaps` 已不存在。新增：一轮 tick 的三步顺序、`poke()` 的 60 秒限流与重入守卫、`broadcast.ts` 里不再有任何分钟相关标识符 |
+
 ## 16. 待真机验证的数值
 
 **下表的「当前值」全部是代码里的默认值；`minuteSettleSec` 与 `bridgeSec` 运行时可覆盖，见第 14 节。**
@@ -673,14 +702,15 @@ export function resetHistoryTunables(): void;
 | --- | --- | --- | --- |
 | `MINUTE_SETTLE_SEC` | 10 秒 | 大于广播节流节奏即可 | 若固件秒级数据/Flash 写入有延迟，`missing` 会集中在每分钟末尾几秒。**这是唯一会造成数据错误（而非效率损失）的参数**，偏大则 `B` 落后 `now` 更多，偏小则可能把设备未稳定的秒当成「确认无数据」 |
 | `HISTORY_GATT_READ_BRIDGE_SEC` | 120 秒 | 沿用老值 | 偏大则合并过多、单次链路变长 |
-| `MIN_CONNECT_INTERVAL_MS` | 10 分钟 | 沿用老值（老流程的 `HISTORY_AUTO_CHECK_INTERVAL_MS`） | 偏大则缺口补得晚；偏小则连接频繁，广播停摆时间上升 |
+| `CONNECT_INTERVAL_MS` | 10 分钟 | 沿用老值（老流程的 `HISTORY_AUTO_CHECK_INTERVAL_MS`） | 偏大则缺口补得晚；偏小则连接频繁，广播停摆时间上升。定义在 `device-tick.ts`，与心跳的 `TICK_MIN_INTERVAL_MS = 60 秒` 配套 |
+| `TICK_MIN_INTERVAL_MS` | 60 秒 | 上传批次的粒度；同时也是 `poke()` 的限流窗口与定时兜底间隔 | 偏大则上传批次更大、缺口发现更晚；偏小则数据库查询与网络请求更频繁。三个用途共用同一个值，所以它同时是「上传多快」和「缺口多早被发现」 |
 
 **不再需要真机标定的量**（早先设计有，已删除）：
 
 | 曾经要调 | 为什么不需要了 |
 | --- | --- |
 | `BROADCAST_RESUME_GRACE_SEC` | 9.2 证明连接空洞本就是普通缺口，读取天然处理它，不需要「多大的空洞值得读」这个判据 |
-| `urgentGapIntervalMs` | 8.4 删掉了加急缺口连接，缺口只等 `MIN_CONNECT_INTERVAL_MS` |
+| `urgentGapIntervalMs` | 8.4 删掉了加急缺口连接，缺口只等 `CONNECT_INTERVAL_MS` |
 | `CONNECTION_LONG_THRESHOLD_MS` | 同上，不需要按连接时长做任何分支 |
 
 **验证方法**：稳定运行后看 `[BOOM-HISTORY] 补录结束` 的 `连接时长` 列——它应当稳定在一个**小值**上（那个值就是连接的固定开销：停扫描 / 握手 / 断开 / 重启扫描），因为那时连接只补上一次留下的几秒（9.3）。**它随时间持续增长**说明有外部缺口在积压，去看 `基准停驻` 的 `缺口组`。**它固定在一个偏大的值（十几秒以上）**说明固定开销本身就高，空洞仍然稳定有界、不会滚大，但每次连接掐掉的广播更多，可以压缩停扫描 / 断开静默 / 重启扫描的等待。

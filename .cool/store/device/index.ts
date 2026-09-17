@@ -61,7 +61,7 @@ import { DeviceProtocol } from "./protocol";
 import { EventHandler } from "./event-handler";
 import { DeviceHistoryReader } from "./history-reader";
 import { DeviceBroadcast } from "./broadcast";
-import { DeviceSync } from "./sync";
+import { DeviceTick } from "./device-tick";
 import { DeviceGattTaskLock } from "./gatt-lock";
 import { DeviceGattScheduler } from "./gatt-scheduler";
 
@@ -131,7 +131,7 @@ export class Device {
 	readonly protocol: DeviceProtocol;
 	readonly event: EventHandler;
 	readonly history: DeviceHistoryReader;
-	readonly sync: DeviceSync;
+	readonly tick: DeviceTick;
 	readonly broadcast: DeviceBroadcast;
 	readonly scheduler: DeviceGattScheduler;
 	//#endif
@@ -149,7 +149,7 @@ export class Device {
 		this.protocol = new DeviceProtocol(this);
 		this.event = new EventHandler(this);
 		this.history = new DeviceHistoryReader(this);
-		this.sync = new DeviceSync(this);
+		this.tick = new DeviceTick(this);
 		this.broadcast = new DeviceBroadcast(this);
 		this.scheduler = new DeviceGattScheduler(this);
 
@@ -158,7 +158,7 @@ export class Device {
 		this.event.onCharacteristicValueChange();
 		if (this.boundDeviceId != "") {
 			this.connection.initBluetoothSafely();
-			this.sync.startAutoRepair();
+			this.tick.start();
 		}
 		//#endif
 	}
@@ -225,7 +225,7 @@ export class Device {
 		storage.set(KEY_BOUND_DEVICE_ID, deviceId, 0);
 		this.touchState();
 		//#ifndef H5
-		this.sync.startAutoRepair();
+		this.tick.start();
 		//#endif
 	}
 
@@ -240,7 +240,7 @@ export class Device {
 	/** 清除绑定设备 ID */
 	clearBoundDevice(): void {
 		//#ifndef H5
-		this.sync.stopAutoRepair();
+		this.tick.stop();
 		//#endif
 		this.boundDeviceId = "";
 		this.boundDeviceName = "";
@@ -456,7 +456,7 @@ export class Device {
 	/** 销毁：停止扫描 → 断开 → 关闭适配器 */
 	async destroy(): Promise<void> {
 		//#ifndef H5
-		this.sync.stop();
+		this.tick.stop();
 		await this.connection.stopBluetoothSearch();
 		if (this.currentDeviceId != "") {
 			disconnect(this.currentDeviceId);
@@ -645,11 +645,7 @@ export type {
 	VitalAutoReadOptions,
 	VitalAutoReadResult
 } from "./history-reader";
-export type {
-	DeviceSyncReason,
-	DeviceSyncState,
-	HistoryGap,
-	HistoryGapRepairResult,
-	HistoryRepairResult,
-	HistorySyncPlan
-} from "./sync";
+export type { HistoryGap } from "../../bluetooth/history/baseline";
+export type { SyncReason } from "./types/gatt-types";
+export type { TickReason } from "./device-tick";
+export type { HistoryGapRepairResult, HistoryRepairResult, HistorySyncPlan } from "./history-repair";

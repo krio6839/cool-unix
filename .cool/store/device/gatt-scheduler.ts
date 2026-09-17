@@ -1,8 +1,14 @@
 import { EVENT_QUERY_TYPE_BY_TIME } from "../../bluetooth";
 import { sleepTimeout } from "../../utils";
+import { repairAllGaps } from "./history-repair";
 import type { Device } from "./index";
-import type { DeviceSyncReason, HistoryRepairResult } from "./sync";
-import type { GattFlushReason, GattQueuePriority, GattQueueTaskKind } from "./types/gatt-types";
+import type { HistoryRepairResult } from "./history-repair";
+import type {
+	GattFlushReason,
+	GattQueuePriority,
+	GattQueueTaskKind,
+	SyncReason
+} from "./types/gatt-types";
 import { logger } from "../../service/logger";
 
 const EVENT_SYNC_WINDOW_SECONDS = 24 * 60 * 60;
@@ -24,7 +30,7 @@ export type GattQueueTask = {
 	eventSeq: number;
 	diffSec: number;
 	broadcastUtc: number;
-	historyReason: DeviceSyncReason;
+	historyReason: SyncReason;
 };
 
 /**
@@ -72,7 +78,7 @@ export class DeviceGattScheduler {
 		this.requestFlush("urgent");
 	}
 
-	enqueueEventBackfill(deviceId: string, reason: DeviceSyncReason): boolean {
+	enqueueEventBackfill(deviceId: string, reason: SyncReason): boolean {
 		if (deviceId == "") return false;
 		// 因通道忙回队的事件任务还在排队：不重复入队，但仍要触发 flush，
 		// 否则它会一直等到下一次 eventSeq 变化才被执行。
@@ -87,7 +93,7 @@ export class DeviceGattScheduler {
 		return true;
 	}
 
-	enqueueHistoryRepair(reason: DeviceSyncReason): void {
+	enqueueHistoryRepair(reason: SyncReason): void {
 		const task = this.makeTask("historyRepair", "tail");
 		task.historyReason = reason;
 		task.key = "historyRepair";
@@ -398,14 +404,16 @@ export class DeviceGattScheduler {
 
 	private async runHistoryRepair(task: GattQueueTask): Promise<HistoryRepairResult | null> {
 		// 缺口不截断、连接不设时长：一轮把 `listRepairGaps()` 的缺口全部读完。
-		const result = await this.device.sync.repairVitalHistoryGapsInCurrentConnection(
-			task.historyReason
-		);
-		if (result.ok == false && result.message == "history repair busy") {
-			this.requeueTask(task);
-			this.pauseCurrentFlush = true;
+		// 连接本身由本调度器持有（停广播 → 连接 → 跑任务 → 恢复广播），
+		// `repairAllGaps()` 只负责在已连接的通道上把缺口读掉，不碰连接。
+		try {
+			const result = await repairAllGaps(this.device.history);
+			this.device.tick.markHistorySynced();
+			return result;
+		} catch (e) {
+			logger.warn("bluetooth", "[BOOM-HISTORY] 补录异常:", e);
+			return null;
 		}
-		return result;
 	}
 
 	private requeueTask(task: GattQueueTask): void {

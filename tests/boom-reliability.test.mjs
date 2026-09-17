@@ -179,32 +179,129 @@ test("six popup components keep their responsibilities and bottom full-height pr
 });
 
 test("automatic history repair plans from the baseline cursor, not a task queue", async () => {
-	const sync = await readFile(".cool/store/device/sync.ts", "utf8");
-	assert.equal(sync.includes("historyBaseline.classify("), true);
-	assert.equal(sync.includes("historyBaseline.advanceBaseline("), true);
-	assert.equal(sync.includes("historyBaseline.listRepairGaps("), true);
-	assert.equal(sync.includes("readVitalGapGroup(gap)"), true);
+	// 节奏只有一个决策点：心跳。规划的三步（分类 / 推进 / 列缺口）都在这里，
+	// 补数据的读取在 history-repair.ts，两者都不再属于一个「sync」模块。
+	const tick = await readFile(".cool/store/device/device-tick.ts", "utf8");
+	const repair = await readFile(".cool/store/device/history-repair.ts", "utf8");
+	assert.equal(tick.includes("historyBaseline.classify("), true);
+	assert.equal(tick.includes("historyBaseline.advanceBaseline("), true);
+	assert.equal(tick.includes("historyBaseline.listRepairGaps("), true);
+	assert.equal(repair.includes("readVitalGapGroup(gap)"), true);
+	assert.equal(tick.includes("lastCheckAt.value = Date.now()"), true);
 	// 老的任务表规划路径不应再出现。
-	assert.equal(sync.includes("historyProgress"), false);
-	assert.equal(sync.includes("groupHistoryTasksForRead"), false);
-	assert.equal(sync.includes("readVitalTaskGroup"), false);
-	assert.equal(sync.includes("lastCheckAt.value = Date.now()"), true);
+	assert.equal(repair.includes("historyProgress"), false);
+	assert.equal(repair.includes("groupHistoryTasksForRead"), false);
+	assert.equal(repair.includes("readVitalTaskGroup"), false);
+	// 旧的 sync 模块整体删除，不留兼容层。
+	await assert.rejects(readFile(".cool/store/device/sync.ts", "utf8"));
+});
+
+test("one tick does classification, baseline advance, and upload in a fixed order", async (t) => {
+	const r = await createRuntime(t);
+	const now = Math.floor(Date.now() / 1000);
+	const order = [];
+	r.db.exec(`INSERT INTO vital_sync_state (id,baseline_sec) VALUES (1,${now - 300})`);
+	// 本地 PPI 覆盖 [B, ceiling)：判定会把它整段记进 ready，`B` 因此推到右端。
+	const values = [];
+	for (let second = now - 300; second < now - 10; second++)
+		values.push(`('${second}',${second},0,0,0,0)`);
+	r.db.exec(`INSERT INTO ppi_data VALUES ${values.join(",")}`);
+
+	const tick = new r.DeviceTick({ boundDeviceId: "device" });
+	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
+	tick.device.scheduler = {
+		enqueueHistoryRepair() {
+			order.push("connect");
+		},
+		requestFlush() {}
+	};
+	// 记录三步的先后：判定 → 推进 → 上传。
+	const realClassify = baseline.classify.bind(baseline);
+	const realAdvance = baseline.advanceBaseline.bind(baseline);
+	baseline.classify = async (nowSec) => {
+		order.push("classify");
+		return realClassify(nowSec);
+	};
+	baseline.advanceBaseline = async (nowSec) => {
+		order.push("advance");
+		return realAdvance(nowSec);
+	};
+	const realUpload = r.uploader.uploadPpiData.bind(r.uploader);
+	r.uploader.uploadPpiData = async () => {
+		order.push("upload");
+		return realUpload();
+	};
+
+	await tick.runTick("timer");
+
+	// 判定先于上传：上传依据是本地的 ppi_data，判定不被上传结果影响。
+	assert.deepEqual(order, ["classify", "advance", "upload"]);
+	assert.equal(tick.lastError.value, "");
+	assert.equal(tick.lastCheckAt.value > 0, true);
+	// 判定确实发生了：合格的秒被吸收进 `B`，追到 `stableCeiling`。
+	assert.equal(await baseline.getBaseline(), now - 10);
+	// 没有缺口就不入队连接——缺口只搭顺风车，不制造连接。
+	assert.equal(order.includes("connect"), false);
+});
+
+test("poke is rate-limited to one tick per minute and never re-enters", async (t) => {
+	const r = await createRuntime(t);
+	// 用真实的 `runTick`：限流与重入守卫都在它内部，绕开它测的就不是被测对象了。
+	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
+	let classifyRuns = 0;
+	let concurrent = 0;
+	let maxConcurrent = 0;
+	const realClassify = baseline.classify.bind(baseline);
+	baseline.classify = async (nowSec) => {
+		classifyRuns++;
+		concurrent++;
+		maxConcurrent = Math.max(maxConcurrent, concurrent);
+		await new Promise(setImmediate);
+		concurrent--;
+		return realClassify(nowSec);
+	};
+	const tick = new r.DeviceTick({ boundDeviceId: "device" });
+	// 一轮 tick 必然以 classify 开头，所以它的调用次数就是 tick 的轮数。
+	tick.poke("broadcast");
+	tick.poke("broadcast");
+	tick.poke("timer");
+	await new Promise(setImmediate);
+	await new Promise(setImmediate);
+	assert.equal(classifyRuns, 1);
+	// 一轮还没结束时重入直接返回，两轮不会交错。
+	assert.equal(maxConcurrent, 1);
+	// 节流窗口过去后才再跑一轮。
+	tick.lastTickAt = Date.now() - 61000;
+	tick.poke("timer");
+	await new Promise(setImmediate);
+	await new Promise(setImmediate);
+	assert.equal(classifyRuns, 2);
+});
+
+test("broadcast only stores frames and pokes the tick, with no minute concept left", async () => {
+	const broadcast = await readFile(".cool/store/device/broadcast.ts", "utf8");
+	assert.equal(broadcast.includes("tick.poke("), true);
+	// 采集层不认识「整分钟」：旧的主触发在广播里叫 uploadCompletedMinuteIfCrossed。
+	assert.equal(broadcast.includes("uploadCompletedMinuteIfCrossed"), false);
+	assert.equal(broadcast.includes("onMinuteCompleted"), false);
+	assert.equal(/Minute(Sec|Boundary)/.test(broadcast), false);
 });
 
 test("a connection has no duration budget and does nothing special about its own hole", async () => {
 	const scheduler = await readFile(".cool/store/device/gatt-scheduler.ts", "utf8");
-	const sync = await readFile(".cool/store/device/sync.ts", "utf8");
+	const tick = await readFile(".cool/store/device/device-tick.ts", "utf8");
+	const repair = await readFile(".cool/store/device/history-repair.ts", "utf8");
 	const connection = await readFile(".cool/store/device/connection.ts", "utf8");
 	// 连接不设时长上限：单次预算存在时，它留下的空洞会被反复转交给下一次连接。
 	assert.equal(scheduler.includes("GATT_FLUSH_BUDGET_MS"), false);
-	assert.equal(sync.includes("HISTORY_AUTO_BACKLOG_INTERVAL_MS"), false);
+	assert.equal(tick.includes("HISTORY_AUTO_BACKLOG_INTERVAL_MS"), false);
 	// 连接留下的缺秒就是普通缺口，由下一次连接顺带补掉（方案 9.2/9.3）。
 	// 所以没有任何「识别连接空洞」的机制：不记录起点、不读尾巴、不判定接续。
 	assert.equal(connection.includes("ConnectionHole"), false);
 	assert.equal(scheduler.includes("readConnectionTailHoleBeforeDisconnect"), false);
 	assert.equal(scheduler.includes("readVitalTailHole"), false);
-	assert.equal(sync.includes("markBroadcastResume"), false);
-	assert.equal(sync.includes("onBoundBroadcastFrame"), false);
+	assert.equal(repair.includes("markBroadcastResume"), false);
+	assert.equal(repair.includes("onBoundBroadcastFrame"), false);
 });
 
 test("history-gap popup still maps a no-data gap result to readable text", async () => {
@@ -226,12 +323,9 @@ test("a manual gap repair refreshes the listed batch instead of leaving a stale 
 
 test("a gap with no device data does not abort the remaining gaps in one connection", async (t) => {
 	const r = await createRuntime(t);
-	const sync = new r.DeviceSync({ boundDeviceId: "device" });
+	// 补数据只依赖一个「能按缺口读一段」的 reader，因此可以配假 reader 独立跑，
+	// 不需要构造整个设备栈（history-repair.ts 不 import Device）。
 	const attempted = [];
-	const gaps = [
-		{ fromSec: 1000, toSec: 1120, repairSeconds: 120, bridgeSeconds: 0 },
-		{ fromSec: 2000, toSec: 2120, repairSeconds: 120, bridgeSeconds: 0 }
-	];
 	const noData = {
 		status: "DONE",
 		message: "target gap complete",
@@ -246,21 +340,29 @@ test("a gap with no device data does not abort the remaining gaps in one connect
 		savedRecords: 0,
 		saveOk: true
 	};
-	let script = { 1000: noData, 2000: noData };
-	sync.device.history = {
+	let script = {};
+	const reader = {
 		async readVitalGapGroup(gap) {
 			attempted.push(gap.fromSec);
 			return script[gap.fromSec];
 		}
 	};
+	const now = Math.floor(Date.now() / 1000);
+	// 两段缺口，中间隔着一段本地已有的秒。间隔要大于 bridgeSec（120 秒），
+	// 否则 bridgeGaps 会把它们合成一条读取链路，测不到「一组失败不影响下一组」。
+	const first = now - 900;
+	const second = now - 500;
+	r.db.exec(`INSERT INTO vital_sync_state (id,baseline_sec) VALUES (1,${first})`);
+	r.db.exec(`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${now - 700},${second})`);
+	script = { [first]: noData, [second]: noData };
 	// 前一个缺口“设备没数据”不是失败：同一次连接里后面的缺口仍然要读。
-	await sync.runVitalGaps(gaps);
-	assert.deepEqual(attempted, [1000, 2000]);
+	await r.historyRepair.repairAllGaps(reader);
+	assert.deepEqual(attempted, [first, second]);
 	// 真正的链路失败仍然中止本轮，避免在坏连接上反复超时。
 	attempted.length = 0;
-	script = { 1000: linkFailure, 2000: linkFailure };
-	await sync.runVitalGaps(gaps);
-	assert.deepEqual(attempted, [1000]);
+	script = { [first]: linkFailure, [second]: linkFailure };
+	await r.historyRepair.repairAllGaps(reader);
+	assert.deepEqual(attempted, [first]);
 });
 
 test("data diagnostics popup shows logs and defers full export to auto-archived files", async () => {
@@ -366,26 +468,27 @@ test("PPI retention deletes only uploaded rows outside the thirty-day window", a
 });
 test("automatic repair continues after one planning/database failure", async (t) => {
 	const r = await createRuntime(t);
-	let wakes = 0;
-	const sync = new r.DeviceSync({ boundDeviceId: "device" });
-	r.sleep = async () => {
-		wakes++;
-		r.queryFailure = wakes === 1;
-		assert.ok(wakes <= 2, "loop failed to recover and schedule repair");
-	};
-	sync.device.scheduler = {
-		enqueueHistoryRepair() {},
-		enqueueEventBackfill() {
-			return false;
+	const now = Math.floor(Date.now() / 1000);
+	r.db.exec(`INSERT INTO vital_sync_state (id,baseline_sec) VALUES (1,${now - 600})`);
+	const tick = new r.DeviceTick({ boundDeviceId: "device" });
+	const enqueued = [];
+	tick.device.scheduler = {
+		enqueueHistoryRepair(reason) {
+			enqueued.push(reason);
 		},
-		requestFlush() {
-			sync.stopAutoRepair();
-		}
+		requestFlush() {}
 	};
-	sync.autoEnabled = true;
-	sync.autoGeneration = 1;
-	await sync.runAutoLoop(1);
-	assert.equal(wakes, 2);
+	// 第一轮数据库读失败：整轮抛出并记进 lastError，而不是被当成「没有缺口」。
+	r.queryFailure = true;
+	await tick.runTick("timer");
+	assert.equal(tick.lastError.value == "", false);
+	assert.deepEqual(enqueued, []);
+	tick.lastTickAt = 0;
+	// 下一轮恢复：同一份缺口要重新被规划出来并入队，失败不能把它吞掉。
+	r.queryFailure = false;
+	await tick.runTick("timer");
+	assert.equal(tick.lastError.value, "");
+	assert.deepEqual(enqueued, ["timer"]);
 });
 
 for (const response of [null, "ok", {}, { status: "error" }, { code: 0, status: "error" }]) {
@@ -393,7 +496,7 @@ for (const response of [null, "ok", {}, { status: "error" }, { code: 0, status: 
 		const r = await createRuntime(t);
 		r.seed(2);
 		r.response = response;
-		assert.equal(await r.manager.uploadPpiData(), false);
+		assert.equal(await r.uploader.uploadPpiData(), false);
 		assert.equal(
 			r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data WHERE uploaded = 0").get().n,
 			2
@@ -405,7 +508,7 @@ test("both existing success envelopes acknowledge uploads", async (t) => {
 	const r = await createRuntime(t);
 	r.seed(2);
 	r.response = { code: 0, data: null };
-	assert.equal(await r.manager.uploadPpiData(), true);
+	assert.equal(await r.uploader.uploadPpiData(), true);
 	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data WHERE uploaded = 1").get().n, 2);
 });
 
@@ -416,7 +519,7 @@ test("backlog is bounded per request; failed batch remains retryable", async (t)
 		if (r.posts.length === 2) options.fail({ message: "offline" });
 		else options.success({ statusCode: 200, data: { status: "success" } });
 	};
-	assert.equal(await r.manager.uploadPpiData(), false);
+	assert.equal(await r.uploader.uploadPpiData(), false);
 	assert.equal(r.posts.length, 2);
 	assert.ok(r.posts.every((p) => p.data.datas.length <= 300));
 	assert.equal(
@@ -428,14 +531,14 @@ test("backlog is bounded per request; failed batch remains retryable", async (t)
 		450
 	);
 	r.respond = null;
-	assert.equal(await r.manager.uploadPpiData(), true);
+	assert.equal(await r.uploader.uploadPpiData(), true);
 	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data WHERE uploaded = 0").get().n, 0);
 });
 
 test("upload lock covers database reads and prevents duplicate simultaneous batches", async (t) => {
 	const r = await createRuntime(t);
 	r.seed(30);
-	await Promise.all([r.manager.uploadPpiData(), r.manager.uploadPpiData()]);
+	await Promise.all([r.uploader.uploadPpiData(), r.uploader.uploadPpiData()]);
 	assert.equal(r.posts.length, 1);
 });
 
@@ -443,30 +546,35 @@ test("failed uploaded-flag write is reported as failure", async (t) => {
 	const r = await createRuntime(t);
 	r.seed(30);
 	r.executeFailure = true;
-	assert.equal(await r.manager.uploadPpiData(), false);
+	assert.equal(await r.uploader.uploadPpiData(), false);
 });
 
 test("uploadData reports failure instead of unconditional success", async (t) => {
 	const r = await createRuntime(t);
 	r.seed(30);
 	r.respond = (options) => options.fail({ message: "offline" });
-	assert.equal(await r.manager.uploadData(), false);
+	assert.equal(await r.uploader.uploadData(), false);
 });
 
 test("upload has one automatic entry point and no count/interval gate", async (t) => {
-	// 上传节奏由触发点决定（广播跨整分钟 / 60 秒定时兜底 / 补录落库后），不在这里再节流。
-	// 老的「攒够 30 条 或 距上次 30 秒」既让秒级实时流成了真正的驱动源，又把整分钟触发
-	// 挡在门外（分钟边界那一刻两条判据都为真），所以连常量一起删掉。
-	const manager = await readFile(".cool/bluetooth/data-manager.ts", "utf8");
-	assert.equal(manager.includes("PPI_UPLOAD_BATCH_SIZE"), false);
-	assert.equal(manager.includes("PPI_UPLOAD_MIN_INTERVAL_MS"), false);
-	assert.equal(manager.includes("lastPpiUploadAttemptAt"), false);
-	assert.equal(manager.includes("requestPpiUpload"), false);
+	// 上传节奏只由触发点决定（心跳每轮 / 补录落库后 / 保活），编排层不再自己节流。
+	// 老的「攒够 30 条 或 距上次 30 秒」把节奏重新变成隐式的，连常量一起删掉；
+	// 「整分钟」这个触发概念也一并消失——判定与上传都不按分钟切。
+	const uploader = await readFile(".cool/bluetooth/upload.ts", "utf8");
+	assert.equal(uploader.includes("PPI_UPLOAD_BATCH_SIZE"), false);
+	assert.equal(uploader.includes("PPI_UPLOAD_MIN_INTERVAL_MS"), false);
+	assert.equal(uploader.includes("lastPpiUploadAttemptAt"), false);
+	assert.equal(uploader.includes("requestPpiUpload"), false);
 	// 退避仍然要有：失败批保持 uploaded=0，但不能随每次触发反复重试。
-	assert.equal(manager.includes("UPLOAD_FAILURE_BACKOFF_MS"), true);
-	assert.equal(manager.includes("private async uploadPpiIfPending()"), true);
+	assert.equal(uploader.includes("UPLOAD_FAILURE_BACKOFF_MS"), true);
+	assert.equal(uploader.includes("private async uploadPpiIfPending()"), true);
 
-	// 秒级广播只落库，不驱动上传。
+	// 数据库层不再认识上传：编排整体搬走了。
+	const manager = await readFile(".cool/bluetooth/data-manager.ts", "utf8");
+	assert.equal(manager.includes("UPLOAD_PPI_URL"), false);
+	assert.equal(manager.includes("uploadPpiIfPending"), false);
+
+	// 秒级广播只落库 + 喊一声心跳，不认识「分钟」「判定」「上传」任何一个概念。
 	const broadcast = await readFile(".cool/store/device/broadcast.ts", "utf8");
 	const store = broadcast.slice(
 		broadcast.indexOf("private async storeBroadcastPpiData"),
@@ -474,7 +582,11 @@ test("upload has one automatic entry point and no count/interval gate", async (t
 	);
 	assert.equal(store.includes("requestPpiUpload"), false);
 	assert.equal(store.includes("uploadPpiIfPending"), false);
-	assert.equal(store.includes("uploadCompletedMinuteIfCrossed"), true);
+	assert.equal(store.includes("uploadCompletedMinuteIfCrossed"), false);
+	assert.equal(broadcast.includes("lastBroadcastMinuteSec"), false);
+	assert.equal(broadcast.includes("minuteUploadBusy"), false);
+	assert.equal(broadcast.includes("onMinuteCompleted"), false);
+	assert.equal(store.includes('this.device.tick.poke("broadcast")'), true);
 });
 
 test("expired credentials reject instead of leaving upload locked indefinitely", async (t) => {
@@ -484,25 +596,28 @@ test("expired credentials reject instead of leaving upload locked indefinitely",
 	r.expired = true;
 	r.refreshExpired = true;
 	const outcome = await Promise.race([
-		r.manager.uploadPpiData(),
+		r.uploader.uploadPpiData(),
 		new Promise((resolve) => setTimeout(() => resolve("pending"), 30))
 	]);
 	assert.equal(outcome, false);
-	assert.equal(r.manager.isUploading, false);
+	assert.equal(r.uploader.isUploading, false);
 });
 
 test("database query failure is not treated as an empty successful upload", async (t) => {
 	const r = await createRuntime(t);
 	r.seed(30);
 	r.queryFailure = true;
-	assert.equal(await r.manager.uploadData(), false);
+	assert.equal(await r.uploader.uploadData(), false);
 	assert.equal(r.posts.length, 0);
 });
 
 test("database scan failure does not plan a fabricated empty-history repair", async (t) => {
 	const r = await createRuntime(t);
 	r.queryFailure = true;
-	await assert.rejects(new r.DeviceSync({ boundDeviceId: "device" }).planHistorySync());
+	// 一轮心跳里数据库读失败就整轮抛出，不能被当成「没有缺口」悄悄过去。
+	const tick = new r.DeviceTick({ boundDeviceId: "device" });
+	await tick.runTick("timer");
+	assert.equal(tick.lastError.value == "", false);
 });
 
 test("history persistence failure reports zero saved and does not start uploading", async (t) => {
@@ -597,12 +712,12 @@ test("a failed upload backs off instead of re-requesting on every trigger", asyn
 	const r = await createRuntime(t);
 	r.seed(30);
 	r.respond = (options) => options.fail({ message: "offline" });
-	assert.equal(await r.manager.uploadData(), false);
-	assert.equal(await r.manager.uploadData(), false);
+	assert.equal(await r.uploader.uploadData(), false);
+	assert.equal(await r.uploader.uploadData(), false);
 	assert.equal(r.posts.length, 1);
 	r.respond = null;
-	r.manager.lastPpiUploadFailedAt -= 61000;
-	assert.equal(await r.manager.uploadData(), true);
+	r.uploader.lastPpiUploadFailedAt -= 61000;
+	assert.equal(await r.uploader.uploadData(), true);
 });
 
 test("a small batch uploads immediately instead of waiting for a count threshold", async (t) => {
@@ -610,7 +725,7 @@ test("a small batch uploads immediately instead of waiting for a count threshold
 	r.seed(2);
 	// 上传节奏由触发点决定（整分钟 / 定时兜底 / 补录落库后），不再有「攒够 30 条」这一关：
 	// 触发点认为该传了，两条也要传上去，否则这两秒会一直等到下一次触发。
-	assert.equal(await r.manager.uploadData(), true);
+	assert.equal(await r.uploader.uploadData(), true);
 	assert.equal(r.posts.length, 1);
 	assert.equal(r.posts[0].data.datas.length, 2);
 });
@@ -626,7 +741,7 @@ test("live broadcasts arriving mid-run do not extend it to the batch cap", async
 		insertLive.run(String(liveSec), liveSec);
 		options.success({ statusCode: 200, data: { status: "success" } });
 	};
-	assert.equal(await r.manager.uploadPpiData(), true);
+	assert.equal(await r.uploader.uploadPpiData(), true);
 	assert.equal(r.posts.length, 1);
 	assert.equal(r.posts[0].data.datas.length, 30);
 	// 读取期间新到的实时秒留到下一轮，既不撑长本轮，也不算本轮失败。
@@ -636,24 +751,24 @@ test("live broadcasts arriving mid-run do not extend it to the batch cap", async
 test("per-run budget leaves a large backlog for later and releases the upload lock", async (t) => {
 	const r = await createRuntime(t);
 	r.seed(3600);
-	assert.equal(await r.manager.uploadPpiData(), false);
+	assert.equal(await r.uploader.uploadPpiData(), false);
 	assert.ok(r.posts.length <= 10);
 	assert.equal(
 		r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data WHERE uploaded = 0").get().n,
 		600
 	);
-	assert.equal(r.manager.isUploading, false);
-	assert.equal(await r.manager.uploadPpiData(), true);
+	assert.equal(r.uploader.isUploading, false);
+	assert.equal(await r.uploader.uploadPpiData(), true);
 });
 
 test("sleep failure is preserved and contributes to uploadData result", async (t) => {
 	const r = await createRuntime(t);
 	r.db.exec("INSERT INTO sleep_data VALUES ('1000', 1000, 60, 60, 0, 0, '', 0)");
 	r.response = { status: "error" };
-	assert.equal(await r.manager.uploadData(), false);
+	assert.equal(await r.uploader.uploadData(), false);
 	assert.equal(r.db.prepare("SELECT uploaded FROM sleep_data").get().uploaded, 0);
 	r.response = { status: "success" };
-	assert.equal(await r.manager.uploadData(), true);
+	assert.equal(await r.uploader.uploadData(), true);
 	assert.equal(r.db.prepare("SELECT uploaded FROM sleep_data").get().uploaded, 1);
 });
 
@@ -668,12 +783,12 @@ test("an in-flight PPI upload does not silently drop the sleep upload", async (t
 			return options.success({ statusCode: 200, data: { status: "success" } });
 		pending.push(options);
 	};
-	const ppi = r.manager.uploadPpiData();
+	const ppi = r.uploader.uploadPpiData();
 	await new Promise((s) => setTimeout(s, 5));
-	assert.equal(r.manager.isUploading, true);
+	assert.equal(r.uploader.isUploading, true);
 	// 事件读取结束时正是这个调用顺序。共用一个上传锁时，它只会打一条 info 然后
 	// 返回 false，记录留在 uploaded=0——“有睡眠事件但没上传”就是这样发生的。
-	assert.equal(await r.manager.uploadSleepData(), true);
+	assert.equal(await r.uploader.uploadSleepData(), true);
 	assert.equal(r.db.prepare("SELECT uploaded FROM sleep_data").get().uploaded, 1);
 	assert.equal(r.posts.filter((p) => p.url.indexOf("/sleep") >= 0).length, 1);
 	for (const item of pending) item.success({ statusCode: 200, data: { status: "success" } });
@@ -683,7 +798,7 @@ test("an in-flight PPI upload does not silently drop the sleep upload", async (t
 test("sleep upload logs why it skipped and how the detail staged", async (t) => {
 	const r = await createRuntime(t);
 	r.db.exec("INSERT INTO sleep_data VALUES ('1000', 1000, 60, 60, 0, 0, '', 0)");
-	assert.equal(await r.manager.uploadSleepData(), true);
+	assert.equal(await r.uploader.uploadSleepData(), true);
 	const line = r.logs.map((x) => x.items.join(" ")).find((x) => x.includes("上传睡眠数据:"));
 	assert.ok(line != null, "no sleep upload line was logged");
 	// 没有这一行，日志里就看不出 detail 是不是全 0——而全 0 正是服务端
@@ -695,8 +810,8 @@ test("sleep upload logs why it skipped and how the detail staged", async (t) => 
 	// 设备未连接时跳过必须报出原因，否则只剩一个 false 无法定位。
 	const offline = await createRuntime(t);
 	offline.db.exec("INSERT INTO sleep_data VALUES ('1000', 1000, 60, 60, 0, 0, '', 0)");
-	offline.manager.setDeviceInfo("BOOM", "");
-	assert.equal(await offline.manager.uploadSleepData(), false);
+	offline.uploader.setDeviceInfo("BOOM", "");
+	assert.equal(await offline.uploader.uploadSleepData(), false);
 	assert.equal(
 		offline.logs.some((x) => x.items.join(" ").includes("原因=设备未连接")),
 		true
@@ -912,16 +1027,16 @@ test("scheduled history upload is coalesced and eventually acknowledges saved ro
 	r.respond = (options) => {
 		pendingRequest = options;
 	};
-	r.manager.scheduleUpload();
-	r.manager.scheduleUpload();
+	r.uploader.scheduleUpload();
+	r.uploader.scheduleUpload();
 	assert.equal(r.timers.length, 1);
 	r.timers.shift()();
 	await new Promise(setImmediate);
 	assert.equal(r.posts.length, 1);
-	assert.equal(r.manager.isUploading, true);
+	assert.equal(r.uploader.isUploading, true);
 	pendingRequest.success({ statusCode: 200, data: { status: "success" } });
 	await new Promise(setImmediate);
-	assert.equal(r.manager.isUploading, false);
+	assert.equal(r.uploader.isUploading, false);
 	assert.equal(
 		r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data WHERE uploaded = 1").get().n,
 		300

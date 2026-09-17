@@ -7,8 +7,11 @@ export * from "./constants";
 // 导出 hex ↔ ArrayBuffer 通用工具
 export * from "./parser";
 
-// 导出数据管理器
+// 导出数据管理器（数据库读写）
 export * from "./data-manager";
+
+// 导出上传编排（批循环 / 退避 / 定时兜底）
+export * from "./upload";
 
 // 导出数据库
 export * from "./database";

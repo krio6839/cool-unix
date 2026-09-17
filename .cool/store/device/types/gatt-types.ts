@@ -7,6 +7,9 @@ export type GattQueueTaskKind =
 export type GattQueuePriority = "urgent" | "normal" | "tail";
 export type GattFlushReason = "urgent" | "timer" | "startup" | "manual";
 
+/** 入队原因。只进日志与任务字段，不改变执行逻辑。 */
+export type SyncReason = "startup" | "timer" | "manual";
+
 export type GattTaskName =
 	| "vitalAuto"
 	| "vitalRecent"

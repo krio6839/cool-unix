@@ -186,7 +186,7 @@
 <script lang="ts" setup>
 //#ifndef H5
 import { computed, ref, watch } from "vue";
-import { bluetoothDataManager, diagnostics, t } from "@/.cool";
+import { bluetoothDataManager, bluetoothUploader, diagnostics, t } from "@/.cool";
 import type {
 	PpiData,
 	RealtimeBroadcastRecord,
@@ -253,7 +253,7 @@ function clearRows(): void {
 async function reuploadSleep(count: number): Promise<void> {
 	if (setLoading(`${t("重新上传睡眠")} ${count} ${t("条")}`) == false) return;
 	try {
-		const uploadedCount = await bluetoothDataManager.reuploadSleepData(count);
+		const uploadedCount = await bluetoothUploader.reuploadSleepData(count);
 		rows.value = [
 			uploadedCount > 0
 				? `${t("重新上传成功")}: ${uploadedCount} ${t("条")}`

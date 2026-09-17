@@ -4,6 +4,7 @@ import { bluetoothDatabase } from "../../bluetooth/database";
 import {
 	BOOM_CMD,
 	bluetoothDataManager,
+	bluetoothUploader,
 	LOG_EVENT_NAMES,
 	LOG_EVENT_TYPE,
 	parseEventDataHeader,
@@ -310,7 +311,7 @@ export class DeviceHistoryReader {
 			result.savedRecords = savedRecords;
 			if (result.savedRecords > 0 && options.uploadAfterSave != false) {
 				result.uploadAttempted = true;
-				result.uploadOk = await bluetoothDataManager.uploadData();
+				result.uploadOk = await bluetoothUploader.uploadData();
 			}
 			return result;
 		} catch (error) {
@@ -499,7 +500,7 @@ export class DeviceHistoryReader {
 			logger.error("bluetooth", `[BOOM-HISTORY] ${label}异常: ${error}`);
 			throw error;
 		} finally {
-			if (saved > 0) bluetoothDataManager.scheduleUpload();
+			if (saved > 0) bluetoothUploader.scheduleUpload();
 			this.setDisplaySuspended(false);
 			this.device.endGattTask("vitalGap");
 		}
@@ -675,7 +676,7 @@ export class DeviceHistoryReader {
 				result.saveOk = true;
 				if (saved > 0 && options.uploadAfterSave != false) {
 					result.uploadAttempted = true;
-					result.uploadOk = await bluetoothDataManager.uploadSleepData();
+					result.uploadOk = await bluetoothUploader.uploadSleepData();
 				}
 			} catch (e) {
 				result.saveOk = false;

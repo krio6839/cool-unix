@@ -305,14 +305,14 @@ const protocolLogVisible = ref(false);
 const databasePopupVisible = ref(false);
 const historyGapRepairPopupVisible = ref(false);
 /**
- * 测试页手动补录直接调用 history.readVitalGapGroup，不经过 sync，
+ * 测试页手动补录直接调用 history.readVitalGapGroup，不经过心跳，
  * 因此不会更新 lastHistorySyncAt。补完必须自己抬一次版本，否则弹窗和基准面板
  * 留着补录之前的旧缺口。
  */
 const manualHistoryRevision = ref<number>(0);
 const historyGapRevision = computed<number>(() => {
-	const plannedAt = deviceStore.sync.lastCheckAt.value;
-	const completedAt = deviceStore.sync.lastHistorySyncAt.value;
+	const plannedAt = deviceStore.tick.lastCheckAt.value;
+	const completedAt = deviceStore.tick.lastHistorySyncAt.value;
 	const manualAt = manualHistoryRevision.value;
 	const latest = plannedAt > completedAt ? plannedAt : completedAt;
 	return manualAt > latest ? manualAt : latest;

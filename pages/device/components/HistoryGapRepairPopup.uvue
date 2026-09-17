@@ -176,7 +176,7 @@ function scheduleOpenRefresh(): void {
 watch(show, (visible: boolean) => {
 	if (visible) scheduleOpenRefresh();
 });
-/** 由 DeviceSync 的规划/执行 revision 驱动，不在弹窗内轮询数据库。 */
+/** 由心跳的规划/执行 revision 驱动，不在弹窗内轮询数据库。 */
 watch(revision, (value: number) => {
 	if (show.value && value > 0) scheduleOpenRefresh();
 });

@@ -226,8 +226,11 @@ export async function createRuntime(t) {
 	const managerModule = await load(".cool/bluetooth/data-manager.ts");
 	await managerModule.evaluate();
 	const manager = managerModule.namespace.bluetoothDataManager;
-	manager.setDeviceInfo("BOOM", "AA:BB");
 	await manager.databaseReady;
+	const uploaderModule = await load(".cool/bluetooth/upload.ts");
+	await uploaderModule.evaluate();
+	const uploader = uploaderModule.namespace.bluetoothUploader;
+	uploader.setDeviceInfo("BOOM", "AA:BB");
 	const parserModule = await load(".cool/bluetooth/boom-parser.ts");
 	await parserModule.evaluate();
 	state.parser = parserModule.namespace;
@@ -244,6 +247,7 @@ export async function createRuntime(t) {
 	const btParser = (await load(".cool/bluetooth/boom-parser.ts")).namespace;
 	mocks["../../bluetooth"] = {
 		bluetoothDataManager: manager,
+		bluetoothUploader: uploader,
 		BOOM_CMD: btConstants.BOOM_CMD,
 		LOG_EVENT_NAMES: btConstants.LOG_EVENT_NAMES,
 		LOG_EVENT_TYPE: btConstants.LOG_EVENT_TYPE,
@@ -251,14 +255,19 @@ export async function createRuntime(t) {
 		parseLogDataList: btParser.parseLogDataList,
 		parseVitalDataResponse: btParser.parseVitalDataResponse
 	};
+	state.BluetoothUploader = uploaderModule.namespace.BluetoothUploader;
+	state.uploader = uploader;
 	const readerModule = await load(".cool/store/device/history-reader.ts");
 	await readerModule.evaluate();
 	state.DeviceHistoryReader = readerModule.namespace.DeviceHistoryReader;
-	const syncModule = await load(".cool/store/device/sync.ts");
-	await syncModule.evaluate();
+	const tickModule = await load(".cool/store/device/device-tick.ts");
+	await tickModule.evaluate();
+	state.DeviceTick = tickModule.namespace.DeviceTick;
+	const repairModule = await load(".cool/store/device/history-repair.ts");
+	await repairModule.evaluate();
+	state.historyRepair = repairModule.namespace;
 	state.diagnostics = (await load(".cool/service/diagnostics.ts")).namespace.diagnostics;
 	state.manager = manager;
-	state.DeviceSync = syncModule.namespace.DeviceSync;
 	state.request = cache.get(".cool/service/index.ts").namespace.request;
 	state.seed = (count) => {
 		const insert = db.prepare("INSERT INTO ppi_data VALUES (?, ?, 60, 0, 1000, 0)");

@@ -1,5 +1,6 @@
 import {
 	bluetoothDataManager,
+	bluetoothUploader,
 	formatRealtimeMetric,
 	parseCustomAdvData,
 	toRealtimeBroadcast
@@ -55,10 +56,6 @@ export class DeviceBroadcast {
 	private hardRecoveryPendingValidation: boolean = false;
 	private broadcastScanRestartBusy: boolean = false;
 	private boundBroadcastScanGeneration: number = 0;
-	/** 上一帧广播 `utc` 所在的整分钟起点，跨过新的整分钟时触发分钟上传。 */
-	private lastBroadcastMinuteSec: number = 0;
-	/** 分钟上传的串行标志：上传是网络请求，不能每帧都并发拉起。 */
-	private minuteUploadBusy: boolean = false;
 
 	constructor(device: Device) {
 		this.device = device;
@@ -124,7 +121,7 @@ export class DeviceBroadcast {
 		this.device.saveBoundDeviceName(name);
 		this.device.cacheFoundDevice(d, name);
 		if (name != "") {
-			bluetoothDataManager.setDeviceInfo(name, this.device.boundDeviceId);
+			bluetoothUploader.setDeviceInfo(name, this.device.boundDeviceId);
 		}
 		const now = Date.now();
 		if (now - this.lastBoundBroadcastHandledAt < BOUND_BROADCAST_MIN_INTERVAL_MS) return;
@@ -560,7 +557,7 @@ export class DeviceBroadcast {
 			"[BOOM-ADV] 绑定设备广播时间异常且校时失败，已停止自动使用并提示用户"
 		);
 		this.device.connection.stopBluetoothSearch();
-		this.device.sync.stopAutoRepair();
+		this.device.tick.stop();
 		this.device.realtime.value = null;
 		this.device.broadcastDebug.value = null;
 		realtime.clear();
@@ -608,46 +605,9 @@ export class DeviceBroadcast {
 		const ppi = r.ppi;
 		const ok = await bluetoothDataManager.storeBroadcastPpiData(timestamp, hr, spo2, ppi);
 		await bluetoothDataManager.storeBroadcastSleepActivity(timestamp, r.activity);
-		// 这里只落库，不驱动上传：秒级实时流不是上传触发点，主触发是下面这个跨整分钟。
-		if (ok == true) {
-			this.uploadCompletedMinuteIfCrossed(timestamp);
-		}
-	}
-
-	/**
-	 * 广播 `utc` 跨过整分钟时上传刚走完的那一分钟。
-	 *
-	 * 这是**主上传触发**，也是秒级实时流唯一能影响上传的地方——每秒落库的广播本身
-	 * 不驱动上传，只在跨过分钟边界时触发一次。定时兜底降级为只消费 `uploaded=0`
-	 * 的积压和失败重试。上传与合格判定是两件事——判定依据是本地的 `ppi_data`，
-	 * 不是上传结果；上传失败时 `uploaded` 保持 0，由重试路径继续消费，不会因为
-	 * 弱网把已经收齐的分钟判成待补。
-	 *
-	 * 跨分钟判定用广播 `utc`（设备时钟）而不是手机时钟：分钟边界属于设备的数据
-	 * 时间轴，两者的偏差由校时链路处理，不在这里再用手机时钟切一刀。
-	 */
-	private uploadCompletedMinuteIfCrossed(utcSec: number): void {
-		if (utcSec <= 0) return;
-		const minuteSec = Math.floor(utcSec / 60) * 60;
-		const previous = this.lastBroadcastMinuteSec;
-		this.lastBroadcastMinuteSec = minuteSec;
-		if (previous <= 0 || minuteSec <= previous) return;
-		// 5.5 的调用时机 1：广播在线时的正常推进路径。与上传是两件独立的事，
-		// 判定依据是本地的 `ppi_data`，不是上传结果。
-		this.device.sync.onMinuteBoundary(previous).catch((e) => {
-			logger.warn("bluetooth", "[BOOM-BASE] 分钟边界处理异常:", e);
-		});
-		if (this.minuteUploadBusy == true) return;
-		this.minuteUploadBusy = true;
-		// 完成的那一分钟是 previous，不是 minuteSec：后者才刚进入。
-		bluetoothDataManager
-			.onMinuteCompleted(previous)
-			.catch((e) => {
-				logger.warn("bluetooth", "[BOOM-UPLOAD] 分钟上传异常:", e);
-			})
-			.then(() => {
-				this.minuteUploadBusy = false;
-			});
+		// 广播只采集：落库成功后喊一声心跳，由它决定判不判、传不传。
+		// 这里不认识「分钟」「判定」「上传」任何一个概念——节奏全部收敛在 device-tick.ts。
+		if (ok == true) this.device.tick.poke("broadcast");
 	}
 
 	private getBroadcastTimestamp(r: RealtimeBroadcast): number {

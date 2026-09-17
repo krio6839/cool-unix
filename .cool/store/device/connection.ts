@@ -12,7 +12,7 @@
 import { t } from "../../locale";
 import { TARGET_DEVICE_NAME_PREFIX } from "./types/wear-location";
 import type { ConnectModeReason, ScanPurpose } from "./types/device-state-types";
-import { BOOM_GATT_SERVICE_UUID, bluetoothDataManager } from "../../bluetooth";
+import { BOOM_GATT_SERVICE_UUID, bluetoothDataManager, bluetoothUploader } from "../../bluetooth";
 
 //#ifndef H5
 import {
@@ -221,7 +221,7 @@ export class DeviceConnection {
 		this.device.status.value = "SEARCHING";
 		this.device.errorMessage.value = "";
 		const deviceName = this.device.getDisplayDeviceName();
-		bluetoothDataManager.setDeviceInfo(deviceName, this.device.boundDeviceId);
+		bluetoothUploader.setDeviceInfo(deviceName, this.device.boundDeviceId);
 		const ok = await this.startScan("boundBroadcast");
 		if (ok == true) {
 			this.device.touchState();
@@ -327,7 +327,7 @@ export class DeviceConnection {
 		this.device.currentDeviceName = displayName;
 		this.device.status.value = "CONNECTED";
 		await this.device.saveBoundDevice(deviceId, displayName);
-		bluetoothDataManager.setDeviceInfo(displayName, deviceId);
+		bluetoothUploader.setDeviceInfo(displayName, deviceId);
 		this.device.touchState();
 	}
 
@@ -794,7 +794,7 @@ export class DeviceConnection {
 					this.device.currentDeviceName = this.device.getDisplayDeviceName();
 				}
 				await this.device.saveBoundDevice(deviceId, this.device.currentDeviceName);
-				bluetoothDataManager.setDeviceInfo(this.device.currentDeviceName, deviceId);
+				bluetoothUploader.setDeviceInfo(this.device.currentDeviceName, deviceId);
 				this.device.touchState();
 			}
 
@@ -954,7 +954,7 @@ export class DeviceConnection {
 		this.device.protocol.writeCharUuid = "";
 		this.device.protocol.notifyCharUuid = "";
 		this.device.realtime.value = null;
-		bluetoothDataManager.clearDeviceInfo();
+		bluetoothUploader.clearDeviceInfo();
 		this.device.touchState();
 	}
 

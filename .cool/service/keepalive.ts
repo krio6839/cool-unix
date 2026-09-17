@@ -1,4 +1,4 @@
-import { bluetoothDataManager } from "../bluetooth/data-manager";
+import { bluetoothUploader } from "../bluetooth/upload";
 import { useStore } from "../store";
 import { logger } from "./logger";
 
@@ -50,11 +50,13 @@ async function runKeepAliveTickAsync(reason: KeepAliveTickReason): Promise<void>
 	try {
 		const { device } = useStore();
 		if (device.boundDeviceId != "") {
-			bluetoothDataManager.setDeviceInfo(device.getDisplayDeviceName(), device.boundDeviceId);
+			bluetoothUploader.setDeviceInfo(device.getDisplayDeviceName(), device.boundDeviceId);
 			await maintainBoundBroadcastScanFromKeepAlive(reason);
-			device.sync.startAutoRepair();
+			// 后台没有广播帧驱动，用保活 tick 兜底叫一次心跳（内部按 60 秒限流）。
+			device.tick.start();
+			device.tick.poke("keepalive");
 		}
-		await bluetoothDataManager.uploadData();
+		await bluetoothUploader.uploadData();
 		logger.info("keepalive", "保活任务完成", reason);
 	} catch (e) {
 		logger.warn("keepalive", "保活任务失败", reason, e);
@@ -78,7 +80,7 @@ function runKeepAliveBroadcastScanOnly(reason: KeepAliveTickReason): void {
 async function runKeepAliveBroadcastScanOnlyAsync(reason: KeepAliveTickReason): Promise<void> {
 	const { device } = useStore();
 	if (device.boundDeviceId == "") return;
-	bluetoothDataManager.setDeviceInfo(device.getDisplayDeviceName(), device.boundDeviceId);
+	bluetoothUploader.setDeviceInfo(device.getDisplayDeviceName(), device.boundDeviceId);
 	await maintainBoundBroadcastScanFromKeepAlive(reason);
 }
 
