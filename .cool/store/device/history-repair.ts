@@ -18,10 +18,16 @@ import { logger } from "../../service/logger";
 import type { HistoryGap } from "../../bluetooth/history/baseline";
 import type { VitalAutoReadResult } from "./history-reader";
 
-/** 补数据只需要 reader 的这一个能力。`DeviceHistoryReader` 天然满足它。 */
-export type GapReader = {
+/**
+ * 补数据只需要 reader 的这一个能力。`DeviceHistoryReader` 显式 `implements` 它。
+ *
+ * 必须是 `interface` 而不是 `type` 对象字面量：UTS 名义类型，没有结构化子类型，
+ * 类实例无法赋给对象字面量类型（编译错误 error17：实际类型 DeviceHistoryReader，
+ * 预期类型 GapReader）。类侧要 `implements GapReader` 才成立。
+ */
+export interface GapReader {
 	readVitalGapGroup(gap: HistoryGap): Promise<VitalAutoReadResult>;
-};
+}
 
 /** 一个缺口、以及它在这一次连接里的读取结果。 */
 type GapOutcome = {

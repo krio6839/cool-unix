@@ -22,6 +22,7 @@ import type {
 import { ref } from "vue";
 import type { Device } from "./index";
 import { logger } from "../../service/logger";
+import type { GapReader } from "./history-repair";
 
 export type HistoryReadStatus = "DONE" | "STOPPED" | "LIMIT" | "TIMEOUT" | "SEND_FAILED";
 
@@ -108,7 +109,7 @@ const VITAL_GAP_READ_DIRECTION = 0;
 /** 调试弹窗展示历史明细时最多输出的行数。 */
 const MAX_FORMAT_DETAIL_LINES = 260;
 
-export class DeviceHistoryReader {
+export class DeviceHistoryReader implements GapReader {
 	/** 0x3A/0x3B 最近一次生命体征查询结果（多帧重组后） */
 	vitalDataResponse = ref<VitalDataQueryResponse | null>(null);
 	/** 0x3A/0x3B 生命体征响应序号（即使内容相同也递增） */
