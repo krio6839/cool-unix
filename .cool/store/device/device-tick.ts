@@ -32,17 +32,26 @@ import type { Device } from "./index";
 /** 被谁唤醒的。只影响日志，不影响行为。 */
 export type TickReason = "startup" | "broadcast" | "keepalive" | "timer";
 
-/** `poke()` 的限流：两次 tick 至少隔这么久。也是定时兜底的间隔。 */
-const TICK_MIN_INTERVAL_MS = 60 * 1000;
-/**
- * 连接最小间隔，同时是「缺口要等多久才被补」的上界（方案 9.6）。
- *
- * 它顺带提供了缺口读取失败的天然退避：缺口不落库，没有 `retry_at` / `attempts`，
- * 失败后缺口原样留着，下一轮到这里才会再试一次。
- */
-const CONNECT_INTERVAL_MS = 10 * 60 * 1000;
-
 export class DeviceTick {
+	/**
+	 * `poke()` 的限流：两次 tick 至少隔这么久。也是定时兜底的间隔。
+	 *
+	 * **必须是类级 static，不能写成模块级 `const`**：UTS 把整个工程合成一个 Kotlin
+	 * 文件，模块级 `const` 会变成文件级字段，按模块顺序在 `IndexKt.<clinit>` 里赋值。
+	 * `device` 单例的声明位置比这些常量早，它的构造函数又会直接调 `start()` → `poke()`，
+	 * 于是 `poke()` 在 `<clinit>` 没跑完时就读到这个还没赋值的字段（JVM 默认 `null`），
+	 * 触发 `NumberKt.compareTo(other=null)` 的 NPE，并让整个 `IndexKt` 变成
+	 * NoClassDefFoundError。类级 static 随类初始化，早于任何实例构造，没有这个顺序问题。
+	 */
+	private static readonly TICK_MIN_INTERVAL_MS = 60 * 1000;
+	/**
+	 * 连接最小间隔，同时是「缺口要等多久才被补」的上界（方案 9.6）。
+	 *
+	 * 它顺带提供了缺口读取失败的天然退避：缺口不落库，没有 `retry_at` / `attempts`，
+	 * 失败后缺口原样留着，下一轮到这里才会再试一次。
+	 */
+	private static readonly CONNECT_INTERVAL_MS = 10 * 60 * 1000;
+
 	/** 给页面/测试工具展示当前阶段，不作为业务锁。 */
 	state = ref<"idle" | "ticking">("idle");
 	lastError = ref<string>("");
@@ -74,7 +83,7 @@ export class DeviceTick {
 	 */
 	poke(reason: TickReason): void {
 		const now = Date.now();
-		if (now - this.lastTickAt < TICK_MIN_INTERVAL_MS) return;
+		if (now - this.lastTickAt < DeviceTick.TICK_MIN_INTERVAL_MS) return;
 		this.runTick(reason);
 	}
 
@@ -86,7 +95,7 @@ export class DeviceTick {
 		//@ts-ignore setInterval 在 UTS 不同平台返回类型不一，用 number 容器
 		this.timer = setInterval(() => {
 			this.poke("timer");
-		}, TICK_MIN_INTERVAL_MS);
+		}, DeviceTick.TICK_MIN_INTERVAL_MS);
 		logger.info("bluetooth", "[BOOM-TICK] 已启动基准时间心跳");
 	}
 
@@ -140,7 +149,7 @@ export class DeviceTick {
 	 */
 	private async maybeConnect(nowSec: number): Promise<void> {
 		const now = Date.now();
-		if (this.lastConnectCheckAt > 0 && now - this.lastConnectCheckAt < CONNECT_INTERVAL_MS)
+		if (this.lastConnectCheckAt > 0 && now - this.lastConnectCheckAt < DeviceTick.CONNECT_INTERVAL_MS)
 			return;
 		// 先置时刻再判缺口：读取失败时缺口原样留着，下一轮到这里才会再试一次，
 		// 这个间隔本身就是它的退避（方案 8.3）。
