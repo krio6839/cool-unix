@@ -24,7 +24,7 @@
  * 频率由「本来就必须连的事」决定，缺口只搭顺风车，不制造连接（方案 8.4）。
  */
 import { ref } from "vue";
-import { historyBaseline } from "../../bluetooth/history/baseline";
+import { formatHistorySec, historyBaseline } from "../../bluetooth/history/baseline";
 import { bluetoothUploader } from "../../bluetooth/upload";
 import { logger } from "../../service/logger";
 import type { Device } from "./index";
@@ -135,7 +135,7 @@ export class DeviceTick {
 			this.lastError.value = "";
 			logger.info(
 				"bluetooth",
-				`[BOOM-BASE] 刻度: now=${nowSec}, stableCeiling=${historyBaseline.stableCeiling(nowSec)}, B=${baseline}, reason=${reason}`
+				`[BOOM-BASE] 刻度: now=${formatHistorySec(nowSec)}, stableCeiling=${formatHistorySec(historyBaseline.stableCeiling(nowSec))}, B=${formatHistorySec(baseline)}, reason=${reason}`
 			);
 			await bluetoothUploader.uploadData();
 			await this.maybeConnect(nowSec, baseline);

@@ -20,6 +20,11 @@ export const BASELINE_SCHEMA: string[] = [
 	`CREATE TABLE IF NOT EXISTS vital_ready_ranges (from_sec INTEGER NOT NULL, to_sec INTEGER NOT NULL, PRIMARY KEY(from_sec,to_sec))`
 ];
 
+/** 保留 Unix 秒值，同时附带可读的 UTC 时间，方便诊断日志定位实际时间。 */
+export function formatHistorySec(sec: number): string {
+	return `${sec}(${new Date(sec * 1000).toISOString().replace("T", " ")})`;
+}
+
 /**
  * 一分钟合格判定的连续缺失阈值，见方案第 3 节。
  *
@@ -295,7 +300,7 @@ class HistoryBaseline {
 		);
 		logger.info(
 			"bluetooth",
-			`[BOOM-BASE] 基准推进: B=${retentionStart}, 原因=expired, 保留起点=${retentionStart}`
+			`[BOOM-BASE] 基准推进: B=${formatHistorySec(retentionStart)}, 原因=expired, 保留起点=${formatHistorySec(retentionStart)}`
 		);
 		return retentionStart;
 	}
@@ -365,7 +370,7 @@ class HistoryBaseline {
 				if (endConfirmed == true) {
 					logger.info(
 						"bluetooth",
-						`[BOOM-BASE] 段不合格: 区间=${piece.fromSec}~${piece.toSec}, 长度=${piece.toSec - piece.fromSec}s, 缺失=${assessed.missingSeconds}s, 最长连续缺失=${assessed.longestMissingRun}s, 阻塞段数=${assessed.blockedRuns}, 阻塞秒=${assessed.blockedSeconds}s, 阈值=缺失<${MISSING_TOTAL_PERCENT}%, 连续<${MINUTE_MAX_MISSING_RUN_SEC}`
+						`[BOOM-BASE] 段不合格: 区间=${formatHistorySec(piece.fromSec)}~${formatHistorySec(piece.toSec)}, 长度=${piece.toSec - piece.fromSec}s, 缺失=${assessed.missingSeconds}s, 最长连续缺失=${assessed.longestMissingRun}s, 阻塞段数=${assessed.blockedRuns}, 阻塞秒=${assessed.blockedSeconds}s, 阈值=缺失<${MISSING_TOTAL_PERCENT}%, 连续<${MINUTE_MAX_MISSING_RUN_SEC}`
 					);
 				}
 			}
@@ -378,7 +383,7 @@ class HistoryBaseline {
 		result.gapSeconds = unclassifiedSeconds - result.qualifiedSeconds;
 		logger.info(
 			"bluetooth",
-			`[BOOM-BASE] 分类完成: 未记账=${unclassifiedSeconds}s, 新记账=${result.qualifiedSeconds}s, 新缺口=${result.gapSeconds}s, 不合格段=${result.unqualifiedSegments}, 分类右端=${ceiling}, B=${baseline}, 用时=${Date.now() - startedAt}ms`
+			`[BOOM-BASE] 分类完成: 未记账=${unclassifiedSeconds}s, 新记账=${result.qualifiedSeconds}s, 新缺口=${result.gapSeconds}s, 不合格段=${result.unqualifiedSegments}, 分类右端=${formatHistorySec(ceiling)}, B=${formatHistorySec(baseline)}, 用时=${Date.now() - startedAt}ms`
 		);
 		return result;
 	}
@@ -500,7 +505,7 @@ class HistoryBaseline {
 			const ceiling = this.stableCeiling(nowSec);
 			logger.info(
 				"bluetooth",
-				`[BOOM-BASE] 基准推进: B=${baselineBefore}->${baseline}, 消费ready区间=${consumed}, 原因=ready, stableCeiling=${ceiling}, 落后=${ceiling - baseline}s`
+				`[BOOM-BASE] 基准推进: B=${formatHistorySec(baselineBefore)}->${formatHistorySec(baseline)}, 消费ready区间=${consumed}, 原因=ready, stableCeiling=${formatHistorySec(ceiling)}, 落后=${ceiling - baseline}s`
 			);
 		}
 		return baseline;

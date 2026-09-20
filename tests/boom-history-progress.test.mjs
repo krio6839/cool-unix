@@ -268,6 +268,17 @@ test("classification is idempotent and re-runs from the baseline without side ef
 	assert.ok(first.qualifiedSeconds > 0);
 });
 
+test("baseline diagnostic timestamps include readable UTC times", async (t) => {
+	const r = await setup(t);
+	const now = 200000;
+	await r.prime(199900);
+	seedPpi(r.db, 199950, 199990);
+	await r.baseline.classify(now);
+	const line = r.logs.map((entry) => entry.items.join(" ")).find((x) => x.includes("分类完成"));
+	assert.ok(line, "missing baseline classification diagnostic");
+	assert.match(line, /分类右端=199990\(1970-01-03 07:33:10\.000Z\), B=199900\(1970-01-03 07:31:40\.000Z\)/);
+});
+
 /* ===== 基准推进 ===== */
 
 test("advancing the baseline consumes the ready range that covers it", async (t) => {
