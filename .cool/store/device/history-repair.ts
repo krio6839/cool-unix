@@ -55,28 +55,34 @@ export async function repairAllGaps(reader: GapReader): Promise<void> {
 		"bluetooth",
 		`[BOOM-HISTORY] 开始补录: B=${baseline}, 缺口组=${gaps.length}, 缺口秒=${totalRepairSeconds}, bridge秒=${historyBaseline.sumBridgeSeconds(gaps)}, stableCeiling=${ceiling}, 连接开始=${startedAt}`
 	);
-	const outcomes = await runVitalGaps(reader, gaps, baseline);
+	const outcomes = await runVitalGaps(reader, gaps, baseline, nowSec);
 	let failedGroups = 0;
 	for (let i = 0; i < outcomes.length; i++) {
 		const read = outcomes[i].read;
-		if (read.status == "TIMEOUT" || read.status == "SEND_FAILED" || read.saveOk == false)
-			failedGroups++;
+		if (isCompleted(read) == false) failedGroups++;
 	}
 	// 收尾重算：`B` 推到哪、还剩多少活，都由重新规划的缺口给出确切数字。
 	// 落库的秒由 `readVitalRange` 的 finally 通过 `scheduleUpload()` 排空，这里不重复触发。
+	// 整轮沿用规划时的 nowSec：连接耗时会让 30 天保留起点自然向前滑，如果在这里
+	// 换成当前时间，TIMEOUT/pages=0 也会显示“B 推进了几秒”，把过期错算成补录成果。
+	const after = await historyBaseline.advanceBaseline(nowSec, null);
+	const remaining = await historyBaseline.listRepairGaps(nowSec, after);
 	const afterSec = Math.floor(Date.now() / 1000);
-	const after = await historyBaseline.advanceBaseline(afterSec, null);
-	const remaining = await historyBaseline.listRepairGaps(afterSec, after);
+	const deferredTailSeconds = Math.max(
+		0,
+		historyBaseline.stableCeiling(afterSec) - historyBaseline.stableCeiling(nowSec)
+	);
 	logger.info(
 		"bluetooth",
-		`[BOOM-HISTORY] 补录结束: B=${baseline}->${after}, 已补组=${outcomes.length - failedGroups}, 失败组=${failedGroups}, 落库秒=${countSaved(outcomes)}, 剩余缺口=${remaining.length}, 剩余秒=${historyBaseline.sumRepairSeconds(remaining)}, stableCeiling=${historyBaseline.stableCeiling(afterSec)}, 连接时长=${Math.round((Date.now() - startedAt) / 1000)}s, ok=${failedGroups == 0}`
+		`[BOOM-HISTORY] 补录结束: B=${baseline}->${after}, 已补组=${outcomes.length - failedGroups}, 失败组=${failedGroups}, 落库秒=${countSaved(outcomes)}, 计划剩余缺口=${remaining.length}, 计划剩余秒=${historyBaseline.sumRepairSeconds(remaining)}, deferredTail=${deferredTailSeconds}s, stableCeiling=${historyBaseline.stableCeiling(nowSec)}, 连接时长=${Math.round((Date.now() - startedAt) / 1000)}s, ok=${failedGroups == 0}`
 	);
 }
 
 async function runVitalGaps(
 	reader: GapReader,
 	gaps: HistoryGap[],
-	startBaseline: number
+	startBaseline: number,
+	planNowSec: number
 ): Promise<GapOutcome[]> {
 	const outcomes: GapOutcome[] = [];
 	const total = gaps.length;
@@ -89,7 +95,7 @@ async function runVitalGaps(
 		// 每组记账推进了多少，用 `B` 的前后差量度量。这是核对「记账是否按预期推进」
 		// 的直接证据：`B` 没动就说明这一组的读取没有转成记账（被 `stableCeiling`
 		// 封顶、或落库失败），而这在 `落库秒` 上完全看不出来——两者是两件事。
-		const after = await historyBaseline.advanceBaseline(Math.floor(Date.now() / 1000), before);
+		const after = await historyBaseline.advanceBaseline(planNowSec, before);
 		logger.info(
 			"bluetooth",
 			`[BOOM-HISTORY] 缺口组结束: ${i + 1}/${total}, window=${gap.fromSec}~${gap.toSec}, 缺口秒=${gap.repairSeconds}, bridge秒=${gap.bridgeSeconds}, status=${read.status}, pages=${read.pages}, 落库=${read.savedRecords}, B=${before}->${after}, 本组推进=${after - before}s`
@@ -98,9 +104,14 @@ async function runVitalGaps(
 		before = after;
 		// 链路断了就停：后面的组只会在坏连接上再超时一遍。
 		// 「设备这段没数据」（status=DONE、落库 0）不是失败，继续读下一组。
-		if (read.status == "TIMEOUT" || read.status == "SEND_FAILED" || !read.saveOk) break;
+		if (isCompleted(read) == false) break;
 	}
 	return outcomes;
+}
+
+/** 只有读链路明确完成且所有落库/记账步骤成功，才允许把本组称为成功。 */
+function isCompleted(read: VitalAutoReadResult): boolean {
+	return read.status == "DONE" && read.saveOk == true;
 }
 
 function countSaved(outcomes: GapOutcome[]): number {

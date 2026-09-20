@@ -21,6 +21,7 @@ import { realtime } from "../realtime";
 import type { ClActionSheetOptions, ClActionSheetItem } from "@/uni_modules/cool-ui";
 
 import { bluetoothDataManager } from "../../bluetooth";
+import { historyBaseline } from "../../bluetooth/history/baseline";
 
 //#ifndef H5
 import type { DeviceInfo } from "../../bluetooth/kux";
@@ -216,6 +217,9 @@ export class Device {
 				`[DEVICE] 重新绑定设备，清空旧设备本地数据: ${previousDeviceId} -> ${deviceId}`
 			);
 			await bluetoothDataManager.clearAllData();
+		}
+		if (previousDeviceId != deviceId) {
+			await historyBaseline.resetForNewBinding(Math.floor(Date.now() / 1000));
 		}
 		this.boundDeviceId = deviceId;
 		if (deviceName != "") {

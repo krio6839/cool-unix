@@ -50,6 +50,7 @@ export class BluetoothDataManager {
 		// 产品在重新绑定时由 clearAllData() 一并清除。
 		try {
 			if ((await bluetoothDatabase.transaction(BASELINE_SCHEMA)) == false) return false;
+			await historyBaseline.initializeIfMissing(Math.floor(Date.now() / 1000));
 			return true;
 		} catch (error) {
 			logger.error("bluetooth", "[BOOM-DATA] 初始化基准时间表失败", error);

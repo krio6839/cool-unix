@@ -526,8 +526,10 @@ export class DeviceHistoryReader implements GapReader {
 		boundDeviceId: string
 	): Promise<number> {
 		const nowSec = Math.floor(Date.now() / 1000);
-		const pageEnd =
-			page.startSec + (page.vitalData.length == 0 ? page.n * 60 : page.vitalData.length);
+		// 协议规定短页表示“后面的时间无有效数据”：有效秒按实际返回内容落库，记账范围
+		// 则必须覆盖这一页声明的完整 `n` 分钟。只按 vitalData.length 记账会把短页尾部
+		// 永久留成缺口，而后续 0x3B 已经向更早页面移动，再也不会返回那一段。
+		const pageEnd = page.startSec + page.n * 60;
 		const statements: string[] = [];
 		const values: string[] = [];
 		for (let i = 0; i < page.vitalData.length; i++) {

@@ -36,6 +36,9 @@ const MINUTE_MAX_MISSING_RUN_SEC = 9;
 /** 缺失总量容差：缺的秒数占窗口的百分比，`< 30%` 才算合格。 */
 const MISSING_TOTAL_PERCENT = 30;
 
+/** 单轮最多展开多少条不合格段，避免历史积压时每分钟用重复信息冲掉关键故障。 */
+const MAX_UNQUALIFIED_DETAIL_LOGS = 5;
+
 /** 一个待补缺口。`bridgeSeconds` 是合并相邻缺口时跨过的、本地已有的秒。 */
 export type HistoryGap = {
 	fromSec: number;
@@ -115,6 +118,54 @@ class HistoryBaseline {
 		if (result == null) throw new Error("读取基准时间失败");
 		if (result.rows.length == 0) return 1;
 		return parseInt(result.rows[0][0] as string);
+	}
+
+	/**
+	 * 为新建的基准表落下启动点，并修复旧故障版本留下的「30 天起点」。
+	 *
+	 * 旧版本升级时本地没有 `baseline_sec`，这不等于过去 30 天都需要补录。默认从当前
+	 * 已稳定的右端开始，后续冷启动则由已存在的行继续推进，App 关闭期间的缺口仍会
+	 * 正常保留下来。
+	 *
+	 * 已发布的故障版本会先把空基准钳到保留窗口左端，再制造整整 30 天的缺口。因此，
+	 * 启动时若 `B` 仍不晚于当前保留起点，也按同一规则恢复到稳定右端。产品允许统计级
+	 * 数据不完整，放弃这段过期积压比发起数百次无效 GATT 连接更符合目标。
+	 */
+	async initializeIfMissing(nowSec: number): Promise<number> {
+		const current = await this.getBaseline();
+		const retentionStart = historyCoverage.retentionStartSec(nowSec);
+		if (current > retentionStart) return current;
+		const initial = Math.max(1, this.stableCeiling(nowSec));
+		const reason = current <= 1 ? "bootstrap" : "retention-start-recovery";
+		const saved = await bluetoothDatabase.transaction([
+			"DELETE FROM vital_ready_ranges",
+			`UPDATE vital_sync_state SET baseline_sec=${initial} WHERE id=1`,
+			`INSERT OR IGNORE INTO vital_sync_state (id,baseline_sec) VALUES (1,${initial})`
+		]);
+		if (saved == false) throw new Error("初始化基准时间失败");
+		const baseline = await this.getBaseline();
+		if (baseline == initial) {
+			logger.info(
+				"bluetooth",
+				`[BOOM-BASE] 基准初始化: B=${formatHistorySec(initial)}, 原因=${reason}`
+			);
+		}
+		return baseline;
+	}
+
+	/** 新绑定不能继承上一台设备的进度；从绑定当下的稳定右端重新开始。 */
+	async resetForNewBinding(nowSec: number): Promise<void> {
+		const initial = Math.max(1, this.stableCeiling(nowSec));
+		const saved = await bluetoothDatabase.transaction([
+			"DELETE FROM vital_ready_ranges",
+			`UPDATE vital_sync_state SET baseline_sec=${initial} WHERE id=1`,
+			`INSERT OR IGNORE INTO vital_sync_state (id,baseline_sec) VALUES (1,${initial})`
+		]);
+		if (saved == false) throw new Error("重置新绑定基准时间失败");
+		logger.info(
+			"bluetooth",
+			`[BOOM-BASE] 新绑定基准初始化: B=${formatHistorySec(initial)}, 原因=new-binding`
+		);
 	}
 
 	private async setBaseline(value: number): Promise<void> {
@@ -350,6 +401,8 @@ class HistoryBaseline {
 		// 「最长连续缺了多少秒」两件事，两条都与分钟边界无关——按分钟切反而会在
 		// 边界上把一个连续缺失段拆成两半，各自都小于 9 秒而被容差误吃。
 		const newReady: HistoryTimeRange[] = [];
+		let unqualifiedDetailLogs = 0;
+		let suppressedUnqualifiedLogs = 0;
 		for (let i = 0; i < unclassified.length; i++) {
 			const piece = unclassified[i];
 			if (piece.toSec <= piece.fromSec) continue;
@@ -367,13 +420,25 @@ class HistoryBaseline {
 				result.unqualifiedSegments = result.unqualifiedSegments + assessed.blockedRuns;
 				// 只在真正有定论的失败上打这一行：贴着 `stableCeiling` 的失败只是
 				// 还没等到数据，下一轮会重判，打出来会把日志冲满。
-				if (endConfirmed == true) {
+				if (
+					endConfirmed == true &&
+					unqualifiedDetailLogs < MAX_UNQUALIFIED_DETAIL_LOGS
+				) {
 					logger.info(
 						"bluetooth",
 						`[BOOM-BASE] 段不合格: 区间=${formatHistorySec(piece.fromSec)}~${formatHistorySec(piece.toSec)}, 长度=${piece.toSec - piece.fromSec}s, 缺失=${assessed.missingSeconds}s, 最长连续缺失=${assessed.longestMissingRun}s, 阻塞段数=${assessed.blockedRuns}, 阻塞秒=${assessed.blockedSeconds}s, 阈值=缺失<${MISSING_TOTAL_PERCENT}%, 连续<${MINUTE_MAX_MISSING_RUN_SEC}`
 					);
+					unqualifiedDetailLogs++;
+				} else if (endConfirmed == true) {
+					suppressedUnqualifiedLogs++;
 				}
 			}
+		}
+		if (suppressedUnqualifiedLogs > 0) {
+			logger.info(
+				"bluetooth",
+				`[BOOM-BASE] 不合格段日志已省略: 展开=${unqualifiedDetailLogs}, 省略=${suppressedUnqualifiedLogs}, 本轮不合格段=${result.unqualifiedSegments}`
+			);
 		}
 
 		for (let i = 0; i < newReady.length; i++) {

@@ -200,7 +200,7 @@ test("one tick does classification, baseline advance, and upload in a fixed orde
 	const r = await createRuntime(t);
 	const now = Math.floor(Date.now() / 1000);
 	const order = [];
-	r.db.exec(`INSERT INTO vital_sync_state (id,baseline_sec) VALUES (1,${now - 300})`);
+	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${now - 300})`);
 	// 本地 PPI 覆盖 [B, ceiling)：判定会把它整段记进 ready，`B` 因此推到右端。
 	const values = [];
 	for (let second = now - 300; second < now - 10; second++)
@@ -251,7 +251,7 @@ test("one tick reads the baseline once and never re-scans ready ranges in a loop
 	const r = await createRuntime(t);
 	const now = Math.floor(Date.now() / 1000);
 	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
-	r.db.exec(`INSERT INTO vital_sync_state (id,baseline_sec) VALUES (1,${now - 3000})`);
+	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${now - 3000})`);
 	// 40 条首尾相接的已记账区间：消费循环要把它们整段吃掉，正是「循环里重查全表」
 	// 最坏的情形（改回旧写法这里会是 40 次读）。
 	for (let i = 0; i < 40; i++) {
@@ -388,7 +388,7 @@ test("a gap with no device data does not abort the remaining gaps in one connect
 	// 否则 bridgeGaps 会把它们合成一条读取链路，测不到「一组失败不影响下一组」。
 	const first = now - 900;
 	const second = now - 500;
-	r.db.exec(`INSERT INTO vital_sync_state (id,baseline_sec) VALUES (1,${first})`);
+	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${first})`);
 	r.db.exec(`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${now - 700},${second})`);
 	script = { [first]: noData, [second]: noData };
 	// 前一个缺口“设备没数据”不是失败：同一次连接里后面的缺口仍然要读。
@@ -399,6 +399,63 @@ test("a gap with no device data does not abort the remaining gaps in one connect
 	script = { [first]: linkFailure, [second]: linkFailure };
 	await r.historyRepair.repairAllGaps(reader);
 	assert.deepEqual(attempted, [first]);
+});
+
+test("a stopped gap is not reported as success and does not continue on the same connection", async (t) => {
+	const r = await createRuntime(t);
+	const attempted = [];
+	const now = Math.floor(Date.now() / 1000);
+	const first = now - 900;
+	const second = now - 500;
+	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${first})`);
+	r.db.exec(`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${now - 700},${second})`);
+	const reader = {
+		async readVitalGapGroup(gap) {
+			attempted.push(gap.fromSec);
+			return {
+				status: "STOPPED",
+				message: "gatt busy",
+				pages: 0,
+				savedRecords: 0,
+				saveOk: true
+			};
+		}
+	};
+
+	await r.historyRepair.repairAllGaps(reader);
+	assert.deepEqual(attempted, [first]);
+	const summary = r.logs
+		.map((entry) => entry.items.join(" "))
+		.find((line) => line.includes("[BOOM-HISTORY] 补录结束"));
+	assert.match(summary, /失败组=1/);
+	assert.match(summary, /ok=false/);
+});
+
+test("a failed repair cannot look like baseline progress just because the retention window moved", async (t) => {
+	const r = await createRuntime(t);
+	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
+	const now = Math.floor(Date.now() / 1000);
+	const start = now - 30 * 24 * 60 * 60;
+	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${start})`);
+	const reader = {
+		async readVitalGapGroup() {
+			r.dateOffsetMs += 8000;
+			return {
+				status: "TIMEOUT",
+				message: "wait vital response timeout",
+				pages: 0,
+				savedRecords: 0,
+				saveOk: true
+			};
+		}
+	};
+
+	await r.historyRepair.repairAllGaps(reader);
+	assert.equal(await baseline.getBaseline(), start);
+	const group = r.logs
+		.map((entry) => entry.items.join(" "))
+		.find((line) => line.includes("[BOOM-HISTORY] 缺口组结束"));
+	assert.match(group, /本组推进=0s/);
 });
 
 test("data diagnostics popup shows logs and defers full export to auto-archived files", async () => {
@@ -505,7 +562,7 @@ test("PPI retention deletes only uploaded rows outside the thirty-day window", a
 test("automatic repair continues after one planning/database failure", async (t) => {
 	const r = await createRuntime(t);
 	const now = Math.floor(Date.now() / 1000);
-	r.db.exec(`INSERT INTO vital_sync_state (id,baseline_sec) VALUES (1,${now - 600})`);
+	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${now - 600})`);
 	const tick = new r.DeviceTick({ boundDeviceId: "device" });
 	const enqueued = [];
 	tick.device.scheduler = {

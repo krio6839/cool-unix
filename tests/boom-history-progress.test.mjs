@@ -56,6 +56,42 @@ async function setup(t) {
 	return r;
 }
 
+test("a newly introduced baseline starts at the stable ceiling instead of inventing a 30-day gap", async (t) => {
+	const before = Math.floor(Date.now() / 1000) - 10;
+	const r = await createRuntime(t);
+	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
+	const after = Math.floor(Date.now() / 1000) - 10;
+	const value = await baseline.getBaseline();
+	// 升级或首次安装创建基准表时，从“现在已经稳定的位置”起步；不能把不存在的旧进度
+	// 当成从 1970 年开始，再钳成一个凭空制造的 30 天待补窗口。
+	assert.ok(value >= before && value <= after, `bootstrap baseline ${value} not in ${before}..${after}`);
+});
+
+test("bootstrap repairs a retention-start baseline left by the faulty release", async (t) => {
+	const r = await setup(t);
+	const now = 4000000;
+	const poisoned = now - 30 * 24 * 60 * 60;
+	await r.prime(poisoned);
+	r.db.exec(`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${poisoned},${poisoned + 60})`);
+
+	const value = await r.baseline.initializeIfMissing(now);
+
+	assert.equal(value, now - 10);
+	assert.deepEqual(readyRanges(r.db), []);
+});
+
+test("binding a different device starts a fresh baseline instead of inheriting the old device gap", async (t) => {
+	const r = await setup(t);
+	const now = 300000;
+	await r.prime(200000);
+	r.db.exec("INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (200000,200100)");
+
+	await r.baseline.resetForNewBinding(now);
+
+	assert.equal(await r.baseline.getBaseline(), now - 10);
+	assert.deepEqual(readyRanges(r.db), []);
+});
+
 /** 与 `stableCeiling` 同一条公式：测试里直接算，避免把被测对象的实现抄一遍。 */
 function historyCeiling(nowSec) {
 	return nowSec - 10;
@@ -268,6 +304,24 @@ test("classification is idempotent and re-runs from the baseline without side ef
 	assert.ok(first.qualifiedSeconds > 0);
 });
 
+test("classification bounds repeated unqualified-segment diagnostics", async (t) => {
+	const r = await setup(t);
+	const now = 100500;
+	await r.prime(100000);
+	// 24 段已记账区间把未记账范围切成大量真缺口。生产日志不能把每一段在每分钟
+	// 都重新展开，否则真正的 GATT TIMEOUT 会被数百条重复信息淹没。
+	for (let i = 0; i < 24; i++) {
+		const from = 100010 + i * 20;
+		r.db.exec(`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${from},${from + 10})`);
+	}
+
+	await r.baseline.classify(now);
+	const lines = r.logs.map((entry) => entry.items.join(" "));
+	const details = lines.filter((line) => line.includes("[BOOM-BASE] 段不合格:"));
+	assert.equal(details.length, 5);
+	assert.equal(lines.some((line) => line.includes("不合格段日志已省略")), true);
+});
+
 test("baseline diagnostic timestamps include readable UTC times", async (t) => {
 	const r = await setup(t);
 	const now = 200000;
@@ -322,7 +376,7 @@ test("an expired baseline jumps to the retention start and drops stale ranges", 
 	const now = Math.floor(Date.now() / 1000);
 	// 几个月前的 B：逐分钟放行是几万次带表查询，直接跳到 30 天保留起点。
 	await r.database.execute(
-		`INSERT INTO vital_sync_state (id,baseline_sec) VALUES (1,${now - 200 * 86400})`
+		`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${now - 200 * 86400})`
 	);
 	await r.database.execute(
 		`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${now - 200 * 86400},${now - 199 * 86400})`
@@ -724,6 +778,26 @@ function readerReturning(r, response) {
 	reader.sleep = async () => {};
 	return reader;
 }
+
+test("a protocol-valid short page accounts its whole declared range", async (t) => {
+	const r = await setup(t);
+	const now = Math.floor(Date.now() / 1000);
+	const start = now - 240;
+	const response = page(start, 1);
+	response.n = 2;
+	response.rmssdSdnn = [{}, {}];
+	response.vitalData[0] = { hr: 255, ppi: 65535, valid: false };
+
+	const read = await readerReturning(r, response).readVitalGapGroup({
+		fromSec: start,
+		toSec: start + 120,
+		repairSeconds: 120,
+		bridgeSeconds: 0
+	});
+
+	assert.equal(read.status, "DONE");
+	assert.deepEqual(readyRanges(r.db), [{ fromSec: start, toSec: start + 120 }]);
+});
 
 test("a page write failure keeps the already-committed rows readable", async (t) => {
 	const r = await setup(t);
