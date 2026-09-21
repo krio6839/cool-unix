@@ -322,7 +322,7 @@ test("classification bounds repeated unqualified-segment diagnostics", async (t)
 	assert.equal(lines.some((line) => line.includes("不合格段日志已省略")), true);
 });
 
-test("baseline diagnostic timestamps include readable UTC times", async (t) => {
+test("baseline diagnostic timestamps include readable Beijing times by default", async (t) => {
 	const r = await setup(t);
 	const now = 200000;
 	await r.prime(199900);
@@ -330,7 +330,7 @@ test("baseline diagnostic timestamps include readable UTC times", async (t) => {
 	await r.baseline.classify(now);
 	const line = r.logs.map((entry) => entry.items.join(" ")).find((x) => x.includes("分类完成"));
 	assert.ok(line, "missing baseline classification diagnostic");
-	assert.match(line, /分类右端=199990\(1970-01-03 07:33:10\.000Z\), B=199900\(1970-01-03 07:31:40\.000Z\)/);
+	assert.match(line, /分类右端=199990\(1970-01-03 15:33:10\.000\+08:00\), B=199900\(1970-01-03 15:31:40\.000\+08:00\)/);
 });
 
 /* ===== 基准推进 ===== */

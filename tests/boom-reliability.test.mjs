@@ -643,6 +643,106 @@ test("both existing success envelopes acknowledge uploads", async (t) => {
 	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data WHERE uploaded = 1").get().n, 2);
 });
 
+test("logs, history diagnostics and uploads default to the same Beijing time", async (t) => {
+	// 2024-01-01 00:00:00Z，默认模式必须稳定解释成北京时间，不能受手机时区影响。
+	const r = await createRuntime(t);
+	r.db.exec("INSERT INTO ppi_data VALUES ('1704067200',1704067200,60,0,1000,0)");
+	assert.equal(await r.uploader.uploadPpiData(), true);
+	assert.equal(r.posts[0].data.datas[0].time, "2024-01-01 08:00:00");
+	assert.equal(r.posts[0].data.timezone, "08:00");
+
+	r.diagnostics.record("info", "timezone", "default-zone");
+	const log = r.diagnostics.getLogs().at(-1);
+	assert.match(log, /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\+08:00\]/);
+	r.diagnostics.flushArchiveNow();
+	assert.equal(r.archived.at(-1).folderDay, log.slice(1, 11).replaceAll("-", ""));
+
+	const { formatHistorySec } = await r.load(".cool/bluetooth/history/baseline.ts");
+	assert.equal(formatHistorySec(1704067200), "1704067200(2024-01-01 08:00:00.000+08:00)");
+});
+
+test("the local timezone config can make logs and uploads follow the phone timezone", async (t) => {
+	const originalTimezone = process.env.TZ;
+	process.env.TZ = "America/New_York";
+	t.after(() => {
+		process.env.TZ = originalTimezone;
+	});
+
+	const r = await createRuntime(t);
+	const timezone = await r.load(".cool/utils/timezone.ts");
+	timezone.setAppTimezoneMode("system");
+	r.db.exec("INSERT INTO ppi_data VALUES ('1704067200',1704067200,60,0,1000,0)");
+	assert.equal(await r.uploader.uploadPpiData(), true);
+	assert.equal(r.posts[0].data.datas[0].time, "2023-12-31 19:00:00");
+	assert.equal(r.posts[0].data.timezone, "-05:00");
+
+	const { formatHistorySec } = await r.load(".cool/bluetooth/history/baseline.ts");
+	assert.equal(formatHistorySec(1704067200), "1704067200(2023-12-31 19:00:00.000-05:00)");
+	r.diagnostics.record("info", "timezone", "system-zone");
+	assert.match(r.diagnostics.getLogs().at(-1), /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}-\d{2}:\d{2}\]/);
+});
+
+test("system-timezone PPI uploads split a sparse batch at a DST offset change", async (t) => {
+	const originalTimezone = process.env.TZ;
+	process.env.TZ = "America/New_York";
+	t.after(() => {
+		process.env.TZ = originalTimezone;
+	});
+	const r = await createRuntime(t);
+	const timezone = await r.load(".cool/utils/timezone.ts");
+	timezone.setAppTimezoneMode("system");
+	r.db.exec("INSERT INTO ppi_data VALUES ('winter',1704067200,60,0,1000,0)");
+	r.db.exec("INSERT INTO ppi_data VALUES ('summer',1719792000,61,0,1001,0)");
+
+	assert.equal(await r.uploader.uploadPpiData(), true);
+	assert.equal(r.posts.length, 2);
+	assert.deepEqual(
+		r.posts.map((post) => ({ timezone: post.data.timezone, times: post.data.datas.map((x) => x.time) })),
+		[
+			{ timezone: "-05:00", times: ["2023-12-31 19:00:00"] },
+			{ timezone: "-04:00", times: ["2024-06-30 20:00:00"] }
+		]
+	);
+});
+
+test("a buffered diagnostic file stays in the timezone used by its first log", async (t) => {
+	const originalTimezone = process.env.TZ;
+	process.env.TZ = "America/New_York";
+	t.after(() => {
+		process.env.TZ = originalTimezone;
+	});
+	const r = await createRuntime(t);
+	const timezone = await r.load(".cool/utils/timezone.ts");
+	timezone.setAppTimezoneMode("beijing");
+	r.diagnostics.record("info", "timezone", "before-switch");
+	const log = r.diagnostics.getLogs().at(-1);
+	const day = log.slice(1, 11).replaceAll("-", "");
+	const clock = log.slice(12, 20).replaceAll(":", "");
+	timezone.setAppTimezoneMode("system");
+	r.diagnostics.record("info", "timezone", "after-switch");
+	r.diagnostics.flushArchiveNow();
+	assert.equal(r.archived.length, 2);
+	assert.equal(r.archived[0].folderDay, day);
+	assert.match(r.archived[0].fileName, new RegExp(`^diagnostic-${clock}-\\d+\\.txt$`));
+	assert.match(r.archived[0].content, /before-switch/);
+	assert.equal(r.archived[0].content.includes("after-switch"), false);
+	assert.match(r.archived[1].content, /after-switch/);
+	assert.equal(r.archived[1].content.includes("before-switch"), false);
+});
+
+test("the local timezone mode has one validated persistence API", async (t) => {
+	const r = await createRuntime(t);
+	const timezone = await r.load(".cool/utils/timezone.ts");
+	assert.equal(typeof timezone.setAppTimezoneMode, "function");
+	assert.equal(timezone.getAppTimezoneMode(), "beijing");
+	timezone.setAppTimezoneMode("system");
+	assert.equal(r.storage.boom_timezone_mode, "system");
+	assert.equal(timezone.getAppTimezoneMode(), "system");
+	timezone.setAppTimezoneMode("beijing");
+	assert.equal("boom_timezone_mode" in r.storage, false);
+	assert.equal(timezone.getAppTimezoneMode(), "beijing");
+});
+
 test("backlog is bounded per request; failed batch remains retryable", async (t) => {
 	const r = await createRuntime(t);
 	r.seed(750);

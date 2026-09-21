@@ -4,6 +4,7 @@ import { getHistoryTunables } from "./tunables";
 import { normalizeRanges, subtractRanges, countRangeSeconds } from "./coverage";
 import type { HistoryTimeRange } from "./coverage";
 import { logger } from "../../service/logger";
+import { formatAppDateTime, getAppTimezone } from "../../utils/timezone";
 
 /**
  * 基准时间 `baseline_sec`（下称 `B`）：`[0, B)` 的每一秒都已记账完毕。
@@ -20,9 +21,12 @@ export const BASELINE_SCHEMA: string[] = [
 	`CREATE TABLE IF NOT EXISTS vital_ready_ranges (from_sec INTEGER NOT NULL, to_sec INTEGER NOT NULL, PRIMARY KEY(from_sec,to_sec))`
 ];
 
-/** 保留 Unix 秒值，同时附带可读的 UTC 时间，方便诊断日志定位实际时间。 */
+/** 保留 Unix 秒值，同时附带按 App 本地配置格式化的时间，方便诊断日志定位。 */
 export function formatHistorySec(sec: number): string {
-	return `${sec}(${new Date(sec * 1000).toISOString().replace("T", " ")})`;
+	const timestamp = sec * 1000;
+	const timezone = getAppTimezone(timestamp);
+	const sign = timezone.startsWith("-") ? "" : "+";
+	return `${sec}(${formatAppDateTime(timestamp, " ", true)}${sign}${timezone})`;
 }
 
 /**

@@ -145,12 +145,13 @@ export async function createRuntime(t) {
 		"../../service/logger": { logger },
 		"../service/logger": { logger },
 		"../router": { router: { path: () => "/device" } },
+		"./storage": storageStub,
 		"../utils/storage": storageStub,
 		// 与 ../utils/storage 同一个桩：调参模块从 .cool/bluetooth/history/ 下引用它。
 		"../../utils/storage": storageStub,
 		"@/uni_modules/boom-csv-saver": {
-			saveLogToDownloads: (fileName, content) => {
-				state.archived.push({ fileName, content });
+			saveLogToDownloads: (fileName, content, folderDay) => {
+				state.archived.push({ fileName, content, folderDay });
 				return "Download/BOOM/logs/" + fileName;
 			}
 		},

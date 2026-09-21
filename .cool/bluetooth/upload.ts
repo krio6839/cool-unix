@@ -14,6 +14,10 @@ import { bluetoothDataManager } from "./data-manager";
 import { HISTORY_PPI_RETENTION_SEC } from "./history/coverage-service";
 import { request } from "../service";
 import { logger } from "../service/logger";
+import {
+	formatDateTimeInTimezone,
+	getAppTimezone
+} from "../utils/timezone";
 import { dayUts } from "../utils/day";
 import { UPLOAD_PPI_URL, UPLOAD_SLEEP_URL } from "./constants";
 import type {
@@ -102,10 +106,14 @@ export class BluetoothUploader {
 				}
 				const datas: PpiDataItem[] = [];
 				const uploadedIds: string[] = [];
+				const batchTimezone = getAppTimezone(unuploadedData[0].timestamp * 1000);
 				for (let i = 0; i < unuploadedData.length; i++) {
 					const item = unuploadedData[i];
+					// 一个请求只有一个 timezone；系统模式跨夏令时边界时在这里截断，
+					// 剩余记录由下一批发送，不能让同一请求里的时间解释互相矛盾。
+					if (getAppTimezone(item.timestamp * 1000) != batchTimezone) break;
 					datas.push({
-						time: this.formatTimestamp(item.timestamp * 1000),
+						time: formatDateTimeInTimezone(item.timestamp * 1000, batchTimezone),
 						hr: item.hr,
 						spo2: this.normalizeSpo2ForUpload(item.spo2),
 						ppi: item.ppi
@@ -115,12 +123,12 @@ export class BluetoothUploader {
 				const requestData: PpiUploadRequest = {
 					device: deviceName,
 					address: deviceAddress,
-					timezone: "08:00",
+					timezone: batchTimezone,
 					datas
 				};
 				logger.info(
 					"bluetooth",
-					`[BOOM-UPLOAD] 上传PPI数据: batch=${batch + 1}, count=${datas.length}, from=${unuploadedData[0].timestamp}, to=${unuploadedData[unuploadedData.length - 1].timestamp}`
+					`[BOOM-UPLOAD] 上传PPI数据: batch=${batch + 1}, count=${datas.length}, from=${unuploadedData[0].timestamp}, to=${unuploadedData[datas.length - 1].timestamp}, timezone=${batchTimezone}`
 				);
 				await request({
 					url: UPLOAD_PPI_URL,
@@ -347,11 +355,7 @@ export class BluetoothUploader {
 		return Math.round(spo2);
 	}
 
-	/**
-	 * 格式化时间戳为字符串
-	 * @param timestamp 时间戳（毫秒）
-	 * @returns 格式化的时间字符串 "YYYY-MM-DD HH:mm:ss"
-	 */
+	/** 睡眠链路暂时保持原来的手机本地时间格式，后续单独调整。 */
 	private formatTimestamp(timestamp: number): string {
 		return dayUts(timestamp).format("YYYY-MM-DD HH:mm:ss");
 	}

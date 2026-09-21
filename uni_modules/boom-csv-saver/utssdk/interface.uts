@@ -1,5 +1,5 @@
 /** 将 CSV 写入 Android 公共下载目录，返回文件管理器中的相对路径。 */
 export declare function saveCsvToDownloads(fileName: string, content: string): string;
 
-/** 将日志写入 Download/BOOM/logs，返回文件管理器中的相对路径。 */
-export declare function saveLogToDownloads(fileName: string, content: string): string;
+/** 将日志写入 Download/BOOM/logs/<day>，返回文件管理器中的相对路径。 */
+export declare function saveLogToDownloads(fileName: string, content: string, day: string): string;

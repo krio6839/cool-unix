@@ -1,6 +1,12 @@
 import { config } from "@/config";
 import { router } from "../router";
 import { storage } from "../utils/storage";
+import {
+	formatAppClock,
+	formatAppDay,
+	formatAppIsoTime,
+	getAppTimezone
+} from "../utils/timezone";
 //#ifdef APP-ANDROID
 import {
 	openDatabase,
@@ -57,6 +63,13 @@ const ARCHIVE_FLUSH_MIN_COUNT = 30;
 /** 落盘缓冲的上限，防止写文件持续失败时内存无限增长。 */
 const ARCHIVE_BUFFER_LIMIT = 5000;
 
+type DiagnosticArchiveEntry = {
+	text: string;
+	day: string;
+	clock: string;
+	timezone: string;
+};
+
 function stringify(value: any | null): string {
 	if (value == null) return "";
 	if (typeof value == "string") return value;
@@ -95,7 +108,7 @@ class Diagnostics {
 	private dbReadyTask: Promise<boolean> | null = null;
 	private writeTask: Promise<void> = Promise.resolve();
 	/** 待落盘的日志。攒够一批或超时就写一个 txt 文件。 */
-	private archiveBuffer: string[] = [];
+	private archiveBuffer: DiagnosticArchiveEntry[] = [];
 	/** 已落盘的文件数，用于文件名去重。 */
 	private archiveSeq = 0;
 	/** 上次落盘的时间，用于空闲期定时落盘。 */
@@ -118,7 +131,8 @@ class Diagnostics {
 		message: string,
 		detail: any | null = null
 	): void {
-		const time = new Date().toISOString();
+		const now = Date.now();
+		const time = formatAppIsoTime(now);
 		const route = getCurrentRoute();
 		const detailText = stringify(detail);
 		let item = `[${time}] [${level}] [${tag}] ${route}\n${message}`;
@@ -130,7 +144,7 @@ class Diagnostics {
 		if (this.logs.length > MAX_LOGS) {
 			this.logs = this.logs.slice(this.logs.length - MAX_LOGS);
 		}
-		this.appendArchive(item);
+		this.appendArchive(item, now);
 
 		try {
 			if (this.dbAvailable) {
@@ -149,8 +163,13 @@ class Diagnostics {
 	 * 这里不 await：record 会被 BLE 回调高频调用，同步写文件会拖住调用方。
 	 * 写失败只丢这一批缓冲，不影响内存与 SQLite 里的日志。
 	 */
-	private appendArchive(item: string): void {
-		this.archiveBuffer.push(item);
+	private appendArchive(item: string, timestamp: number): void {
+		this.archiveBuffer.push({
+			text: item,
+			day: formatAppDay(timestamp),
+			clock: formatAppClock(timestamp),
+			timezone: getAppTimezone(timestamp)
+		} as DiagnosticArchiveEntry);
 		if (this.archiveBuffer.length > ARCHIVE_BUFFER_LIMIT) {
 			this.archiveBuffer = this.archiveBuffer.slice(
 				this.archiveBuffer.length - ARCHIVE_BUFFER_LIMIT
@@ -181,7 +200,26 @@ class Diagnostics {
 		this.archiveBuffer = [];
 		try {
 			//#ifdef APP-ANDROID
-			saveLogToDownloads(`diagnostic-${this.archiveStamp()}.txt`, this.formatText(batch));
+			let from = 0;
+			while (from < batch.length) {
+				const first = batch[from];
+				let to = from + 1;
+				while (
+					to < batch.length &&
+					batch[to].day == first.day &&
+					batch[to].timezone == first.timezone
+				) {
+					to++;
+				}
+				const texts: string[] = [];
+				for (let i = from; i < to; i++) texts.push(batch[i].text);
+				saveLogToDownloads(
+					`diagnostic-${this.archiveStamp(first.clock)}.txt`,
+					this.formatText(texts),
+					first.day
+				);
+				from = to;
+			}
 			//#endif
 			this.lastArchiveAt = new Date().getTime();
 		} catch (_e) {
@@ -198,11 +236,9 @@ class Diagnostics {
 	}
 
 	/** 文件名用当天内的时刻，便于同一目录里按时间排序；日期已由目录表达。 */
-	private archiveStamp(): string {
+	private archiveStamp(clock: string): string {
 		this.archiveSeq = this.archiveSeq + 1;
-		const now = new Date();
-		const pad = (value: number): string => (value < 10 ? `0${value}` : `${value}`);
-		return `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}-${this.archiveSeq}`;
+		return `${clock}-${this.archiveSeq}`;
 	}
 
 	captureException(error: any | null, tag: string = "exception"): void {

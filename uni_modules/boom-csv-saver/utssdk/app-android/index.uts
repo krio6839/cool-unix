@@ -21,14 +21,8 @@ export function saveCsvToDownloads(fileName: string, content: string): string {
  * 就翻不动了。按日期分目录后，排查哪一天的问题就进哪个目录。
  * CSV 导出不按天分——那是用户主动导出的一次性文件。
  */
-export function saveLogToDownloads(fileName: string, content: string): string {
-	const now = new Date();
-	const day = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}`;
+export function saveLogToDownloads(fileName: string, content: string, day: string): string {
 	return writeToDownloads(Environment.DIRECTORY_DOWNLOADS + "/BOOM/logs/" + day, fileName, content);
-}
-
-function pad2(value: number): string {
-	return value < 10 ? `0${value}` : `${value}`;
 }
 
 function writeToDownloads(relativePath: string, fileName: string, content: string): string {
