@@ -41,6 +41,8 @@ export type VitalAutoReadOptions = {
 	timeoutMs?: number;
 	persistData?: boolean;
 	uploadAfterSave?: boolean;
+	/** 自动持久化补录不需要把所有已落库页面继续留在内存；手动导出默认保留。 */
+	retainResponses?: boolean;
 	shouldStop?: () => boolean;
 	onProgress?: (progress: HistoryReadProgress) => void;
 	onPage?: (response: VitalDataQueryResponse, page: number) => void;
@@ -396,6 +398,7 @@ export class DeviceHistoryReader implements GapReader {
 				maxPages: 0,
 				timeoutMs: DEFAULT_TIMEOUT_MS,
 				pageDelayMs: DEFAULT_PAGE_DELAY_MS,
+				retainResponses: false,
 				shouldStop: () => stopRead || this.device.boundDeviceId != boundDeviceId,
 				persistPage: async (response) => {
 					try {
@@ -613,7 +616,7 @@ export class DeviceHistoryReader implements GapReader {
 			}
 
 			page++;
-			responses.push(response);
+			if (options.retainResponses != false) responses.push(response);
 			if (options.persistPage != null && (await options.persistPage!(response)) == false) {
 				return this.makeVitalResult("STOPPED", "page persistence failed", page, responses);
 			}

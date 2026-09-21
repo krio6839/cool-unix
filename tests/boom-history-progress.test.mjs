@@ -796,6 +796,7 @@ test("a protocol-valid short page accounts its whole declared range", async (t) 
 	});
 
 	assert.equal(read.status, "DONE");
+	assert.equal(read.responses.length, 0, "automatic persisted repair must not retain every decoded page");
 	assert.deepEqual(readyRanges(r.db), [{ fromSec: start, toSec: start + 120 }]);
 });
 

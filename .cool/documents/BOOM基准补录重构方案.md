@@ -308,6 +308,7 @@ stableCeiling(nowSec) = nowSec - MINUTE_SETTLE_SEC   -- 记账右端，也是缺
   - 设备返回段早于整个缺口（`page.startSec < 缺口.from_sec`，或 `startSec=0`）→ 该缺口设备无数据，整段按 5.4 记账。这是设备关机 / 未佩戴的正常路径，**不是失败**，继续读下一组。
   - 响应结构截断（秒数超出声明、残缺 6 字节记录）→ 视为链路错误，中止本轮。
   - 超时 / 发送失败 → 中止本轮。已提交的页面保留，剩余缺口留在原地，下一次连接重来。
+- **成功定义唯一**：只有 `status=DONE && saveOk=true && B>=本组右端` 算本组成功；读取器即使返回 `DONE`，只要窗口没有完整记账也仍是失败。`TIMEOUT`、`SEND_FAILED`、`STOPPED`、`LIMIT`、`saveOk=false` 或 `B` 未越过右端都立即结束本轮，剩余范围由下一次正常检查重试。
 - 补录落库后调用 `scheduleUpload()` 异步消费，不阻塞 GATT 释放。
 
 **为什么是「一次读完」而不是循环补读。** 读到的东西越多耗时越长，而耗时就在制造新的尾巴。看起来应该循环把它也读掉，但算一下账就会发现不值得：
@@ -450,7 +451,7 @@ stableCeiling(nowSec) = nowSec - MINUTE_SETTLE_SEC   -- 记账右端，也是缺
 [BOOM-HISTORY] 缺口组读取开始: window=...~..., 缺口秒=..., bridge秒=..., anchor=..., minutes=2, direction=0
 [BOOM-HISTORY] 缺口组读取结束: window=...~..., status=..., pages=..., 秒记录=..., 有效秒=..., 全FF秒=..., 落库=..., 已记账=...s, elapsed=...s
 [BOOM-HISTORY] 缺口组读取失败: window=...~..., status=..., pages=..., message=...
-[BOOM-HISTORY] 缺口组结束: n/m, window=...~..., 缺口秒=..., bridge秒=..., status=..., pages=..., 落库=..., B=...->..., 本组推进=...s
+[BOOM-HISTORY] 缺口组结束: n/m, window=...~..., 缺口秒=..., bridge秒=..., status=..., pages=..., 落库=..., B=...->..., 本组推进=...s, complete=...
 ```
 
 `缺口秒` 与 `bridge秒` 分开打印：前者是真正要补的秒，后者是合并相邻缺口时跨过的已有秒。两者一起看才知道合并省了多少次往返。

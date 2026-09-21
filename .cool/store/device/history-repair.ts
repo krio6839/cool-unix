@@ -33,6 +33,7 @@ export interface GapReader {
 type GapOutcome = {
 	gap: HistoryGap;
 	read: VitalAutoReadResult;
+	completed: boolean;
 };
 
 /**
@@ -58,8 +59,7 @@ export async function repairAllGaps(reader: GapReader): Promise<void> {
 	const outcomes = await runVitalGaps(reader, gaps, baseline, nowSec);
 	let failedGroups = 0;
 	for (let i = 0; i < outcomes.length; i++) {
-		const read = outcomes[i].read;
-		if (isCompleted(read) == false) failedGroups++;
+		if (outcomes[i].completed == false) failedGroups++;
 	}
 	// 收尾重算：`B` 推到哪、还剩多少活，都由重新规划的缺口给出确切数字。
 	// 落库的秒由 `readVitalRange` 的 finally 通过 `scheduleUpload()` 排空，这里不重复触发。
@@ -96,21 +96,24 @@ async function runVitalGaps(
 		// 的直接证据：`B` 没动就说明这一组的读取没有转成记账（被 `stableCeiling`
 		// 封顶、或落库失败），而这在 `落库秒` 上完全看不出来——两者是两件事。
 		const after = await historyBaseline.advanceBaseline(planNowSec, before);
+		// `DONE` 只是读取器认为链路结束；只有 B 已越过当前组右端，才能证明整个窗口
+		// 都已落库或被设备明确确认无数据。否则仍是未完成，不能继续后面的组或打印 ok=true。
+		const completed = isReadCompleted(read) && after >= gap.toSec;
 		logger.info(
 			"bluetooth",
-			`[BOOM-HISTORY] 缺口组结束: ${i + 1}/${total}, window=${gap.fromSec}~${gap.toSec}, 缺口秒=${gap.repairSeconds}, bridge秒=${gap.bridgeSeconds}, status=${read.status}, pages=${read.pages}, 落库=${read.savedRecords}, B=${before}->${after}, 本组推进=${after - before}s`
+			`[BOOM-HISTORY] 缺口组结束: ${i + 1}/${total}, window=${gap.fromSec}~${gap.toSec}, 缺口秒=${gap.repairSeconds}, bridge秒=${gap.bridgeSeconds}, status=${read.status}, pages=${read.pages}, 落库=${read.savedRecords}, B=${before}->${after}, 本组推进=${after - before}s, complete=${completed}`
 		);
-		outcomes.push({ gap, read } as GapOutcome);
+		outcomes.push({ gap, read, completed } as GapOutcome);
 		before = after;
 		// 链路断了就停：后面的组只会在坏连接上再超时一遍。
 		// 「设备这段没数据」（status=DONE、落库 0）不是失败，继续读下一组。
-		if (isCompleted(read) == false) break;
+		if (completed == false) break;
 	}
 	return outcomes;
 }
 
 /** 只有读链路明确完成且所有落库/记账步骤成功，才允许把本组称为成功。 */
-function isCompleted(read: VitalAutoReadResult): boolean {
+function isReadCompleted(read: VitalAutoReadResult): boolean {
 	return read.status == "DONE" && read.saveOk == true;
 }
 

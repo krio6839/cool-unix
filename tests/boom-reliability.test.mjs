@@ -359,6 +359,7 @@ test("a manual gap repair refreshes the listed batch instead of leaving a stale 
 
 test("a gap with no device data does not abort the remaining gaps in one connection", async (t) => {
 	const r = await createRuntime(t);
+	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
 	// 补数据只依赖一个「能按缺口读一段」的 reader，因此可以配假 reader 独立跑，
 	// 不需要构造整个设备栈（history-repair.ts 不 import Device）。
 	const attempted = [];
@@ -380,7 +381,10 @@ test("a gap with no device data does not abort the remaining gaps in one connect
 	const reader = {
 		async readVitalGapGroup(gap) {
 			attempted.push(gap.fromSec);
-			return script[gap.fromSec];
+			const result = script[gap.fromSec];
+			if (result.status == "DONE")
+				await baseline.markReady(gap.fromSec, gap.toSec, Math.floor(Date.now() / 1000));
+			return result;
 		}
 	};
 	const now = Math.floor(Date.now() / 1000);
@@ -396,6 +400,9 @@ test("a gap with no device data does not abort the remaining gaps in one connect
 	assert.deepEqual(attempted, [first, second]);
 	// 真正的链路失败仍然中止本轮，避免在坏连接上反复超时。
 	attempted.length = 0;
+	r.db.exec("DELETE FROM vital_ready_ranges");
+	r.db.exec(`UPDATE vital_sync_state SET baseline_sec=${first} WHERE id=1`);
+	r.db.exec(`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${now - 700},${second})`);
 	script = { [first]: linkFailure, [second]: linkFailure };
 	await r.historyRepair.repairAllGaps(reader);
 	assert.deepEqual(attempted, [first]);
@@ -416,6 +423,37 @@ test("a stopped gap is not reported as success and does not continue on the same
 				status: "STOPPED",
 				message: "gatt busy",
 				pages: 0,
+				savedRecords: 0,
+				saveOk: true
+			};
+		}
+	};
+
+	await r.historyRepair.repairAllGaps(reader);
+	assert.deepEqual(attempted, [first]);
+	const summary = r.logs
+		.map((entry) => entry.items.join(" "))
+		.find((line) => line.includes("[BOOM-HISTORY] 补录结束"));
+	assert.match(summary, /失败组=1/);
+	assert.match(summary, /ok=false/);
+});
+
+test("DONE without accounting the whole gap is not success and does not continue", async (t) => {
+	const r = await createRuntime(t);
+	const attempted = [];
+	const now = Math.floor(Date.now() / 1000);
+	const first = now - 900;
+	const second = now - 500;
+	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${first})`);
+	r.db.exec(`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${now - 700},${second})`);
+	const reader = {
+		async readVitalGapGroup(gap) {
+			attempted.push(gap.fromSec);
+			// 模拟固件提前给出 DONE，但没有把当前窗口完整记账。
+			return {
+				status: "DONE",
+				message: "gap read made no progress",
+				pages: 1,
 				savedRecords: 0,
 				saveOk: true
 			};
