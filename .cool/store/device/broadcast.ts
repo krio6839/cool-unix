@@ -606,10 +606,7 @@ export class DeviceBroadcast {
 		if (record != null) {
 			realtime.setBroadcastRecord(record);
 		}
-		// 入库失败只影响展示用的广播表。PPI 与睡眠分期各自独立落库：
-		// 睡眠分期是"上传时按事件窗口组装 detail"的唯一来源，把它挂在
-		// realtime_broadcast_data 的写入结果上，会让一张展示表的失败连带
-		// 整晚的分期丢失——症状是上传时 detail 全 0、服务端判定没有睡眠数据。
+		// 入库失败只影响展示用的广播表；上传使用的 PPI（含 activity）独立落库。
 		await this.storeBroadcastPpiData(r);
 	}
 
@@ -619,8 +616,13 @@ export class DeviceBroadcast {
 		const hr = r.hr;
 		const spo2 = Math.round(r.spo2Pct * 10);
 		const ppi = r.ppi;
-		const ok = await bluetoothDataManager.storeBroadcastPpiData(timestamp, hr, spo2, ppi);
-		await bluetoothDataManager.storeBroadcastSleepActivity(timestamp, r.activity);
+		const ok = await bluetoothDataManager.storeBroadcastPpiData(
+			timestamp,
+			hr,
+			spo2,
+			ppi,
+			r.activity & 0x07
+		);
 		// 广播只采集：落库成功后喊一声心跳，由它决定判不判、传不传。
 		// 这里不认识「分钟」「判定」「上传」任何一个概念——节奏全部收敛在 device-tick.ts。
 		if (ok == true) this.device.tick.poke("broadcast");

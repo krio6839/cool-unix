@@ -63,17 +63,6 @@
 						</cl-button>
 						<cl-button
 							type="primary"
-							color="#526"
-							rounded
-							size="small"
-							class="mr-2 mb-2"
-							:disabled="loading"
-							@tap="loadUploadQueues"
-						>
-							{{ t("待上传") }}
-						</cl-button>
-						<cl-button
-							type="primary"
 							color="#725"
 							rounded
 							size="small"
@@ -106,17 +95,6 @@
 							{{ t("最近未上传") }}
 						</cl-button>
 						<cl-button
-							type="primary"
-							color="#347"
-							rounded
-							size="small"
-							class="mr-2 mb-2"
-							:disabled="loading"
-							@tap="loadSleepRows"
-						>
-							{{ t("最近睡眠") }}
-						</cl-button>
-						<cl-button
 							type="light"
 							rounded
 							size="small"
@@ -137,28 +115,15 @@
 					</cl-text>
 					<view class="flex flex-row flex-wrap">
 						<cl-button
-							v-for="count in [1, 2, 3]"
-							:key="count"
 							type="primary"
 							color="#526"
 							rounded
 							size="small"
 							class="mr-2 mb-2"
 							:disabled="loading"
-							@tap="reuploadSleep(count)"
+							@tap="promptSleepReupload"
 						>
-							{{ t("上传") }} {{ count }} {{ t("条") }}
-						</cl-button>
-						<cl-button
-							type="primary"
-							color="#526"
-							rounded
-							size="small"
-							class="mr-2 mb-2"
-							:disabled="loading"
-							@tap="reuploadSleepCustom"
-						>
-							{{ t("自定义") }}
+							{{ t("选择条数并重新上传") }}
 						</cl-button>
 					</view>
 					<cl-text color="gray-400" :size="12">
@@ -266,7 +231,7 @@ async function reuploadSleep(count: number): Promise<void> {
 	}
 }
 
-function reuploadSleepCustom(): void {
+function promptSleepReupload(): void {
 	uni.showModal({
 		title: t("重新上传睡眠"),
 		content: t("请输入条数"),
@@ -301,12 +266,11 @@ function formatBroadcast(item: RealtimeBroadcastRecord): string {
 }
 
 function formatPpi(item: PpiData): string {
-	return `time=${formatSecTime(item.timestamp)}, hr=${item.hr}, spo2=${item.spo2}, ppi=${item.ppi}, uploaded=${item.uploaded}, id=${item.id}`;
+	return `time=${formatSecTime(item.timestamp)}, hr=${item.hr}, spo2=${item.spo2}, ppi=${item.ppi}, activity=${item.activity}, uploaded=${item.uploaded}, id=${item.id}`;
 }
 
 function formatSleep(item: SleepData): string {
-	const detailLength = item.detail == null ? 0 : item.detail.length;
-	return `report=${formatSecTime(item.reportTimestamp)}, uploaded=${item.uploaded}, bedtime=${formatSecTime(item.bedtime)}, sleep=${formatSecTime(item.sleepTime)}, wake=${formatSecTime(item.wakeTime)}, getup=${formatSecTime(item.getupTime)}, detailLen=${detailLength}, id=${item.id}`;
+	return `report=${formatSecTime(item.reportTimestamp)}, uploaded=${item.uploaded}, sleepOnsetTime=${item.sleepOnsetTime}, awakeTime=${item.awakeTime}, lightSleepPeriod=${item.lightSleepPeriod}, deepSleepPeriod=${item.deepSleepPeriod}, otherSleepPeriod=${item.otherSleepPeriod}, heartRateRest=${item.heartRateRest}, id=${item.id}`;
 }
 
 function formatStats(item: UploadTableStats): string {
@@ -325,8 +289,8 @@ async function loadOverview(): Promise<void> {
 		const ppiCount = await bluetoothDataManager.getPpiDataCount();
 		const sleepCount = await bluetoothDataManager.getSleepDataCount();
 		const latestPpi = await bluetoothDataManager.getLatestPpiData();
-		const unuploadedPpi = await bluetoothDataManager.getUnuploadedPpiData();
-		const unuploadedSleep = await bluetoothDataManager.getUnuploadedSleepData();
+		const unuploadedPpiCount = await bluetoothDataManager.getUnuploadedPpiCount();
+		const unuploadedSleepCount = await bluetoothDataManager.getUnuploadedSleepDataCount();
 		const historySession = await bluetoothDataManager.getHistorySessionDiagnostics();
 		const result: string[] = [];
 		result.push(`realtime_broadcast_data count=${broadcastCount}`);
@@ -335,9 +299,9 @@ async function loadOverview(): Promise<void> {
 				? "latest broadcast=无"
 				: `latest broadcast: ${formatBroadcast(latestBroadcast)}`
 		);
-		result.push(`ppi_data count=${ppiCount}, unuploaded=${unuploadedPpi.length}`);
+		result.push(`ppi_data count=${ppiCount}, unuploaded=${unuploadedPpiCount}`);
 		result.push(latestPpi == null ? "latest ppi=无" : `latest ppi: ${formatPpi(latestPpi)}`);
-		result.push(`sleep_data count=${sleepCount}, unuploaded=${unuploadedSleep.length}`);
+		result.push(`sleep_data count=${sleepCount}, unuploaded=${unuploadedSleepCount}`);
 		result.push(formatHistorySession(historySession));
 		rows.value = result;
 	} catch (e) {
@@ -449,45 +413,6 @@ async function loadUnuploadedRows(): Promise<void> {
 	}
 }
 
-async function loadSleepRows(): Promise<void> {
-	if (setLoading(t("最近 10 条睡眠")) == false) return;
-	try {
-		const data = await bluetoothDataManager.getRecentSleepData(10, null);
-		const result: string[] = [];
-		for (let i = 0; i < data.length; i++) {
-			result.push(formatSleep(data[i]));
-		}
-		rows.value = result;
-	} catch (e) {
-		rows.value = [`${t("查询失败")}: ${e}`];
-	} finally {
-		finishLoading();
-	}
-}
-
-async function loadUploadQueues(): Promise<void> {
-	if (setLoading(t("待上传队列")) == false) return;
-	try {
-		const ppi = await bluetoothDataManager.getUnuploadedPpiData();
-		const sleep = await bluetoothDataManager.getUnuploadedSleepData();
-		const result: string[] = [];
-		result.push(`ppi_data unuploaded=${ppi.length}`);
-		for (let i = 0; i < ppi.length && i < 10; i++) {
-			const item = ppi[i];
-			result.push(`ppi ${formatPpi(item)}`);
-		}
-		result.push(`sleep_data unuploaded=${sleep.length}`);
-		for (let k = 0; k < sleep.length && k < 10; k++) {
-			const item = sleep[k];
-			result.push(`sleep ${formatSleep(item)}`);
-		}
-		rows.value = result;
-	} catch (e) {
-		rows.value = [`${t("查询失败")}: ${e}`];
-	} finally {
-		finishLoading();
-	}
-}
 //#endif
 </script>
 

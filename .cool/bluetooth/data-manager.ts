@@ -97,56 +97,37 @@ export class BluetoothDataManager {
 		const values = records
 			.map(
 				(r) =>
-					`('${r.timestamp}', ${r.timestamp}, ${r.heartRate}, ${r.bloodOxygen}, ${r.ppi}, 0)`
+					`('${r.timestamp}', ${r.timestamp}, ${r.heartRate}, ${r.bloodOxygen}, ${r.ppi}, ${r.activity}, 0)`
 			)
 			.join(",");
-		const sql = `INSERT OR IGNORE INTO ppi_data (id, timestamp, hr, spo2, ppi, uploaded) VALUES ${values}`;
-		return this.execute(sql);
-	}
-	async storeBroadcastSleepActivity(timestamp: number, activity: number): Promise<boolean> {
-		if (timestamp <= 0 || activity < 0 || activity > 7) return false;
-		return this.execute(
-			"INSERT OR REPLACE INTO sleep_status_data (timestamp, activity) VALUES (" +
-				timestamp +
-				", " +
-				activity +
-				")"
-		);
-	}
-
-	async getSleepActivitiesBetween(
-		startSec: number,
-		endSec: number
-	): Promise<Map<number, number>> {
-		const activities = new Map<number, number>();
-		if (endSec <= startSec) return activities;
-		const result = await this.query(
-			"SELECT timestamp, activity FROM sleep_status_data WHERE timestamp >= " +
-				startSec +
-				" AND timestamp < " +
-				endSec +
-				" ORDER BY timestamp ASC"
-		);
-		if (result == null) return activities;
-		for (let i = 0; i < result.rows.length; i++) {
-			activities.set(
-				parseInt(result.rows[i][0] as string),
-				parseInt(result.rows[i][1] as string)
+		const statements: string[] = [];
+		for (let i = 0; i < records.length; i++) {
+			const record = records[i];
+			statements.push(
+				`UPDATE ppi_data SET activity=${record.activity} WHERE id='${record.timestamp}' AND activity IS NULL`
 			);
 		}
-		return activities;
+		statements.push(
+			`INSERT OR IGNORE INTO ppi_data (id, timestamp, hr, spo2, ppi, activity, uploaded) VALUES ${values}`
+		);
+		if ((await this.ensureDatabaseReady()) == false) return false;
+		return bluetoothDatabase.transaction(statements);
 	}
 
 	async storeBroadcastPpiData(
 		timestamp: number,
 		hr: number,
 		spo2: number,
-		ppi: number
+		ppi: number,
+		activity: number
 	): Promise<boolean> {
 		// 0 是设备返回的有效原始值；广播时间已在调用方校验，不能据此丢弃上传秒。
-		if (timestamp <= 0) return false;
-		const sql = `INSERT OR IGNORE INTO ppi_data (id, timestamp, hr, spo2, ppi, uploaded) VALUES ('${timestamp}', ${timestamp}, ${hr}, ${spo2}, ${ppi}, 0)`;
-		return this.execute(sql);
+		if (timestamp <= 0 || activity < 0 || activity > 7) return false;
+		if ((await this.ensureDatabaseReady()) == false) return false;
+		return bluetoothDatabase.transaction([
+			`UPDATE ppi_data SET activity=${activity} WHERE id='${timestamp}' AND activity IS NULL`,
+			`INSERT OR IGNORE INTO ppi_data (id, timestamp, hr, spo2, ppi, activity, uploaded) VALUES ('${timestamp}', ${timestamp}, ${hr}, ${spo2}, ${ppi}, ${activity}, 0)`
+		]);
 	}
 
 	/**
@@ -227,7 +208,8 @@ export class BluetoothDataManager {
 			hr: parseInt(row[2] as string),
 			spo2: parseInt(row[3] as string),
 			ppi: parseInt(row[4] as string),
-			uploaded: parseInt(row[5] as string) == 1
+			activity: row[5] == null ? null : parseInt(row[5] as string),
+			uploaded: parseInt(row[6] as string) == 1
 		} as PpiData;
 	}
 
@@ -261,12 +243,13 @@ export class BluetoothDataManager {
 		return {
 			id: row[0] as string,
 			reportTimestamp: parseInt(row[1] as string),
-			bedtime: parseInt(row[2] as string),
-			sleepTime: parseInt(row[3] as string),
-			wakeTime: parseInt(row[4] as string),
-			getupTime: parseInt(row[5] as string),
-			detail: (row[6] ?? "") as string,
-			uploaded: parseInt(row[7] as string) == 1
+			sleepOnsetTime: row[2] == null ? null : parseInt(row[2] as string),
+			awakeTime: row[3] == null ? null : parseInt(row[3] as string),
+			lightSleepPeriod: row[4] == null ? null : parseInt(row[4] as string),
+			deepSleepPeriod: row[5] == null ? null : parseInt(row[5] as string),
+			otherSleepPeriod: row[6] == null ? null : parseInt(row[6] as string),
+			heartRateRest: row[7] == null ? null : parseInt(row[7] as string),
+			uploaded: parseInt(row[8] as string) == 1
 		} as SleepData;
 	}
 
@@ -393,7 +376,7 @@ export class BluetoothDataManager {
 	 */
 	async getLatestPpiData(): Promise<PpiData | null> {
 		const sql =
-			"SELECT id, timestamp, hr, spo2, ppi, uploaded FROM ppi_data ORDER BY timestamp DESC LIMIT 1";
+			"SELECT id, timestamp, hr, spo2, ppi, activity, uploaded FROM ppi_data ORDER BY timestamp DESC LIMIT 1";
 		const result = await this.query(sql);
 		if (result == null || result.rows.length == 0) {
 			return null;
@@ -408,7 +391,7 @@ export class BluetoothDataManager {
 	async getRecentPpiData(limit: number): Promise<PpiData[]> {
 		const safeLimit = limit <= 0 ? 10 : limit;
 		const sql =
-			"SELECT id, timestamp, hr, spo2, ppi, uploaded FROM ppi_data ORDER BY timestamp DESC LIMIT " +
+			"SELECT id, timestamp, hr, spo2, ppi, activity, uploaded FROM ppi_data ORDER BY timestamp DESC LIMIT " +
 			safeLimit.toString();
 		const result = await this.query(sql);
 		if (result == null) {
@@ -426,7 +409,7 @@ export class BluetoothDataManager {
 		const safeLimit = limit <= 0 ? 10 : limit;
 		const uploadedValue = uploaded == true ? 1 : 0;
 		const sql =
-			"SELECT id, timestamp, hr, spo2, ppi, uploaded FROM ppi_data WHERE uploaded = " +
+			"SELECT id, timestamp, hr, spo2, ppi, activity, uploaded FROM ppi_data WHERE uploaded = " +
 			uploadedValue.toString() +
 			" ORDER BY timestamp DESC LIMIT " +
 			safeLimit.toString();
@@ -450,7 +433,7 @@ export class BluetoothDataManager {
 		let where = "uploaded = 0";
 		if (maxTimestamp != null) where += " AND timestamp <= " + maxTimestamp.toString();
 		const sql =
-			"SELECT id, timestamp, hr, spo2, ppi, uploaded FROM ppi_data WHERE " +
+			"SELECT id, timestamp, hr, spo2, ppi, activity, uploaded FROM ppi_data WHERE " +
 			where +
 			" ORDER BY timestamp ASC LIMIT " +
 			PPI_UPLOAD_PAGE_SIZE;
@@ -535,7 +518,6 @@ export class BluetoothDataManager {
 		const cleared = await bluetoothDatabase.transaction([
 			"DELETE FROM sleep_data",
 			"DELETE FROM ppi_data",
-			"DELETE FROM sleep_status_data",
 			"DELETE FROM realtime_broadcast_data",
 			"DELETE FROM vital_ready_ranges",
 			"DELETE FROM vital_sync_state",
@@ -572,22 +554,32 @@ export class BluetoothDataManager {
 
 	/**
 	 * 存储睡眠数据
-	 * 用 INSERT OR IGNORE 防御性去重：相同 reportTimestamp 已存在则静默跳过；
-	 * 配合 fetchAllSleepData 断点续传后，从源头避免重复存储与 uploaded 状态被重置。
-	 *
-	 * 返回是否真的写进去了：`INSERT OR IGNORE` 会把约束冲突（例如旧表残留的
-	 * NOT NULL 列）当成"可忽略"而不报错，只看 execute 的返回值会把"一行都没写"
-	 * 当成成功。调用方必须按这个返回值计数，否则日志里 saved 会涨而库是空的。
+	 * 用 INSERT OR IGNORE 按 reportTimestamp 幂等去重，重复事件不会重置 uploaded。
 	 * @param sleepData 睡眠数据
-	 * @returns 行是否落入库中
+	 * @returns SQL 是否执行成功
 	 */
 	async storeSleepData(sleepData: SleepData): Promise<boolean> {
-		const { reportTimestamp, bedtime, sleepTime, wakeTime, getupTime, detail } = sleepData;
+		const {
+			reportTimestamp,
+			sleepOnsetTime,
+			awakeTime,
+			lightSleepPeriod,
+			deepSleepPeriod,
+			otherSleepPeriod,
+			heartRateRest
+		} = sleepData;
+		if (
+			sleepOnsetTime == null ||
+			awakeTime == null ||
+			lightSleepPeriod == null ||
+			deepSleepPeriod == null ||
+			otherSleepPeriod == null ||
+			heartRateRest == null
+		) return false;
 		const sleepId = reportTimestamp.toString();
-		const safeDetail = this.escapeSqlText(detail);
 		const sleepSql = `INSERT OR IGNORE INTO sleep_data
-			(id, report_timestamp, bedtime, sleep_time, wake_time, getup_time, detail, uploaded)
-			VALUES ('${sleepId}', ${reportTimestamp}, ${bedtime}, ${sleepTime}, ${wakeTime}, ${getupTime}, '${safeDetail}', 0)`;
+			(id, report_timestamp, sleep_onset_time, awake_time, light_sleep_period, deep_sleep_period, other_sleep_period, heart_rate_rest, uploaded)
+			VALUES ('${sleepId}', ${reportTimestamp}, ${sleepOnsetTime}, ${awakeTime}, ${lightSleepPeriod}, ${deepSleepPeriod}, ${otherSleepPeriod}, ${heartRateRest}, 0)`;
 		const ok = await this.execute(sleepSql);
 		if (ok == false) {
 			logger.error("bluetooth", `[BOOM] 睡眠数据写入失败: report_timestamp=${reportTimestamp}`);
@@ -601,7 +593,7 @@ export class BluetoothDataManager {
 	 */
 	async getUnuploadedSleepData(): Promise<SleepData[]> {
 		const sql =
-			"SELECT id, report_timestamp, bedtime, sleep_time, wake_time, getup_time, detail FROM sleep_data WHERE uploaded = 0";
+			"SELECT id, report_timestamp, sleep_onset_time, awake_time, light_sleep_period, deep_sleep_period, other_sleep_period, heart_rate_rest, uploaded FROM sleep_data WHERE uploaded = 0";
 		const result = await this.query(sql);
 
 		if (result == null) {
@@ -611,17 +603,7 @@ export class BluetoothDataManager {
 		const sleepDataList: SleepData[] = [];
 
 		for (let i = 0; i < result.rows.length; i++) {
-			const row = result.rows[i];
-			sleepDataList.push({
-				id: row[0],
-				reportTimestamp: parseInt(row[1] as string),
-				bedtime: parseInt(row[2] as string),
-				sleepTime: parseInt(row[3] as string),
-				wakeTime: parseInt(row[4] as string),
-				getupTime: parseInt(row[5] as string),
-				detail: (row[6] ?? "") as string,
-				uploaded: false
-			});
+			sleepDataList.push(this.parseSleepDataRow(result.rows[i]));
 		}
 
 		return sleepDataList;
@@ -631,12 +613,25 @@ export class BluetoothDataManager {
 		return this.queryCount("SELECT COUNT(*) FROM sleep_data");
 	}
 
-	async getRecentSleepData(limit: number, uploaded: boolean | null): Promise<SleepData[]> {
+	async getUnuploadedSleepDataCount(): Promise<number> {
+		return this.queryCount("SELECT COUNT(*) FROM sleep_data WHERE uploaded = 0");
+	}
+
+	async getRecentSleepData(
+		limit: number,
+		uploaded: boolean | null,
+		completeOnly: boolean = false
+	): Promise<SleepData[]> {
 		const safeLimit = limit <= 0 ? 10 : limit;
 		let sql =
-			"SELECT id, report_timestamp, bedtime, sleep_time, wake_time, getup_time, detail, uploaded FROM sleep_data";
+			"SELECT id, report_timestamp, sleep_onset_time, awake_time, light_sleep_period, deep_sleep_period, other_sleep_period, heart_rate_rest, uploaded FROM sleep_data";
 		if (uploaded != null) {
 			sql += uploaded == true ? " WHERE uploaded = 1" : " WHERE uploaded = 0";
+		}
+		if (completeOnly == true) {
+			sql += uploaded == null ? " WHERE " : " AND ";
+			sql +=
+				"sleep_onset_time IS NOT NULL AND awake_time IS NOT NULL AND light_sleep_period IS NOT NULL AND deep_sleep_period IS NOT NULL AND other_sleep_period IS NOT NULL AND heart_rate_rest IS NOT NULL";
 		}
 		sql += " ORDER BY report_timestamp DESC LIMIT " + safeLimit.toString();
 		const result = await this.query(sql);

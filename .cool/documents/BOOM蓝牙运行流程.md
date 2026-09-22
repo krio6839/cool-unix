@@ -159,13 +159,15 @@ App 启动后，如果已有绑定设备：
 - `hr = 无效时 0`
 - `spo2 = 无效时 0`
 - `ppi = 无效时 0`
+- `activity = status Bit[2:0]`，范围 `0~7`，与本秒 PPI 同行保存和上传。
 
 历史生命体征 `0x3A/0x3B` 没有血氧字段，按原始每秒记录判定：
 
 - 只有完整六字节都是 `FF`（`FFFFFFFFFFFF`）才是无效秒；全零和部分字段为 `FF` 都是有效秒，进入本地上传队列。
 - `timestamp = response.startSec + secondIndex`，跳过无效记录时保留原始秒索引，不压缩时间。
-- `hr / ppi` 保留解析值，包括 `0`；`spo2 = 0`。不再按心率或 PPI 是否大于零过滤。
+- `hr / ppi` 保留解析值，包括 `0`；`spo2 = 0`；`activity = status & 0x07`。不再按心率或 PPI 是否大于零过滤。
 - 排除尚未产生的未来秒；重读相同秒按本地时间戳主键去重。历史重放可修正旧版保存的 `hr=255, ppi=65535` 占位记录并重新排队，但不会无依据删除旧记录。
+- 旧版 `ppi_data` 没有 `activity`，升级后该列为 `NULL`。旧记录仍正常上传，并明确发送 `activity: null`；后续重读同一秒只补齐空状态，不覆盖已有的 0～7。
 
 上传策略：
 
@@ -262,18 +264,20 @@ PPI上传失败，保留未上传数据
 [BOOM] 事件追加: count=10, total=...
 [BOOM] 睡眠事件处理完成: found=..., saved=..., skipped=...
 [BOOM-EVENT] 新事件读取完成: status=..., pages=..., items=..., savedSleep=..., saveOk=..., 上传已尝试=..., upload=...
-[BOOM-UPLOAD] 上传睡眠数据: count=..., ids=..., [time=..., 睡眠窗口=...~...(up=...,sleep=...), detail长度=..., 深=..., 浅=..., 其他=..., 无分期=..., detail头=...]
+[BOOM-UPLOAD] 上传睡眠数据: count=..., ids=..., [time=..., sleepOnsetTime=..., awakeTime=..., light=..., deep=..., other=..., heartRateRest=...]
 [BOOM-UPLOAD] 睡眠数据上传成功: count=...
 [BOOM-EVENT] 新事件解析结果:
 ```
 
-### 睡眠从事件到云端：四行日志定位断点
+### 睡眠从事件到云端：直接上传设备统计
 
-“查询数据提示没有睡眠数据”要区分是**没读到**、**没上传**，还是**上传了但没有有效分期**。这四行各自回答一个否则无法从日志回答的问题：
+睡眠逐秒状态不再拼成 `detail`。`SleepResult` 的设备原始统计直接进入 `sleep_data` 并上传：`sleepOnsetTime`、`awakeTime`、`lightSleepPeriod`、`deepSleepPeriod`、`otherSleepPeriod`、`heartRateRest`；`time` 仍是事件报告时间。
+
+日志按三段定位：
 
 - `睡眠事件处理完成: found/saved/skipped`：事件里到底有没有 `SleepResult`。`found>0, saved=0` 说明事件解析出来了但被 `toSleepData` 判为无效（`ts<=0`、`sleepOnsetTime<=awakeTime`、`awakeTime<0`），此时另有一条 `睡眠事件跳过` 带原始 hex；`found=0` 说明这段窗口设备没回睡眠事件。
 - `新事件读取完成: ... 上传已尝试=...`：`savedSleep>0` 但 `上传已尝试=0` 说明根本没走到上传（读取被停止，或 `persistSleepData=false`）；`上传已尝试=1, upload=0` 才说明上传真的失败了。
-- `上传睡眠数据: ... detail长度=..., 无分期=...`：**判定“服务端说没有睡眠数据”的关键**。`detail` 是逐秒睡眠分期串，`深/浅/其他` 是有效分期计数，`无分期` 是落成 `"0"` 的秒数。`无分期` 等于 `detail长度` 说明这段窗口本地没有任何活动数据，服务端据此判定“没有睡眠数据”。
+- `上传睡眠数据: ... sleepOnsetTime/awakeTime/light/deep/other/heartRateRest`：确认设备事件中的六项统计是否完整进入请求。
 - `睡眠数据上传成功/失败: count=..., ids=...`：失败必须带 `ids`，因为下一轮能否补上取决于这条记录是否还留在 `uploaded=0` 集合里。
 
 #### `saved` 涨了但库里没有：`INSERT OR IGNORE` 会吞掉约束冲突
@@ -283,20 +287,9 @@ PPI上传失败，保留未上传数据
 1. 旧库的 `sleep_data` 还带着老 DDL 的 `record_count INTEGER NOT NULL`。老迁移走的是 `ALTER TABLE ... DROP COLUMN`，而这条语法要 SQLite 3.35+（Android 14 才带），`minSdkVersion` 21 的机器上直接语法报错，列留在原地。
 2. `storeSleepData` 用的 `INSERT OR IGNORE` 把 NOT NULL 冲突当成“可忽略”：行被跳过，SQL 算执行成功。于是只看 `execute()` 的返回值会把“一行都没写”当成成功。
 
-修法是两条一起：迁移改成整表重建（只用 CREATE / INSERT SELECT / DROP / RENAME，不依赖高版本语法，历史行与 `uploaded` 状态按列名交集搬运），`storeSleepData` 改为返回是否真的写进去、写失败打 `睡眠数据写入失败`，读取端按这个返回值计数。**判断这类问题就看 `睡眠数据写入失败` 有没有出现**——它出现说明写库这一步就断了，跟事件、上传都无关。
+迁移仍使用整表重建（CREATE / INSERT SELECT / DROP / RENAME），但旧结构只有合计值，无法恢复六项设备原始统计：只保留 `uploaded=1` 的旧记录用于本地审计，统计列置空；旧的未上传记录迁移时删除，避免构造错误的新接口报文。测试页手动重传时也会跳过这些不完整审计行，不阻塞同批的新结构记录。`sleep_status_data`、广播分期暂存和 `detail` 组装链路全部删除。
 
-`上传睡眠数据` 这行刻意不打印完整 `detail`：一夜的 `detail` 有两万多字符，整体序列化会一次写满诊断缓冲区。只记长度、分期计数和前 24 位，既能判断分期是否有效，又不挤掉别的日志。
-
-`detail` 全为 `"0"` 是独立成因，与上传无关：逐秒分期来自 `sleep_status_data`，这张表只在广播每秒写入（`storeBroadcastSleepActivity`），上传时按事件窗口读取并组装。所以组装出来全 0 只有一种可能——**该窗口内的广播分期没有落库**。窗口换算本身是可靠的（`startSec = reportTimestamp - bedtime`、`endSec = reportTimestamp - wakeTime`，两侧同为设备秒），组装循环也已被测试覆盖到 23400 秒满窗口无缺。
-
-分期缺失有两个已知成因：
-
-1. **广播在窗口内没有覆盖。** GATT 读取期间广播扫描是停的，连接期留下的缺秒由历史读取补齐，但历史读取只补 `ppi_data`，不补 `sleep_status_data`。所以如果一夜里设备长时间没有广播（关机、离得远、App 被杀），这段窗口就没有分期。
-2. **广播入库失败。** `storeBroadcastRecordByDevice` 原先把 `storeBroadcastPpiData` 放在 `if (record != null)` 里面——`record` 是 `realtime_broadcast_data`（首页展示表）的写入结果。这张表写失败时，PPI 与睡眠分期会被一起跳过，症状正是整晚 `detail` 全 0。现在两个落库调用都在该判断之外，各自的成败互不牵连。
-
-要区分这两种成因，看同一时段的 `[BOOM-ADV] 收到广播 #N`：窗口内有连续广播却仍全 0，就是成因 2（或当时的入库失败）；窗口内没有广播，就是成因 1。
-
-协议上 `VitalData_Per_Second` 的 `status` Bit[2:0]（`状态说明.txt` 2.1.3）与广播 activity 编码一致，用历史读取补分期在协议层可行，但**当前设计不走这条路**：分期由广播暂存、事件只提供起止时间，不从历史读取反推分期。
+每秒睡眠/活动状态现在属于 PPI 数据：广播直接写 `activity`，连接造成的广播缺秒由生命体征历史记录中的 `status & 0x07` 补回。因此睡眠统计上传与逐秒 PPI 上传职责分开，不再相互依赖。
 
 ### 睡眠上传有独立的锁
 
@@ -807,7 +800,7 @@ eventSeq=...
 [BOOM-UPLOAD] PPI上传成功: count=...
 [BOOM-UPLOAD] 本轮批次结束: remaining=...
 [BOOM-DATA] 清理已上传 PPI: before=..., count=...
-[BOOM-UPLOAD] 上传睡眠数据: count=..., ids=..., [time=..., 睡眠窗口=...~..., detail长度=..., 深=..., 浅=..., 其他=..., 无分期=..., detail头=...]
+[BOOM-UPLOAD] 上传睡眠数据: count=..., ids=..., [time=..., sleepOnsetTime=..., awakeTime=..., light=..., deep=..., other=..., heartRateRest=...]
 [BOOM-UPLOAD] 睡眠数据上传成功: count=...
 [BOOM-UPLOAD] 无待上传睡眠数据
 ```
@@ -829,7 +822,7 @@ eventSeq=...
 - `设备返回段早于目标窗口，按无数据收尾`：设备最新数据早于整个目标窗口（长期关机是正常原因），该组按无数据记账结束，不是失败；同一次连接里后面的缺口仍会读。如果这条日志频繁出现但你确信设备刚有数据，检查设备是否已完成校时。
 - `初始化基准时间表失败`：`vital_sync_state` / `vital_ready_ranges` 不可用，本轮不会规划任何 GATT 任务，需要先排查数据库打开失败。
 - `睡眠上传跳过: 原因=...`：睡眠上传被跳过。`原因=上一轮睡眠上传未结束` 说明另一轮睡眠上传还在飞（只影响睡眠自己的锁，与 PPI 无关）；`原因=设备未连接` 说明 `deviceAddress` 为空。两种都不是失败，下一轮会重试，记录仍在 `uploaded=0`。
-- `上传睡眠数据` 里 `无分期` 等于 `detail长度`：这段窗口本地没有任何睡眠分期，服务端会判定“没有睡眠数据”。成因与上传无关，见 §6 的说明。
+- `上传睡眠数据` 中任一睡眠统计异常：直接对照设备 `SleepResult` 事件解析值；客户端不再二次推导或拼装逐秒明细。
 - `睡眠数据上传失败: count=..., ids=...`：服务端可能已接收，本地仍会重试；用 `ids` 对照 `sleep_data.uploaded` 可以确认下一次是否补上。
 - 诊断日志文件（`Download/BOOM/logs/<yyyyMMdd>/diagnostic-<HHMMSS>-<N>.txt`）：日志按批自动落盘，**不受内存/SQLite 1000 条上限约束**。排查长时段问题时按日期目录取对应批次的文件。文件名里只有时刻和序号——日期已由目录表达，`-N` 是同一秒内的序号。
 
@@ -869,7 +862,7 @@ App 切到后台时（`App.uvue` 的 `onHide`）会调 `flushArchiveNow()`：进
 
 历史数据没有血氧字段，仍保存 `spo2=0`，不要求回补广播遗漏的血氧。
 
-客户端回归测试：在项目根目录使用 Node.js 22.18 或更高版本执行 `npm run test:boom`（当前 151 个用例）。测试运行实际 TypeScript 业务逻辑与内存 SQLite，模拟蓝牙/网络边界，覆盖区间工具（合并/相减/计数）、合格判定的两关与分遍（连续缺失切分、总量按候选区算、贴着右端未判完）、真缺口不作废其后的在场秒、`stableCeiling` 封顶、分类幂等、基准推进与缺口停驻、保留窗口跳转、缺口推导与桥接合并、运行时可调参数的默认值/覆盖/失效/重置、零值/全 FF 判定、两分钟倒序读取、设备返回段早于目标窗口按无数据收尾、单缺口无数据不中止本轮后续缺口、冷启动后的断点恢复、截断响应拒绝、区间合并、页面事务回滚与并发隔离、GATT 回队不空转、连接后只读探活、设备级连续失败提醒、历史超时复探活、精确页失败账本与第三次放弃、abandoned 页手动重读、30 天保留期清理、广播新设备秒不受接收间隔抖动影响且同秒去重、分批上传与冻结窗口、上传期间实时广播不撑长批次、上传入口唯一且无条数/间隔阈值、上传定时兜底已删除、数据库层只保留有调用方的方法、一轮 tick 只读一次基准且不重扫 ready 区间、小批量立即上传、失败退避、PPI 上传在飞时睡眠上传不被丢弃、睡眠上传的跳过原因与分期统计日志、睡眠事件帧经 0x3C/0x3D 读取后落进 `sleep_data`、写入失败不被计成已保存、旧结构 `sleep_data` 重建后可写入、重组噪声不会冲掉诊断缓冲区、日志按批落盘与空闲期落盘、北京/手机时区切换、PPI 夏令时偏移拆包、配置切换时日志归档不串时区、诊断弹窗只读不导出、广播落库失败不牵连睡眠分期、凭证异常和弹窗组件挂载。
+客户端回归测试：在项目根目录使用 Node.js 22.18 或更高版本执行 `npm run test:boom`（当前 159 个用例）。测试运行实际 TypeScript 业务逻辑与内存 SQLite，模拟蓝牙/网络边界，并覆盖 PPI activity 的广播/历史来源、旧库迁移、空状态兼容、上传报文，以及睡眠事件六项统计的落库、迁移、上传与诊断展示。
 
 测试替身里事件类型常量、命令码与协议解析函数都取真实实现（`boom-constants.ts` / `boom-parser.ts`）：把它们桩成空对象会让 `LOG_EVENT_TYPE.SleepResult` 变成 `undefined`、事件批次永远解析为空，睡眠链路在测试里被静默跳过，看起来"通过"而实际没测到。项目内的相对 TS 依赖由测试加载器按相对路径自动解析，**不维护别名白名单**——漏一个条目只会在某次改动后才炸，且炸成「Unmocked native import」这种指错方向的报错；桩只用于真正的原生边界（App/BLE/网络/日志）。
 

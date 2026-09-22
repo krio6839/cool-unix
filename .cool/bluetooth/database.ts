@@ -24,11 +24,12 @@ const DB_NAME = "bluetooth_db";
 const sleepTableSql = (tableName: string): string => `CREATE TABLE IF NOT EXISTS ${tableName} (
         id TEXT PRIMARY KEY,
         report_timestamp INTEGER NOT NULL,
-        bedtime INTEGER NOT NULL,
-        sleep_time INTEGER NOT NULL,
-        wake_time INTEGER NOT NULL,
-        getup_time INTEGER NOT NULL,
-        detail TEXT NOT NULL DEFAULT '',
+        sleep_onset_time INTEGER,
+        awake_time INTEGER,
+        light_sleep_period INTEGER,
+        deep_sleep_period INTEGER,
+        other_sleep_period INTEGER,
+        heart_rate_rest INTEGER,
         uploaded INTEGER DEFAULT 0
       )`;
 
@@ -186,20 +187,16 @@ class BluetoothDatabase {
         hr INTEGER NOT NULL,
         spo2 INTEGER NOT NULL,
         ppi INTEGER NOT NULL,
+        activity INTEGER,
         uploaded INTEGER DEFAULT 0
       )`);
+		await this.migratePpiActivityColumn();
 
 		await this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_timestamp ON ppi_data(timestamp)");
 		await this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_uploaded ON ppi_data(uploaded)");
 
-		// 广播每秒的 activity；睡眠上传时按事件窗口读取并组装 detail。
-		await this.execute(`CREATE TABLE IF NOT EXISTS sleep_status_data (
-        timestamp INTEGER PRIMARY KEY,
-        activity INTEGER NOT NULL
-      )`);
-		await this.execute(
-			"CREATE INDEX IF NOT EXISTS idx_sleep_status_timestamp ON sleep_status_data(timestamp)"
-		);
+		// activity 已随 ppi_data 保存；旧逐秒睡眠暂存表不再有消费者。
+		await this.execute("DROP TABLE IF EXISTS sleep_status_data");
 
 		await this.recreateRealtimeBroadcastTableIfLegacy();
 		await this.createRealtimeBroadcastTable();
@@ -249,6 +246,13 @@ class BluetoothDatabase {
 		return false;
 	}
 
+	/** 旧版 PPI 保留原值与 uploaded 状态，新 activity 默认 NULL。 */
+	private async migratePpiActivityColumn(): Promise<void> {
+		if ((await this.hasColumn("ppi_data", "activity")) == true) return;
+		if ((await this.execute("ALTER TABLE ppi_data ADD COLUMN activity INTEGER")) == false)
+			throw new Error("ppi_data activity 字段迁移失败");
+	}
+
 	/**
 	 * 把旧结构的 sleep_data 迁到当前结构。
 	 *
@@ -258,38 +262,64 @@ class BluetoothDatabase {
 	 * 静默跳过——行没写进去，SQL 却算执行成功，表现为「事件里明明有睡眠、saved 也涨，
 	 * 但睡眠库始终为空，且日志里一条错都没有」。
 	 *
-	 * 所以改成整表重建：按当前结构建一张临时表，按列名交集搬数据，再替换旧表。
+	 * 所以改成整表重建。旧结构没有设备原始睡眠统计，只有已经上传的数据保留作审计；
+	 * 未上传旧行不能构造新接口报文，迁移时丢弃。
 	 * 全程只用 CREATE / INSERT SELECT / DROP / RENAME，不依赖高版本语法。
 	 */
 	private async migrateSleepTable(): Promise<void> {
 		const columns = await this.sleepTableColumns();
 		if (columns.length == 0) return;
-		const upToDate = columns.includes("detail") == true && columns.includes("record_count") == false;
+		const currentColumns = [
+			"id",
+			"report_timestamp",
+			"sleep_onset_time",
+			"awake_time",
+			"light_sleep_period",
+			"deep_sleep_period",
+			"other_sleep_period",
+			"heart_rate_rest",
+			"uploaded"
+		];
+		let upToDate = columns.length == currentColumns.length;
+		for (let i = 0; i < currentColumns.length; i++) {
+			if (columns.includes(currentColumns[i]) == false) upToDate = false;
+		}
 		if (upToDate == true) return;
 
 		logger.info("bluetooth", `[DB] sleep_data 结构过旧,重建: 现有列=${columns.join(",")}`);
-		// 旧库没有的列用默认值补齐；detail 从旧 sleep_status 表合并而来，历史行无从还原，补空串。
-		const targets = [
-			"id",
-			"report_timestamp",
-			"bedtime",
-			"sleep_time",
-			"wake_time",
-			"getup_time",
-			"detail",
-			"uploaded"
-		];
+		const targets = currentColumns;
 		const sources: string[] = [];
 		for (let i = 0; i < targets.length; i++) {
 			const name = targets[i];
 			if (columns.includes(name) == true) sources.push(name);
-			else if (name == "detail") sources.push("''");
-			else sources.push("0");
+			else if (name == "id") sources.push("CAST(report_timestamp AS TEXT)");
+			else if (name == "report_timestamp" || name == "uploaded") sources.push("0");
+			else sources.push("NULL");
+		}
+		let rowFilter = " WHERE 0";
+		if (columns.includes("uploaded") == true) {
+			rowFilter = " WHERE uploaded=1";
+			const statisticColumns = [
+				"sleep_onset_time",
+				"awake_time",
+				"light_sleep_period",
+				"deep_sleep_period",
+				"other_sleep_period",
+				"heart_rate_rest"
+			];
+			let hasStatistics = true;
+			for (let i = 0; i < statisticColumns.length; i++) {
+				if (columns.includes(statisticColumns[i]) == false) hasStatistics = false;
+			}
+			if (hasStatistics == true)
+				rowFilter =
+					" WHERE uploaded=1 OR (sleep_onset_time IS NOT NULL AND awake_time IS NOT NULL AND light_sleep_period IS NOT NULL AND deep_sleep_period IS NOT NULL AND other_sleep_period IS NOT NULL AND heart_rate_rest IS NOT NULL)";
 		}
 
 		const rebuilt = await this.transaction([
+			"DROP TABLE IF EXISTS sleep_data_migrating",
 			sleepTableSql("sleep_data_migrating"),
-			`INSERT INTO sleep_data_migrating (${targets.join(", ")}) SELECT ${sources.join(", ")} FROM sleep_data`,
+			`INSERT INTO sleep_data_migrating (${targets.join(", ")}) SELECT ${sources.join(", ")} FROM sleep_data${rowFilter}`,
 			"DROP TABLE sleep_data",
 			"ALTER TABLE sleep_data_migrating RENAME TO sleep_data"
 		]);

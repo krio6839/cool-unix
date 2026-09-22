@@ -5,10 +5,6 @@ import type { SleepStatusApiResponse, SleepModeApiResponse } from "../types/slee
 import type { TimeValuePair, DateValuePair } from "../types/common";
 
 export class Sleep {
-	statusData = ref<SleepStatusApiResponse | null>(null);
-	metricData = ref<TimeValuePair[]>([]);
-	trendData = ref<DateValuePair[]>([]);
-
 	totalSleep = ref<number>(0);
 	sleepProgress = ref<number>(0);
 	sleepDuration = ref<string>("");
@@ -115,7 +111,6 @@ export class Sleep {
 		}
 
 		const statusData = parse<SleepStatusApiResponse>(data)!;
-		this.statusData.value = statusData;
 		this.totalSleep.value = statusData.totalSleep ?? 0;
 		this.sleepProgress.value = statusData.sleepProgress ?? 0;
 		this.sleepDuration.value = statusData.sleepDuration ?? "";
@@ -135,8 +130,6 @@ export class Sleep {
 		const list = isArray(data)
 			? (data as any[]).map((item: any): TimeValuePair => parse<TimeValuePair>(item)!)
 			: [];
-		this.metricData.value = list;
-
 		if (metric === "hrv") {
 			this.sleepHrvData.value = list;
 		} else if (metric === "oxygen") {
@@ -154,7 +147,6 @@ export class Sleep {
 		const trendDataResult = isArray(data)
 			? (data as any[]).map((item: any): DateValuePair => parse<DateValuePair>(item)!)
 			: [];
-		this.trendData.value = trendDataResult;
 		this.sleepTrendData.value = trendDataResult ?? [];
 	}
 
@@ -168,7 +160,6 @@ export class Sleep {
 	}
 
 	clearStatus(): void {
-		this.statusData.value = null;
 		this.totalSleep.value = 0;
 		this.sleepProgress.value = 0;
 		this.sleepDuration.value = "";
@@ -181,14 +172,12 @@ export class Sleep {
 	}
 
 	clearMetric(): void {
-		this.metricData.value = [];
 		this.sleepHeartRateData.value = [];
 		this.sleepHrvData.value = [];
 		this.sleepOxygenData.value = [];
 	}
 
 	clearTrend(): void {
-		this.trendData.value = [];
 		this.sleepTrendData.value = [];
 	}
 

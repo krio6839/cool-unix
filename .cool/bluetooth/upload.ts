@@ -116,7 +116,8 @@ export class BluetoothUploader {
 						time: formatDateTimeInTimezone(item.timestamp * 1000, batchTimezone),
 						hr: item.hr,
 						spo2: this.normalizeSpo2ForUpload(item.spo2),
-						ppi: item.ppi
+						ppi: item.ppi,
+						activity: item.activity
 					});
 					uploadedIds.push(item.id);
 				}
@@ -201,7 +202,7 @@ export class BluetoothUploader {
 	/** 测试用：重新上传最近的已上传睡眠记录，不改变其状态。 */
 	async reuploadSleepData(count: number): Promise<number> {
 		if (count <= 0) return 0;
-		const uploadedSleepData = await bluetoothDataManager.getRecentSleepData(count, true);
+		const uploadedSleepData = await bluetoothDataManager.getRecentSleepData(count, true, true);
 		if (uploadedSleepData.length == 0) return 0;
 		const ok = await this.uploadSleepRecords(uploadedSleepData);
 		return ok ? uploadedSleepData.length : 0;
@@ -234,7 +235,7 @@ export class BluetoothUploader {
 		try {
 			const datas: SleepUploadDataItem[] = [];
 			for (let i = 0; i < sleepDataList.length; i++) {
-				datas.push(await this.buildSleepUploadItem(sleepDataList[i]));
+				datas.push(this.buildSleepUploadItem(sleepDataList[i]));
 			}
 			const requestData: SleepUploadRequest = {
 				address: this.deviceAddress,
@@ -247,8 +248,6 @@ export class BluetoothUploader {
 				tiredScore: "1.0"
 			};
 
-			// 逐秒 detail 有上万字符，整体序列化会写满诊断缓冲区。只记结构与分期统计，
-			// 分期全 0 正是“服务端判定没有睡眠数据”的信号，必须一眼可见。
 			logger.info(
 				"bluetooth",
 				`[BOOM-UPLOAD] 上传睡眠数据: count=${datas.length}, ids=${ids}, ${this.describeSleepDatas(datas)}`
@@ -289,65 +288,42 @@ export class BluetoothUploader {
 		return ids;
 	}
 
-	/**
-	 * 睡眠上传的可读摘要：时间、逐秒 detail 的长度与分期计数。
-	 *
-	 * detail 直接取自已构建的请求项，不重复查库。全 0 表示这段窗口没有任何有效
-	 * 睡眠分期（服务端据此判定“没有睡眠数据”），所以既打印计数也打印前若干位。
-	 */
+	/** 睡眠上传摘要直接展示设备事件给出的统计值。 */
 	private describeSleepDatas(datas: SleepUploadDataItem[]): string {
 		const parts: string[] = [];
 		for (let i = 0; i < datas.length; i++) {
-			const detail = datas[i].detail;
-			let deep = 0;
-			let light = 0;
-			let other = 0;
-			let none = 0;
-			for (let p = 0; p < detail.length; p++) {
-				const ch = detail.charAt(p);
-				if (ch == "3") deep++;
-				else if (ch == "2") light++;
-				else if (ch == "1") other++;
-				else none++;
-			}
-			const head = detail.length > 24 ? `${detail.substring(0, 24)}...` : detail;
 			parts.push(
-				`[time=${datas[i].time}, 睡眠窗口=${datas[i].bedSec}~${datas[i].wakeSec}(up=${datas[i].upSec},sleep=${datas[i].sleepSec}), detail长度=${detail.length}, 深=${deep}, 浅=${light}, 其他=${other}, 无分期=${none}, detail头=${head}]`
+				`[time=${datas[i].time}, sleepOnsetTime=${datas[i].sleepOnsetTime}, awakeTime=${datas[i].awakeTime}, light=${datas[i].lightSleepPeriod}, deep=${datas[i].deepSleepPeriod}, other=${datas[i].otherSleepPeriod}, heartRateRest=${datas[i].heartRateRest}]`
 			);
 		}
 		return parts.join(" ");
 	}
 
 	/** 构建睡眠上传数据项 */
-	private async buildSleepUploadItem(sleepData: SleepData): Promise<SleepUploadDataItem> {
+	private buildSleepUploadItem(sleepData: SleepData): SleepUploadDataItem {
+		const sleepOnsetTime = sleepData.sleepOnsetTime;
+		const awakeTime = sleepData.awakeTime;
+		const lightSleepPeriod = sleepData.lightSleepPeriod;
+		const deepSleepPeriod = sleepData.deepSleepPeriod;
+		const otherSleepPeriod = sleepData.otherSleepPeriod;
+		const heartRateRest = sleepData.heartRateRest;
+		if (
+			sleepOnsetTime == null ||
+			awakeTime == null ||
+			lightSleepPeriod == null ||
+			deepSleepPeriod == null ||
+			otherSleepPeriod == null ||
+			heartRateRest == null
+		) throw new Error(`睡眠统计不完整: id=${sleepData.id ?? ""}`);
 		return {
-			bedSec: sleepData.bedtime,
-			detail: await this.buildSleepDetailForUpload(sleepData),
-			sleepSec: sleepData.sleepTime,
 			time: this.formatTimestamp(sleepData.reportTimestamp * 1000), // 转为毫秒
-			upSec: sleepData.getupTime,
-			wakeSec: sleepData.wakeTime
+			sleepOnsetTime,
+			awakeTime,
+			lightSleepPeriod,
+			deepSleepPeriod,
+			otherSleepPeriod,
+			heartRateRest
 		};
-	}
-
-	/**
-	 * SleepResult 的 bedtime/wakeTime 均是相对 reportTimestamp 的秒数。
-	 * 广播接收时已经将每秒 activity 落库，因此上传时只需按该窗口逐秒组装。
-	 */
-	private async buildSleepDetailForUpload(sleepData: SleepData): Promise<string> {
-		const startSec = sleepData.reportTimestamp - sleepData.bedtime;
-		const endSec = sleepData.reportTimestamp - sleepData.wakeTime;
-		if (startSec <= 0 || endSec <= startSec) return "";
-		const activities = await bluetoothDataManager.getSleepActivitiesBetween(startSec, endSec);
-		const detail: string[] = [];
-		for (let timestamp = startSec; timestamp < endSec; timestamp++) {
-			const activity = activities.get(timestamp);
-			if (activity == 0) detail.push("3");
-			else if (activity == 1) detail.push("2");
-			else if (activity == 2) detail.push("1");
-			else detail.push("0");
-		}
-		return detail.join("");
 	}
 
 	private normalizeSpo2ForUpload(spo2: number): number {

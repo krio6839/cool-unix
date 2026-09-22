@@ -576,7 +576,11 @@ export class DeviceHistoryReader implements GapReader, AbandonedRangeReader {
 			if (item.valid == false) continue;
 			if (timestamp < fromSec || timestamp >= toSec) continue;
 			if (timestamp >= nowSec) continue;
-			values.push(`('${timestamp}',${timestamp},${item.hr},0,${item.ppi},0)`);
+			const activity = item.status & 0x07;
+			values.push(`('${timestamp}',${timestamp},${item.hr},0,${item.ppi},${activity},0)`);
+			statements.push(
+				`UPDATE ppi_data SET activity=${activity} WHERE id='${timestamp}' AND activity IS NULL`
+			);
 		}
 		if (values.length > 0) {
 			// 先补全曾保存的占位值，再写入此前不存在的秒数据。
@@ -591,7 +595,7 @@ export class DeviceHistoryReader implements GapReader, AbandonedRangeReader {
    WHERE id='${timestamp}' AND hr=255 AND ppi=65535`);
 			}
 			statements.push(
-				`INSERT OR IGNORE INTO ppi_data (id,timestamp,hr,spo2,ppi,uploaded) VALUES ${values.join(",")}`
+				`INSERT OR IGNORE INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ${values.join(",")}`
 			);
 		}
 		if (statements.length > 0) {
@@ -921,7 +925,8 @@ export class DeviceHistoryReader implements GapReader, AbandonedRangeReader {
 					timestamp,
 					heartRate: item.hr,
 					bloodOxygen: 0,
-					ppi: item.ppi
+					ppi: item.ppi,
+					activity: item.status & 0x07
 				} as HeartRateRecord);
 			}
 		}
@@ -972,8 +977,7 @@ export class DeviceHistoryReader implements GapReader, AbandonedRangeReader {
 				);
 				continue;
 			}
-			// 只有真的写进去了才计数：INSERT OR IGNORE 遇到约束冲突不报错，
-			// 按调用次数计数会让日志里的 saved 涨着、库里却一行没有。
+			// 只有 SQL 成功才计数；相同 reportTimestamp 的重复事件按幂等成功处理。
 			const stored = await bluetoothDataManager.storeSleepData(sleepData);
 			if (stored == true) saved++;
 		}
@@ -993,14 +997,16 @@ export class DeviceHistoryReader implements GapReader, AbandonedRangeReader {
 		const lightSleepPeriod = this.getParsedNumber(parsed, "lightSleepPeriod");
 		const deepSleepPeriod = this.getParsedNumber(parsed, "deepSleepPeriod");
 		const otherSleepPeriod = this.getParsedNumber(parsed, "otherSleepPeriod");
+		const heartRateRest = this.getParsedNumber(parsed, "heartRateRest");
 		if (item.ts <= 0 || sleepOnsetTime <= awakeTime || awakeTime < 0) return null;
 		return {
 			reportTimestamp: item.ts,
-			bedtime: sleepOnsetTime,
-			sleepTime: lightSleepPeriod + deepSleepPeriod + otherSleepPeriod,
-			wakeTime: awakeTime,
-			getupTime: 0,
-			detail: ""
+			sleepOnsetTime,
+			awakeTime,
+			lightSleepPeriod,
+			deepSleepPeriod,
+			otherSleepPeriod,
+			heartRateRest
 		} as SleepData;
 	}
 

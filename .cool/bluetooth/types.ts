@@ -2,18 +2,16 @@ import type { RealtimeBroadcast } from "./boom-types";
 
 // ==================== 基础数据类型 ====================
 
-/**
- * 睡眠数据（同时作为输入和记录类型）
- * detail 字段为睡眠上传接口使用的每秒状态数字串。
- */
+/** 睡眠结果事件；旧版已上传审计行的统计字段可能为空。 */
 export type SleepData = {
 	id?: string;
 	reportTimestamp: number;
-	bedtime: number;
-	sleepTime: number;
-	wakeTime: number;
-	getupTime: number;
-	detail: string;
+	sleepOnsetTime: number | null;
+	awakeTime: number | null;
+	lightSleepPeriod: number | null;
+	deepSleepPeriod: number | null;
+	otherSleepPeriod: number | null;
+	heartRateRest: number | null;
 	uploaded?: boolean;
 };
 
@@ -26,6 +24,7 @@ export type PpiData = {
 	hr: number;
 	spo2: number;
 	ppi: number;
+	activity: number | null;
 	uploaded: boolean;
 };
 
@@ -106,6 +105,7 @@ export type HeartRateRecord = {
 	heartRate: number;
 	bloodOxygen: number;
 	ppi: number;
+	activity: number;
 };
 
 // ==================== 上传数据类型 ====================
@@ -118,6 +118,7 @@ export type PpiDataItem = {
 	hr: number;
 	spo2: number;
 	ppi: number;
+	activity: number | null;
 };
 
 /**
@@ -134,12 +135,13 @@ export type PpiUploadRequest = {
  * 睡眠上传数据项
  */
 export type SleepUploadDataItem = {
-	bedSec: number;
-	detail: string;
-	sleepSec: number;
 	time: string;
-	upSec: number;
-	wakeSec: number;
+	sleepOnsetTime: number;
+	awakeTime: number;
+	lightSleepPeriod: number;
+	deepSleepPeriod: number;
+	otherSleepPeriod: number;
+	heartRateRest: number;
 };
 
 /**

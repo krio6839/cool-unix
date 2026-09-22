@@ -20,7 +20,7 @@ function seedPpi(db, from, to) {
 	if (to <= from) return;
 	const values = [];
 	for (let second = from; second < to; second++)
-		values.push(`('${second}',${second},0,0,0,0)`);
+		values.push(`('${second}',${second},0,0,0,NULL,0)`);
 	db.exec(`INSERT INTO ppi_data VALUES ${values.join(",")}`);
 }
 
@@ -1060,7 +1060,7 @@ test("a fully valid re-read repairs a broadcast all-FF second", async (t) => {
 	const start = 209880;
 	await r.prime(start);
 	// 广播把设备给的 FF 原始值照存（广播不按有效性过滤）。
-	assert.equal(await r.manager.storeBroadcastPpiData(start, 255, 0, 65535), true);
+	assert.equal(await r.manager.storeBroadcastPpiData(start, 255, 0, 65535, 2), true);
 	// 补录给出真实值：必须写成 60/1000 而不是占位值，断言才有区分度
 	// （若写成 0/0，就无法分辨「补全了」和「压根没动」）。
 	const valid = page(start, 120);
@@ -1084,12 +1084,31 @@ test("a fully valid re-read repairs a broadcast all-FF second", async (t) => {
 	);
 });
 
+test("historical vital persistence stores only the low three activity bits", async (t) => {
+	const r = await setup(t);
+	const start = 209880;
+	await r.prime(start);
+	const vital = page(start, 120);
+	vital.vitalData[0] = { hr: 60, status: 0b101101, pitch: 0, acc: 0, ppi: 1000, valid: true };
+	for (let i = 1; i < vital.vitalData.length; i++) vital.vitalData[i].valid = false;
+	await readerReturning(r, vital).readVitalGapGroup({
+		fromSec: start,
+		toSec: start + 120,
+		repairSeconds: 120,
+		bridgeSeconds: 0
+	});
+	assert.equal(
+		r.db.prepare(`SELECT activity FROM ppi_data WHERE id='${start}'`).get().activity,
+		5
+	);
+});
+
 test("a partially invalid broadcast row is not repaired by a valid re-read", async (t) => {
 	const r = await setup(t);
 	const start = 209880;
 	await r.prime(start);
 	// 广播的 hr 与 ppi 各自独立取原始值：心率有效但 PPI 缺失时是混合行。
-	assert.equal(await r.manager.storeBroadcastPpiData(start, 70, 0, 65535), true);
+	assert.equal(await r.manager.storeBroadcastPpiData(start, 70, 0, 65535, 2), true);
 	const valid = page(start, 120);
 	for (let i = 1; i < valid.vitalData.length; i++) valid.vitalData[i].valid = false;
 	await readerReturning(r, valid).readVitalGapGroup({
@@ -1126,8 +1145,8 @@ test("a zero-value page is queued for upload rather than treated as missing", as
 test("database transaction excludes interleaved writes and rolls back only its own changes", async (t) => {
 	const r = await createRuntime(t);
 	r.failSql = (sql) => sql === "INVALID";
-	const tx = r.database.transaction(["INSERT INTO ppi_data VALUES ('1',1,0,0,0,0)", "INVALID"]);
-	const concurrent = r.database.execute("INSERT INTO ppi_data VALUES ('2',2,0,0,0,0)");
+	const tx = r.database.transaction(["INSERT INTO ppi_data VALUES ('1',1,0,0,0,NULL,0)", "INVALID"]);
+	const concurrent = r.database.execute("INSERT INTO ppi_data VALUES ('2',2,0,0,0,NULL,0)");
 	assert.equal(await tx, false);
 	assert.equal(await concurrent, true);
 	assert.deepEqual(

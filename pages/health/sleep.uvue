@@ -49,7 +49,7 @@
 
 <script lang="ts" setup>
 import { isMp, dayUts, useStore } from "@/.cool";
-import type { HealthItem, TimeValuePair, DateValuePair } from "@/.cool";
+import type { HealthItem } from "@/.cool";
 import { ref, computed, watch } from "vue";
 import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
@@ -76,18 +76,6 @@ const sleepItems = computed((): HealthItem[] => {
 		{ label: "睡眠时长", value: `${sleep.sleepDuration.value ?? "--"}` },
 		{ label: "睡眠质量", value: `${sleep.sleepQuality.value ?? 0}` }
 	];
-});
-
-const selectedSleepData = computed((): TimeValuePair[] => {
-	const metric = sleepActiveMetric.value;
-
-	if (metric === "hrv") {
-		return sleep.sleepHrvData.value ?? [];
-	} else if (metric === "oxygen") {
-		return sleep.sleepOxygenData.value ?? [];
-	} else {
-		return sleep.sleepHeartRateData.value ?? [];
-	}
 });
 
 // 返回上一页

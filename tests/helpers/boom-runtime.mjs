@@ -155,7 +155,14 @@ export async function createRuntime(t) {
 				return "Download/BOOM/logs/" + fileName;
 			}
 		},
-		"../utils/day": { dayUts: (ms) => ({ format: () => new Date(ms).toISOString() }) },
+		"../utils/day": {
+			dayUts: (ms) => ({
+				format: () => {
+					const iso = new Date(ms).toISOString();
+					return iso.substring(0, 10) + " " + iso.substring(11, 19);
+				}
+			})
+		},
 		"./constants": {
 			UPLOAD_PPI_URL: "/ppi",
 			UPLOAD_SLEEP_URL: "/sleep"
@@ -274,7 +281,7 @@ export async function createRuntime(t) {
 	state.manager = manager;
 	state.request = cache.get(".cool/service/index.ts").namespace.request;
 	state.seed = (count) => {
-		const insert = db.prepare("INSERT INTO ppi_data VALUES (?, ?, 60, 0, 1000, 0)");
+		const insert = db.prepare("INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES (?, ?, 60, 0, 1000, NULL, 0)");
 		const base = Math.floor(Date.now() / 1000) - count - 10;
 		for (let i = 1; i <= count; i++) {
 			const timestamp = base + i;
