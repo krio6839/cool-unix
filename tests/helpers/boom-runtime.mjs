@@ -254,7 +254,10 @@ export async function createRuntime(t) {
 		LOG_EVENT_TYPE: btConstants.LOG_EVENT_TYPE,
 		parseEventDataHeader: btParser.parseEventDataHeader,
 		parseLogDataList: btParser.parseLogDataList,
-		parseVitalDataResponse: btParser.parseVitalDataResponse
+		parseVitalDataResponse: btParser.parseVitalDataResponse,
+		parseCustomAdvData: btParser.parseCustomAdvData,
+		toRealtimeBroadcast: btParser.toRealtimeBroadcast,
+		formatRealtimeMetric: btParser.formatRealtimeMetric
 	};
 	state.BluetoothUploader = uploaderModule.namespace.BluetoothUploader;
 	state.uploader = uploader;

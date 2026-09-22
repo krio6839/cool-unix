@@ -591,6 +591,62 @@ test("broadcast persistence keeps raw values even when display validity is false
 	assert.equal(method.includes("r.spo2Valid ?"), false);
 	assert.equal(method.includes("r.ppiValid ?"), false);
 });
+test("a new device second is accepted even when its scan callback arrives within one second", async (t) => {
+	const r = await createRuntime(t);
+	const { DeviceBroadcast } = await r.load(".cool/store/device/broadcast.ts");
+	const device = {
+		boundDeviceId: "AA:BB",
+		currentDeviceId: "",
+		realtime: { value: null },
+		broadcastDebug: { value: null },
+		errorMessage: { value: "" },
+		tick: { poke() {} },
+		scheduler: { enqueueReadEvent() {}, enqueueTimeSync() {} },
+		connection: { restartBoundBroadcastScan() {} },
+		event: { boomTimestamp: { value: 0 }, lastNotifyAtValue: 0 },
+		saveBoundDeviceName() {},
+		cacheFoundDevice() {},
+		touchState() {},
+		getDisplayDeviceName: () => "BOOM-test"
+	};
+	const broadcast = new DeviceBroadcast(device);
+	const baseSec = Math.floor(Date.now() / 1000);
+	function packet(utc) {
+		const bytes = new Array(24).fill(0);
+		bytes[0] = utc & 0xff;
+		bytes[1] = (utc >> 8) & 0xff;
+		bytes[2] = (utc >> 16) & 0xff;
+		bytes[3] = (utc >> 24) & 0xff;
+		bytes[4] = 0xd8;
+		bytes[5] = 0x0e;
+		bytes[6] = 0x40;
+		bytes[7] = 60;
+		bytes[8] = 0xe8;
+		bytes[9] = 0x03;
+		bytes[10] = 0xd4;
+		bytes[11] = 0x03;
+		bytes[12] = 55;
+		return { deviceId: "AA:BB", name: "BOOM-test", advertisData: bytes };
+	}
+
+	broadcast.handleBoundDeviceFound(packet(baseSec));
+	assert.equal(device.broadcastDebug.value.utc, baseSec);
+	r.dateOffsetMs += 700;
+	broadcast.handleBoundDeviceFound(packet(baseSec + 1));
+	assert.equal(
+		device.broadcastDebug.value.utc,
+		baseSec + 1,
+		"a new device timestamp must not be dropped by receive-time jitter"
+	);
+	const acceptedSeq = device.broadcastDebug.value.seq;
+	r.dateOffsetMs += 1200;
+	broadcast.handleBoundDeviceFound(packet(baseSec + 1));
+	assert.equal(
+		device.broadcastDebug.value.seq,
+		acceptedSeq,
+		"the same device second stays deduplicated"
+	);
+});
 test("PPI retention deletes only uploaded rows outside the thirty-day window", async (t) => {
 	const r = await createRuntime(t);
 	r.db.exec("INSERT INTO ppi_data VALUES ('old-uploaded',99,0,0,0,1)");

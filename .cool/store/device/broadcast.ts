@@ -17,7 +17,6 @@ import { logger } from "../../service/logger";
 import type { DeviceInfo } from "../../bluetooth/kux";
 //#endif
 
-const BOUND_BROADCAST_MIN_INTERVAL_MS = 1000;
 const BROADCAST_TIME_DRIFT_SEC = 10;
 const BROADCAST_TIME_SYNC_DRIFT_SEC = 60;
 const BROADCAST_TIME_SYNC_COOLDOWN_MS = 60 * 1000;
@@ -37,6 +36,7 @@ export class DeviceBroadcast {
 	private broadcastSeq: number = 0;
 	private boundBroadcastScanning: boolean = false;
 	private lastBoundBroadcastHandledAt: number = 0;
+	private lastAcceptedBoundBroadcastUtc: number = 0;
 	private lastBoundScanCallbackAt: number = 0;
 	private lastBoundScanDebugAt: number = 0;
 	private lastTimeSyncAttemptAt: number = 0;
@@ -123,9 +123,6 @@ export class DeviceBroadcast {
 		if (name != "") {
 			bluetoothUploader.setDeviceInfo(name, this.device.boundDeviceId);
 		}
-		const now = Date.now();
-		if (now - this.lastBoundBroadcastHandledAt < BOUND_BROADCAST_MIN_INTERVAL_MS) return;
-		this.lastBoundBroadcastHandledAt = now;
 		this.tryParseBroadcast(d);
 		//#endif
 	}
@@ -188,6 +185,7 @@ export class DeviceBroadcast {
 
 	private resetBoundScanWindow(): void {
 		this.lastBoundBroadcastHandledAt = 0;
+		this.lastAcceptedBoundBroadcastUtc = 0;
 		this.lastBoundScanCallbackAt = 0;
 		this.lastBoundScanDebugAt = 0;
 	}
@@ -279,6 +277,9 @@ export class DeviceBroadcast {
 			if (this.handleInvalidBroadcastTime(ctx, r) == true) {
 				return;
 			}
+			if (this.shouldSkipBoundBroadcastDuplicate(ctx, r) == true) {
+				return;
+			}
 			this.acceptBroadcastRecord(ctx, r);
 		} else if (this.boundBroadcastScanning == true) {
 			logger.info(
@@ -336,6 +337,21 @@ export class DeviceBroadcast {
 			this.device.boundDeviceId != "" &&
 			ctx.deviceId == this.device.boundDeviceId
 		);
+	}
+
+	/**
+	 * BLE 回调会在 1 秒周期附近抖动，不能按手机接收间隔过滤，否则 700~999ms 到达的
+	 * 下一设备秒会被误丢。只对设备 UTC 相同的绑定广播去重；新 UTC 始终接收。
+	 */
+	private shouldSkipBoundBroadcastDuplicate(
+		ctx: BroadcastPacketContext,
+		r: RealtimeBroadcast
+	): boolean {
+		if (this.isBoundBroadcastRecord(ctx) == false) return false;
+		if (r.utc == this.lastAcceptedBoundBroadcastUtc) return true;
+		this.lastAcceptedBoundBroadcastUtc = r.utc;
+		this.lastBoundBroadcastHandledAt = Date.now();
+		return false;
 	}
 
 	/* ===== 缓存广播识别 / 扫描恢复 ===== */
