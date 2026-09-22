@@ -56,8 +56,8 @@
 						><text class="gap-value">{{ formatWindow(item.fromSec, item.toSec) }}</text></view
 					>
 					<view class="gap-line"
-						><text class="gap-label">{{ t("超时次数") }}</text
-						><text class="gap-value">{{ item.timeoutCount }}</text></view
+						><text class="gap-label">{{ t("失败次数") }}</text
+						><text class="gap-value">{{ item.failureCount }}</text></view
 					>
 					<cl-button
 						type="primary"
@@ -315,7 +315,6 @@ function estimateLabel(group: HistoryGap): string {
 	margin-bottom: 14px;
 }
 .gap-abandoned-title {
-	display: block;
 	color: #fbbf24;
 	font-size: 14px;
 	font-weight: 700;

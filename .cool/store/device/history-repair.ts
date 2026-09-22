@@ -27,6 +27,7 @@ export type HistoryRepairStopReason = "COMPLETE" | "DEVICE_UNRESPONSIVE" | "LOCA
 export type HistoryRepairResult = {
 	stopReason: HistoryRepairStopReason;
 	timedOutPages: number;
+	stalledPages: number;
 	abandonedPages: number;
 };
 
@@ -69,7 +70,7 @@ export async function repairAllGaps(
 	await historyBaseline.classify(nowSec);
 	const baseline = await historyBaseline.advanceBaseline(nowSec, null);
 	const gaps = await historyBaseline.listRepairGaps(nowSec, baseline);
-	if (gaps.length == 0) return makeRepairResult("COMPLETE", 0, 0);
+	if (gaps.length == 0) return makeRepairResult("COMPLETE", 0, 0, 0);
 	const ceiling = historyBaseline.stableCeiling(nowSec);
 	const totalRepairSeconds = historyBaseline.sumRepairSeconds(gaps);
 
@@ -99,13 +100,19 @@ export async function repairAllGaps(
 		`[BOOM-HISTORY] 补录结束: B=${baseline}->${after}, 已补组=${outcomes.length - failedGroups}, 失败组=${failedGroups}, 落库秒=${countSaved(outcomes)}, 计划剩余缺口=${remaining.length}, 计划剩余秒=${historyBaseline.sumRepairSeconds(remaining)}, deferredTail=${deferredTailSeconds}s, stableCeiling=${historyBaseline.stableCeiling(nowSec)}, 连接时长=${Math.round((Date.now() - startedAt) / 1000)}s, ok=${failedGroups == 0}`
 	);
 	await reconcileAbandonedRanges(nowSec);
-	return makeRepairResult(run.stopReason, run.timedOutPages, run.abandonedPages);
+	return makeRepairResult(
+		run.stopReason,
+		run.timedOutPages,
+		run.stalledPages,
+		run.abandonedPages
+	);
 }
 
 type GapRunResult = {
 	outcomes: GapOutcome[];
 	stopReason: HistoryRepairStopReason;
 	timedOutPages: number;
+	stalledPages: number;
 	abandonedPages: number;
 };
 
@@ -119,6 +126,7 @@ async function runVitalGaps(
 	const outcomes: GapOutcome[] = [];
 	let stopReason: HistoryRepairStopReason = "COMPLETE";
 	let timedOutPages = 0;
+	let stalledPages = 0;
 	let abandonedPages = 0;
 	const total = gaps.length;
 	// 上一组的 `B` 就是下一组的起点：两组之间没有别的写入者，中间那次
@@ -145,7 +153,7 @@ async function runVitalGaps(
 			continue;
 		}
 		if (
-			read.status == "TIMEOUT" &&
+			(read.status == "TIMEOUT" || read.status == "PAGE_STALLED") &&
 			read.failedFromSec != null &&
 			read.failedToSec != null &&
 			probe != null
@@ -155,28 +163,29 @@ async function runVitalGaps(
 				stopReason = "DEVICE_UNRESPONSIVE";
 				logger.warn(
 					"bluetooth",
-					`[BOOM-HISTORY] 历史超时后探活失败: status=${probeResult.status}, page=${read.failedFromSec}~${read.failedToSec}`
+					`[BOOM-HISTORY] 历史页失败后探活失败: status=${probeResult.status}, page=${read.failedFromSec}~${read.failedToSec}, reason=${read.message}`
 				);
 				break;
 			}
 			reader.resetVitalResponseState();
-			const failure = await historyFailureStore.recordTimeout(
+			const failure = await historyFailureStore.recordFailure(
 				read.failedFromSec,
 				read.failedToSec,
 				Math.floor(Date.now() / 1000)
 			);
-			timedOutPages++;
+			if (read.status == "TIMEOUT") timedOutPages++;
+			else stalledPages++;
 			if (failure.abandoned == true) {
 				await historyBaseline.markReady(failure.fromSec, failure.toSec, planNowSec);
 				abandonedPages++;
 			}
 			logger.warn(
 				"bluetooth",
-				`[BOOM-HISTORY] 历史页确认超时: page=${failure.fromSec}~${failure.toSec}, count=${failure.timeoutCount}, abandoned=${failure.abandoned}`
+				`[BOOM-HISTORY] 历史页确认失败: status=${read.status}, page=${failure.fromSec}~${failure.toSec}, count=${failure.failureCount}, abandoned=${failure.abandoned}, reason=${read.message}`
 			);
 			continue;
 		}
-		// 非超时类失败属于本地/发送/记账问题，不能按「历史页无响应」累计或放弃。
+		// 非页级失败属于本地/发送/记账问题，不能按设备数据缺失累计或放弃。
 		stopReason = "LOCAL_FAILURE";
 		break;
 	}
@@ -184,6 +193,7 @@ async function runVitalGaps(
 		outcomes,
 		stopReason,
 		timedOutPages,
+		stalledPages,
 		abandonedPages
 	} as GapRunResult;
 }
@@ -204,9 +214,10 @@ async function reconcileAbandonedRanges(nowSec: number): Promise<void> {
 function makeRepairResult(
 	stopReason: HistoryRepairStopReason,
 	timedOutPages: number,
+	stalledPages: number,
 	abandonedPages: number
 ): HistoryRepairResult {
-	return { stopReason, timedOutPages, abandonedPages } as HistoryRepairResult;
+	return { stopReason, timedOutPages, stalledPages, abandonedPages } as HistoryRepairResult;
 }
 
 /** 只有读链路明确完成且所有落库/记账步骤成功，才允许把本组称为成功。 */

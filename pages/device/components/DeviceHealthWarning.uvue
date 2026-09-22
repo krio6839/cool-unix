@@ -43,7 +43,6 @@ watch(
 	border: 1px solid #f59e0b;
 }
 .device-health-warning-title {
-	display: block;
 	color: #fcd34d;
 	font-size: 15px;
 	font-weight: 700;

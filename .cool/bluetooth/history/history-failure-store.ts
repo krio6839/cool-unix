@@ -12,13 +12,13 @@ export const HISTORY_FAILURE_SCHEMA: string[] = [
 	)`
 ];
 
-const ABANDON_TIMEOUT_COUNT = 3;
+const ABANDON_FAILURE_COUNT = 3;
 
 export type HistoryFailureRecord = {
 	fromSec: number;
 	toSec: number;
-	timeoutCount: number;
-	lastTimeoutSec: number;
+	failureCount: number;
+	lastFailureSec: number;
 	abandoned: boolean;
 	abandonedAtSec: number;
 };
@@ -35,7 +35,7 @@ export class HistoryFailureStore {
 		return this.fromRow(result.rows[0]);
 	}
 
-	async recordTimeout(
+	async recordFailure(
 		fromSec: number,
 		toSec: number,
 		nowSec: number
@@ -44,8 +44,8 @@ export class HistoryFailureStore {
 		const to = Math.floor(toSec);
 		if (to <= from) throw new Error("历史失败范围无效");
 		const existing = await this.get(from, to);
-		const count = Math.min(ABANDON_TIMEOUT_COUNT, (existing?.timeoutCount ?? 0) + 1);
-		const abandoned = count >= ABANDON_TIMEOUT_COUNT;
+		const count = Math.min(ABANDON_FAILURE_COUNT, (existing?.failureCount ?? 0) + 1);
+		const abandoned = count >= ABANDON_FAILURE_COUNT;
 		const abandonedAt = abandoned
 			? existing != null && existing.abandonedAtSec > 0
 				? existing.abandonedAtSec
@@ -61,8 +61,8 @@ export class HistoryFailureStore {
 		return {
 			fromSec: from,
 			toSec: to,
-			timeoutCount: count,
-			lastTimeoutSec: Math.floor(nowSec),
+			failureCount: count,
+			lastFailureSec: Math.floor(nowSec),
 			abandoned,
 			abandonedAtSec: Math.floor(abandonedAt)
 		} as HistoryFailureRecord;
@@ -101,8 +101,9 @@ export class HistoryFailureStore {
 		return {
 			fromSec: parseInt(row[0] as string),
 			toSec: parseInt(row[1] as string),
-			timeoutCount: parseInt(row[2] as string),
-			lastTimeoutSec: parseInt(row[3] as string),
+			// 数据库列沿用旧名，避免为纯语义更名引入一次破坏性迁移。
+			failureCount: parseInt(row[2] as string),
+			lastFailureSec: parseInt(row[3] as string),
 			abandoned: parseInt(row[4] as string) == 1,
 			abandonedAtSec: parseInt(row[5] as string)
 		} as HistoryFailureRecord;

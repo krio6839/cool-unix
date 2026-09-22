@@ -1170,22 +1170,22 @@ test("history failure ledger abandons only the exact page on its third verified 
 		".cool/bluetooth/history/history-failure-store.ts"
 	);
 
-	const first = await historyFailureStore.recordTimeout(1000, 1120, 2000);
-	const second = await historyFailureStore.recordTimeout(1000, 1120, 2010);
-	const third = await historyFailureStore.recordTimeout(1000, 1120, 2020);
+	const first = await historyFailureStore.recordFailure(1000, 1120, 2000);
+	const second = await historyFailureStore.recordFailure(1000, 1120, 2010);
+	const third = await historyFailureStore.recordFailure(1000, 1120, 2020);
 
-	assert.equal(first.timeoutCount, 1);
+	assert.equal(first.failureCount, 1);
 	assert.equal(first.abandoned, false);
-	assert.equal(second.timeoutCount, 2);
+	assert.equal(second.failureCount, 2);
 	assert.equal(second.abandoned, false);
-	assert.equal(third.timeoutCount, 3);
+	assert.equal(third.failureCount, 3);
 	assert.equal(third.abandoned, true);
 	assert.deepEqual(await historyFailureStore.listAbandoned(), [
 		{
 			fromSec: 1000,
 			toSec: 1120,
-			timeoutCount: 3,
-			lastTimeoutSec: 2020,
+			failureCount: 3,
+			lastFailureSec: 2020,
 			abandoned: true,
 			abandonedAtSec: 2020
 		}
@@ -1198,7 +1198,7 @@ test("history failure ledger clears a page after a later successful manual read"
 	const { historyFailureStore } = await r.load(
 		".cool/bluetooth/history/history-failure-store.ts"
 	);
-	await historyFailureStore.recordTimeout(1000, 1120, 2000);
+	await historyFailureStore.recordFailure(1000, 1120, 2000);
 	await historyFailureStore.clearRange(1000, 1120);
 	assert.equal(await historyFailureStore.get(1000, 1120), null);
 });

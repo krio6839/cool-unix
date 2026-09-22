@@ -23,7 +23,8 @@ import { ref } from "vue";
 import type { Device } from "./index";
 import { logger } from "../../service/logger";
 
-export type HistoryReadStatus = "DONE" | "STOPPED" | "LIMIT" | "TIMEOUT" | "SEND_FAILED";
+export type HistoryReadStatus =
+	"DONE" | "STOPPED" | "LIMIT" | "TIMEOUT" | "PAGE_STALLED" | "SEND_FAILED";
 
 export type HistoryReadProgress = {
 	phase: string;
@@ -401,6 +402,7 @@ export class DeviceHistoryReader implements GapReader, AbandonedRangeReader {
 		let confirmed = 0;
 		let lastStart = 0;
 		let failure = "";
+		let pageStalled = false;
 		// 页层诊断计数：累计到整组结束一并打印。逐页打印会把诊断缓冲区冲掉，而
 		// 「补录卡在某一段」的线索全在累计值里——`全FF秒` 与页数一致说明设备确实
 		// 没记这段；`有效秒` 远小于页数说明解码有问题。
@@ -440,8 +442,15 @@ export class DeviceHistoryReader implements GapReader, AbandonedRangeReader {
 							stopRead = true;
 							return true;
 						}
-						if (lastStart > 0 && response.startSec >= lastStart)
-							throw new Error("历史页面未向更早时间推进");
+						if (lastStart > 0 && response.startSec >= lastStart) {
+							pageStalled = true;
+							failure = "历史页面未向更早时间推进";
+							logger.warn(
+								"bluetooth",
+								`[BOOM-HISTORY] ${label}页面停滞: previous=${lastStart}, current=${response.startSec}`
+							);
+							return false;
+						}
 						if (
 							response.n <= 0 ||
 							response.n > 2 ||
@@ -498,7 +507,10 @@ export class DeviceHistoryReader implements GapReader, AbandonedRangeReader {
 			result.savedRecords = saved;
 			result.uploadScheduled = saved > 0;
 			result.saveOk = saveOk;
-			if (result.status == "TIMEOUT") {
+			// 设备有回复但页面重复/回跳，与无回复超时是不同状态；两者由补录层复用
+			// 同一页级失败策略，避免混淆诊断语义或复制状态机。
+			if (pageStalled == true) result.status = "PAGE_STALLED";
+			if (result.status == "TIMEOUT" || result.status == "PAGE_STALLED") {
 				const failedAnchor = Math.min(anchor, lastStart > 0 ? lastStart : anchor);
 				result.failedFromSec = Math.max(
 					startSec,
@@ -528,7 +540,12 @@ export class DeviceHistoryReader implements GapReader, AbandonedRangeReader {
 				"bluetooth",
 				`[BOOM-HISTORY] ${label}结束: window=${startSec}~${anchor}, status=${result.status}, pages=${result.pages}, 秒记录=${pageSeconds}, 有效秒=${validSeconds}, 全FF秒=${invalidSeconds}, 落库=${saved}, 已记账=${confirmed}s, elapsed=${Math.round((Date.now() - startedAt) / 1000)}s`
 			);
-			if (result.status == "TIMEOUT" || result.status == "SEND_FAILED" || saveOk == false) {
+			if (
+				result.status == "TIMEOUT" ||
+				result.status == "PAGE_STALLED" ||
+				result.status == "SEND_FAILED" ||
+				saveOk == false
+			) {
 				logger.warn(
 					"bluetooth",
 					`[BOOM-HISTORY] ${label}失败: window=${startSec}~${anchor}, status=${result.status}, pages=${result.pages}, message=${result.message}`

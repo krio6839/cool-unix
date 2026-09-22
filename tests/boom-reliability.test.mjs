@@ -1998,6 +1998,84 @@ test("a stale page newer than the gap cannot move the timeout audit outside the 
 	assert.equal(result.failedToSec, 1300);
 });
 
+test("a cycling history page reports PAGE_STALLED with an exact failed range", async (t) => {
+	const r = await createRuntime(t);
+	let reader;
+	const starts = [1400, 1300, 1400];
+	let responseIndex = 0;
+	function deliver() {
+		reader.latestVitalDataResponse = page(starts[responseIndex]);
+		responseIndex++;
+		reader.vitalDataResponseSeqValue++;
+		return true;
+	}
+	const device = {
+		boundDeviceId: "device",
+		beginGattTask: () => true,
+		endGattTask() {},
+		event: { resetDataIdentifierReassembler() {} },
+		protocol: {
+			async readVitalData() {
+				return deliver();
+			},
+			async continueReadVitalData() {
+				return deliver();
+			}
+		}
+	};
+	reader = new r.DeviceHistoryReader(device);
+	reader.sleep = async () => {};
+	const result = await reader.readVitalGapGroup({
+		fromSec: 1000,
+		toSec: 1300,
+		repairSeconds: 300,
+		bridgeSeconds: 0
+	});
+
+	assert.equal(result.status, "PAGE_STALLED");
+	assert.equal(result.saveOk, true);
+	assert.match(result.message, /历史页面未向更早时间推进/);
+	assert.equal(result.failedFromSec, 1180);
+	assert.equal(result.failedToSec, 1300);
+});
+
+test("a verified stalled page is counted separately and later gap groups continue", async (t) => {
+	const r = await createRuntime(t);
+	const now = Math.floor(Date.now() / 1000);
+	const first = now - 900;
+	const second = now - 500;
+	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${first})`);
+	r.db.exec(`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${now - 700},${second})`);
+	const attempted = [];
+	const reader = {
+		resetVitalResponseState() {},
+		async readVitalGapGroup(gap) {
+			attempted.push(gap.fromSec);
+			return {
+				status: "PAGE_STALLED",
+				message: "历史页面未向更早时间推进",
+				pages: 3,
+				savedRecords: 0,
+				saveOk: true,
+				failedFromSec: gap.toSec - 120,
+				failedToSec: gap.toSec
+			};
+		}
+	};
+	const probe = {
+		async check() {
+			return { status: "OK", latencyMs: 10, deviceTimestamp: now };
+		}
+	};
+
+	const result = await r.historyRepair.repairAllGaps(reader, probe);
+
+	assert.deepEqual(attempted, [first, second]);
+	assert.equal(result.stopReason, "COMPLETE");
+	assert.equal(result.timedOutPages, 0);
+	assert.equal(result.stalledPages, 2);
+});
+
 test("a verified history-page timeout is counted and later gap groups continue", async (t) => {
 	const r = await createRuntime(t);
 	const now = Math.floor(Date.now() / 1000);
@@ -2087,8 +2165,8 @@ test("the third verified timeout abandons and accounts only its exact page", asy
 	const { historyFailureStore } = await r.load(
 		".cool/bluetooth/history/history-failure-store.ts"
 	);
-	await historyFailureStore.recordTimeout(from, to, now - 20);
-	await historyFailureStore.recordTimeout(from, to, now - 10);
+	await historyFailureStore.recordFailure(from, to, now - 20);
+	await historyFailureStore.recordFailure(from, to, now - 10);
 	const reader = {
 		resetVitalResponseState() {},
 		async readVitalGapGroup() {
@@ -2225,9 +2303,9 @@ test("a successful manual abandoned-page retry clears its audit without rewindin
 	);
 	const before = Math.floor(Date.now() / 1000) - 10;
 	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${before})`);
-	await historyFailureStore.recordTimeout(before - 120, before, before - 30);
-	await historyFailureStore.recordTimeout(before - 120, before, before - 20);
-	await historyFailureStore.recordTimeout(before - 120, before, before - 10);
+	await historyFailureStore.recordFailure(before - 120, before, before - 30);
+	await historyFailureStore.recordFailure(before - 120, before, before - 20);
+	await historyFailureStore.recordFailure(before - 120, before, before - 10);
 	const reader = {
 		async readVitalRangeManual() {
 			return { status: "DONE", saveOk: true, savedRecords: 10 };
