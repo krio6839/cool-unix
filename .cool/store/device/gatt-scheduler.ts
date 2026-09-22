@@ -6,6 +6,7 @@ import type {
 	GattFlushReason,
 	GattQueuePriority,
 	GattQueueTaskKind,
+	GattTaskOutcome,
 	SyncReason
 } from "./types/gatt-types";
 import { logger } from "../../service/logger";
@@ -193,6 +194,7 @@ export class DeviceGattScheduler {
 		this.flushDeferredKeys.clear();
 		let shouldContinueFlush = false;
 		let connected = false;
+		let protocolHealthy = false;
 		try {
 			// 一轮 flush 只占用一次 GATT：停广播、连接、按优先级执行、最后恢复广播。
 			logger.info(
@@ -214,18 +216,35 @@ export class DeviceGattScheduler {
 				return;
 			}
 			await sleepTimeout(EVENT_SYNC_AFTER_CONNECT_DELAY_MS);
+			const initialProbe = await this.device.protocolProbe.check();
+			if (initialProbe.status != "OK") {
+				this.device.health.recordUnresponsive();
+				this.failManualTasks();
+				logger.warn(
+					"bluetooth",
+					`[BOOM-SCHED] 设备协议探活失败，本轮任务保留: status=${initialProbe.status}`
+				);
+				return;
+			}
+			protocolHealthy = true;
 			// 没有时长上限：需要补的缺口就一直补，补到没有缺口再断开。原来「120 秒必须
 			// 断开把通道还给广播」的约束取消了——连接期间掐掉广播留下的缺秒就是普通缺口，
 			// 断开时不为它做任何事，由下一次连接顺带补掉（方案 9.1、9.3）。
 			while (this.tasks.length > 0) {
 				const task = this.takeNextTask();
 				if (task == null) break;
-				await this.runTask(task);
+				const outcome = await this.runTask(task);
+				if (outcome == "STOP_DEVICE_UNRESPONSIVE") {
+					protocolHealthy = false;
+					this.device.health.recordUnresponsive();
+					break;
+				}
 				if (this.pauseCurrentFlush == true) {
 					logger.info("bluetooth", "[BOOM-SCHED] GATT 通道忙，暂停本轮执行");
 					break;
 				}
 			}
+			if (protocolHealthy == true) this.device.health.recordHealthyConnection();
 			shouldContinueFlush = this.tasks.length > 0 && this.pendingFlushReason != "";
 		} catch (e) {
 			logger.warn("bluetooth", "[BOOM-SCHED] 队列执行异常:", e);
@@ -297,7 +316,7 @@ export class DeviceGattScheduler {
 		return true;
 	}
 
-	private async runTask(task: GattQueueTask): Promise<void> {
+	private async runTask(task: GattQueueTask): Promise<GattTaskOutcome> {
 		logger.info(
 			"bluetooth",
 			`[BOOM-SCHED] 执行任务: seq=${task.seq}, key=${task.key}, kind=${task.kind}`
@@ -306,21 +325,21 @@ export class DeviceGattScheduler {
 		try {
 			if (task.kind == "timeSync") {
 				await this.runTimeSync(task);
-				return;
+				return "CONTINUE";
 			}
 			if (task.kind == "readEvent") {
 				await this.runReadEvent(task);
-				return;
+				return "CONTINUE";
 			}
 			if (task.kind == "historyRepair") {
-				await this.runHistoryRepair(task);
-				return;
+				return await this.runHistoryRepair(task);
 			}
 			if (task.kind == "manualCommand") {
 				await this.runManualCommand(task);
-				return;
+				return "CONTINUE";
 			}
 			logger.info("bluetooth", `[BOOM-SCHED] 任务类型暂未接入执行器: ${task.kind}`);
+			return "CONTINUE";
 		} finally {
 			this.runningTask = null;
 		}
@@ -401,17 +420,19 @@ export class DeviceGattScheduler {
 		// （10 分钟自动检查，或任何本来就要连的任务）按统一记账补掉。
 	}
 
-	private async runHistoryRepair(task: GattQueueTask): Promise<void> {
+	private async runHistoryRepair(task: GattQueueTask): Promise<GattTaskOutcome> {
 		// 缺口不截断、连接不设时长：一轮把 `listRepairGaps()` 的缺口全部读完。
 		// 连接本身由本调度器持有（停广播 → 连接 → 跑任务 → 恢复广播），
 		// `repairAllGaps()` 只负责在已连接的通道上把缺口读掉，不碰连接。
-		// 它也**不返回结果**：补录的数字都在自己的日志里，这里拿到也无处可用。
+		// 返回值只用于判断设备是否失活；补录数字仍由历史模块自行记录。
 		try {
-			await repairAllGaps(this.device.history);
+			const result = await repairAllGaps(this.device.history, this.device.protocolProbe);
 			this.device.tick.markHistorySynced();
+			if (result.stopReason == "DEVICE_UNRESPONSIVE") return "STOP_DEVICE_UNRESPONSIVE";
 		} catch (e) {
 			logger.warn("bluetooth", "[BOOM-HISTORY] 补录异常:", e);
 		}
+		return "CONTINUE";
 	}
 
 	private requeueTask(task: GattQueueTask): void {

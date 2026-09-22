@@ -7,6 +7,7 @@
  */
 import { bluetoothDatabase } from "./database";
 import { historyBaseline, BASELINE_SCHEMA } from "./history/baseline";
+import { HISTORY_FAILURE_SCHEMA } from "./history/history-failure-store";
 import { logger } from "../service/logger";
 import type { SelectSqlResult } from "@/uni_modules/meibao-Sqlite";
 import type {
@@ -49,7 +50,10 @@ export class BluetoothDataManager {
 		// 基准时间跨冷启动保留。数据库重开或 App 重启都不能让已记账的时间重新变成缺口；
 		// 产品在重新绑定时由 clearAllData() 一并清除。
 		try {
-			if ((await bluetoothDatabase.transaction(BASELINE_SCHEMA)) == false) return false;
+			if (
+				(await bluetoothDatabase.transaction(BASELINE_SCHEMA.concat(HISTORY_FAILURE_SCHEMA))) == false
+			)
+				return false;
 			await historyBaseline.initializeIfMissing(Math.floor(Date.now() / 1000));
 			return true;
 		} catch (error) {
@@ -534,7 +538,8 @@ export class BluetoothDataManager {
 			"DELETE FROM sleep_status_data",
 			"DELETE FROM realtime_broadcast_data",
 			"DELETE FROM vital_ready_ranges",
-			"DELETE FROM vital_sync_state"
+			"DELETE FROM vital_sync_state",
+			"DELETE FROM vital_history_failures"
 		]);
 		if (cleared == false) {
 			logger.error("bluetooth", "[BOOM-DATA] 清空旧设备数据失败");
@@ -560,6 +565,8 @@ export class BluetoothDataManager {
 			throw new Error("清空已记账区间失败");
 		if ((await bluetoothDatabase.execute("DELETE FROM vital_sync_state")) == false)
 			throw new Error("清空基准时间失败");
+		if ((await bluetoothDatabase.execute("DELETE FROM vital_history_failures")) == false)
+			throw new Error("清空历史失败记录失败");
 		return true;
 	}
 

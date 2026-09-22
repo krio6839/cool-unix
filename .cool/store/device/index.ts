@@ -65,6 +65,8 @@ import { DeviceBroadcast } from "./broadcast";
 import { DeviceTick } from "./device-tick";
 import { DeviceGattTaskLock } from "./gatt-lock";
 import { DeviceGattScheduler } from "./gatt-scheduler";
+import { DeviceProtocolProbe } from "./protocol-probe";
+import { DeviceHealth } from "./device-health";
 
 /* 设备选择 actionSheet 调用参数（对象参数，UTS 不支持内联对象字面量类型） */
 export type ShowDevicePickerOptions = {
@@ -135,6 +137,8 @@ export class Device {
 	readonly tick: DeviceTick;
 	readonly broadcast: DeviceBroadcast;
 	readonly scheduler: DeviceGattScheduler;
+	readonly protocolProbe: DeviceProtocolProbe;
+	readonly health: DeviceHealth;
 	//#endif
 
 	/* ===== 共享 actionSheet 引用（由 pages/device/index.uvue 在 onMounted 注入）===== */
@@ -149,6 +153,9 @@ export class Device {
 		this.connection = new DeviceConnection(this);
 		this.protocol = new DeviceProtocol(this);
 		this.event = new EventHandler(this);
+		this.protocolProbe = new DeviceProtocolProbe(this);
+		this.health = new DeviceHealth();
+		this.health.bind(this.boundDeviceId);
 		this.history = new DeviceHistoryReader(this);
 		this.tick = new DeviceTick(this);
 		this.broadcast = new DeviceBroadcast(this);
@@ -220,6 +227,7 @@ export class Device {
 		}
 		if (previousDeviceId != deviceId) {
 			await historyBaseline.resetForNewBinding(Math.floor(Date.now() / 1000));
+			this.health.bind(deviceId);
 		}
 		this.boundDeviceId = deviceId;
 		if (deviceName != "") {
@@ -248,6 +256,7 @@ export class Device {
 		//#endif
 		this.boundDeviceId = "";
 		this.boundDeviceName = "";
+		this.health.reset();
 		storage.remove(KEY_BOUND_DEVICE_ID);
 		storage.remove(KEY_BOUND_DEVICE_NAME);
 		this.touchState();

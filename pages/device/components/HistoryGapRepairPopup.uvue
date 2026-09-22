@@ -46,6 +46,30 @@
 					"缺口不落库，由基准时间与已记账区间相减得出。补录从缺口末端发送 0x3A，再用 0x3B 向更早时间继续读取。"
 				)
 			}}</text>
+			<view v-if="abandoned.length > 0" class="gap-abandoned">
+				<text class="gap-abandoned-title"
+					>{{ t("已放弃历史页") }} · {{ abandoned.length }}</text
+				>
+				<view v-for="item in abandoned" :key="failureKey(item)" class="gap-card">
+					<view class="gap-line"
+						><text class="gap-label">{{ t("范围") }}</text
+						><text class="gap-value">{{ formatWindow(item.fromSec, item.toSec) }}</text></view
+					>
+					<view class="gap-line"
+						><text class="gap-label">{{ t("超时次数") }}</text
+						><text class="gap-value">{{ item.timeoutCount }}</text></view
+					>
+					<cl-button
+						type="primary"
+						color="#b45309"
+						rounded
+						size="small"
+						:disabled="isRepairDisabled()"
+						@tap="retryAbandoned(item)"
+						>{{ t("重读此页") }}</cl-button
+					>
+				</view>
+			</view>
 			<view v-if="groups.length == 0" class="gap-empty"
 				><text class="gap-empty-text">{{ t("当前没有待补的历史缺口") }}</text></view
 			>
@@ -93,12 +117,15 @@
 import { computed, ref, watch } from "vue";
 import { t } from "@/.cool";
 import { historyBaseline, type HistoryGap } from "@/.cool/bluetooth/history/baseline";
+import type { HistoryFailureRecord } from "@/.cool/bluetooth/history/history-failure-store";
+import { listAbandonedHistoryRanges } from "@/.cool/store/device/history-repair";
 import type { HistoryGapRepairPayload, HistoryGapRepairPopupProps } from "./types";
 const show = defineModel("show", { default: false });
-const emit = defineEmits(["refresh", "repair-history-gap"]);
+const emit = defineEmits(["refresh", "repair-history-gap", "retry-abandoned"]);
 const props = defineProps<HistoryGapRepairPopupProps>();
 const revision = computed<number>(() => props.revision);
 const groups = ref<HistoryGap[]>([]);
+const abandoned = ref<HistoryFailureRecord[]>([]);
 const baseline = ref<number>(0);
 const ceiling = ref<number>(0);
 const readyRanges = ref<number>(0);
@@ -136,6 +163,13 @@ function repairGroup(group: HistoryGap): void {
 	const payload: HistoryGapRepairPayload = { fromSec: group.fromSec, toSec: group.toSec };
 	emit("repair-history-gap", payload);
 }
+function failureKey(item: HistoryFailureRecord): string {
+	return item.fromSec + "-" + item.toSec;
+}
+function retryAbandoned(item: HistoryFailureRecord): void {
+	const payload: HistoryGapRepairPayload = { fromSec: item.fromSec, toSec: item.toSec };
+	emit("retry-abandoned", payload);
+}
 function isRepairDisabled(): boolean {
 	return loading.value || props.busy;
 }
@@ -148,12 +182,14 @@ async function loadTasks(): Promise<void> {
 	try {
 		const nowSec = Math.floor(Date.now() / 1000);
 		const snapshot = await historyBaseline.snapshot(nowSec);
+		abandoned.value = await listAbandonedHistoryRanges();
 		baseline.value = snapshot.baseline;
 		ceiling.value = snapshot.ceiling;
 		readyRanges.value = snapshot.readyRanges.length;
 		groups.value = snapshot.gaps;
 	} catch (error) {
 		groups.value = [];
+		abandoned.value = [];
 		errorText.value = "查询失败: " + error;
 	} finally {
 		loading.value = false;
@@ -274,6 +310,16 @@ function estimateLabel(group: HistoryGap): string {
 	font-size: 12px;
 	line-height: 18px;
 	margin-bottom: 12px;
+}
+.gap-abandoned {
+	margin-bottom: 14px;
+}
+.gap-abandoned-title {
+	display: block;
+	color: #fbbf24;
+	font-size: 14px;
+	font-weight: 700;
+	margin-bottom: 8px;
 }
 .gap-empty {
 	padding: 32px 12px;

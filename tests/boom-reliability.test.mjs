@@ -18,7 +18,8 @@ const page = (startSec, n = 2, count = n * 60) => ({
 /** 4 字节小端 hex：协议里所有多字节整数都是 LE。 */
 const le = (value, bytes) => {
 	let hex = "";
-	for (let i = 0; i < bytes; i++) hex += (((value >> (8 * i)) & 0xff).toString(16)).padStart(2, "0");
+	for (let i = 0; i < bytes; i++)
+		hex += ((value >> (8 * i)) & 0xff).toString(16).padStart(2, "0");
 	return hex;
 };
 /**
@@ -548,7 +549,11 @@ test("protocol popups declare typed emit payloads so the page receives typed obj
 		const source = await readFile(`pages/device/components/${name}.uvue`, "utf8");
 		assert.equal(source.includes(`const emit = defineEmits<{`), true, `${name}: typed emits`);
 		assert.equal(source.includes(`payload: ${payloadType}`), true, `${name}: typed payload`);
-		assert.equal(source.includes(`const payload: ${payloadType} = {`), true, `${name}: typed local`);
+		assert.equal(
+			source.includes(`const payload: ${payloadType} = {`),
+			true,
+			`${name}: typed local`
+		);
 		assert.match(source, /emit\("[a-z-]+", payload\)/, `${name}: emits the typed local`);
 		// 对象字面量不得再直接进 emit。
 		assert.equal(/emit\("[a-z-]+",\s*\{/.test(source), false, `${name}: no inline object emit`);
@@ -592,10 +597,10 @@ test("PPI retention deletes only uploaded rows outside the thirty-day window", a
 	r.db.exec("INSERT INTO ppi_data VALUES ('old-pending',99,0,0,0,0)");
 	r.db.exec("INSERT INTO ppi_data VALUES ('current',100,0,0,0,1)");
 	assert.equal(await r.manager.pruneUploadedPpiBefore(100), 1);
-	assert.deepEqual(
-		rows(r.db, "SELECT id FROM ppi_data ORDER BY id"),
-		[{ id: "current" }, { id: "old-pending" }]
-	);
+	assert.deepEqual(rows(r.db, "SELECT id FROM ppi_data ORDER BY id"), [
+		{ id: "current" },
+		{ id: "old-pending" }
+	]);
 });
 test("automatic repair continues after one planning/database failure", async (t) => {
 	const r = await createRuntime(t);
@@ -679,7 +684,10 @@ test("the local timezone config can make logs and uploads follow the phone timez
 	const { formatHistorySec } = await r.load(".cool/bluetooth/history/baseline.ts");
 	assert.equal(formatHistorySec(1704067200), "1704067200(2023-12-31 19:00:00.000-05:00)");
 	r.diagnostics.record("info", "timezone", "system-zone");
-	assert.match(r.diagnostics.getLogs().at(-1), /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}-\d{2}:\d{2}\]/);
+	assert.match(
+		r.diagnostics.getLogs().at(-1),
+		/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}-\d{2}:\d{2}\]/
+	);
 });
 
 test("system-timezone PPI uploads split a sparse batch at a DST offset change", async (t) => {
@@ -697,7 +705,10 @@ test("system-timezone PPI uploads split a sparse batch at a DST offset change", 
 	assert.equal(await r.uploader.uploadPpiData(), true);
 	assert.equal(r.posts.length, 2);
 	assert.deepEqual(
-		r.posts.map((post) => ({ timezone: post.data.timezone, times: post.data.datas.map((x) => x.time) })),
+		r.posts.map((post) => ({
+			timezone: post.data.timezone,
+			times: post.data.datas.map((x) => x.time)
+		})),
 		[
 			{ timezone: "-05:00", times: ["2023-12-31 19:00:00"] },
 			{ timezone: "-04:00", times: ["2024-06-30 20:00:00"] }
@@ -1089,11 +1100,8 @@ test("per-frame reassembly noise cannot flush the diagnostic buffer", async (t) 
 	const before = r.logs.length;
 	// 坏连接上同一类异常会按帧重复；一页生命体征就有几十帧，逐帧告警足以把
 	// 1000 行缓冲区冲干净。首次必记，之后按间隔采样，连续次数写在日志里。
-	for (let i = 0; i < 120; i++)
-		reassembler.push("4000" + "aa".repeat(8)); // 非起始帧
-	const orphan = r.logs
-		.slice(before)
-		.filter((x) => x.items.join(" ").includes("收到非起始帧"));
+	for (let i = 0; i < 120; i++) reassembler.push("4000" + "aa".repeat(8)); // 非起始帧
+	const orphan = r.logs.slice(before).filter((x) => x.items.join(" ").includes("收到非起始帧"));
 	assert.ok(orphan.length > 0, "the first orphan frame was not reported");
 	assert.ok(orphan.length <= 4, `orphan frames flooded the log: ${orphan.length}`);
 	assert.equal(orphan[0].items.join(" ").includes("连续=1"), true);
@@ -1405,7 +1413,8 @@ test("recent window queries next minute and excludes future seconds", async (t) 
 		true
 	);
 	assert.equal(
-		r.db.prepare("SELECT COUNT(*) AS n FROM vital_ready_ranges WHERE to_sec > " + after).get().n,
+		r.db.prepare("SELECT COUNT(*) AS n FROM vital_ready_ranges WHERE to_sec > " + after).get()
+			.n,
 		0
 	);
 });
@@ -1582,7 +1591,16 @@ test("a legacy sleep_data table is rebuilt so sleep results can actually be stor
 			.prepare("PRAGMA table_info(sleep_data)")
 			.all()
 			.map((row) => row.name),
-		["id", "report_timestamp", "bedtime", "sleep_time", "wake_time", "getup_time", "detail", "uploaded"]
+		[
+			"id",
+			"report_timestamp",
+			"bedtime",
+			"sleep_time",
+			"wake_time",
+			"getup_time",
+			"detail",
+			"uploaded"
+		]
 	);
 	// 历史行必须保留（含 uploaded 状态），只有无从还原的 detail 补空串。
 	assert.deepEqual(rows(r.db, "SELECT id, uploaded, detail FROM sleep_data"), [
@@ -1622,4 +1640,469 @@ test("a failed sleep insert is reported instead of counted as saved", async (t) 
 		r.logs.some((entry) => entry.items.join(" ").includes("睡眠数据写入失败")),
 		true
 	);
+});
+
+test("protocol probe accepts the documented 0x33 timestamp response to a 0x34 read", async (t) => {
+	const r = await createRuntime(t);
+	const { DeviceProtocolProbe } = await r.load(".cool/store/device/protocol-probe.ts");
+	const event = {
+		boomTimestampSeqValue: 4,
+		boomTimestampLastT: 0,
+		boomTimestamp: { value: 0 }
+	};
+	let sent = 0;
+	const probe = new DeviceProtocolProbe({
+		event,
+		protocol: {
+			async readTimestamp() {
+				sent++;
+				return true;
+			}
+		}
+	});
+	r.sleep = async () => {
+		event.boomTimestampLastT = 0x33;
+		event.boomTimestamp.value = 1760000000;
+		event.boomTimestampSeqValue++;
+	};
+
+	const result = await probe.check(3000);
+
+	assert.equal(sent, 1);
+	assert.equal(result.status, "OK");
+	assert.equal(result.deviceTimestamp, 1760000000);
+});
+
+test("protocol probe distinguishes timeout from an invalid timestamp response", async (t) => {
+	const r = await createRuntime(t);
+	const { DeviceProtocolProbe } = await r.load(".cool/store/device/protocol-probe.ts");
+	const timeoutEvent = {
+		boomTimestampSeqValue: 0,
+		boomTimestampLastT: 0,
+		boomTimestamp: { value: 0 }
+	};
+	const timeoutProbe = new DeviceProtocolProbe({
+		event: timeoutEvent,
+		protocol: {
+			async readTimestamp() {
+				return true;
+			}
+		}
+	});
+	r.sleep = async () => {
+		r.dateOffsetMs += 1000;
+	};
+	assert.equal((await timeoutProbe.check(3000)).status, "TIMEOUT");
+
+	const invalidEvent = {
+		boomTimestampSeqValue: 0,
+		boomTimestampLastT: 0,
+		boomTimestamp: { value: 0 }
+	};
+	const invalidProbe = new DeviceProtocolProbe({
+		event: invalidEvent,
+		protocol: {
+			async readTimestamp() {
+				return true;
+			}
+		}
+	});
+	r.sleep = async () => {
+		invalidEvent.boomTimestampLastT = 0x34;
+		invalidEvent.boomTimestampSeqValue++;
+	};
+	assert.equal((await invalidProbe.check(3000)).status, "INVALID_RESPONSE");
+});
+
+test("protocol probe converts a thrown timestamp send into SEND_FAILED", async (t) => {
+	const r = await createRuntime(t);
+	const { DeviceProtocolProbe } = await r.load(".cool/store/device/protocol-probe.ts");
+	const probe = new DeviceProtocolProbe({
+		event: {
+			boomTimestampSeqValue: 0,
+			boomTimestampLastT: 0,
+			boomTimestamp: { value: 0 }
+		},
+		protocol: {
+			async readTimestamp() {
+				throw new Error("write failed");
+			}
+		}
+	});
+
+	assert.equal((await probe.check(3000)).status, "SEND_FAILED");
+});
+
+test("device health warns on the third failed connection and survives reconstruction", async (t) => {
+	const r = await createRuntime(t);
+	const { DeviceHealth } = await r.load(".cool/store/device/device-health.ts");
+	const health = new DeviceHealth();
+	health.bind("AA:BB");
+	health.recordUnresponsive();
+	health.recordUnresponsive();
+	assert.equal(health.warningActive.value, false);
+	health.recordUnresponsive();
+	assert.equal(health.failureCount.value, 3);
+	assert.equal(health.warningActive.value, true);
+	assert.equal(health.modalPending.value, true);
+	health.acknowledgeModal();
+	// Android 自定义基座会把 setStorageSync 的对象恢复为 JSON 字符串。
+	r.storage.boom_device_protocol_health = JSON.stringify({
+		deviceId: "AA:BB",
+		failureCount: 3,
+		warningActive: true,
+		modalAcknowledged: true
+	});
+
+	const restored = new DeviceHealth();
+	restored.bind("AA:BB");
+	assert.equal(restored.failureCount.value, 3);
+	assert.equal(restored.warningActive.value, true);
+	assert.equal(restored.modalPending.value, false);
+	restored.recordHealthyConnection();
+	assert.equal(restored.failureCount.value, 0);
+	assert.equal(restored.warningActive.value, false);
+});
+
+test("a history timeout reports the exact pending two-minute page", async (t) => {
+	const r = await createRuntime(t);
+	const device = {
+		boundDeviceId: "device",
+		beginGattTask: () => true,
+		endGattTask() {},
+		event: { resetDataIdentifierReassembler() {} },
+		protocol: {
+			async readVitalData() {
+				return true;
+			},
+			async continueReadVitalData() {
+				return true;
+			}
+		}
+	};
+	const reader = new r.DeviceHistoryReader(device);
+	reader.sleep = async () => {
+		r.dateOffsetMs += 1000;
+	};
+	const result = await reader.readVitalGapGroup({
+		fromSec: 1000,
+		toSec: 1300,
+		repairSeconds: 300,
+		bridgeSeconds: 0
+	});
+
+	assert.equal(result.status, "TIMEOUT");
+	assert.equal(result.failedFromSec, 1180);
+	assert.equal(result.failedToSec, 1300);
+});
+
+test("a stale page newer than the gap cannot move the timeout audit outside the gap", async (t) => {
+	const r = await createRuntime(t);
+	let reader;
+	const device = {
+		boundDeviceId: "device",
+		beginGattTask: () => true,
+		endGattTask() {},
+		event: { resetDataIdentifierReassembler() {} },
+		protocol: {
+			async readVitalData() {
+				reader.latestVitalDataResponse = {
+					startSec: 1400,
+					direction: 0,
+					n: 2,
+					rmssdSdnn: [{}, {}],
+					vitalData: Array.from({ length: 120 }, () => ({
+						hr: 60,
+						ppi: 1000,
+						valid: true
+					}))
+				};
+				reader.vitalDataResponseSeqValue++;
+				return true;
+			},
+			async continueReadVitalData() {
+				return true;
+			}
+		}
+	};
+	reader = new r.DeviceHistoryReader(device);
+	reader.sleep = async () => {
+		r.dateOffsetMs += 1000;
+	};
+	const result = await reader.readVitalGapGroup({
+		fromSec: 1000,
+		toSec: 1300,
+		repairSeconds: 300,
+		bridgeSeconds: 0
+	});
+
+	assert.equal(result.status, "TIMEOUT");
+	assert.equal(result.failedFromSec, 1180);
+	assert.equal(result.failedToSec, 1300);
+});
+
+test("a verified history-page timeout is counted and later gap groups continue", async (t) => {
+	const r = await createRuntime(t);
+	const now = Math.floor(Date.now() / 1000);
+	const first = now - 900;
+	const second = now - 500;
+	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${first})`);
+	r.db.exec(`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${now - 700},${second})`);
+	const attempted = [];
+	let resetCount = 0;
+	const reader = {
+		resetVitalResponseState() {
+			resetCount++;
+		},
+		async readVitalGapGroup(gap) {
+			attempted.push(gap.fromSec);
+			return {
+				status: "TIMEOUT",
+				message: "wait vital response timeout",
+				pages: 0,
+				savedRecords: 0,
+				saveOk: true,
+				failedFromSec: gap.toSec - 120,
+				failedToSec: gap.toSec
+			};
+		}
+	};
+	const probe = {
+		async check() {
+			return { status: "OK", latencyMs: 10, deviceTimestamp: now };
+		}
+	};
+
+	const result = await r.historyRepair.repairAllGaps(reader, probe);
+
+	assert.deepEqual(attempted, [first, second]);
+	assert.equal(resetCount, 2, "each successful post-timeout probe resets partial history frames");
+	assert.equal(result.stopReason, "COMPLETE");
+	assert.equal(result.timedOutPages, 2);
+	assert.equal(
+		r.db.prepare("SELECT COUNT(*) AS n FROM vital_history_failures WHERE timeout_count=1").get()
+			.n,
+		2
+	);
+});
+
+test("a failed post-timeout probe stops repair without blaming the history page", async (t) => {
+	const r = await createRuntime(t);
+	const now = Math.floor(Date.now() / 1000);
+	const first = now - 900;
+	const second = now - 500;
+	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${first})`);
+	r.db.exec(`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${now - 700},${second})`);
+	const attempted = [];
+	const reader = {
+		async readVitalGapGroup(gap) {
+			attempted.push(gap.fromSec);
+			return {
+				status: "TIMEOUT",
+				message: "wait vital response timeout",
+				pages: 0,
+				savedRecords: 0,
+				saveOk: true,
+				failedFromSec: gap.toSec - 120,
+				failedToSec: gap.toSec
+			};
+		}
+	};
+	const probe = {
+		async check() {
+			return { status: "TIMEOUT", latencyMs: 3000, deviceTimestamp: 0 };
+		}
+	};
+
+	const result = await r.historyRepair.repairAllGaps(reader, probe);
+
+	assert.deepEqual(attempted, [first]);
+	assert.equal(result.stopReason, "DEVICE_UNRESPONSIVE");
+	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM vital_history_failures").get().n, 0);
+});
+
+test("the third verified timeout abandons and accounts only its exact page", async (t) => {
+	const r = await createRuntime(t);
+	const now = Math.floor(Date.now() / 1000);
+	const from = now - 130;
+	const to = now - 10;
+	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${from})`);
+	const { historyFailureStore } = await r.load(
+		".cool/bluetooth/history/history-failure-store.ts"
+	);
+	await historyFailureStore.recordTimeout(from, to, now - 20);
+	await historyFailureStore.recordTimeout(from, to, now - 10);
+	const reader = {
+		resetVitalResponseState() {},
+		async readVitalGapGroup() {
+			return {
+				status: "TIMEOUT",
+				message: "wait vital response timeout",
+				pages: 0,
+				savedRecords: 0,
+				saveOk: true,
+				failedFromSec: from,
+				failedToSec: to
+			};
+		}
+	};
+	const probe = {
+		async check() {
+			return { status: "OK", latencyMs: 10, deviceTimestamp: now };
+		}
+	};
+
+	const result = await r.historyRepair.repairAllGaps(reader, probe);
+
+	assert.equal(result.abandonedPages, 1);
+	assert.equal(
+		await (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline.getBaseline(),
+		to
+	);
+	assert.equal(
+		r.db.prepare("SELECT COUNT(*) AS n FROM vital_history_failures WHERE abandoned=1").get().n,
+		1
+	);
+	assert.equal(
+		r.db.prepare("SELECT COUNT(*) AS n FROM vital_ready_ranges").get().n,
+		0,
+		"an abandoned range already consumed by B must not be reinserted"
+	);
+});
+
+test("scheduler keeps automatic work queued when the initial protocol probe fails", async (t) => {
+	const r = await createRuntime(t);
+	const { DeviceGattScheduler } = await r.load(".cool/store/device/gatt-scheduler.ts");
+	let restored = 0;
+	let failures = 0;
+	let healthy = 0;
+	const device = {
+		boundDeviceId: "AA:BB",
+		isGattTaskBusy: () => false,
+		getGattTaskName: () => "",
+		connection: {
+			async switchToConnectMode() {
+				return true;
+			},
+			async switchToBroadcastMode() {
+				restored++;
+			},
+			async disconnectDevice() {}
+		},
+		protocolProbe: {
+			async check() {
+				return { status: "TIMEOUT", latencyMs: 3000, deviceTimestamp: 0 };
+			}
+		},
+		health: {
+			recordUnresponsive() {
+				failures++;
+			},
+			recordHealthyConnection() {
+				healthy++;
+			}
+		},
+		errorMessage: { value: "" }
+	};
+	const scheduler = new DeviceGattScheduler(device);
+	scheduler.enqueueHistoryRepair("timer");
+
+	await scheduler.flush("timer");
+
+	assert.equal(scheduler.tasks.length, 1);
+	assert.equal(failures, 1);
+	assert.equal(healthy, 0);
+	assert.equal(restored, 1);
+});
+
+test("scheduler clears device failures only after a fully responsive flush", async (t) => {
+	const r = await createRuntime(t);
+	const { DeviceGattScheduler } = await r.load(".cool/store/device/gatt-scheduler.ts");
+	let healthy = 0;
+	let synced = 0;
+	const device = {
+		boundDeviceId: "AA:BB",
+		isGattTaskBusy: () => false,
+		getGattTaskName: () => "",
+		connection: {
+			async switchToConnectMode() {
+				return true;
+			},
+			async switchToBroadcastMode() {},
+			async disconnectDevice() {}
+		},
+		protocolProbe: {
+			async check() {
+				return { status: "OK", latencyMs: 10, deviceTimestamp: 1760000000 };
+			}
+		},
+		health: {
+			recordUnresponsive() {},
+			recordHealthyConnection() {
+				healthy++;
+			}
+		},
+		history: {},
+		tick: {
+			markHistorySynced() {
+				synced++;
+			}
+		},
+		errorMessage: { value: "" }
+	};
+	const scheduler = new DeviceGattScheduler(device);
+	scheduler.enqueueHistoryRepair("timer");
+
+	await scheduler.flush("timer");
+
+	assert.equal(scheduler.tasks.length, 0);
+	assert.equal(healthy, 1);
+	assert.equal(synced, 1);
+});
+
+test("a successful manual abandoned-page retry clears its audit without rewinding baseline", async (t) => {
+	const r = await createRuntime(t);
+	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
+	const { historyFailureStore } = await r.load(
+		".cool/bluetooth/history/history-failure-store.ts"
+	);
+	const before = Math.floor(Date.now() / 1000) - 10;
+	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${before})`);
+	await historyFailureStore.recordTimeout(before - 120, before, before - 30);
+	await historyFailureStore.recordTimeout(before - 120, before, before - 20);
+	await historyFailureStore.recordTimeout(before - 120, before, before - 10);
+	const reader = {
+		async readVitalRangeManual() {
+			return { status: "DONE", saveOk: true, savedRecords: 10 };
+		}
+	};
+
+	const result = await r.historyRepair.retryAbandonedRange(reader, before - 120, before);
+
+	assert.equal(result.status, "DONE");
+	assert.equal(await historyFailureStore.get(before - 120, before), null);
+	assert.equal(await baseline.getBaseline(), before);
+});
+
+test("device pages render the decoupled protocol-health warning", async () => {
+	const component = await readFile("pages/device/components/DeviceHealthWarning.uvue", "utf8");
+	const indexPage = await readFile("pages/device/index.uvue", "utf8");
+	const detailPage = await readFile("pages/device/detail.uvue", "utf8");
+	assert.equal(component.includes("warningActive"), true);
+	assert.equal(component.includes("modalPending"), true);
+	assert.equal(component.includes("acknowledgeModal"), true);
+	assert.match(component, /const modalPending = computed<boolean>/);
+	assert.match(component, /watch\(\s*modalPending,/);
+	assert.doesNotMatch(component, /watch\(\s*\(\)\s*=>/);
+	assert.equal(indexPage.includes("<DeviceHealthWarning"), true);
+	assert.equal(detailPage.includes("<DeviceHealthWarning"), true);
+});
+
+test("history-gap diagnostics expose abandoned pages through the repair use case", async () => {
+	const popup = await readFile("pages/device/components/HistoryGapRepairPopup.uvue", "utf8");
+	const page = await readFile("pages/device/test.uvue", "utf8");
+	assert.equal(popup.includes("listAbandonedHistoryRanges"), true);
+	assert.equal(popup.includes('emit("retry-abandoned"'), true);
+	assert.equal(page.includes('@retry-abandoned="retryAbandonedHistoryRange"'), true);
+	assert.match(page, /retryAbandonedRange\(\s*deviceStore\.history/);
 });

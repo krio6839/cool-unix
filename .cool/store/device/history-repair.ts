@@ -9,24 +9,41 @@
  * 配一个假 reader 独立测试，不需要构造整个设备栈。连接由调用方（gatt-scheduler）
  * 负责，本文件不碰。
  *
- * **不返回结果对象**：唯一的调用方是 GATT 队列，它拿到结果也无处可用——连接已经
- * 跑完，该记的都在这两行日志里了。逐组的数字（`本组推进`、`落库秒`）留在日志中，
- * 那才是排查「补了但没记账」时真正会去看的地方。
+ * 返回值只告诉 scheduler 是否因设备失活而必须停止连接；逐组的业务数字仍留在日志，
+ * 避免调度器理解历史记账细节。
  */
 import { historyBaseline } from "../../bluetooth/history/baseline";
 import { logger } from "../../service/logger";
 import type { HistoryGap } from "../../bluetooth/history/baseline";
-import type { VitalAutoReadResult } from "./history-reader";
+import type { AbandonedRangeReader, GapReader, VitalAutoReadResult } from "./history-reader";
+import {
+	historyFailureStore,
+	type HistoryFailureRecord
+} from "../../bluetooth/history/history-failure-store";
+import type { DeviceProtocolProbe } from "./protocol-probe";
 
-/**
- * 补数据只需要 reader 的这一个能力。`DeviceHistoryReader` 显式 `implements` 它。
- *
- * 必须是 `interface` 而不是 `type` 对象字面量：UTS 名义类型，没有结构化子类型，
- * 类实例无法赋给对象字面量类型（编译错误 error17：实际类型 DeviceHistoryReader，
- * 预期类型 GapReader）。类侧要 `implements GapReader` 才成立。
- */
-export interface GapReader {
-	readVitalGapGroup(gap: HistoryGap): Promise<VitalAutoReadResult>;
+export type HistoryRepairStopReason = "COMPLETE" | "DEVICE_UNRESPONSIVE" | "LOCAL_FAILURE";
+
+export type HistoryRepairResult = {
+	stopReason: HistoryRepairStopReason;
+	timedOutPages: number;
+	abandonedPages: number;
+};
+
+export async function retryAbandonedRange(
+	reader: AbandonedRangeReader,
+	fromSec: number,
+	toSec: number
+): Promise<VitalAutoReadResult> {
+	const result = await reader.readVitalRangeManual(fromSec, toSec);
+	if (result.status == "DONE" && result.saveOk == true) {
+		await historyFailureStore.clearRange(fromSec, toSec);
+	}
+	return result;
+}
+
+export async function listAbandonedHistoryRanges(): Promise<HistoryFailureRecord[]> {
+	return await historyFailureStore.listAbandoned();
 }
 
 /** 一个缺口、以及它在这一次连接里的读取结果。 */
@@ -42,13 +59,17 @@ type GapOutcome = {
  * 执行前重新规划一次，避免队列等待期间广播已经把缺口补上；收尾再重算一次，
  * 用 `B` 的前后差量给出「本轮到底推进了多少」的确切数字。
  */
-export async function repairAllGaps(reader: GapReader): Promise<void> {
+export async function repairAllGaps(
+	reader: GapReader,
+	probe: DeviceProtocolProbe | null = null
+): Promise<HistoryRepairResult> {
 	const startedAt = Date.now();
 	const nowSec = Math.floor(Date.now() / 1000);
+	await reconcileAbandonedRanges(nowSec);
 	await historyBaseline.classify(nowSec);
 	const baseline = await historyBaseline.advanceBaseline(nowSec, null);
 	const gaps = await historyBaseline.listRepairGaps(nowSec, baseline);
-	if (gaps.length == 0) return;
+	if (gaps.length == 0) return makeRepairResult("COMPLETE", 0, 0);
 	const ceiling = historyBaseline.stableCeiling(nowSec);
 	const totalRepairSeconds = historyBaseline.sumRepairSeconds(gaps);
 
@@ -56,7 +77,8 @@ export async function repairAllGaps(reader: GapReader): Promise<void> {
 		"bluetooth",
 		`[BOOM-HISTORY] 开始补录: B=${baseline}, 缺口组=${gaps.length}, 缺口秒=${totalRepairSeconds}, bridge秒=${historyBaseline.sumBridgeSeconds(gaps)}, stableCeiling=${ceiling}, 连接开始=${startedAt}`
 	);
-	const outcomes = await runVitalGaps(reader, gaps, baseline, nowSec);
+	const run = await runVitalGaps(reader, probe, gaps, baseline, nowSec);
+	const outcomes = run.outcomes;
 	let failedGroups = 0;
 	for (let i = 0; i < outcomes.length; i++) {
 		if (outcomes[i].completed == false) failedGroups++;
@@ -76,15 +98,28 @@ export async function repairAllGaps(reader: GapReader): Promise<void> {
 		"bluetooth",
 		`[BOOM-HISTORY] 补录结束: B=${baseline}->${after}, 已补组=${outcomes.length - failedGroups}, 失败组=${failedGroups}, 落库秒=${countSaved(outcomes)}, 计划剩余缺口=${remaining.length}, 计划剩余秒=${historyBaseline.sumRepairSeconds(remaining)}, deferredTail=${deferredTailSeconds}s, stableCeiling=${historyBaseline.stableCeiling(nowSec)}, 连接时长=${Math.round((Date.now() - startedAt) / 1000)}s, ok=${failedGroups == 0}`
 	);
+	await reconcileAbandonedRanges(nowSec);
+	return makeRepairResult(run.stopReason, run.timedOutPages, run.abandonedPages);
 }
+
+type GapRunResult = {
+	outcomes: GapOutcome[];
+	stopReason: HistoryRepairStopReason;
+	timedOutPages: number;
+	abandonedPages: number;
+};
 
 async function runVitalGaps(
 	reader: GapReader,
+	probe: DeviceProtocolProbe | null,
 	gaps: HistoryGap[],
 	startBaseline: number,
 	planNowSec: number
-): Promise<GapOutcome[]> {
+): Promise<GapRunResult> {
 	const outcomes: GapOutcome[] = [];
+	let stopReason: HistoryRepairStopReason = "COMPLETE";
+	let timedOutPages = 0;
+	let abandonedPages = 0;
 	const total = gaps.length;
 	// 上一组的 `B` 就是下一组的起点：两组之间没有别的写入者，中间那次
 	// `advanceBaseline()` 因此是重复调用。
@@ -105,11 +140,73 @@ async function runVitalGaps(
 		);
 		outcomes.push({ gap, read, completed } as GapOutcome);
 		before = after;
-		// 链路断了就停：后面的组只会在坏连接上再超时一遍。
-		// 「设备这段没数据」（status=DONE、落库 0）不是失败，继续读下一组。
-		if (completed == false) break;
+		if (completed == true) {
+			await historyFailureStore.clearWithin(gap.fromSec, gap.toSec);
+			continue;
+		}
+		if (
+			read.status == "TIMEOUT" &&
+			read.failedFromSec != null &&
+			read.failedToSec != null &&
+			probe != null
+		) {
+			const probeResult = await probe.check();
+			if (probeResult.status != "OK") {
+				stopReason = "DEVICE_UNRESPONSIVE";
+				logger.warn(
+					"bluetooth",
+					`[BOOM-HISTORY] 历史超时后探活失败: status=${probeResult.status}, page=${read.failedFromSec}~${read.failedToSec}`
+				);
+				break;
+			}
+			reader.resetVitalResponseState();
+			const failure = await historyFailureStore.recordTimeout(
+				read.failedFromSec,
+				read.failedToSec,
+				Math.floor(Date.now() / 1000)
+			);
+			timedOutPages++;
+			if (failure.abandoned == true) {
+				await historyBaseline.markReady(failure.fromSec, failure.toSec, planNowSec);
+				abandonedPages++;
+			}
+			logger.warn(
+				"bluetooth",
+				`[BOOM-HISTORY] 历史页确认超时: page=${failure.fromSec}~${failure.toSec}, count=${failure.timeoutCount}, abandoned=${failure.abandoned}`
+			);
+			continue;
+		}
+		// 非超时类失败属于本地/发送/记账问题，不能按「历史页无响应」累计或放弃。
+		stopReason = "LOCAL_FAILURE";
+		break;
 	}
-	return outcomes;
+	return {
+		outcomes,
+		stopReason,
+		timedOutPages,
+		abandonedPages
+	} as GapRunResult;
+}
+
+async function reconcileAbandonedRanges(nowSec: number): Promise<void> {
+	const abandoned = await historyFailureStore.listAbandoned();
+	const baseline = await historyBaseline.getBaseline();
+	for (let i = 0; i < abandoned.length; i++) {
+		if (abandoned[i].toSec <= baseline) continue;
+		await historyBaseline.markReady(
+			Math.max(baseline, abandoned[i].fromSec),
+			abandoned[i].toSec,
+			nowSec
+		);
+	}
+}
+
+function makeRepairResult(
+	stopReason: HistoryRepairStopReason,
+	timedOutPages: number,
+	abandonedPages: number
+): HistoryRepairResult {
+	return { stopReason, timedOutPages, abandonedPages } as HistoryRepairResult;
 }
 
 /** 只有读链路明确完成且所有落库/记账步骤成功，才允许把本组称为成功。 */

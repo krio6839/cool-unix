@@ -22,7 +22,6 @@ import type {
 import { ref } from "vue";
 import type { Device } from "./index";
 import { logger } from "../../service/logger";
-import type { GapReader } from "./history-repair";
 
 export type HistoryReadStatus = "DONE" | "STOPPED" | "LIMIT" | "TIMEOUT" | "SEND_FAILED";
 
@@ -61,7 +60,20 @@ export type VitalAutoReadResult = {
 	uploadAttempted: boolean;
 	uploadScheduled: boolean;
 	uploadOk: boolean;
+	failedFromSec: number | null;
+	failedToSec: number | null;
 };
+
+/** 历史补录编排只依赖读取层公开的缺口读取能力。 */
+export interface GapReader {
+	resetVitalResponseState(): void;
+	readVitalGapGroup(gap: HistoryGap): Promise<VitalAutoReadResult>;
+}
+
+/** 测试页精确重读 abandoned 页时使用的读取能力。 */
+export interface AbandonedRangeReader {
+	readVitalRangeManual(fromSec: number, toSec: number): Promise<VitalAutoReadResult>;
+}
 
 export type EventAutoReadOptions = {
 	type: number;
@@ -111,7 +123,7 @@ const VITAL_GAP_READ_DIRECTION = 0;
 /** 调试弹窗展示历史明细时最多输出的行数。 */
 const MAX_FORMAT_DETAIL_LINES = 260;
 
-export class DeviceHistoryReader implements GapReader {
+export class DeviceHistoryReader implements GapReader, AbandonedRangeReader {
 	/** 0x3A/0x3B 最近一次生命体征查询结果（多帧重组后） */
 	vitalDataResponse = ref<VitalDataQueryResponse | null>(null);
 	/** 0x3A/0x3B 生命体征响应序号（即使内容相同也递增） */
@@ -142,6 +154,11 @@ export class DeviceHistoryReader implements GapReader {
 
 	constructor(device: Device) {
 		this.device = device;
+	}
+
+	/** 丢弃一次历史超时可能留下的半包，避免污染下一缺口组。 */
+	resetVitalResponseState(): void {
+		this.device.event.resetDataIdentifierReassembler();
 	}
 
 	setDisplaySuspended(suspended: boolean): void {
@@ -346,6 +363,11 @@ export class DeviceHistoryReader implements GapReader {
 		);
 	}
 
+	/** 手动重读已放弃的精确页；不参与自动缺口规划，也不倒退 baseline。 */
+	async readVitalRangeManual(fromSec: number, toSec: number): Promise<VitalAutoReadResult> {
+		return await this.readVitalRange("已放弃页重读", fromSec, toSec, "manual-abandoned-retry");
+	}
+
 	/**
 	 * 读 `[fromSec, toSec)` 这一段：整段只建立一次 `0x3A` 查询上下文，随后持续发送
 	 * `0x3B` 向更早翻页。
@@ -455,7 +477,12 @@ export class DeviceHistoryReader implements GapReader {
 							if (response.vitalData[i].valid == true) validSeconds++;
 							else invalidSeconds++;
 						}
-						const pageSaved = await this.saveVitalPage(response, startSec, anchor, boundDeviceId);
+						const pageSaved = await this.saveVitalPage(
+							response,
+							startSec,
+							anchor,
+							boundDeviceId
+						);
 						saved += pageSaved;
 						lastStart = response.startSec;
 						stopRead = response.startSec <= startSec;
@@ -471,6 +498,14 @@ export class DeviceHistoryReader implements GapReader {
 			result.savedRecords = saved;
 			result.uploadScheduled = saved > 0;
 			result.saveOk = saveOk;
+			if (result.status == "TIMEOUT") {
+				const failedAnchor = Math.min(anchor, lastStart > 0 ? lastStart : anchor);
+				result.failedFromSec = Math.max(
+					startSec,
+					failedAnchor - VITAL_GAP_READ_MINUTES * 60
+				);
+				result.failedToSec = failedAnchor;
+			}
 			if (
 				result.status == "STOPPED" &&
 				result.message == "stopped by caller" &&
@@ -863,7 +898,9 @@ export class DeviceHistoryReader implements GapReader {
 			saveOk: true,
 			uploadAttempted: false,
 			uploadScheduled: false,
-			uploadOk: false
+			uploadOk: false,
+			failedFromSec: null,
+			failedToSec: null
 		};
 	}
 

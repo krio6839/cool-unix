@@ -515,7 +515,7 @@ test("session diagnostics report the baseline model instead of a task queue", as
 
 test("session repair tables do not retain a device identifier", async (t) => {
 	const r = await createRuntime(t);
-	for (const table of ["vital_sync_state", "vital_ready_ranges"]) {
+	for (const table of ["vital_sync_state", "vital_ready_ranges", "vital_history_failures"]) {
 		const columns = r.db
 			.prepare(`PRAGMA table_info(${table})`)
 			.all()
@@ -524,7 +524,7 @@ test("session repair tables do not retain a device identifier", async (t) => {
 	}
 });
 
-test("only the two baseline tables exist; the old task tables are gone", async (t) => {
+test("baseline and failure-ledger tables exist while the old task tables stay gone", async (t) => {
 	const r = await createRuntime(t);
 	const names = r.db
 		.prepare("SELECT name FROM sqlite_master WHERE type='table'")
@@ -533,7 +533,7 @@ test("only the two baseline tables exist; the old task tables are gone", async (
 	for (const gone of ["vital_history_tasks", "vital_history_state", "vital_history_ranges"]) {
 		assert.equal(names.includes(gone), false, `${gone} still exists`);
 	}
-	for (const kept of ["vital_sync_state", "vital_ready_ranges"]) {
+	for (const kept of ["vital_sync_state", "vital_ready_ranges", "vital_history_failures"]) {
 		assert.equal(names.includes(kept), true, `${kept} is missing`);
 	}
 });
@@ -1143,4 +1143,43 @@ test("a ready-range write failure surfaces instead of leaving a half-written tab
 	const r = await setup(t);
 	r.failSql = (sql) => sql.startsWith("INSERT OR IGNORE INTO vital_ready_ranges");
 	await assert.rejects(r.baseline.markReady(100, 200, 1000));
+});
+
+test("history failure ledger abandons only the exact page on its third verified timeout", async (t) => {
+	const r = await setup(t);
+	const { historyFailureStore } = await r.load(
+		".cool/bluetooth/history/history-failure-store.ts"
+	);
+
+	const first = await historyFailureStore.recordTimeout(1000, 1120, 2000);
+	const second = await historyFailureStore.recordTimeout(1000, 1120, 2010);
+	const third = await historyFailureStore.recordTimeout(1000, 1120, 2020);
+
+	assert.equal(first.timeoutCount, 1);
+	assert.equal(first.abandoned, false);
+	assert.equal(second.timeoutCount, 2);
+	assert.equal(second.abandoned, false);
+	assert.equal(third.timeoutCount, 3);
+	assert.equal(third.abandoned, true);
+	assert.deepEqual(await historyFailureStore.listAbandoned(), [
+		{
+			fromSec: 1000,
+			toSec: 1120,
+			timeoutCount: 3,
+			lastTimeoutSec: 2020,
+			abandoned: true,
+			abandonedAtSec: 2020
+		}
+	]);
+	assert.equal((await historyFailureStore.get(1120, 1240)), null);
+});
+
+test("history failure ledger clears a page after a later successful manual read", async (t) => {
+	const r = await setup(t);
+	const { historyFailureStore } = await r.load(
+		".cool/bluetooth/history/history-failure-store.ts"
+	);
+	await historyFailureStore.recordTimeout(1000, 1120, 2000);
+	await historyFailureStore.clearRange(1000, 1120);
+	assert.equal(await historyFailureStore.get(1000, 1120), null);
 });

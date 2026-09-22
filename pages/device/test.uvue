@@ -187,6 +187,7 @@
 			:command-message="getResp('HISTORY_GAP')"
 			:revision="historyGapRevision"
 			@repair-history-gap="repairHistoryGap"
+			@retry-abandoned="retryAbandonedHistoryRange"
 		/>
 		<VitalProtocolPopup
 			v-model:show="vitalProtocolPopupVisible"
@@ -253,6 +254,7 @@ import { useUi, type ClSelectOption } from "@/uni_modules/cool-ui";
 import type { VitalAutoReadResult } from "@/.cool/store/device/history-reader";
 import { buildVitalHistoryCsv } from "@/.cool/bluetooth/history/export";
 import { historyBaseline, type HistoryGap } from "@/.cool/bluetooth/history/baseline";
+import { retryAbandonedRange } from "@/.cool/store/device/history-repair";
 import { saveCsvToDownloads } from "@/uni_modules/boom-csv-saver";
 import DataDiagnosticsPopup from "./components/DataDiagnosticsPopup.uvue";
 import HistoryGapRepairPopup from "./components/HistoryGapRepairPopup.uvue";
@@ -885,6 +887,27 @@ async function repairHistoryGap(payload: HistoryGapRepairPayload): Promise<void>
 	manualHistoryRevision.value = Date.now();
 	ui.showToast({
 		message: ok ? t("连续缺口补录已完成") : t("连续缺口补录失败"),
+		type: ok ? "success" : "error"
+	});
+}
+
+async function retryAbandonedHistoryRange(payload: HistoryGapRepairPayload): Promise<void> {
+	if (payload.toSec <= payload.fromSec) return;
+	const ok = await runQueuedGattCommand("HISTORY_GAP", async () => {
+		const result = await retryAbandonedRange(
+			deviceStore.history,
+			payload.fromSec,
+			payload.toSec
+		);
+		setCommandResponse(
+			"HISTORY_GAP",
+			`${historyGapResultText(result)}, ${t("页数")} ${result.pages}, ${t("保存")} ${result.savedRecords}`
+		);
+		return result.status == "DONE" && result.saveOk == true;
+	});
+	manualHistoryRevision.value = Date.now();
+	ui.showToast({
+		message: ok ? t("已放弃历史页重读完成") : t("已放弃历史页重读失败"),
 		type: ok ? "success" : "error"
 	});
 }

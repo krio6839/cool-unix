@@ -3,6 +3,9 @@
 		<cl-topbar safe-area-top background-color="transparent" :title="t('设备详情')"></cl-topbar>
 
 		<view class="p-3">
+			<!-- #ifndef H5 -->
+			<DeviceHealthWarning></DeviceHealthWarning>
+			<!-- #endif -->
 			<!-- A. 基本信息 -->
 			<cl-list :pt="{ className: 'mb-3' }">
 				<cl-list-item :label="t('设备名称')">
@@ -84,6 +87,9 @@ import { router, t, useStore } from "@/.cool";
 import { useUi, type ClSelectOption } from "@/uni_modules/cool-ui";
 import { getWearLocationLabel, getWearLocationOptions } from "@/.cool/store/device";
 import type { WearLocation, WearLocationOption } from "@/.cool/store/device";
+// #ifndef H5
+import DeviceHealthWarning from "./components/DeviceHealthWarning.uvue";
+// #endif
 // #ifndef H5
 import type { BLEDeviceCharacteristic } from "@/.cool/bluetooth";
 // #endif

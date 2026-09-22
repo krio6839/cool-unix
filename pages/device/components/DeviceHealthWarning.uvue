@@ -1,0 +1,57 @@
+<template>
+	<view v-if="warningActive" class="device-health-warning">
+		<text class="device-health-warning-title">{{ t("设备可能异常") }}</text>
+		<text class="device-health-warning-text">{{ warningMessage }}</text>
+	</view>
+</template>
+
+<script setup lang="ts">
+import { computed, watch } from "vue";
+import { t, useStore } from "@/.cool";
+import { useUi } from "@/uni_modules/cool-ui";
+
+const { device: deviceStore } = useStore();
+const ui = useUi();
+const warningMessage = t("设备多次未响应，可能异常，建议重启设备后再试");
+
+const warningActive = computed<boolean>(() => deviceStore.health.warningActive.value);
+const modalPending = computed<boolean>(() => deviceStore.health.modalPending.value);
+
+watch(
+	modalPending,
+	(pending: boolean) => {
+		if (pending == false) return;
+		ui.showConfirm({
+			title: t("设备可能异常"),
+			message: warningMessage,
+			showCancel: false,
+			callback() {
+				deviceStore.health.acknowledgeModal();
+			}
+		});
+	},
+	{ immediate: true }
+);
+</script>
+
+<style lang="scss" scoped>
+.device-health-warning {
+	margin: 12px;
+	padding: 12px;
+	border-radius: 10px;
+	background-color: rgba(180, 83, 9, 0.28);
+	border: 1px solid #f59e0b;
+}
+.device-health-warning-title {
+	display: block;
+	color: #fcd34d;
+	font-size: 15px;
+	font-weight: 700;
+	margin-bottom: 4px;
+}
+.device-health-warning-text {
+	color: #fef3c7;
+	font-size: 13px;
+	line-height: 19px;
+}
+</style>
