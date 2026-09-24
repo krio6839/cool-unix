@@ -8,7 +8,7 @@
  *
  * 一次 tick 做三件事，顺序固定：
  *
- * 1. `classify()`        —— 把 `[B, stableCeiling)` 里新稳定的秒判成合格或缺口。
+ * 1. `classify()`        —— 把 `[C, stableCeiling)` 里新稳定的秒判成合格或缺口。
  * 2. `advanceBaseline()` —— 把合格的秒吸收进 `B`。
  * 3. `uploadData()`      —— 把待传的记录推上去。
  *

@@ -1,5 +1,6 @@
 import { bluetoothDatabase } from "../database";
 
+/** 精确页失败账本表；主键是左闭右开范围的两个端点。 */
 export const HISTORY_FAILURE_SCHEMA: string[] = [
 	`CREATE TABLE IF NOT EXISTS vital_history_failures (
 		from_sec INTEGER NOT NULL,
@@ -12,8 +13,10 @@ export const HISTORY_FAILURE_SCHEMA: string[] = [
 	)`
 ];
 
+/** 同一精确页连续确认失败三次后放弃；次数达到阈值后不再增长。 */
 const ABANDON_FAILURE_COUNT = 3;
 
+/** 一段精确历史页的失败审计记录，范围统一为左闭右开 `[fromSec, toSec)`。 */
 export type HistoryFailureRecord = {
 	fromSec: number;
 	toSec: number;
@@ -24,8 +27,9 @@ export type HistoryFailureRecord = {
 };
 
 /** 只持久化历史页失败状态；不连接设备，也不修改 baseline/ready range。 */
-export class HistoryFailureStore {
-	async get(fromSec: number, toSec: number): Promise<HistoryFailureRecord | null> {
+class HistoryFailureStore {
+	/** 按完整主键读取精确页；相交但边界不同的记录不会命中。 */
+	private async get(fromSec: number, toSec: number): Promise<HistoryFailureRecord | null> {
 		const result = await bluetoothDatabase.query(
 			`SELECT from_sec,to_sec,timeout_count,last_timeout_sec,abandoned,abandoned_at_sec
 			 FROM vital_history_failures WHERE from_sec=${Math.floor(fromSec)} AND to_sec=${Math.floor(toSec)}`
@@ -35,6 +39,12 @@ export class HistoryFailureStore {
 		return this.fromRow(result.rows[0]);
 	}
 
+	/**
+	 * 为精确页累计一次已确认失败。
+	 *
+	 * 调用方只应在历史读取失败且复探活成功后调用；发送失败、解析失败、落库失败和设备
+	 * 失活都不属于页级失败。第三次把记录置为 abandoned，并保留第一次放弃时间。
+	 */
 	async recordFailure(
 		fromSec: number,
 		toSec: number,
@@ -68,6 +78,7 @@ export class HistoryFailureStore {
 		} as HistoryFailureRecord;
 	}
 
+	/** 列出全部已放弃页，按起点升序，用于启动对账和测试页精确重读。 */
 	async listAbandoned(): Promise<HistoryFailureRecord[]> {
 		const result = await bluetoothDatabase.query(
 			`SELECT from_sec,to_sec,timeout_count,last_timeout_sec,abandoned,abandoned_at_sec
@@ -79,6 +90,7 @@ export class HistoryFailureStore {
 		return records;
 	}
 
+	/** 删除边界完全一致的一页记录；成功读取或明确无数据后调用。 */
 	async clearRange(fromSec: number, toSec: number): Promise<void> {
 		if (
 			(await bluetoothDatabase.execute(
@@ -88,6 +100,7 @@ export class HistoryFailureStore {
 			throw new Error("清除历史失败记录失败");
 	}
 
+	/** 删除完整包含在 `[fromSec, toSec)` 内的记录，不影响仅部分相交的页。 */
 	async clearWithin(fromSec: number, toSec: number): Promise<void> {
 		if (
 			(await bluetoothDatabase.execute(
@@ -97,6 +110,7 @@ export class HistoryFailureStore {
 			throw new Error("清除历史窗口失败记录失败");
 	}
 
+	/** 把 SQLite 行转换为领域字段；旧列名仅为迁移兼容，不向上层泄漏。 */
 	private fromRow(row: unknown[]): HistoryFailureRecord {
 		return {
 			fromSec: parseInt(row[0] as string),
@@ -110,4 +124,5 @@ export class HistoryFailureStore {
 	}
 }
 
+/** 页级失败账本的唯一进程内入口。 */
 export const historyFailureStore = new HistoryFailureStore();

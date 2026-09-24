@@ -37,8 +37,8 @@ async function setup(t) {
 	r.baseline = mod.historyBaseline;
 	const coverage = await r.load(".cool/bluetooth/history/coverage.ts");
 	r.coverage = coverage;
-	const tunables = await r.load(".cool/bluetooth/history/tunables.ts");
-	r.tunables = tunables;
+	const historyConfig = await r.load(".cool/bluetooth/history/config.ts");
+	r.historyConfig = historyConfig;
 	/**
 	 * 把 `B` 直接放到待测区间之前。
 	 *
@@ -46,11 +46,11 @@ async function setup(t) {
 	 * 这里要测的东西，也会让断言里全是无关区间。真实运行时 `B` 也总是贴着
 	 * `stableCeiling`（5.5），所以从附近起步才是常态。
 	 */
-	r.prime = async (baselineSec) => {
+	r.prime = async (baselineSec, classifiedUntilSec = baselineSec) => {
 		await r.database.execute("DELETE FROM vital_ready_ranges");
 		await r.database.execute("DELETE FROM vital_sync_state");
 		await r.database.execute(
-			`INSERT INTO vital_sync_state (id,baseline_sec) VALUES (1,${baselineSec})`
+			`INSERT INTO vital_sync_state (id,baseline_sec,classified_until_sec) VALUES (1,${baselineSec},${classifiedUntilSec})`
 		);
 	};
 	return r;
@@ -90,6 +90,21 @@ test("binding a different device starts a fresh baseline instead of inheriting t
 
 	assert.equal(await r.baseline.getBaseline(), now - 10);
 	assert.deepEqual(readyRanges(r.db), []);
+});
+
+test("binding a different device resets a newer classification cursor to the fresh baseline", async (t) => {
+	const r = await setup(t);
+	const now = 300000;
+	await r.prime(200000, 400000);
+
+	await r.baseline.resetForNewBinding(now);
+
+	assert.equal(await r.baseline.getBaseline(), now - 10);
+	assert.equal(
+		r.db.prepare("SELECT classified_until_sec FROM vital_sync_state WHERE id=1").get()
+			.classified_until_sec,
+		now - 10
+	);
 });
 
 /** 与 `stableCeiling` 同一条公式：测试里直接算，避免把被测对象的实现抄一遍。 */
@@ -304,6 +319,61 @@ test("classification is idempotent and re-runs from the baseline without side ef
 	assert.ok(first.qualifiedSeconds > 0);
 });
 
+test("classification advances from its own cursor instead of rescanning an older blocked gap", async (t) => {
+	const r = await setup(t);
+	const firstNow = 200000;
+	await r.prime(199800);
+	// 这 12 秒会卡住 B；它前后的在场数据仍应各自完成分类。
+	seedPpi(r.db, 199800, 199830);
+	seedPpi(r.db, 199842, 199990);
+	const first = await r.baseline.classify(firstNow);
+	assert.equal(first.classifiedBefore, 199800);
+	assert.equal(first.classifiedAfter, 199990);
+	assert.equal(await r.baseline.advanceBaseline(firstNow), 199830);
+
+	// 下一分钟只有 60 个新稳定秒。旧的 12 秒缺口已判断过，不能再次进入分类输入。
+	const secondNow = 200060;
+	seedPpi(r.db, 199990, 200050);
+	const second = await r.baseline.classify(secondNow);
+	assert.equal(second.classifiedBefore, 199990);
+	assert.equal(second.classifiedAfter, 200050);
+	assert.equal(second.unclassifiedSeconds, 60);
+});
+
+test("classification cursor stops before an unresolved missing tail", async (t) => {
+	const r = await setup(t);
+	const now = 200000;
+	await r.prime(199980);
+	seedPpi(r.db, 199980, 199988);
+
+	const result = await r.baseline.classify(now);
+	assert.equal(result.classifiedAfter, 199988);
+	assert.equal(await r.baseline.advanceBaseline(now), 199988);
+	// [199988,199990) 仍可能只是暂迟的两秒，尚未分类，不能提前暴露成 GATT 缺口。
+	assert.deepEqual(await r.baseline.listRepairGaps(now), []);
+});
+
+test("legacy sync state gains a classification cursor initialized at the baseline", async (t) => {
+	const r = await setup(t);
+	r.db.exec("DROP TABLE vital_sync_state");
+	r.db.exec(
+		"CREATE TABLE vital_sync_state (id INTEGER PRIMARY KEY CHECK(id=1), baseline_sec INTEGER NOT NULL)"
+	);
+	r.db.exec("INSERT INTO vital_sync_state (id,baseline_sec) VALUES (1,1234)");
+
+	await r.baseline.initializeIfMissing(2000);
+	const columns = r.db
+		.prepare("PRAGMA table_info(vital_sync_state)")
+		.all()
+		.map((row) => row.name);
+	assert.equal(columns.includes("classified_until_sec"), true);
+	assert.equal(
+		r.db.prepare("SELECT classified_until_sec FROM vital_sync_state WHERE id=1").get()
+			.classified_until_sec,
+		1234
+	);
+});
+
 test("classification bounds repeated unqualified-segment diagnostics", async (t) => {
 	const r = await setup(t);
 	const now = 100500;
@@ -330,7 +400,8 @@ test("baseline diagnostic timestamps include readable Beijing times by default",
 	await r.baseline.classify(now);
 	const line = r.logs.map((entry) => entry.items.join(" ")).find((x) => x.includes("分类完成"));
 	assert.ok(line, "missing baseline classification diagnostic");
-	assert.match(line, /分类右端=199990\(1970-01-03 15:33:10\.000\+08:00\), B=199900\(1970-01-03 15:31:40\.000\+08:00\)/);
+	assert.match(line, /C=199900\(1970-01-03 15:31:40\.000\+08:00\)->199990\(1970-01-03 15:33:10\.000\+08:00\)/);
+	assert.match(line, /stableCeiling=199990\(1970-01-03 15:33:10\.000\+08:00\), B=199900\(1970-01-03 15:31:40\.000\+08:00\)/);
 });
 
 /* ===== 基准推进 ===== */
@@ -398,11 +469,13 @@ test("gaps are derived from the baseline and the ready ranges, never stored", as
 	// 全部记账后没有缺口：B 贴着 stableCeiling。
 	assert.deepEqual(await r.baseline.listRepairGaps(now), []);
 
-	// 再往后走 100 秒，没有本地数据：出现一条 [B, stableCeiling) 的缺口。
+	// 再往后走 100 秒：上一轮因 settle margin 暂缓的 10 秒已有数据，会先被增量分类
+	// 吸收；其后的 90 秒没有本地数据，形成真实缺口。
 	const later = now + 100;
+	await r.baseline.classify(later);
 	const gaps = await r.baseline.listRepairGaps(later);
 	assert.equal(gaps.length, 1);
-	assert.equal(gaps[0].fromSec, historyCeiling(now));
+	assert.equal(gaps[0].fromSec, now);
 	assert.equal(gaps[0].toSec, historyCeiling(later));
 	assert.equal(gaps[0].repairSeconds, gaps[0].toSec - gaps[0].fromSec);
 	assert.equal(gaps[0].bridgeSeconds, 0);
@@ -412,6 +485,7 @@ test("the gap right edge is capped at the ceiling so repair can actually finish"
 	const r = await setup(t);
 	const now = 210000;
 	await r.prime(209800);
+	await r.baseline.classify(now);
 	const gaps = await r.baseline.listRepairGaps(now);
 	assert.equal(gaps.length, 1);
 	// 不封顶会让「补到没有缺口为止」永不成立：ceiling 之后的秒读得到但记不了账。
@@ -423,7 +497,7 @@ test("nearby gaps bridge into one read chain and count the crossed seconds separ
 	const now = 100130;
 	// 直接摆出「B 后面的两段已记账区间」：这就是补录跑了几轮之后的真实形状
 	// （分类每轮在第一个阻塞分钟处停下，所以多缺口只能这样产生）。
-	await r.prime(100000);
+	await r.prime(100000, historyCeiling(now));
 	await r.baseline.markReady(100040, 100060, now);
 	await r.baseline.markReady(100100, 100120, now);
 	const gaps = await r.baseline.listRepairGaps(now);
@@ -440,7 +514,7 @@ test("nearby gaps bridge into one read chain and count the crossed seconds separ
 test("gaps farther apart than bridgeSec stay two separate read chains", async (t) => {
 	const r = await setup(t);
 	const now = 100400;
-	await r.prime(100000);
+	await r.prime(100000, historyCeiling(now));
 	await r.baseline.markReady(100040, 100060, now);
 	await r.baseline.markReady(100200, 100340, now);
 	const gaps = await r.baseline.listRepairGaps(now);
@@ -450,22 +524,6 @@ test("gaps farther apart than bridgeSec stay two separate read chains", async (t
 	assert.equal(gaps[0].toSec, 100200);
 	assert.equal(gaps[1].fromSec, 100340);
 	assert.equal(gaps[1].bridgeSeconds, 0);
-});
-
-test("a custom bridge distance merges what the default keeps apart", async (t) => {
-	const r = await setup(t);
-	const now = 100400;
-	await r.prime(100000);
-	await r.baseline.markReady(100040, 100060, now);
-	await r.baseline.markReady(100200, 100340, now);
-	assert.equal((await r.baseline.listRepairGaps(now)).length, 2);
-	// 参数走运行时可调值：调大到 200 秒后两段并成一条链路。
-	r.tunables.setHistoryTunable("bridgeSec", 200);
-	const merged = await r.baseline.listRepairGaps(now);
-	assert.equal(merged.length, 1);
-	assert.equal(merged[0].fromSec, 100000);
-	assert.equal(merged[0].toSec, 100390);
-	assert.equal(merged[0].repairSeconds, 230);
 });
 
 test("readiness inside the gap does not manufacture a ready range", async (t) => {
@@ -566,76 +624,40 @@ test("writing ready ranges survives Android SQLite without upsert syntax", async
 	assert.equal(await r.baseline.getBaseline(), historyCeiling(now));
 });
 
-/* ===== 运行时可调参数 ===== */
+/* ===== 固定历史参数 ===== */
 
-test("tunables fall back to their defaults and expose them for display", async (t) => {
+test("history timing config keeps only the two fixed production constants", async (t) => {
 	const r = await setup(t);
-	const keys = r.tunables.getHistoryTunableKeys();
-	assert.deepEqual(keys, ["minuteSettleSec", "bridgeSec"]);
-	for (const key of keys) {
-		assert.equal(r.tunables.getHistoryTunable(key), r.tunables.getHistoryTunableDefault(key));
-		assert.equal(r.tunables.isHistoryTunableOverridden(key), false);
+	assert.equal(r.historyConfig.HISTORY_MINUTE_SETTLE_SEC, 10);
+	assert.equal(r.historyConfig.HISTORY_GATT_READ_BRIDGE_SEC, 120);
+	for (const removed of [
+		"getHistoryTunables",
+		"getHistoryTunable",
+		"getHistoryTunableDefault",
+		"getHistoryTunableKeys",
+		"isHistoryTunableOverridden",
+		"setHistoryTunable",
+		"resetHistoryTunables"
+	]) {
+		assert.equal(removed in r.historyConfig, false, `${removed} should not remain exported`);
 	}
-	assert.equal(r.tunables.getHistoryTunables().minuteSettleSec, 10);
 });
 
-test("a tunable override takes effect immediately and can be reset", async (t) => {
-	const r = await setup(t);
-	r.tunables.setHistoryTunable("minuteSettleSec", 45);
-	assert.equal(r.tunables.isHistoryTunableOverridden("minuteSettleSec"), true);
-	// 缓存必须立刻失效：改完马上生效，不需要重启。
-	assert.equal(r.tunables.getHistoryTunable("minuteSettleSec"), 45);
-	assert.equal(r.baseline.stableCeiling(1000), 955);
-	r.tunables.setHistoryTunable("minuteSettleSec", 0);
-	assert.equal(r.tunables.getHistoryTunable("minuteSettleSec"), 10);
-	assert.equal(r.tunables.isHistoryTunableOverridden("minuteSettleSec"), false);
-});
-
-test("a nonzero settle margin changes what classification is willing to account", async (t) => {
+test("the fixed settle margin caps classification and manual ready writes", async (t) => {
 	const r = await setup(t);
 	const now = 210000;
 	await r.prime(209000);
 	seedPpi(r.db, 209000, now);
-	// 先把余量调到 100 秒再分类：记账右端应当是 209900，而不是 209990。
-	// 顺序很重要——余量必须在本轮分类之前生效，否则测的是「改参数」而不是「改判据」。
-	r.tunables.setHistoryTunable("minuteSettleSec", 100);
-	assert.equal(r.baseline.stableCeiling(now), 209900);
-	await r.baseline.classify(now);
-	assert.deepEqual(readyRanges(r.db), [{ fromSec: 209000, toSec: 209900 }]);
-
-	// markReady 同样按 stableCeiling 封顶：这一段本地全在，正常路径会记到 210000，
-	// 封顶后只能记到 209900。不封顶，「尚未稳定」的秒会被当成「设备确认没有」永久留档。
-	await r.baseline.markReady(209850, 210000, now);
-	assert.deepEqual(readyRanges(r.db), [{ fromSec: 209000, toSec: 209900 }]);
-	assert.equal(
-		r.db.prepare(`SELECT COUNT(*) AS n FROM vital_ready_ranges WHERE to_sec>209900`).get().n,
-		0
-	);
-
-	// 余量改回默认 10 秒：右端随之推进到 209990，说明改参数立刻生效、不需要重启。
-	r.tunables.setHistoryTunable("minuteSettleSec", 10);
 	assert.equal(r.baseline.stableCeiling(now), 209990);
 	await r.baseline.classify(now);
 	assert.deepEqual(readyRanges(r.db), [{ fromSec: 209000, toSec: 209990 }]);
-});
 
-test("an invalid tunable value is ignored instead of corrupting the effective values", async (t) => {
-	const r = await setup(t);
-	// 0 视为清除覆盖、回落到默认；负数和未知 key 直接忽略。
-	r.tunables.setHistoryTunable("minuteSettleSec", -5);
-	assert.equal(r.tunables.getHistoryTunable("minuteSettleSec"), 10);
-	r.tunables.setHistoryTunable("noSuchKey", 30);
-	assert.equal(r.tunables.getHistoryTunable("noSuchKey"), 0);
-});
-
-test("resetting all tunables returns every key to its default", async (t) => {
-	const r = await setup(t);
-	r.tunables.setHistoryTunable("minuteSettleSec", 30);
-	r.tunables.setHistoryTunable("bridgeSec", 5);
-	r.tunables.resetHistoryTunables();
-	for (const key of r.tunables.getHistoryTunableKeys()) {
-		assert.equal(r.tunables.isHistoryTunableOverridden(key), false, key);
-	}
+	// markReady 使用同一个固定稳定边界，不能记入尚未稳定的最后 10 秒。
+	await r.baseline.markReady(209850, 210000, now);
+	assert.equal(
+		r.db.prepare(`SELECT COUNT(*) AS n FROM vital_ready_ranges WHERE to_sec>209990`).get().n,
+		0
+	);
 });
 
 /* ===== 协议解析（与基准模型无关，保留） ===== */
@@ -1190,7 +1212,6 @@ test("history failure ledger abandons only the exact page on its third verified 
 			abandonedAtSec: 2020
 		}
 	]);
-	assert.equal((await historyFailureStore.get(1120, 1240)), null);
 });
 
 test("history failure ledger clears a page after a later successful manual read", async (t) => {
@@ -1200,5 +1221,7 @@ test("history failure ledger clears a page after a later successful manual read"
 	);
 	await historyFailureStore.recordFailure(1000, 1120, 2000);
 	await historyFailureStore.clearRange(1000, 1120);
-	assert.equal(await historyFailureStore.get(1000, 1120), null);
+	const retried = await historyFailureStore.recordFailure(1000, 1120, 2010);
+	assert.equal(retried.failureCount, 1);
+	assert.equal(retried.abandoned, false);
 });

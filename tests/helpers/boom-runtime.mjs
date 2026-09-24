@@ -78,7 +78,7 @@ export async function createRuntime(t) {
 		}
 	};
 	const cache = new Map();
-	/** 运行时可调参数（`history/tunables.ts`）直接落在 state.storage 上，测试可预置覆盖值。 */
+	/** 为仍使用本地配置的生产模块提供可观测的存储替身。 */
 	const storageStub = {
 		storage: {
 			get: (key) => state.storage[key] ?? null,

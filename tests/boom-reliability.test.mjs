@@ -2315,7 +2315,7 @@ test("a successful manual abandoned-page retry clears its audit without rewindin
 	const result = await r.historyRepair.retryAbandonedRange(reader, before - 120, before);
 
 	assert.equal(result.status, "DONE");
-	assert.equal(await historyFailureStore.get(before - 120, before), null);
+	assert.deepEqual(await historyFailureStore.listAbandoned(), []);
 	assert.equal(await baseline.getBaseline(), before);
 });
 
