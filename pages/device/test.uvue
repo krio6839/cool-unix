@@ -194,7 +194,6 @@
 			:vital-text="vitalText"
 			:has-data="hasVitalData"
 			:auto-detail="vitalAutoDetail"
-			:raw-hex="vitalRawHex"
 			:busy="vitalAutoReading"
 			@submit="submitVitalFromPopup"
 			@stop="stopVitalAutoRead"
@@ -206,7 +205,6 @@
 			:event-items="eventItemsText"
 			:has-data="hasEventData"
 			:auto-detail="eventAutoDetail"
-			:raw-hex="eventRawHex"
 			:busy="eventAutoReading"
 			@submit="submitEventFromPopup"
 			@stop="stopEventAutoRead"
@@ -218,10 +216,7 @@
 			@command="runDeviceCommand"
 			@submit-form="submitDeviceForm"
 		/>
-		<DataDiagnosticsPopup
-			v-model:show="diagnosticsPopupVisible"
-			:protocol-logs="protocolLogText"
-		/>
+		<DataDiagnosticsPopup v-model:show="diagnosticsPopupVisible" />
 	</cl-page>
 </template>
 <script lang="ts" setup>
@@ -245,9 +240,7 @@ import type {
 	VibrationResult,
 	VibrationSpec,
 	VitalBiometric,
-	VitalDataQueryResponse,
-	ProtocolLogDirection,
-	ProtocolLogItem
+	VitalDataQueryResponse
 } from "@/.cool";
 import type { PpgPositionOption } from "@/.cool";
 import { useUi, type ClSelectOption } from "@/uni_modules/cool-ui";
@@ -307,7 +300,6 @@ type TestEntry = { key: TestEntryKey; label: string };
 const ui = useUi();
 const { device: deviceStore } = useStore();
 
-const protocolLogVisible = ref(false);
 const databasePopupVisible = ref(false);
 const historyGapRepairPopupVisible = ref(false);
 /**
@@ -431,41 +423,6 @@ const showVitalResultSection = ref<boolean>(true);
 const showEventResultSection = ref<boolean>(true);
 const showDeviceControlSection = ref<boolean>(false);
 const showMoreSection = ref<boolean>(false);
-const protocolLogs = computed<ProtocolLogItem[]>((): ProtocolLogItem[] => {
-	return deviceStore.protocolLogs.value.slice();
-});
-const protocolLogText = computed<string[]>((): string[] => {
-	const result: string[] = [];
-	for (const item of protocolLogs.value) {
-		result.push(
-			"[" +
-				item.direction +
-				"] " +
-				item.time +
-				" " +
-				item.title +
-				" " +
-				item.detail +
-				" " +
-				item.hex
-		);
-	}
-	return result;
-});
-
-function rawProtocolHex(first: string, second: string): string {
-	const result: string[] = [];
-	for (const item of protocolLogs.value) {
-		if ((item.title.indexOf(first) >= 0 || item.title.indexOf(second) >= 0) && item.hex != "") {
-			result.push(item.hex);
-		}
-	}
-	return result.length == 0 ? "-" : result.join("\n");
-}
-
-const vitalRawHex = computed<string>(() => rawProtocolHex("0x3A", "0x3B"));
-const eventRawHex = computed<string>(() => rawProtocolHex("0x3C", "0x3D"));
-
 function hasBoundBroadcastDebug(): boolean {
 	deviceStore.stateVersion.value;
 	return deviceStore.broadcastDebug.value != null;
@@ -575,10 +532,6 @@ function toggleMoreSection(): void {
 	showMoreSection.value = !showMoreSection.value;
 }
 
-function openProtocolLog(): void {
-	protocolLogVisible.value = true;
-}
-
 function openDatabasePopup(): void {
 	databasePopupVisible.value = true;
 }
@@ -591,19 +544,8 @@ function clearManualRawHex(): void {
 	manualRawHex.value = "";
 }
 
-function clearProtocolLogs(): void {
-	deviceStore.clearProtocolLogs();
-}
-
 function normalizeHexInput(hex: string): string {
 	return hex.replace(/\s|0x/g, "").toLowerCase();
-}
-
-function protocolLogColor(direction: ProtocolLogDirection): string {
-	if (direction == "TX") return "success";
-	if (direction == "RX") return "primary";
-	if (direction == "ERR") return "error";
-	return "warning";
 }
 
 function toByteHex(value: number): string {

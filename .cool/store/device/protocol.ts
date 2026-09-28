@@ -182,7 +182,6 @@ export class DeviceProtocol {
 		if (this.writeCharUuid == "") return false;
 		const frame = wrapDataIdentifier(encodeTlvc(t, vHex));
 		logger.info("bluetooth", `[BOOM-PROTO] sendTlvc t=0x${t.toString(16)}, frame=${frame}`);
-		this.device.addProtocolLog("TX", `0x${t.toString(16)} TLVC`, frame, `V=${vHex}`);
 		return writeCharacteristic(
 			this.device.currentDeviceId,
 			BOOM_GATT_SERVICE_UUID,
@@ -203,7 +202,6 @@ export class DeviceProtocol {
 		//#ifndef H5
 		if (this.writeCharUuid == "") return false;
 		logger.info("bluetooth", `[BOOM-PROTO] sendRawFrame frame=${hex}`);
-		this.device.addProtocolLog("TX", "RAW", hex, "手动/示例发送");
 		return writeCharacteristic(
 			this.device.currentDeviceId,
 			BOOM_GATT_SERVICE_UUID,

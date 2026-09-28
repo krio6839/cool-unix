@@ -37,6 +37,8 @@ import { logger } from "../../service/logger";
 
 const DUPLICATE_NOTIFY_WINDOW_MS = 150;
 const RECENT_NOTIFY_CACHE_MAX = 16;
+/** 每秒最多有多少帧原始 hex 直写诊断日志，超出只进 logcat。 */
+const RAW_FRAME_LOG_MAX_PER_SEC = 8;
 
 type RecentBoomNotify = {
 	hex: string;
@@ -85,6 +87,10 @@ export class EventHandler {
 	private _notifyListening: boolean = false;
 	private _notifyQueue: string[] = [];
 	private _notifyProcessing: boolean = false;
+	/** 原始帧直写诊断日志的帧率窗口起点 */
+	private _rawFrameWindowAt: number = 0;
+	/** 当前窗口内已直写诊断日志的原始帧数 */
+	private _rawFrameWindowCount: number = 0;
 
 	constructor(device: Device) {
 		this.device = device;
@@ -115,6 +121,8 @@ export class EventHandler {
 		this._vitalReassembler.reset();
 		this._notifyQueue = [];
 		this._notifyProcessing = false;
+		this._rawFrameWindowAt = 0;
+		this._rawFrameWindowCount = 0;
 		recentBoomNotifies = [];
 	}
 
@@ -155,11 +163,13 @@ export class EventHandler {
 		let tlvcHex = hexData;
 		this.notifySeqValue = this.notifySeqValue + 1;
 		this.lastNotifyAtValue = now;
-		// 每帧原始 hex 只进 logcat 和协议日志 tab。一次历史读取有上千帧，
-		// 每帧都镜像进诊断缓冲区会把业务日志挤出去；重组后的完整帧由下面的
-		// 「解析 0x..」记录，承载的是同一份数据而且更完整。
-		logger.consoleInfo("[BOOM] notify hex=" + hexData);
-		this.device.addProtocolLog("RX", "notify", hexData, "", false);
+		// 原始回帧的落点：手动测试协议时帧量小，直接进诊断日志便于事后翻查；
+		// 历史批量读取一轮上千帧，超过帧率上限后只进 logcat，避免把业务日志挤出去。
+		if (this.shouldRecordRawFrame(now) == true) {
+			logger.info("bluetooth", "[BOOM] notify hex=" + hexData);
+		} else {
+			logger.consoleInfo("[BOOM] notify hex=" + hexData);
+		}
 
 		let f = decodeTlvc(tlvcHex);
 		if (f == null) {
@@ -201,7 +211,6 @@ export class EventHandler {
 		}
 		if (f == null) {
 			logger.warn("bluetooth", "[BOOM] CRC 校验失败:", tlvcHex);
-			this.device.addProtocolLog("ERR", "CRC 校验失败", tlvcHex, "");
 			return;
 		}
 		logger.info(
@@ -210,16 +219,8 @@ export class EventHandler {
 		);
 		if (f.l == 0) {
 			logger.warn("bluetooth", `[BOOM] 设备返回参数或格式错误: t=0x${f.t.toString(16)}`);
-			this.device.addProtocolLog("ERR", `0x${f.t.toString(16)} 空响应`, tlvcHex, "");
 			return;
 		}
-		this.device.addProtocolLog(
-			"INFO",
-			`解析 0x${f.t.toString(16)}`,
-			tlvcHex,
-			`L=${f.l}, V=${f.v}`
-		);
-
 		if (f.t == BOOM_CMD.READ_EVENT_DATA_START || f.t == BOOM_CMD.READ_EVENT_DATA_CONTINUE) {
 			logger.info("bluetooth", `[BOOM] 分发事件响应: t=0x${f.t.toString(16)}`);
 			this.device.history.handleEventData(f.v, f.t);
@@ -273,6 +274,22 @@ export class EventHandler {
 			default:
 				logger.info("bluetooth", "[BOOM] 未知 T:", f.t, "数据:", hexData);
 		}
+	}
+
+	/**
+	 * 每帧原始 hex 是否直写诊断日志。
+	 *
+	 * 测试协议时可能几秒才一帧，全量记下来才查得到「设备到底回了什么」；
+	 * 历史读取是连续高速流，逐帧写会很快把 1000 条缓冲区冲干净，
+	 * 所以按每秒帧数限流：超出的帧仍进 logcat，只是不进诊断日志。
+	 */
+	private shouldRecordRawFrame(now: number): boolean {
+		if (now - this._rawFrameWindowAt >= 1000) {
+			this._rawFrameWindowAt = now;
+			this._rawFrameWindowCount = 0;
+		}
+		this._rawFrameWindowCount = this._rawFrameWindowCount + 1;
+		return this._rawFrameWindowCount <= RAW_FRAME_LOG_MAX_PER_SEC;
 	}
 
 	private isDuplicateNotify(hexData: string, now: number): boolean {

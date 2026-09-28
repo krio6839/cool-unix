@@ -47,8 +47,7 @@
 				><text>{{ props.eventHeader }}</text
 				><text>{{ t("事件数量") }}：{{ props.eventCount }}</text
 				><text>{{ props.eventItems }}</text
-				><text>{{ props.autoDetail }}</text
-				><text>{{ t("原始数据") }}：{{ props.rawHex }}</text></view
+				><text>{{ props.autoDetail }}</text></view
 			></scroll-view
 		></cl-popup
 	>

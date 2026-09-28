@@ -168,7 +168,7 @@ test("six popup components keep their responsibilities and bottom full-height pr
 		VitalProtocolPopup: ["0x3A", "0x3B", "cl-select-date", "协议秒"],
 		EventProtocolPopup: ["0x3C", "0x3D", "cl-select-date", "协议秒"],
 		DeviceControlPopup: ["disconnect", "restore", "clear-error"],
-		DataDiagnosticsPopup: ["upload", "协议日志", "诊断日志"]
+		DataDiagnosticsPopup: ["upload", "诊断日志"]
 	};
 	for (const [name, markers] of Object.entries(expectations)) {
 		const source = await readFile(`pages/device/components/${name}.uvue`, "utf8");

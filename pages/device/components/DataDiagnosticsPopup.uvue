@@ -3,7 +3,6 @@
 		<scroll-view class="p-4 db-popup" scroll-y="true" style="height: 100%">
 			<view class="diagnostic-tabs">
 				<cl-button type="light" size="small" @tap="tab = 'database'">数据库</cl-button>
-				<cl-button type="light" size="small" @tap="tab = 'protocol'">协议日志</cl-button>
 				<cl-button type="light" size="small" @tap="tab = 'diagnostic'">诊断日志</cl-button>
 			</view>
 			<view v-if="tab != 'database'" class="log-card">
@@ -16,14 +15,8 @@
 						>刷新诊断日志</cl-button
 					>
 				</view>
-				<text
-					v-for="(line, i) in tab == 'protocol' ? protocolLogs : diagnosticRows"
-					:key="i"
-					>{{ line }}</text
-				>
-				<text v-if="(tab == 'protocol' ? protocolLogs : diagnosticRows).length == 0"
-					>暂无日志</text
-				>
+				<text v-for="(line, i) in diagnosticRows" :key="i">{{ line }}</text>
+				<text v-if="diagnosticRows.length == 0">暂无日志</text>
 			</view>
 			<view v-if="tab == 'database'">
 				<view class="mb-4 p-3 bg-gray-800 rounded">
@@ -165,18 +158,13 @@ const show = defineModel("show", {
 	default: false
 });
 const props = defineProps<DataDiagnosticsPopupProps>();
-const protocolLogs = computed<string[]>((): string[] => {
-	const value = props.protocolLogs;
-	if (value == null) return [];
-	return value;
-});
 const diagnosticLogs = computed<string[]>((): string[] => {
 	const value = props.diagnosticLogs;
 	if (value == null) return [];
 	return value;
 });
 const diagnosticRows = ref<string[]>(diagnosticLogs.value);
-const tab = ref<"database" | "protocol" | "diagnostic">("database");
+const tab = ref<"database" | "diagnostic">("database");
 
 async function loadDiagnosticLogs(): Promise<void> {
 	diagnosticRows.value = await diagnostics.getLogsAsync(200);

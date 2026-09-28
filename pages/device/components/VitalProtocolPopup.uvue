@@ -51,8 +51,7 @@
 				<text>{{ props.vitalText.status }}</text>
 				<text>{{ props.vitalText.rmssdSdnn }}</text>
 				<text>{{ props.vitalText.vital }}</text>
-				<text>{{ props.autoDetail }}</text>
-				<text>{{ t("原始响应") }}：{{ props.rawHex }}</text></view
+				<text>{{ props.autoDetail }}</text></view
 			>
 		</scroll-view>
 	</cl-popup>

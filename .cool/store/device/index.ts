@@ -15,7 +15,6 @@
 import { ref } from "vue";
 import { storage } from "../../utils";
 import { t } from "../../locale";
-import type { DiagnosticLogLevel } from "../../service/diagnostics";
 import { logger } from "../../service/logger";
 import { realtime } from "../realtime";
 import type { ClActionSheetOptions, ClActionSheetItem } from "@/uni_modules/cool-ui";
@@ -77,17 +76,6 @@ export type ShowDevicePickerOptions = {
 	list?: DeviceInfo[];
 };
 
-export type ProtocolLogDirection = "TX" | "RX" | "INFO" | "ERR";
-
-export type ProtocolLogItem = {
-	id: number;
-	time: string;
-	direction: ProtocolLogDirection;
-	title: string;
-	hex: string;
-	detail: string;
-};
-
 const BROADCAST_ONLINE_WINDOW_MS = 10 * 1000;
 
 export class Device {
@@ -123,9 +111,6 @@ export class Device {
 	/** 0x50 广播调试信息（raw + 解析摘要） */
 	broadcastDebug = ref<BroadcastDebugInfo | null>(null);
 
-	/* ===== 协议调试日志 ===== */
-	protocolLogs = ref<ProtocolLogItem[]>([]);
-	private _protocolLogId = 0;
 	readonly gattLock = new DeviceGattTaskLock();
 
 	/* ===== 子管理器 ===== */
@@ -425,43 +410,6 @@ export class Device {
 		this.status.value = "UNPAIRED";
 		this.errorMessage.value = message;
 		this.touchState();
-	}
-
-	/**
-	 * 追加协议调试日志，最多保留最近 80 条。
-	 *
-	 * `mirror` 控制是否同时写一份到诊断日志缓冲区。诊断缓冲区只有 1000 条，
-	 * 而一页生命体征会被底层拆成十几帧 notify，逐帧镜像会把它冲干净；
-	 * 拆帧级日志只留在协议日志 tab，诊断日志保留重组后的完整帧。
-	 */
-	addProtocolLog(
-		direction: ProtocolLogDirection,
-		title: string,
-		hex: string = "",
-		detail: string = "",
-		mirror: boolean = true
-	): void {
-		this._protocolLogId++;
-		const now = new Date();
-		const item: ProtocolLogItem = {
-			id: this._protocolLogId,
-			time: now.toLocaleTimeString(),
-			direction,
-			title,
-			hex,
-			detail
-		};
-		const next = [item].concat(this.protocolLogs.value);
-		this.protocolLogs.value = next.slice(0, 80);
-		if (mirror == false) return;
-		const level: DiagnosticLogLevel = direction == "ERR" ? "error" : "info";
-		const hexText = hex.length > 220 ? `${hex.substring(0, 220)}...` : hex;
-		logger.record(level, "bluetooth", `[${direction}] ${title}`, `${detail}\n${hexText}`);
-	}
-
-	/** 清空协议调试日志 */
-	clearProtocolLogs(): void {
-		this.protocolLogs.value = [];
 	}
 
 	/* ===== 资源管理 ===== */

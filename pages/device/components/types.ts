@@ -40,7 +40,6 @@ export type VitalProtocolPopupProps = {
 	vitalText: VitalPopupText;
 	hasData: boolean;
 	autoDetail: string;
-	rawHex: string;
 	busy: boolean;
 };
 export type VitalPopupPayload = { startSec: string; direction: number; minutes: number };
@@ -50,7 +49,6 @@ export type EventProtocolPopupProps = {
 	eventItems: string;
 	hasData: boolean;
 	autoDetail: string;
-	rawHex: string;
 	busy: boolean;
 };
 export type EventPopupPayload = {
@@ -70,4 +68,4 @@ export type DevicePopupPayload = {
 };
 export type DeviceControlPopupProps = { busy: boolean; isDisabled: (cmd: string) => boolean };
 export type DeviceReadItem = { cmd: string; label: string };
-export type DataDiagnosticsPopupProps = { protocolLogs?: string[]; diagnosticLogs?: string[] };
+export type DataDiagnosticsPopupProps = { diagnosticLogs?: string[] };
