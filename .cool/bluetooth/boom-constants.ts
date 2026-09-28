@@ -51,12 +51,6 @@ export const BOOM_CMD: BoomCmd = {
 
 /* ===== 0x3A/0x3B 生命体征数据常量 ===== */
 
-/** 每秒生命体征数据"无效"标记（结构定义中 hr=0x00） */
-export const VITAL_DATA_INVALID = 0x00;
-/** 每秒生命体征数据"空白"标记（hr=0xFE 表示尚未采集） */
-export const VITAL_DATA_BLANK = 0xfe;
-/** 响应中的全 FF 空记录，其 heart_rate 为 0xFF */
-export const VITAL_DATA_ALL_FF = 0xff;
 /** 0x3A/0x3B 请求 V Byte 5：每次只能读 2 或 5 分钟 */
 export const VITAL_MINUTES_OPTIONS: number[] = [2, 5];
 /** 0x3A 请求 V Byte 4：方向（0=向前，1=向后） */

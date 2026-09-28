@@ -1,13 +1,6 @@
 // ==================== 上传接口常量 ====================
 
 /**
- * 最大数据保存时间（毫秒）- 90天
- */
-export const MAX_DATA_AGE = 90 * 24 * 60 * 60 * 1000;
-
-// const UPLOAD_URL = "http://47.100.30.18:8000/upload";
-
-/**
  * PPI数据上传接口完整地址
  */
 export const UPLOAD_PPI_URL = "/upload/ppi";

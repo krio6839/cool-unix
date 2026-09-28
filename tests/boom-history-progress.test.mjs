@@ -658,6 +658,9 @@ test("realtime metric display preserves zero and labels only nonzero invalid val
 	assert.equal(formatRealtimeMetric(0, false, 1), "0");
 	assert.equal(formatRealtimeMetric(-1, false, 0), "invalid");
 	assert.equal(formatRealtimeMetric(86.3, true, 1), "86.3");
+	// float32 的 rmssd 转成 double 会带尾数，0 位小数必须取整，不能原样 toString
+	assert.equal(formatRealtimeMetric(41.60000228881836, true, 0), "42");
+	assert.equal(formatRealtimeMetric(32.400001525878906, true, 0), "32");
 });
 
 test("truncated vital response is rejected instead of being treated as a short page", async (t) => {
@@ -804,6 +807,36 @@ test("a protocol-valid short page accounts its whole declared range", async (t) 
 	assert.equal(read.status, "DONE");
 	assert.equal(read.responses.length, 0, "automatic persisted repair must not retain every decoded page");
 	// 短页也按它声明的完整 `n` 分钟记账：只按返回的秒数记，短页尾部会永远留在未记账状态。
+	assert.equal(await r.baseline.getBaseline(), start + 120);
+});
+
+test("a read window starting after the baseline persists data without advancing it", async (t) => {
+	const r = await setup(t);
+	const now = Math.floor(Date.now() / 1000);
+	const start = now - 240;
+	const window = page(start, 120);
+	// `B` 停在窗口之前 600 秒。这段既没读过、设备也没确认过，所以这一轮必须降级成只落库：
+	// `advanceAccounted` 只会抬高 `B`，照记就等于把那 600 秒抹成「已记账」。
+	await r.prime(start - 600, start - 600);
+
+	const read = await readerReturning(r, window).readVitalRangeForward(start, start + 120);
+
+	assert.equal(read.skippedAccounting, true);
+	assert.equal(read.savedRecords, 120);
+	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data").get().n, 120);
+	assert.equal(await r.baseline.getBaseline(), start - 600, "later start must not move B");
+});
+
+test("a read window starting at the baseline still accounts normally", async (t) => {
+	const r = await setup(t);
+	const now = Math.floor(Date.now() / 1000);
+	const start = now - 240;
+	const window = page(start, 120);
+	await r.prime(start, start);
+
+	const read = await readerReturning(r, window).readVitalRangeForward(start, start + 120);
+
+	assert.equal(read.skippedAccounting, false);
 	assert.equal(await r.baseline.getBaseline(), start + 120);
 });
 

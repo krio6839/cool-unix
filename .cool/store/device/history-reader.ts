@@ -57,6 +57,11 @@ export type VitalAutoReadResult = {
 	stoppedByLimit: boolean;
 	savedRecords: number;
 	saveOk: boolean;
+	/**
+	 * 本轮被跳过的记账。窗口左端晚于 `B` 时为 `true`：数据照常落库，`B` 一步不动。
+	 * 见 `readVitalRange` 里的记账前提。
+	 */
+	skippedAccounting: boolean;
 	uploadAttempted: boolean;
 	uploadScheduled: boolean;
 	uploadOk: boolean;
@@ -65,12 +70,33 @@ export type VitalAutoReadResult = {
 };
 
 /**
+ * 手动读取的可选项。生产调用（`repairFromBaseline`）传 `null`，行为等同于正式链路的默认：
+ * 不保留页面、不接受外部停止、日志标签是「基准补录」。测试页靠这三个开关把手动读取接到
+ * 同一条链路上，而不是另开一条旁路。
+ */
+export type VitalRangeReadOptions = {
+	/** 保留本次解析的每一页供导出；自动补录不需要，长读取期间留在内存里是浪费。 */
+	retainResponses?: boolean;
+	/** 外部停止信号（测试页的「停止当前读取」），与内部结束条件取或。 */
+	shouldStop?: (() => boolean) | null;
+	/** 日志标签；`null` 时用「基准补录」。 */
+	label?: string;
+};
+
+/**
  * 历史补录编排只依赖读取层公开的「一段顺序读取」能力：窗口两端由 `B` 与 `stableCeiling`
  * 给出，不需要先在本地推出一张待补区间清单。
+ *
+ * `options` **必须显式传**，不需要就传 `null`。UTS 里实现接口的方法算覆盖，覆盖方法不许声明
+ * 默认值；接口上的 `options?` 也不会被生成成默认值，写成可选一样会报「No value passed」。
  */
 export interface RangeReader {
 	resetVitalResponseState(): void;
-	readVitalRangeForward(fromSec: number, toSec: number): Promise<VitalAutoReadResult>;
+	readVitalRangeForward(
+		fromSec: number,
+		toSec: number,
+		options: VitalRangeReadOptions | null
+	): Promise<VitalAutoReadResult>;
 }
 
 export type EventAutoReadOptions = {
@@ -346,13 +372,26 @@ export class DeviceHistoryReader implements RangeReader {
 	}
 
 	/**
-	 * 从基准 `B` 向更新方向顺序读 `[fromSec, toSec)`。这是自动补录的唯一入口。
+	 * 向更新方向顺序读 `[fromSec, toSec)`。自动补录与测试页的手动读取走的是这一条链路。
 	 *
-	 * 设备在 `direction=1` 下会跳过没记录的时间、直接给下一段有数据的页，所以从 `B` 一路读下去
+	 * 设备在 `direction=1` 下会跳过没记录的时间、直接给下一段有数据的页，所以一路读下去
 	 * 就是完整的补录，不必先在本地算出一张待补区间清单再逐段翻页。
+	 *
+	 * **`fromSec` 应当就是当前的 `B`**（自动补录、以及测试页的「从基准 B 读取」都满足）。
+	 * 传更晚的起点是允许的，但那会跳过 `[B, fromSec)`：这段既没读过、设备也没确认过，
+	 * 所以 `readVitalRange` 会把本轮降级成「只落库不记账」。
+	 *
+	 * `options` 不能给默认值：本方法实现 `RangeReader`，UTS 不许覆盖方法声明默认值。不需要
+	 * 可选项时显式传 `null`。
 	 */
-	async readVitalRangeForward(fromSec: number, toSec: number): Promise<VitalAutoReadResult> {
-		return await this.readVitalRange("基准补录", fromSec, toSec);
+	async readVitalRangeForward(
+		fromSec: number,
+		toSec: number,
+		options: VitalRangeReadOptions | null
+	): Promise<VitalAutoReadResult> {
+		let label = "基准补录";
+		if (options != null && options.label != null) label = options.label!;
+		return await this.readVitalRange(label, fromSec, toSec, options);
 	}
 
 	/**
@@ -366,16 +405,37 @@ export class DeviceHistoryReader implements RangeReader {
 	 * 设备跳过区间是**正常路径**：设备关机 / 未佩戴时会把这段直接略过、给一个更晚的页，
 	 * 首包落在窗口内部之后说明中间那段设备确实没有数据；`startSec == 0` 则表示 `startSec`
 	 * 之后一个字节都没有。两者都是「设备已确认无数据」，`B` 直接推过去。
+	 *
+	 * **记账前提是 `startSec <= B`。** `advanceAccounted` 只会抬高 `B`，所以从更晚的起点读时，
+	 * 第一页的页终点就会把 `[B, startSec)` 这段**既没读过、设备也没确认过**的秒记成已记账，
+	 * 等于平白抹掉一段补录机会。这种情况降级成「只落库不记账」，并如实报给调用方。
 	 */
 	private async readVitalRange(
 		label: string,
 		startSec: number,
-		anchor: number
+		anchor: number,
+		options: VitalRangeReadOptions | null
 	): Promise<VitalAutoReadResult> {
 		const boundDeviceId = this.device.boundDeviceId;
 		if (boundDeviceId == "") return this.makeVitalResult("STOPPED", "no bound device", 0, []);
 		if (anchor <= startSec)
 			return this.makeVitalResult("STOPPED", "read window is empty", 0, []);
+		let retainResponses = false;
+		let externalStop: (() => boolean) | null = null;
+		if (options != null) {
+			if (options.retainResponses == true) retainResponses = true;
+			if (options.shouldStop != null) externalStop = options.shouldStop!;
+		}
+		// 记账判定放在占用 GATT 任务之前：这中间只有一次读库，但它会抛，抛了就没有 finally
+		// 去 `endGattTask`，通道会一直显示为忙。
+		const currentBaseline = await historyBaseline.getBaseline();
+		const account = startSec <= currentBaseline;
+		if (account == false) {
+			logger.warn(
+				"bluetooth",
+				`[BOOM-HISTORY] ${label}起点晚于基准，本轮只落库不记账: window=${startSec}~${anchor}, B=${currentBaseline}`
+			);
+		}
 		if (this.device.beginGattTask("vitalHistory") == false)
 			return this.makeVitalResult("STOPPED", "gatt busy", 0, []);
 		this.setDisplaySuspended(true);
@@ -396,7 +456,7 @@ export class DeviceHistoryReader implements RangeReader {
 		try {
 			logger.info(
 				"bluetooth",
-				`[BOOM-HISTORY] ${label}开始: window=${startSec}~${anchor}, anchor=${startSec}, minutes=${VITAL_READ_MINUTES}, direction=${VITAL_READ_DIRECTION}`
+				`[BOOM-HISTORY] ${label}开始: window=${startSec}~${anchor}, anchor=${startSec}, minutes=${VITAL_READ_MINUTES}, direction=${VITAL_READ_DIRECTION}, 记账=${account}`
 			);
 			const result = await this.readVitalDataAutoInner({
 				startSec: startSec,
@@ -405,8 +465,12 @@ export class DeviceHistoryReader implements RangeReader {
 				maxPages: 0,
 				timeoutMs: DEFAULT_TIMEOUT_MS,
 				pageDelayMs: DEFAULT_PAGE_DELAY_MS,
-				retainResponses: false,
-				shouldStop: () => stopRead || this.device.boundDeviceId != boundDeviceId,
+				retainResponses: retainResponses,
+				shouldStop: () => {
+					if (stopRead) return true;
+					if (this.device.boundDeviceId != boundDeviceId) return true;
+					return externalStop != null && externalStop!();
+				},
 				persistPage: async (response) => {
 					try {
 						if (this.device.boundDeviceId != boundDeviceId)
@@ -414,12 +478,14 @@ export class DeviceHistoryReader implements RangeReader {
 						const nowSec = Math.floor(Date.now() / 1000);
 						if (response.startSec == 0) {
 							// 设备声明 `startSec` 之后没有更多数据：剩下整段确认无数据。
-							await historyBaseline.advanceAccounted(anchor, nowSec);
-							confirmed += anchor - accountedUntil;
-							logger.info(
-								"bluetooth",
-								`[BOOM-HISTORY] 设备无数据确认: window=${accountedUntil}~${anchor}, confirmed秒=${anchor - accountedUntil}`
-							);
+							if (account == true) {
+								await historyBaseline.advanceAccounted(anchor, nowSec);
+								confirmed += anchor - accountedUntil;
+								logger.info(
+									"bluetooth",
+									`[BOOM-HISTORY] 设备无数据确认: window=${accountedUntil}~${anchor}, confirmed秒=${anchor - accountedUntil}`
+								);
+							}
 							stopRead = true;
 							return true;
 						}
@@ -441,34 +507,38 @@ export class DeviceHistoryReader implements RangeReader {
 						if (response.startSec >= anchor) {
 							// 设备直接跳到窗口右端之外：`[accountedUntil, anchor)` 整段无数据。
 							// 按「没返回就是没有」收尾，不当作读取失败。
-							await historyBaseline.advanceAccounted(anchor, nowSec);
-							confirmed += anchor - accountedUntil;
-							logger.info(
-								"bluetooth",
-								`[BOOM-HISTORY] 设备跳到窗口之后，按无数据收尾: page=${response.startSec}, window=${accountedUntil}~${anchor}, confirmed秒=${anchor - accountedUntil}`
-							);
+							if (account == true) {
+								await historyBaseline.advanceAccounted(anchor, nowSec);
+								confirmed += anchor - accountedUntil;
+								logger.info(
+									"bluetooth",
+									`[BOOM-HISTORY] 设备跳到窗口之后，按无数据收尾: page=${response.startSec}, window=${accountedUntil}~${anchor}, confirmed秒=${anchor - accountedUntil}`
+								);
+							}
 							stopRead = true;
 							return true;
 						}
 						if (response.startSec > accountedUntil) {
 							// 跳页确认：设备把没记录的这段直接略过（关机 / 未佩戴）。正常路径，
 							// 不是失败——按「设备已确认无数据」记账，`B` 才能越过它继续往前。
-							await historyBaseline.advanceAccounted(
-								Math.min(anchor, response.startSec),
-								nowSec
-							);
-							confirmed += response.startSec - accountedUntil;
-							logger.info(
-								"bluetooth",
-								`[BOOM-HISTORY] 设备跳过无数据段: ${accountedUntil}~${response.startSec}, confirmed秒=${response.startSec - accountedUntil}`
-							);
+							if (account == true) {
+								await historyBaseline.advanceAccounted(
+									Math.min(anchor, response.startSec),
+									nowSec
+								);
+								confirmed += response.startSec - accountedUntil;
+								logger.info(
+									"bluetooth",
+									`[BOOM-HISTORY] 设备跳过无数据段: ${accountedUntil}~${response.startSec}, confirmed秒=${response.startSec - accountedUntil}`
+								);
+							}
 						}
 						for (let i = 0; i < response.vitalData.length; i++) {
 							pageSeconds++;
 							if (response.vitalData[i].valid == true) validSeconds++;
 							else invalidSeconds++;
 						}
-						saved += await this.saveVitalPage(response, startSec, anchor);
+						saved += await this.saveVitalPage(response, startSec, anchor, account);
 						lastStart = response.startSec;
 						// 记账右端跟着页走：页声明的范围就是「设备回答过这一段」，哪怕整页
 						// 都是全 FF 也要推进，否则下一轮又来读同一段。
@@ -487,6 +557,7 @@ export class DeviceHistoryReader implements RangeReader {
 			result.savedRecords = saved;
 			result.uploadScheduled = saved > 0;
 			result.saveOk = saveOk;
+			result.skippedAccounting = account == false;
 			// 页面重复/回跳与无回复超时是不同状态，但由补录层复用同一页级失败策略。
 			if (pageStalled == true) result.status = "PAGE_STALLED";
 			if (result.status == "TIMEOUT" || result.status == "PAGE_STALLED") {
@@ -541,11 +612,14 @@ export class DeviceHistoryReader implements RangeReader {
 	 *
 	 * 无效秒（全 `FF`）不写 `ppi_data`，但它们同样是「设备确认这里没有」，所以整页范围仍然
 	 * 让 `B` 前进。若只有取到数据才算数，设备确实没记录的那一分钟会永远不合格、`B` 永远卡死。
+	 *
+	 * `account` 为 `false` 时只落库：窗口左端晚于 `B`，这段记账会越过没读过的秒。
 	 */
 	private async saveVitalPage(
 		page: VitalDataQueryResponse,
 		fromSec: number,
-		toSec: number
+		toSec: number,
+		account: boolean
 	): Promise<number> {
 		const nowSec = Math.floor(Date.now() / 1000);
 		// 协议规定短页表示“这一段里只有前一部分有有效数据”：有效秒按实际返回内容落库，
@@ -583,11 +657,11 @@ export class DeviceHistoryReader implements RangeReader {
 		// `stableCeiling`，也不越过本次读取窗口的右端。
 		const pageLimit = Math.min(toSec, pageEnd);
 		const accountedTo = Math.min(pageLimit, historyBaseline.stableCeiling(nowSec));
-		if (accountedTo > page.startSec)
+		if (account == true && accountedTo > page.startSec)
 			await historyBaseline.advanceAccounted(pageLimit, nowSec);
 		logger.info(
 			"bluetooth",
-			`[BOOM-HISTORY] 页落库: page=${page.startSec}, 新增秒=${values.length}, 记账到=${accountedTo}`
+			`[BOOM-HISTORY] 页落库: page=${page.startSec}, 新增秒=${values.length}, 记账到=${account == true ? accountedTo : "跳过"}`
 		);
 		return values.length;
 	}
@@ -878,6 +952,7 @@ export class DeviceHistoryReader implements RangeReader {
 			stoppedByLimit: status == "LIMIT",
 			savedRecords: 0,
 			saveOk: true,
+			skippedAccounting: false,
 			uploadAttempted: false,
 			uploadScheduled: false,
 			uploadOk: false,

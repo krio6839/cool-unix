@@ -1,7 +1,13 @@
 <template>
 	<cl-popup v-model="show" :title="t('快速历史读取')" direction="bottom" :size="680">
 		<scroll-view class="popup-body" scroll-y="true">
-			<text class="help">{{ t("连续读取近一天、三天或一周的历史数据。") }}</text>
+			<text class="help">{{
+				t(
+					"与自动补录走同一条链路：从窗口起点向更新方向逐页读取、逐页落库、逐页记账。起点就是基准 B 时读到的秒会推进基准；起点晚于 B 时本轮只落库不记账。"
+				)
+			}}</text>
+			<!-- 读之前先看见 B，才知道随手点一个「近一天」会不会落在基准之前。 -->
+			<text class="baseline-info">{{ props.baselineInfo }}</text>
 			<view class="range-grid">
 				<cl-button
 					v-for="days in [1, 3, 7]"
@@ -13,6 +19,15 @@
 					:disabled="props.busy"
 					@tap="emit('read-range', days)"
 					>{{ t("读取近") }} {{ days == 7 ? t("一周") : days + t("天") }}</cl-button
+				>
+				<cl-button
+					type="primary"
+					color="#7c3aed"
+					rounded
+					size="small"
+					:disabled="props.busy"
+					@tap="emit('read-from-baseline')"
+					>{{ t("从基准 B 读取") }}</cl-button
 				>
 			</view>
 			<view class="status-card">
@@ -51,7 +66,7 @@ import { t } from "@/.cool";
 import type { HistoryQuickReadPopupProps } from "./types";
 const show = defineModel("show", { default: false });
 const props = defineProps<HistoryQuickReadPopupProps>();
-const emit = defineEmits(["read-range", "stop", "export"]);
+const emit = defineEmits(["read-range", "read-from-baseline", "stop", "export"]);
 </script>
 <style lang="scss" scoped>
 .popup-body {
@@ -63,6 +78,12 @@ const emit = defineEmits(["read-range", "stop", "export"]);
 	color: #9ca3af;
 	font-size: 12px;
 	line-height: 18px;
+}
+.baseline-info {
+	color: #a7f3d0;
+	font-size: 12px;
+	line-height: 18px;
+	margin-top: 8px;
 }
 .range-grid {
 	display: flex;

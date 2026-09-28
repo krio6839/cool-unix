@@ -92,10 +92,29 @@ test("quick vital history offers export after retaining all parsed pages", async
 	assert.equal(source.includes("保存到下载"), true);
 	assert.equal(source.includes("Download/BOOM"), true);
 	assert.equal(source.includes("停止当前读取"), true);
-	assert.equal(
-		source.includes("shouldStop: () => vitalAutoReading.value == false || reachedTarget"),
-		true
+	// 手动读取不许再走 `readVitalDataAuto` 那条旁路：它既不带方向 1，也不记账，
+	// 所以这里盯住手动读取函数本体，只认 `readVitalRangeForward` + 保留页面 + 可中断。
+	const manual = source.slice(
+		source.indexOf("async function runManualHistoryRead("),
+		source.indexOf("async function testVitalHistoryRange(")
 	);
+	assert.equal(manual.includes("readVitalRangeForward(fromSec, toSec, {"), true);
+	assert.equal(manual.includes("retainResponses: true"), true);
+	assert.equal(manual.includes("shouldStop: () => vitalAutoReading.value == false,"), true);
+	assert.equal(manual.includes("readVitalDataAuto("), false);
+	// 旧旁路固定方向 0（向过去翻页），手动读取不再有理由出现它。
+	assert.equal(manual.includes("direction: 0"), false);
+	assert.equal(manual.includes("reachedTarget"), false);
+});
+
+test("quick vital history points at the baseline instead of guessing the window", async () => {
+	const source = await readFile("pages/device/test.uvue", "utf8");
+	// 起点晚于 `B` 时只落库：把这件事报出来，否则读的人会以为这段已经并进基准了。
+	assert.equal(source.includes("result.skippedAccounting"), true);
+	assert.equal(source.includes("起点晚于基准 B，本轮只落库不记账"), true);
+	// 「从基准 B 读取」是四个窗口里唯一不会跳过没读过的秒的那一个。
+	assert.equal(source.includes("readHistoryFromBaseline"), true);
+	assert.equal(source.includes("refreshQuickBaseline"), true);
 });
 
 test("Android CSV export writes into the public Download/BOOM directory", async () => {
@@ -150,6 +169,7 @@ test("test page exposes six independent full-height popup entry points", async (
 	assert.equal(source.includes('@tap="openTestEntry(entry.key)"'), true);
 	for (const binding of [
 		'@read-range="testVitalHistoryRange"',
+		'@read-from-baseline="readHistoryFromBaseline"',
 		'@stop="stopVitalAutoRead"',
 		'@export="exportVitalHistoryCsv"',
 		'@repair="repairHistoryWindow"',
@@ -165,7 +185,7 @@ test("test page exposes six independent full-height popup entry points", async (
 
 test("six popup components keep their responsibilities and bottom full-height presentation", async () => {
 	const expectations = {
-		HistoryQuickReadPopup: ["read-range", "stop", "export"],
+		HistoryQuickReadPopup: ["read-range", "read-from-baseline", "stop", "export"],
 		HistoryRepairPopup: ["repairWindow", "historyBaseline.snapshot", "scheduleOpenRefresh"],
 		VitalProtocolPopup: ["0x3A", "0x3B", "cl-select-date", "协议秒"],
 		EventProtocolPopup: ["0x3C", "0x3D", "cl-select-date", "协议秒"],
@@ -372,8 +392,8 @@ test("history repair popup still maps a no-data read result to readable text", a
 	// 设备返回段早于目标窗口按“没有数据”收尾，不再是一种失败文案。
 	assert.equal(reader.includes("device history page earlier than target"), false);
 	assert.equal(page.includes("设备返回页面早于目标范围"), false);
-	assert.equal(page.includes("补录完成：设备未返回有效生命体征"), true);
-	assert.equal(page.includes("historyRepairResultText"), true);
+	assert.equal(page.includes("读取完成：设备未返回有效生命体征"), true);
+	assert.equal(page.includes("historyReadResultText"), true);
 	assert.equal(page.includes('return result.saveOk && result.status == "DONE"'), true);
 	// GATT 任务名与取模常量都不再挂着旧的「缺口」叫法。
 	assert.equal(reader.includes('"vitalHistory"'), true);

@@ -30,14 +30,6 @@ export function encodeU16BE(n: number): string {
 }
 
 /**
- * I16 LE 编码：负数自动转补码，如 -1 → "ffff"
- */
-export function encodeI16LE(n: number): string {
-	const v = n < 0 ? n + 0x10000 : n;
-	return encodeU16LE(v);
-}
-
-/**
  * U32 LE 编码：4 字节 hex，LSB 在前
  */
 export function encodeU32LE(n: number): string {

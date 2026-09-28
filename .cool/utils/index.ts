@@ -11,5 +11,4 @@ export * from "./unit";
 export * from "./format";
 export * from "./date";
 export * from "./sleepTimeout";
-export * from "./page-waiter";
 export * from "./resume";

@@ -39,7 +39,7 @@ export async function repairFromBaseline(
 		"bluetooth",
 		`[BOOM-HISTORY] 开始补录: B=${baseline}, 窗口=${baseline}~${ceiling}, 窗口秒=${ceiling - baseline}, 连接开始=${startedAt}`
 	);
-	const read = await reader.readVitalRangeForward(baseline, ceiling);
+	const read = await reader.readVitalRangeForward(baseline, ceiling, null);
 	const stopReason = await resolveStopReason(reader, probe, read);
 	// `B` 推到哪、还剩多少活，都由读取链路逐页记账后的实际值给出。落库的秒由
 	// `readVitalRange` 的 finally 通过 `scheduleUpload()` 排空，这里不重复触发。

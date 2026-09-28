@@ -90,9 +90,6 @@ import type { WearLocation, WearLocationOption } from "@/.cool/store/device";
 // #ifndef H5
 import DeviceHealthWarning from "./components/DeviceHealthWarning.uvue";
 // #endif
-// #ifndef H5
-import type { BLEDeviceCharacteristic } from "@/.cool/bluetooth";
-// #endif
 
 const { device: deviceStore } = useStore();
 const ui = useUi();

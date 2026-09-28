@@ -16,6 +16,8 @@ export type HistoryQuickReadPopupProps = {
 	pages: number;
 	seconds: number;
 	days: number;
+	/** 常驻基准行：`B` / 记账上限 / 落后量。起点晚于 `B` 会触发「只落库不记账」。 */
+	baselineInfo: string;
 	busy: boolean;
 	exportCount: number;
 };

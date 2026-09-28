@@ -37,7 +37,6 @@ import {
 	encodeU16LE,
 	encodeU32LE,
 	encodeAscii,
-	encodeI16LE,
 	parseU8,
 	parseU16LE,
 	parseI16LE,

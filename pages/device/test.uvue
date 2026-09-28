@@ -167,9 +167,11 @@
 			:pages="quickHistoryPages"
 			:seconds="quickHistorySeconds"
 			:days="quickHistoryDays"
+			:baseline-info="quickBaselineText"
 			:busy="vitalAutoReading"
 			:export-count="vitalHistoryExportResponses.length"
 			@read-range="testVitalHistoryRange"
+			@read-from-baseline="readHistoryFromBaseline"
 			@stop="stopVitalAutoRead"
 			@export="exportVitalHistoryCsv"
 		/>
@@ -218,7 +220,6 @@ import {
 	DOC_EXAMPLES_BY_T,
 	EVENT_QUERY_TYPE_ALL,
 	EVENT_QUERY_TYPE_BY_TIME,
-	PPG_POSITION_OPTIONS,
 	dayUts,
 	decodeAdvStatus,
 	formatRealtimeMetric,
@@ -233,8 +234,7 @@ import type {
 	VitalBiometric,
 	VitalDataQueryResponse
 } from "@/.cool";
-import type { PpgPositionOption } from "@/.cool";
-import { useUi, type ClSelectOption } from "@/uni_modules/cool-ui";
+import { useUi } from "@/uni_modules/cool-ui";
 import type { VitalAutoReadResult } from "@/.cool/store/device/history-reader";
 import { buildVitalHistoryCsv } from "@/.cool/bluetooth/history/export";
 import { historyBaseline } from "@/.cool/bluetooth/history/baseline";
@@ -338,8 +338,8 @@ const baselinePanel = ref<BaselinePanelState>({
 });
 /**
  * UTS 把 script setup 编译成 Kotlin 函数体，局部函数没有提升：调用点必须写在
- * 声明之后。下面两个格式化/取时工具被 `refreshBaselinePanel()` 和 0x3A 表单共用，
- * 因此声明必须留在它们最早的调用点之前，不能挪到文件下方。
+ * 声明之后。下面这些取时/格式化工具和基准快照被 `refreshBaselinePanel()`、快速读取弹窗
+ * 与 0x3A 表单共用，因此声明必须留在它们最早的调用点之前，不能挪到文件下方。
  */
 function getNowSec(): number {
 	return Math.floor(Date.now() / 1000);
@@ -347,6 +347,22 @@ function getNowSec(): number {
 
 function formatEventWindowTime(sec: number): string {
 	return new Date(sec * 1000).toLocaleString();
+}
+
+/**
+ * 手动读取弹窗里的常驻基准行。
+ *
+ * 读之前就能看见 `B`，才知道随手点一个「近一天」会不会落在基准之前——那会触发
+ * 「只落库不记账」，事后看结果才发现就晚了。
+ */
+const quickBaselineText = ref<string>("-");
+async function refreshQuickBaseline(): Promise<void> {
+	try {
+		const snapshot = await historyBaseline.snapshot(getNowSec());
+		quickBaselineText.value = `${t("基准 B")} ${formatEventWindowTime(snapshot.baseline)} · ${t("记账上限")} ${formatEventWindowTime(snapshot.ceiling)} · ${t("落后")} ${snapshot.behind}s`;
+	} catch (error) {
+		quickBaselineText.value = `${t("基准读取失败")}: ${error}`;
+	}
 }
 
 async function refreshBaselinePanel(): Promise<void> {
@@ -715,6 +731,8 @@ function isTestEntryDisabled(key: TestEntryKey): boolean {
 function openTestEntry(key: TestEntryKey): void {
 	if (key == "quick") {
 		quickHistoryPopupVisible.value = true;
+		// 弹窗里的基准行要在打开时就准：手动读取会不会落在基准之前，全看这一行。
+		refreshQuickBaseline();
 		return;
 	}
 	if (key == "repair") {
@@ -780,16 +798,19 @@ async function runQueuedGattCommand(cmd: string, runner: () => Promise<boolean>)
 	return ok;
 }
 
-function historyRepairResultText(result: VitalAutoReadResult): string {
-	if (result.message == "0x3A send failed") return t("补录失败：0x3A 发送失败");
-	if (result.message == "0x3B send failed") return t("补录失败：0x3B 发送失败");
-	if (result.message == "wait vital response timeout") return t("补录失败：等待设备响应超时");
-	if (result.message == "gatt busy") return t("补录失败：GATT 通道忙");
-	if (result.message == "no bound device") return t("补录失败：没有绑定设备");
-	if (result.saveOk == false) return t("补录失败：页面处理未完成");
-	if (result.status != "DONE") return t("补录未完成") + "：" + result.message;
-	if (result.savedRecords == 0) return t("补录完成：设备未返回有效生命体征");
-	return t("连续补录完成");
+/** 手动读取与补录共用的结果文案：两者是同一条链路，只差窗口左端。 */
+function historyReadResultText(result: VitalAutoReadResult): string {
+	if (result.message == "0x3A send failed") return t("读取失败：0x3A 发送失败");
+	if (result.message == "0x3B send failed") return t("读取失败：0x3B 发送失败");
+	if (result.message == "wait vital response timeout") return t("读取失败：等待设备响应超时");
+	if (result.message == "gatt busy") return t("读取失败：GATT 通道忙");
+	if (result.message == "no bound device") return t("读取失败：没有绑定设备");
+	if (result.message == "read window is empty") return t("读取失败：窗口为空");
+	if (result.saveOk == false) return t("读取失败：页面处理未完成");
+	if (result.message == "stopped by caller") return t("读取已停止");
+	if (result.status != "DONE") return t("读取未完成") + "：" + result.message;
+	if (result.savedRecords == 0) return t("读取完成：设备未返回有效生命体征");
+	return t("连续读取完成");
 }
 
 /** 测试页对指定区间做一次手动补录，仍复用正式的逐页落库与游标推进流程。 */
@@ -801,11 +822,12 @@ async function repairHistoryWindow(payload: HistoryRepairPayload): Promise<void>
 			// 直接按区间端点顺序读，不先查任务行：窗口是推算出来的，没有可寻址的表行。
 			const result = await deviceStore.history.readVitalRangeForward(
 				payload.fromSec,
-				payload.toSec
+				payload.toSec,
+				null
 			);
 			setCommandResponse(
 				"HISTORY_REPAIR",
-				`${historyRepairResultText(result)}, ${t("页数")} ${result.pages}, ${t("保存")} ${result.savedRecords}`
+				`${historyReadResultText(result)}, ${t("页数")} ${result.pages}, ${t("保存")} ${result.savedRecords}`
 			);
 			return result.saveOk && result.status == "DONE";
 		} catch (error) {
@@ -901,7 +923,6 @@ const quickHistoryPages = ref<number>(0);
 const quickHistorySeconds = ref<number>(0);
 const quickHistoryDays = ref<number>(0);
 const VITAL_FORM_DEFAULT_OFFSET_SECONDS = 120;
-const VITAL_HISTORY_TEST_MINUTES = 2;
 
 /* ===== 参数输入子弹窗状态 ===== */
 
@@ -942,38 +963,6 @@ const formAge = ref<string>("20");
 const formPpgPosition = ref<number>(0);
 const formBhr = ref<string>("60");
 
-/** 方向选项（0=向前 1=向后） */
-const directionOptions: ClSelectOption[] = [
-	{ label: t("向前 (0)"), value: 0 },
-	{ label: t("向后 (1)"), value: 1 }
-];
-
-/** 分钟数选项（2 / 5） */
-const minutesOptions: ClSelectOption[] = [
-	{ label: t("2 分钟"), value: 2 },
-	{ label: t("5 分钟"), value: 5 }
-];
-
-/** 事件查询类型：Byte1=0 全部，Byte1=1 按时间窗口 */
-const eventTypeOptions: ClSelectOption[] = [
-	{ label: t("按时间读取全部事件 (1)"), value: EVENT_QUERY_TYPE_BY_TIME },
-	{ label: t("读取全部事件 (0)"), value: EVENT_QUERY_TYPE_ALL }
-];
-
-/** 性别选项（0=男 1=女） */
-const genderOptions: ClSelectOption[] = [
-	{ label: t("男 (0)"), value: 0 },
-	{ label: t("女 (1)"), value: 1 }
-];
-
-/** PPG 位置选项（0~6，与协议 UINT8 保持一致） */
-const ppgPositionOptions: ClSelectOption[] = PPG_POSITION_OPTIONS.map(
-	(item: PpgPositionOption): ClSelectOption => ({
-		label: `${t(item.label)} (${item.value})`,
-		value: item.value
-	})
-);
-
 /** 当前表单可用的文档示例（按 T 码查 DOC_EXAMPLES_BY_T） */
 const exampleList = computed<DocExample[]>(() => {
 	if (activeForm.value == "") return [];
@@ -990,77 +979,73 @@ function resetVitalFormToCurrentWindow(): void {
 	console.log(`[BOOM-TEST] 打开 0x3A 表单，刷新默认时间: nowSec=${now}, startSec=${startSec}`);
 }
 
-/** 当前整分钟是 0x3A 的查询锚点；后续 0x3B 按设备的实际页向更早时间推进。 */
-function getCurrentMinuteSec(): number {
-	return Math.floor(getNowSec() / 60) * 60;
-}
-
 /**
- * 测试页预设范围：从当前时间开始向过去连续读取。
- * “无有效秒”不是结束条件；只在实际返回页到达目标时间或设备明确无更早页时结束。
+ * 手动读取的公共实现：各入口只有窗口不同，链路完全一样——`readVitalRangeForward` 内部
+ * 就是正式补录那一套，所以手动读到的秒同样会推进基准。
  */
-async function testVitalHistoryRange(days: number): Promise<void> {
-	const anchorSec = getCurrentMinuteSec();
-	const targetStartSec = anchorSec - days * 24 * 60 * 60;
-	let reachedTarget = false;
+async function runManualHistoryRead(
+	fromSec: number,
+	toSec: number,
+	title: string
+): Promise<void> {
 	vitalAutoReading.value = true;
 	vitalAutoDetail.value = "-";
 	vitalHistoryExportResponses.value = [];
-	quickHistoryDays.value = days;
 	quickHistoryPages.value = 0;
 	quickHistorySeconds.value = 0;
-	quickHistoryStatus.value = `${formatEventWindowTime(targetStartSec)} ~ ${formatEventWindowTime(anchorSec)}`;
+	if (toSec <= fromSec) {
+		quickHistoryStatus.value = t("窗口为空，基准已贴着记账上限");
+		vitalAutoReading.value = false;
+		return;
+	}
+	const readLabel = t("手动读取");
+	quickHistoryStatus.value = `${title}: ${formatEventWindowTime(fromSec)} ~ ${formatEventWindowTime(toSec)}`;
 	await runQueuedGattCommand("VITAL", async (): Promise<boolean> => {
-		setCommandResponse(
-			"VITAL",
-			`${t("开始读取近")} ${days} ${t("天")}: ${formatEventWindowTime(targetStartSec)} ~ ${formatEventWindowTime(anchorSec)}`
-		);
-		const result = await deviceStore.history.readVitalDataAuto({
-			startSec: anchorSec,
-			direction: 0,
-			minutes: VITAL_HISTORY_TEST_MINUTES,
-			// 独立测试不设总页数上限；按目标范围读取，或由用户手动停止。
-			maxPages: 0,
-			pageDelayMs: 250,
-			shouldStop: () => vitalAutoReading.value == false || reachedTarget,
-			onProgress: (p) => {
-				if (p.phase == "0x3B" && p.page % 20 == 0) {
-					setCommandResponse("VITAL", `${t("连续向前读取")} ${p.page} ${t("段")}`);
-				}
-			},
-			onPage: (response, page) => {
-				quickHistoryPages.value = page;
-				quickHistorySeconds.value += response.vitalData.length;
-				if (response.startSec > 0 && response.startSec <= targetStartSec) {
-					reachedTarget = true;
-				}
-				if (page % 20 != 0 && reachedTarget == false && response.startSec != 0) return;
-				setCommandResponse(
-					"VITAL",
-					`${page} ${t("段")} ${formatEventWindowTime(response.startSec)}${
-						reachedTarget ? ` · ${t("已到达目标时间")}` : ""
-					}`
-				);
-			}
+		setCommandResponse("VITAL", quickHistoryStatus.value);
+		const result = await deviceStore.history.readVitalRangeForward(fromSec, toSec, {
+			retainResponses: true,
+			shouldStop: () => vitalAutoReading.value == false,
+			label: readLabel
 		});
 		vitalHistoryExportResponses.value = result.responses;
 		vitalAutoDetail.value = deviceStore.history.formatVitalAutoDetail(result.responses);
-		vitalAutoReading.value = false;
-		const completion = reachedTarget
-			? `${t("读取近")} ${days} ${t("天完成")}`
-			: result.done
-				? t("设备没有更早历史数据")
-				: result.stoppedByLimit
-					? `${t("达到页数保护上限")} ${result.pages}`
-					: t("读取已停止");
-		setCommandResponse(
-			"VITAL",
-			`${completion}: ${t("读取")} ${result.pages} ${t("段，保存")} ${result.savedRecords}`
-		);
-		quickHistoryStatus.value = `${completion} · ${t("已保留本次解析数据，可保存到下载")}`;
-		return true;
+		let parsedSeconds = 0;
+		for (let i = 0; i < result.responses.length; i++)
+			parsedSeconds += result.responses[i].vitalData.length;
+		quickHistoryPages.value = result.pages;
+		quickHistorySeconds.value = parsedSeconds;
+		const summary = `${historyReadResultText(result)} · ${t("页数")} ${result.pages} · ${t("落库")} ${result.savedRecords}`;
+		// 窗口左端晚于 `B` 时本轮只落库，基准一步不动。这不是失败，但读数的人必须知道，
+		// 否则会以为这段已经补进基准了。
+		quickHistoryStatus.value = result.skippedAccounting
+			? `${t("起点晚于基准 B，本轮只落库不记账")} · ${summary}`
+			: `${summary} · ${t("已保留本次解析数据，可保存到下载")}`;
+		if (result.skippedAccounting)
+			ui.showToast({ message: t("起点晚于基准 B，本轮只落库不记账"), type: "warn" });
+		setCommandResponse("VITAL", quickHistoryStatus.value);
+		return result.saveOk;
 	});
 	vitalAutoReading.value = false;
+	// 手动读取不经过心跳，基准可能已经变了，主动抬一次版本让面板与弹窗重读。
+	manualHistoryRevision.value = Date.now();
+	await refreshQuickBaseline();
+}
+
+/**
+ * 手动读取近 N 天：窗口左端是「稳定上界往前 N 天」，走的是正式补录那条链路
+ * （`direction=1` 逐页读、逐页落库、逐页记账），与「历史补录」只差窗口左端。
+ */
+async function testVitalHistoryRange(days: number): Promise<void> {
+	const toSec = historyBaseline.stableCeiling(getNowSec());
+	const fromSec = toSec - days * 24 * 60 * 60;
+	quickHistoryDays.value = days;
+	await runManualHistoryRead(fromSec, toSec, `${t("手动读取近")} ${days} ${t("天")}`);
+}
+
+/** 从基准 `B` 读到记账上限。起点恒等于 `B`，所以不会跳过任何没读过的秒。 */
+async function readHistoryFromBaseline(): Promise<void> {
+	const snapshot = await historyBaseline.snapshot(getNowSec());
+	await runManualHistoryRead(snapshot.baseline, snapshot.ceiling, t("从基准 B 读取"));
 }
 
 /** 将本次快速历史读取的全部解析秒写入手机公共 Download/BOOM 目录。 */
@@ -1070,7 +1055,9 @@ function exportVitalHistoryCsv(): void {
 		return;
 	}
 	const csv = buildVitalHistoryCsv(vitalHistoryExportResponses.value);
-	const fileName = `boom-vital-${quickHistoryDays.value}d-${Date.now()}.csv`;
+	// 「从基准 B 读取」没有天数可写，文件名就只留时间戳。
+	const daysText = quickHistoryDays.value > 0 ? `${quickHistoryDays.value}d-` : "";
+	const fileName = `boom-vital-${daysText}${Date.now()}.csv`;
 	try {
 		const filePath = saveCsvToDownloads(fileName, csv);
 		quickHistoryStatus.value = `${t("CSV 已保存")}: ${filePath}`;
