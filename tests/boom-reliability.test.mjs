@@ -64,7 +64,7 @@ test("vital reads do not spread callback options through Android JSON serializat
 	const source = await readFile(".cool/store/device/history-reader.ts", "utf8");
 	const method = source.slice(
 		source.indexOf("async readVitalDataAuto("),
-		source.indexOf("async readVitalGapGroup(")
+		source.indexOf("async readVitalRangeForward(")
 	);
 	assert.equal(method.includes("...options"), false);
 });
@@ -75,7 +75,7 @@ test("vital result UI calls a device short page a protocol-allowed response", as
 	assert.equal(source.includes("设备返回短页（协议允许）"), true);
 });
 
-test("cold start retains history progress so unavailable gaps are not reread forever", async () => {
+test("cold start retains history progress so unaccounted seconds are not reread forever", async () => {
 	const source = await readFile(".cool/bluetooth/data-manager.ts", "utf8");
 	const initDatabase = source.slice(
 		source.indexOf("private async initDatabase()"),
@@ -107,31 +107,33 @@ test("Android CSV export writes into the public Download/BOOM directory", async 
 	assert.equal(source.includes('Environment.DIRECTORY_DOWNLOADS + "/BOOM"'), true);
 });
 
-test("history-gap repair has one independent popup entry", async () => {
+test("history repair has one independent popup entry", async () => {
 	const popup = await readFile("pages/device/components/DataDiagnosticsPopup.uvue", "utf8");
 	const page = await readFile("pages/device/test.uvue", "utf8");
 	assert.equal(popup.includes("loadHistoryGaps"), false);
 	assert.equal(popup.includes("repair-history-gap"), false);
 	assert.equal(popup.includes("补此缺口"), false);
-	assert.equal(page.includes("repairHistoryGap"), true);
-	assert.equal(page.includes("@repair-history-gap"), true);
-	assert.equal(page.includes("HistoryGapRepairPopup"), true);
-	const gapPopup = await readFile("pages/device/components/HistoryGapRepairPopup.uvue", "utf8");
-	assert.equal(gapPopup.includes("连续读取窗口"), true);
-	assert.equal(gapPopup.includes("实际待补"), true);
-	assert.equal(gapPopup.includes("窗口内非待补"), true);
-	// 缺口是推算出来的，没有游标、重试时间这些任务态字段。
-	assert.equal(gapPopup.includes("当前游标"), false);
-	assert.equal(gapPopup.includes("下次重试"), false);
-	assert.equal(gapPopup.includes("watch(revision"), true);
-	assert.equal(gapPopup.includes("scheduleVisibleRefresh"), false);
+	assert.equal(page.includes("repairHistoryWindow"), true);
+	assert.equal(page.includes("@repair="), true);
+	assert.equal(page.includes("HistoryRepairPopup"), true);
+	const repairPopup = await readFile("pages/device/components/HistoryRepairPopup.uvue", "utf8");
+	// 补录永远读 `[B, stableCeiling)` 一整段，所以弹窗里没有「组」这一层。
+	assert.equal(repairPopup.includes("读取窗口"), true);
+	assert.equal(repairPopup.includes("补录整段"), true);
+	assert.equal(repairPopup.includes("缺口组"), false);
+	assert.equal(repairPopup.includes("实际待补"), false);
+	// 窗口是推算出来的，没有游标、重试时间这些任务态字段。
+	assert.equal(repairPopup.includes("当前游标"), false);
+	assert.equal(repairPopup.includes("下次重试"), false);
+	assert.equal(repairPopup.includes("watch(revision"), true);
+	assert.equal(repairPopup.includes("scheduleVisibleRefresh"), false);
 });
 
 test("test page exposes six independent full-height popup entry points", async () => {
 	const source = await readFile("pages/device/test.uvue", "utf8");
 	for (const name of [
 		"HistoryQuickReadPopup",
-		"HistoryGapRepairPopup",
+		"HistoryRepairPopup",
 		"VitalProtocolPopup",
 		"EventProtocolPopup",
 		"DeviceControlPopup",
@@ -141,7 +143,7 @@ test("test page exposes six independent full-height popup entry points", async (
 	}
 	assert.equal(source.includes("历史读取与协议调试"), false);
 	assert.equal(source.includes("<DatabaseTestPopup"), false);
-	for (const key of ["quick", "gap", "vital", "event", "control", "diagnostics"]) {
+	for (const key of ["quick", "repair", "vital", "event", "control", "diagnostics"]) {
 		assert.equal(source.includes(`key: "${key}"`), true, `entry: ${key}`);
 	}
 	assert.equal(source.includes('v-for="entry in testEntries"'), true);
@@ -150,7 +152,7 @@ test("test page exposes six independent full-height popup entry points", async (
 		'@read-range="testVitalHistoryRange"',
 		'@stop="stopVitalAutoRead"',
 		'@export="exportVitalHistoryCsv"',
-		'@repair-history-gap="repairHistoryGap"',
+		'@repair="repairHistoryWindow"',
 		'@submit="submitVitalFromPopup"',
 		'@submit="submitEventFromPopup"',
 		'@command="runDeviceCommand"',
@@ -164,7 +166,7 @@ test("test page exposes six independent full-height popup entry points", async (
 test("six popup components keep their responsibilities and bottom full-height presentation", async () => {
 	const expectations = {
 		HistoryQuickReadPopup: ["read-range", "stop", "export"],
-		HistoryGapRepairPopup: ["repairGroup", "historyBaseline.snapshot", "scheduleOpenRefresh"],
+		HistoryRepairPopup: ["repairWindow", "historyBaseline.snapshot", "scheduleOpenRefresh"],
 		VitalProtocolPopup: ["0x3A", "0x3B", "cl-select-date", "协议秒"],
 		EventProtocolPopup: ["0x3C", "0x3D", "cl-select-date", "协议秒"],
 		DeviceControlPopup: ["disconnect", "restore", "clear-error"],
@@ -180,15 +182,20 @@ test("six popup components keep their responsibilities and bottom full-height pr
 });
 
 test("automatic history repair plans from the baseline cursor, not a task queue", async () => {
-	// 节奏只有一个决策点：心跳。规划的三步（分类 / 推进 / 列缺口）都在这里，
-	// 补数据的读取在 history-repair.ts，两者都不再属于一个「sync」模块。
+	// 节奏只有一个决策点：心跳。分类与推进在设备心跳里决定读不读，
+	// 真正的读取在 history-repair.ts，两者都不再属于一个「sync」模块。
 	const tick = await readFile(".cool/store/device/device-tick.ts", "utf8");
 	const repair = await readFile(".cool/store/device/history-repair.ts", "utf8");
 	assert.equal(tick.includes("historyBaseline.classify("), true);
-	assert.equal(tick.includes("historyBaseline.advanceBaseline("), true);
-	assert.equal(tick.includes("historyBaseline.listRepairGaps("), true);
-	assert.equal(repair.includes("readVitalGapGroup(gap)"), true);
+	// `classify()` 一次同时推进两个游标，所以「基准」直接取它返回的 `baselineAfter`：
+	// 再单独推一次基准就成了一次 tick 里两个写入者。
+	assert.equal(tick.includes("classified.baselineAfter"), true);
+	assert.equal(tick.includes("advanceBaseline"), false);
+	assert.equal(repair.includes("readVitalRangeForward("), true);
 	assert.equal(tick.includes("lastCheckAt.value = Date.now()"), true);
+	// 待补的秒不再被枚举成一张清单：读取永远是一整段窗口。
+	assert.equal(tick.includes("listRepairGaps"), false);
+	assert.equal(repair.includes("listRepairGaps"), false);
 	// 老的任务表规划路径不应再出现。
 	assert.equal(repair.includes("historyProgress"), false);
 	assert.equal(repair.includes("groupHistoryTasksForRead"), false);
@@ -197,7 +204,7 @@ test("automatic history repair plans from the baseline cursor, not a task queue"
 	await assert.rejects(readFile(".cool/store/device/sync.ts", "utf8"));
 });
 
-test("one tick does classification, baseline advance, and upload in a fixed order", async (t) => {
+test("one tick does classification and upload in a fixed order", async (t) => {
 	const r = await createRuntime(t);
 	const now = Math.floor(Date.now() / 1000);
 	const order = [];
@@ -216,16 +223,11 @@ test("one tick does classification, baseline advance, and upload in a fixed orde
 		},
 		requestFlush() {}
 	};
-	// 记录三步的先后：判定 → 推进 → 上传。
+	// 记录两步的先后：判定 → 上传。推进基准不再是独立一步，它就在 `classify()` 里面。
 	const realClassify = baseline.classify.bind(baseline);
-	const realAdvance = baseline.advanceBaseline.bind(baseline);
-	baseline.classify = async (nowSec) => {
+	baseline.classify = async (nowSec, knownBaseline) => {
 		order.push("classify");
-		return realClassify(nowSec);
-	};
-	baseline.advanceBaseline = async (nowSec) => {
-		order.push("advance");
-		return realAdvance(nowSec);
+		return realClassify(nowSec, knownBaseline);
 	};
 	const realUpload = r.uploader.uploadPpiData.bind(r.uploader);
 	r.uploader.uploadPpiData = async () => {
@@ -236,49 +238,47 @@ test("one tick does classification, baseline advance, and upload in a fixed orde
 	await tick.runTick("timer");
 
 	// 判定先于上传：上传依据是本地的 ppi_data，判定不被上传结果影响。
-	assert.deepEqual(order, ["classify", "advance", "upload"]);
+	assert.deepEqual(order, ["classify", "upload"]);
 	assert.equal(tick.lastError.value, "");
 	assert.equal(tick.lastCheckAt.value > 0, true);
 	// 判定确实发生了：合格的秒被吸收进 `B`，追到 `stableCeiling`。
 	assert.equal(await baseline.getBaseline(), now - 10);
-	// 没有缺口就不入队连接——缺口只搭顺风车，不制造连接。
+	// 待补为 0 就不入队连接——落后量只搭顺风车，不制造连接。
 	assert.equal(order.includes("connect"), false);
 });
 
-test("one tick reads the baseline once and never re-scans ready ranges in a loop", async (t) => {
-	// 一次 tick 里 `B` 是一个值：分类只写 `vital_ready_ranges` 不改 `B`，所以推进和
-	// 列缺口都该复用 tick 开头读到的那一份。重读不但浪费，断网时每次重读都是一个
-	// 新的异常点（`getBaseline()` 读失败会抛）。
+test("one tick reads the baseline once and classifies a single window", async (t) => {
+	// 一次 tick 里 `B` 是一个值：`runTick` 开头读一次，分类与连接闸门共用它，作为参数
+	// 一路传下去。重读不但浪费，断网时每次重读都是一个新的异常点（`getBaseline()`
+	// 读失败会抛），会让一轮心跳从来没跑到上传。
 	const r = await createRuntime(t);
 	const now = Math.floor(Date.now() / 1000);
 	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
-	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${now - 3000})`);
-	// 40 条首尾相接的已记账区间：消费循环要把它们整段吃掉，正是「循环里重查全表」
-	// 最坏的情形（改回旧写法这里会是 40 次读）。
-	for (let i = 0; i < 40; i++) {
-		const from = now - 3000 + i * 60;
-		r.db.exec(`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${from},${from + 60})`);
-	}
-	const counts = { getBaseline: 0, listReadyRanges: 0 };
-	for (const name of Object.keys(counts)) {
-		const original = baseline[name].bind(baseline);
-		baseline[name] = async (...args) => {
-			counts[name] += 1;
-			return original(...args);
-		};
-	}
+	const from = now - 300;
+	r.db.exec(
+		`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec,classified_until_sec) VALUES (1,${from},${from})`
+	);
+	// 本地 PPI 覆盖整个窗口：判定会把它整段记进 ready，`B` 一步推到 `stableCeiling`。
+	const values = [];
+	for (let second = from; second < now - 10; second++)
+		values.push(`('${second}',${second},0,0,0,NULL,0)`);
+	r.db.exec(`INSERT INTO ppi_data VALUES ${values.join(",")}`);
+	const counts = { getBaseline: 0 };
+	const original = baseline.getBaseline.bind(baseline);
+	baseline.getBaseline = async (...args) => {
+		counts.getBaseline += 1;
+		return original(...args);
+	};
 	const tick = new r.DeviceTick({
 		boundDeviceId: "device",
+		broadcast: { getBroadcastAgeMs: () => 0 },
 		scheduler: { enqueueHistoryRepair() {}, requestFlush() {} }
 	});
 	await tick.runTick("timer");
 	assert.equal(tick.lastError.value, "");
 	assert.equal(counts.getBaseline, 1);
-	// 分类前、推进前、列缺口前各一次，每次前面都有一次写入——不能跨写复用。
-	assert.equal(counts.listReadyRanges, 3);
-	// 消费循环真的跑完了：`B` 追到区间右端，40 条区间被清空。
-	assert.equal(await baseline.getBaseline(), now - 3000 + 40 * 60);
-	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM vital_ready_ranges").get().n, 0);
+	// 一次判到底：`B` 直接落到窗口右端，不靠循环反复扫描。
+	assert.equal(await baseline.getBaseline(), now - 10);
 });
 
 test("poke is rate-limited to one tick per minute and never re-enters", async (t) => {
@@ -315,6 +315,31 @@ test("poke is rate-limited to one tick per minute and never re-enters", async (t
 	assert.equal(classifyRuns, 2);
 });
 
+test("a stalled connection reason is logged at most once per connect interval", async (t) => {
+	const r = await createRuntime(t);
+	const tick = new r.DeviceTick({
+		boundDeviceId: "device",
+		broadcast: { getBroadcastAgeMs: () => 0 },
+		scheduler: { enqueueHistoryRepair() {}, requestFlush() {} }
+	});
+	const nowSec = Math.floor(Date.now() / 1000);
+	/** 日志桩把 `logger.info(tag, text)` 记成 `{ level, items }`，取 `items[1]` 就是正文。 */
+	const stalls = () =>
+		r.logs.filter((entry) => entry.items.some((item) => `${item}`.includes("基准停驻")));
+
+	// 落后 20s：没过 300s 门槛，连续五轮都会走到同一条「基准停驻」。
+	for (let i = 0; i < 5; i++) await tick.maybeConnect(nowSec, nowSec - 20);
+	assert.equal(stalls().length, 1);
+	// 原因变化（门槛 → 不在场）不吃限流：这一行是排查「设备关机 vs 门槛拦住」的分界。
+	tick.device.broadcast.getBroadcastAgeMs = () => 6 * 60 * 1000;
+	await tick.maybeConnect(nowSec, nowSec - 400);
+	assert.equal(stalls().length, 2);
+	assert.match(`${stalls()[1].items[1]}`, /判定设备不在场/);
+	// 同一个原因继续每轮出现时不再重复打，避免每天 1440 行灌满 1000 条缓冲。
+	for (let i = 0; i < 5; i++) await tick.maybeConnect(nowSec, nowSec - 400);
+	assert.equal(stalls().length, 2);
+});
+
 test("broadcast only stores frames and pokes the tick, with no minute concept left", async () => {
 	const broadcast = await readFile(".cool/store/device/broadcast.ts", "utf8");
 	assert.equal(broadcast.includes("tick.poke("), true);
@@ -332,7 +357,7 @@ test("a connection has no duration budget and does nothing special about its own
 	// 连接不设时长上限：单次预算存在时，它留下的空洞会被反复转交给下一次连接。
 	assert.equal(scheduler.includes("GATT_FLUSH_BUDGET_MS"), false);
 	assert.equal(tick.includes("HISTORY_AUTO_BACKLOG_INTERVAL_MS"), false);
-	// 连接留下的缺秒就是普通缺口，由下一次连接顺带补掉（方案 9.2/9.3）。
+	// 连接留下的未记账秒由下一次连接顺带补掉（方案 9.2/9.3）。
 	// 所以没有任何「识别连接空洞」的机制：不记录起点、不读尾巴、不判定接续。
 	assert.equal(connection.includes("ConnectionHole"), false);
 	assert.equal(scheduler.includes("readConnectionTailHoleBeforeDisconnect"), false);
@@ -341,85 +366,77 @@ test("a connection has no duration budget and does nothing special about its own
 	assert.equal(repair.includes("onBoundBroadcastFrame"), false);
 });
 
-test("history-gap popup still maps a no-data gap result to readable text", async () => {
+test("history repair popup still maps a no-data read result to readable text", async () => {
 	const reader = await readFile(".cool/store/device/history-reader.ts", "utf8");
 	const page = await readFile("pages/device/test.uvue", "utf8");
 	// 设备返回段早于目标窗口按“没有数据”收尾，不再是一种失败文案。
 	assert.equal(reader.includes("device history page earlier than target"), false);
 	assert.equal(page.includes("设备返回页面早于目标范围"), false);
 	assert.equal(page.includes("补录完成：设备未返回有效生命体征"), true);
-	assert.equal(page.includes("historyGapResultText"), true);
+	assert.equal(page.includes("historyRepairResultText"), true);
 	assert.equal(page.includes('return result.saveOk && result.status == "DONE"'), true);
+	// GATT 任务名与取模常量都不再挂着旧的「缺口」叫法。
+	assert.equal(reader.includes('"vitalHistory"'), true);
+	assert.equal(reader.includes('"vitalGap"'), false);
+	assert.equal(reader.includes("VITAL_GAP_READ"), false);
 });
-test("a manual gap repair refreshes the listed batch instead of leaving a stale card", async () => {
+test("a manual repair refreshes the panel instead of leaving a stale card", async () => {
 	const page = await readFile("pages/device/test.uvue", "utf8");
 	// 手动补录绕过 sync，不会更新 lastHistorySyncAt，必须自己抬一次版本。
 	assert.equal(page.includes("manualHistoryRevision.value = Date.now()"), true);
 	assert.equal(page.includes("manualAt > latest ? manualAt : latest"), true);
 });
 
-test("a gap with no device data does not abort the remaining gaps in one connection", async (t) => {
+test("a window the device has no data for is accounted instead of retried forever", async (t) => {
 	const r = await createRuntime(t);
 	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
-	// 补数据只依赖一个「能按缺口读一段」的 reader，因此可以配假 reader 独立跑，
+	// 补数据只依赖一个「能按一段时间顺序读」的 reader，因此可以配假 reader 独立跑，
 	// 不需要构造整个设备栈（history-repair.ts 不 import Device）。
 	const attempted = [];
-	const noData = {
-		status: "DONE",
-		message: "target gap complete",
-		pages: 1,
-		savedRecords: 0,
-		saveOk: true
-	};
-	const linkFailure = {
-		status: "SEND_FAILED",
-		message: "0x3B send failed",
-		pages: 0,
-		savedRecords: 0,
-		saveOk: true
-	};
-	let script = {};
+	const now = Math.floor(Date.now() / 1000);
+	const from = now - 900;
+	const to = now - 10;
+	r.db.exec(
+		`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec,classified_until_sec) VALUES (1,${from},${to})`
+	);
+	// 设备整段都没有记录：读到的东西是 0 秒，但窗口本身被确认过，必须整段记账，
+	// 否则 `B` 永远卡在这里、每次连接都从同一个起点重读。
 	const reader = {
-		async readVitalGapGroup(gap) {
-			attempted.push(gap.fromSec);
-			const result = script[gap.fromSec];
-			if (result.status == "DONE")
-				await baseline.markReady(gap.fromSec, gap.toSec, Math.floor(Date.now() / 1000));
-			return result;
+		async readVitalRangeForward(fromSec, toSec) {
+			attempted.push([fromSec, toSec]);
+			// 设备整段都没给页，但窗口本身被确认过：读取链路按「设备已确认无数据」
+			// 把 `B` 推到窗口右端，读取层与真实实现走同一个入口。
+			await baseline.advanceAccounted(toSec, Math.floor(Date.now() / 1000));
+			return {
+				status: "DONE",
+				message: "target window complete",
+				pages: 1,
+				savedRecords: 0,
+				saveOk: true
+			};
 		}
 	};
-	const now = Math.floor(Date.now() / 1000);
-	// 两段缺口，中间隔着一段本地已有的秒。间隔要大于 bridgeSec（120 秒），
-	// 否则 bridgeGaps 会把它们合成一条读取链路，测不到「一组失败不影响下一组」。
-	const first = now - 900;
-	const second = now - 500;
-	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${first})`);
-	r.db.exec(`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${now - 700},${second})`);
-	script = { [first]: noData, [second]: noData };
-	// 前一个缺口“设备没数据”不是失败：同一次连接里后面的缺口仍然要读。
-	await r.historyRepair.repairAllGaps(reader);
-	assert.deepEqual(attempted, [first, second]);
-	// 真正的链路失败仍然中止本轮，避免在坏连接上反复超时。
-	attempted.length = 0;
-	r.db.exec("DELETE FROM vital_ready_ranges");
-	r.db.exec(`UPDATE vital_sync_state SET baseline_sec=${first} WHERE id=1`);
-	r.db.exec(`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${now - 700},${second})`);
-	script = { [first]: linkFailure, [second]: linkFailure };
-	await r.historyRepair.repairAllGaps(reader);
-	assert.deepEqual(attempted, [first]);
+
+	const stopReason = await r.historyRepair.repairFromBaseline(reader);
+	assert.equal(attempted.length, 1);
+	assert.equal(attempted[0][0], from);
+	assert.equal(stopReason, "COMPLETE");
+	assert.equal(await baseline.getBaseline(), attempted[0][1]);
 });
 
-test("a stopped gap is not reported as success and does not continue on the same connection", async (t) => {
+test("a stopped read is not reported as success and does not move the baseline", async (t) => {
 	const r = await createRuntime(t);
-	const attempted = [];
+	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
 	const now = Math.floor(Date.now() / 1000);
-	const first = now - 900;
-	const second = now - 500;
-	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${first})`);
-	r.db.exec(`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${now - 700},${second})`);
+	const from = now - 900;
+	const to = now - 10;
+	r.db.exec(
+		`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec,classified_until_sec) VALUES (1,${from},${to})`
+	);
+	const attempted = [];
 	const reader = {
-		async readVitalGapGroup(gap) {
-			attempted.push(gap.fromSec);
+		async readVitalRangeForward(fromSec) {
+			attempted.push(fromSec);
 			return {
 				status: "STOPPED",
 				message: "gatt busy",
@@ -430,30 +447,33 @@ test("a stopped gap is not reported as success and does not continue on the same
 		}
 	};
 
-	await r.historyRepair.repairAllGaps(reader);
-	assert.deepEqual(attempted, [first]);
+	await r.historyRepair.repairFromBaseline(reader);
+	assert.deepEqual(attempted, [from]);
+	// 一段窗口就是一次连接的全部工作量：停了就没有别的可继续，`B` 原地不动。
 	const summary = r.logs
 		.map((entry) => entry.items.join(" "))
 		.find((line) => line.includes("[BOOM-HISTORY] 补录结束"));
-	assert.match(summary, /失败组=1/);
 	assert.match(summary, /ok=false/);
+	assert.equal(await baseline.getBaseline(), from);
 });
 
-test("DONE without accounting the whole gap is not success and does not continue", async (t) => {
+test("DONE without accounting the whole window is not success", async (t) => {
 	const r = await createRuntime(t);
-	const attempted = [];
+	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
 	const now = Math.floor(Date.now() / 1000);
-	const first = now - 900;
-	const second = now - 500;
-	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${first})`);
-	r.db.exec(`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${now - 700},${second})`);
+	const from = now - 900;
+	const to = now - 10;
+	r.db.exec(
+		`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec,classified_until_sec) VALUES (1,${from},${to})`
+	);
+	const attempted = [];
 	const reader = {
-		async readVitalGapGroup(gap) {
-			attempted.push(gap.fromSec);
+		async readVitalRangeForward(fromSec) {
+			attempted.push(fromSec);
 			// 模拟固件提前给出 DONE，但没有把当前窗口完整记账。
 			return {
 				status: "DONE",
-				message: "gap read made no progress",
+				message: "range read made no progress",
 				pages: 1,
 				savedRecords: 0,
 				saveOk: true
@@ -461,13 +481,13 @@ test("DONE without accounting the whole gap is not success and does not continue
 		}
 	};
 
-	await r.historyRepair.repairAllGaps(reader);
-	assert.deepEqual(attempted, [first]);
+	await r.historyRepair.repairFromBaseline(reader);
+	assert.deepEqual(attempted, [from]);
 	const summary = r.logs
 		.map((entry) => entry.items.join(" "))
 		.find((line) => line.includes("[BOOM-HISTORY] 补录结束"));
-	assert.match(summary, /失败组=1/);
 	assert.match(summary, /ok=false/);
+	assert.equal(await baseline.getBaseline(), from);
 });
 
 test("a failed repair cannot look like baseline progress just because the retention window moved", async (t) => {
@@ -477,7 +497,8 @@ test("a failed repair cannot look like baseline progress just because the retent
 	const start = now - 30 * 24 * 60 * 60;
 	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${start})`);
 	const reader = {
-		async readVitalGapGroup() {
+		resetVitalResponseState() {},
+		async readVitalRangeForward() {
 			r.dateOffsetMs += 8000;
 			return {
 				status: "TIMEOUT",
@@ -489,12 +510,12 @@ test("a failed repair cannot look like baseline progress just because the retent
 		}
 	};
 
-	await r.historyRepair.repairAllGaps(reader);
+	await r.historyRepair.repairFromBaseline(reader);
 	assert.equal(await baseline.getBaseline(), start);
-	const group = r.logs
+	const summary = r.logs
 		.map((entry) => entry.items.join(" "))
-		.find((line) => line.includes("[BOOM-HISTORY] 缺口组结束"));
-	assert.match(group, /本组推进=0s/);
+		.find((line) => line.includes("[BOOM-HISTORY] 补录结束"));
+	assert.match(summary, /本段推进=0s/);
 });
 
 test("data diagnostics popup shows logs and defers full export to auto-archived files", async () => {
@@ -562,13 +583,15 @@ test("protocol popups declare typed emit payloads so the page receives typed obj
 	}
 });
 
-test("a grouped history-gap repair uses one continuous 0x3A/0x3B reader", async () => {
+test("a history repair uses one continuous 0x3A/0x3B reader", async () => {
 	const page = await readFile("pages/device/test.uvue", "utf8");
 	const reader = await readFile(".cool/store/device/history-reader.ts", "utf8");
-	assert.equal(page.includes("readVitalGapGroup(gap)"), true);
-	assert.equal(reader.includes("readVitalGapGroup"), true);
-	// 一组缺口只建立一次 0x3A 上下文，之后连续 0x3B。
+	assert.equal(page.includes("readVitalRangeForward("), true);
+	assert.equal(reader.includes("readVitalRangeForward("), true);
+	// 一整段窗口只建立一次 0x3A 上下文，之后连续 0x3B。
 	assert.equal(reader.includes("private async readVitalRange("), true);
+	// 逐段读取的旧编排不再存在。
+	assert.equal(reader.includes("readVitalGapGroup"), false);
 });
 
 test("a valid all-zero broadcast second enters the PPI upload queue with activity", async (t) => {
@@ -709,19 +732,20 @@ test("automatic repair continues after one planning/database failure", async (t)
 	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${now - 600})`);
 	const tick = new r.DeviceTick({ boundDeviceId: "device" });
 	const enqueued = [];
+	tick.device.broadcast = { getBroadcastAgeMs: () => 0 };
 	tick.device.scheduler = {
 		enqueueHistoryRepair(reason) {
 			enqueued.push(reason);
 		},
 		requestFlush() {}
 	};
-	// 第一轮数据库读失败：整轮抛出并记进 lastError，而不是被当成「没有缺口」。
+	// 第一轮数据库读失败：整轮抛出并记进 lastError，而不是被当成「没有待补」。
 	r.queryFailure = true;
 	await tick.runTick("timer");
 	assert.equal(tick.lastError.value == "", false);
 	assert.deepEqual(enqueued, []);
 	tick.lastTickAt = 0;
-	// 下一轮恢复：同一份缺口要重新被规划出来并入队，失败不能把它吞掉。
+	// 下一轮恢复：同一段窗口要重新被规划出来并入队，失败不能把它吞掉。
 	r.queryFailure = false;
 	await tick.runTick("timer");
 	assert.equal(tick.lastError.value, "");
@@ -1023,7 +1047,7 @@ test("database query failure is not treated as an empty successful upload", asyn
 test("database scan failure does not plan a fabricated empty-history repair", async (t) => {
 	const r = await createRuntime(t);
 	r.queryFailure = true;
-	// 一轮心跳里数据库读失败就整轮抛出，不能被当成「没有缺口」悄悄过去。
+	// 一轮心跳里数据库读失败就整轮抛出，不能被当成「没有待补」悄悄过去。
 	const tick = new r.DeviceTick({ boundDeviceId: "device" });
 	await tick.runTick("timer");
 	assert.equal(tick.lastError.value == "", false);
@@ -1395,7 +1419,8 @@ test("automatic history releases GATT without waiting for slow upload responses"
 		event: { resetDataIdentifierReassembler() {} },
 		protocol: {
 			async readVitalData(query) {
-				reader.latestVitalDataResponse = page(query.startSec - 120);
+				// 向更新方向读：首包就该落在窗口起点上，`accountedUntil` 从它开始推进。
+				reader.latestVitalDataResponse = page(query.startSec);
 				reader.vitalDataResponseSeqValue++;
 				return true;
 			},
@@ -1406,9 +1431,8 @@ test("automatic history releases GATT without waiting for slow upload responses"
 	};
 	const reader = new r.DeviceHistoryReader(device);
 	reader.sleep = async () => {};
-	// 缺口端点直接当读取窗口：末端作 anchor，向更早翻页。
-	const gap = { fromSec: 100000, toSec: 101200, repairSeconds: 1200, bridgeSeconds: 0 };
-	const reading = reader.readVitalGapGroup(gap);
+	// 补录固定读 `[B, stableCeiling)` 一整段，不再按区间端点逐段读。
+	const reading = reader.readVitalRangeForward(100000, 101200);
 	const outcome = await Promise.race([
 		reading,
 		new Promise((resolve) => setTimeout(() => resolve(null), 30))
@@ -1449,15 +1473,15 @@ test("scheduled history upload is coalesced and eventually acknowledges saved ro
 	);
 });
 
-test("backward history starts at the newer edge and stops at the older edge", async (t) => {
+test("forward history starts at the older edge and stops at the newer edge", async (t) => {
 	const r = await createRuntime(t);
 	const queries = [];
 	let cursor = 0;
 	let continues = 0;
 	const deliver = () => {
-		cursor -= 120;
 		reader.latestVitalDataResponse = page(cursor);
 		reader.vitalDataResponseSeqValue++;
+		cursor += 120;
 		return true;
 	};
 	const device = {
@@ -1477,13 +1501,12 @@ test("backward history starts at the newer edge and stops at the older edge", as
 			}
 		}
 	};
-	// 缺口 [100000, 101200)：anchor 取末端，让读取链路反向走到 100000。
+	// 窗口 [100000, 101200)：anchor 取 0x3A 的起点，让读取链路一路走到窗口右端。
 	const reader = new r.DeviceHistoryReader(device);
 	reader.sleep = async () => {}; // Omit native inter-command delay; keep the real read loop.
-	const gap = { fromSec: 100000, toSec: 101200, repairSeconds: 1200, bridgeSeconds: 0 };
-	const read = await reader.readVitalGapGroup(gap);
-	assert.equal(queries[0].startSec, 101200);
-	assert.equal(queries[0].direction, 0);
+	const read = await reader.readVitalRangeForward(100000, 101200);
+	assert.equal(queries[0].startSec, 100000);
+	assert.equal(queries[0].direction, 1);
 	assert.equal(read.pages, 10);
 	assert.equal(continues, 9);
 	assert.equal(read.savedRecords, 1200);
@@ -1493,10 +1516,11 @@ test("backward history starts at the newer edge and stops at the older edge", as
 	);
 });
 
-test("recent window queries next minute and excludes future seconds", async (t) => {
+test("recent window queries from the baseline and excludes future seconds", async (t) => {
 	const r = await createRuntime(t);
-	let query;
+	const queries = [];
 	let continues = 0;
+	let cursor = 0;
 	const device = {
 		boundDeviceId: "device",
 		beginGattTask: () => true,
@@ -1508,48 +1532,47 @@ test("recent window queries next minute and excludes future seconds", async (t) 
 		},
 		protocol: {
 			async readVitalData(value) {
-				query = value;
-				reader.latestVitalDataResponse = page(value.startSec - 120);
+				queries.push(value);
+				cursor = value.startSec;
+				reader.latestVitalDataResponse = page(cursor);
 				reader.vitalDataResponseSeqValue++;
 				return true;
 			},
 			async continueReadVitalData() {
 				continues++;
-				if (continues > 1) return false;
-				reader.latestVitalDataResponse = page(before - 240);
+				cursor += 120;
+				reader.latestVitalDataResponse = page(cursor);
 				reader.vitalDataResponseSeqValue++;
 				return true;
 			}
 		}
 	};
 	const before = Math.floor(Date.now() / 1000);
-	// 缺口窗口就是 [B, stableCeiling)，anchor 取末端——与自动路径同一条读取链路。
-	// 窗口必须跨页（>120 秒），否则第一页就翻到窗口起点之前、读取立刻结束，
-	// 看不到「锚点在未来」这一条路径。
-	const gap = {
-		fromSec: before - 300,
-		toSec: before + 60,
-		repairSeconds: 360,
-		bridgeSeconds: 0
-	};
+	// 读取窗口就是 [B, stableCeiling)，起点直接做 0x3A 锚点——与自动路径同一条链路。
+	// 窗口右端允许落在未来：稳定上界之外的秒读得到但记不了账，由 `advanceAccounted` 封顶。
 	const reader = new r.DeviceHistoryReader(device);
 	reader.sleep = async () => {};
-	const read = await reader.readVitalGapGroup(gap);
+	// `B` 先落到窗口起点，否则「未来秒不记账」这条断言会因为 `B` 本来就在前面而恒真。
+	r.db.exec(
+		`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec,classified_until_sec) VALUES (1,${before - 300},${before - 300})`
+	);
+	const read = await reader.readVitalRangeForward(before - 300, before + 60);
 	const after = Math.floor(Date.now() / 1000);
-	// 锚点就是缺口右端本身，不做分钟对齐：对齐会把窗口末端往回推，窄缺口会被推空。
-	assert.equal(query.startSec, gap.toSec);
-	assert.ok(query.startSec >= before && query.startSec <= after + 60);
-	assert.equal(query.direction, 0);
-	// 锚点在未来，因此只有已经产生的秒入库；未到来的秒既不落库也不记账。
+	// 锚点是窗口起点本身，不做分钟对齐：对齐会把起点往后推，窄窗口会被推空。
+	assert.equal(queries[0].startSec, before - 300);
+	assert.equal(queries[0].direction, 1);
+	assert.equal(continues, 2);
+	// 未到来的秒既不落库也不记账：`B` 不会越过 `stableCeiling`。
 	assert.ok(read.savedRecords > 0);
 	assert.equal(
 		r.db.prepare("SELECT MAX(timestamp) AS last FROM ppi_data").get().last < after,
 		true
 	);
+	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
 	assert.equal(
-		r.db.prepare("SELECT COUNT(*) AS n FROM vital_ready_ranges WHERE to_sec > " + after).get()
-			.n,
-		0
+		(await baseline.getBaseline()) <= after,
+		true,
+		"未来的秒不能记账，`B` 必须被 stableCeiling 封住"
 	);
 });
 
@@ -1941,19 +1964,15 @@ test("a history timeout reports the exact pending two-minute page", async (t) =>
 	reader.sleep = async () => {
 		r.dateOffsetMs += 1000;
 	};
-	const result = await reader.readVitalGapGroup({
-		fromSec: 1000,
-		toSec: 1300,
-		repairSeconds: 300,
-		bridgeSeconds: 0
-	});
+	const result = await reader.readVitalRangeForward(1000, 1300);
 
+	// 首包就超时：失败区间退化成窗口的第一页（`minutes=2` → 120 秒）。
 	assert.equal(result.status, "TIMEOUT");
-	assert.equal(result.failedFromSec, 1180);
-	assert.equal(result.failedToSec, 1300);
+	assert.equal(result.failedFromSec, 1000);
+	assert.equal(result.failedToSec, 1120);
 });
 
-test("a stale page newer than the gap cannot move the timeout audit outside the gap", async (t) => {
+test("a page beyond the window ends the read as confirmed no-data instead of a failure", async (t) => {
 	const r = await createRuntime(t);
 	let reader;
 	const device = {
@@ -1963,17 +1982,9 @@ test("a stale page newer than the gap cannot move the timeout audit outside the 
 		event: { resetDataIdentifierReassembler() {} },
 		protocol: {
 			async readVitalData() {
-				reader.latestVitalDataResponse = {
-					startSec: 1400,
-					direction: 0,
-					n: 2,
-					rmssdSdnn: [{}, {}],
-					vitalData: Array.from({ length: 120 }, () => ({
-						hr: 60,
-						ppi: 1000,
-						valid: true
-					}))
-				};
+				// 设备把整个窗口都跳过去了：这在向更新方向读时是「窗口内没有记录」的
+				// 正常结论，不是超时，也不能把失败区间写到窗口之外。
+				reader.latestVitalDataResponse = page(1400);
 				reader.vitalDataResponseSeqValue++;
 				return true;
 			},
@@ -1986,22 +1997,26 @@ test("a stale page newer than the gap cannot move the timeout audit outside the 
 	reader.sleep = async () => {
 		r.dateOffsetMs += 1000;
 	};
-	const result = await reader.readVitalGapGroup({
-		fromSec: 1000,
-		toSec: 1300,
-		repairSeconds: 300,
-		bridgeSeconds: 0
-	});
+	// `B` 先落到窗口起点，读取才有可记账的那一段。
+	r.db.exec(
+		"INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec,classified_until_sec) VALUES (1,1000,1000)"
+	);
+	const result = await reader.readVitalRangeForward(1000, 1300);
 
-	assert.equal(result.status, "TIMEOUT");
-	assert.equal(result.failedFromSec, 1180);
-	assert.equal(result.failedToSec, 1300);
+	assert.equal(result.status, "DONE");
+	assert.equal(result.failedFromSec, null);
+	// 整段按「设备确认无数据」记账，`B` 才有机会越过它。
+	assert.equal(
+		(await (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline.getBaseline()),
+		1300
+	);
 });
 
 test("a cycling history page reports PAGE_STALLED with an exact failed range", async (t) => {
 	const r = await createRuntime(t);
 	let reader;
-	const starts = [1400, 1300, 1400];
+	// 向更新方向读时「没进展」是页面不再往后走，所以重复给同一个起点。
+	const starts = [1000, 1000, 1000];
 	let responseIndex = 0;
 	function deliver() {
 		reader.latestVitalDataResponse = page(starts[responseIndex]);
@@ -2025,40 +2040,36 @@ test("a cycling history page reports PAGE_STALLED with an exact failed range", a
 	};
 	reader = new r.DeviceHistoryReader(device);
 	reader.sleep = async () => {};
-	const result = await reader.readVitalGapGroup({
-		fromSec: 1000,
-		toSec: 1300,
-		repairSeconds: 300,
-		bridgeSeconds: 0
-	});
+	const result = await reader.readVitalRangeForward(1000, 1300);
 
 	assert.equal(result.status, "PAGE_STALLED");
 	assert.equal(result.saveOk, true);
-	assert.match(result.message, /历史页面未向更早时间推进/);
-	assert.equal(result.failedFromSec, 1180);
-	assert.equal(result.failedToSec, 1300);
+	assert.match(result.message, /历史页面未向更晚时间推进/);
+	assert.equal(result.failedFromSec, 1000);
+	assert.equal(result.failedToSec, 1120);
 });
 
-test("a verified stalled page is counted separately and later gap groups continue", async (t) => {
+test("a verified stalled page does not stop the connection", async (t) => {
 	const r = await createRuntime(t);
 	const now = Math.floor(Date.now() / 1000);
-	const first = now - 900;
-	const second = now - 500;
-	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${first})`);
-	r.db.exec(`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${now - 700},${second})`);
+	const from = now - 900;
+	const ceiling = now - 10;
+	r.db.exec(
+		`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec,classified_until_sec) VALUES (1,${from},${ceiling})`
+	);
 	const attempted = [];
 	const reader = {
 		resetVitalResponseState() {},
-		async readVitalGapGroup(gap) {
-			attempted.push(gap.fromSec);
+		async readVitalRangeForward(fromSec) {
+			attempted.push(fromSec);
 			return {
 				status: "PAGE_STALLED",
-				message: "历史页面未向更早时间推进",
+				message: "历史页面未向更晚时间推进",
 				pages: 3,
 				savedRecords: 0,
 				saveOk: true,
-				failedFromSec: gap.toSec - 120,
-				failedToSec: gap.toSec
+				failedFromSec: fromSec,
+				failedToSec: fromSec + 120
 			};
 		}
 	};
@@ -2068,37 +2079,41 @@ test("a verified stalled page is counted separately and later gap groups continu
 		}
 	};
 
-	const result = await r.historyRepair.repairAllGaps(reader, probe);
+	const stopReason = await r.historyRepair.repairFromBaseline(reader, probe);
 
-	assert.deepEqual(attempted, [first, second]);
-	assert.equal(result.stopReason, "COMPLETE");
-	assert.equal(result.timedOutPages, 0);
-	assert.equal(result.stalledPages, 2);
+	assert.deepEqual(attempted, [from]);
+	// 页停滞只说明这一页没读成：设备还活着，通道继续用，`B` 停在读到的位置等下一次连接。
+	assert.equal(stopReason, "COMPLETE");
+	assert.match(
+		r.logs.map((entry) => entry.items.join(" ")).find((line) => line.includes("历史页读取失败")),
+		/status=PAGE_STALLED, page=\d+~\d+/
+	);
 });
 
-test("a verified history-page timeout is counted and later gap groups continue", async (t) => {
+test("a successful post-timeout probe resets frames and lets the connection finish", async (t) => {
 	const r = await createRuntime(t);
 	const now = Math.floor(Date.now() / 1000);
-	const first = now - 900;
-	const second = now - 500;
-	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${first})`);
-	r.db.exec(`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${now - 700},${second})`);
+	const from = now - 900;
+	const ceiling = now - 10;
+	r.db.exec(
+		`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec,classified_until_sec) VALUES (1,${from},${ceiling})`
+	);
 	const attempted = [];
 	let resetCount = 0;
 	const reader = {
 		resetVitalResponseState() {
 			resetCount++;
 		},
-		async readVitalGapGroup(gap) {
-			attempted.push(gap.fromSec);
+		async readVitalRangeForward(fromSec) {
+			attempted.push(fromSec);
 			return {
 				status: "TIMEOUT",
 				message: "wait vital response timeout",
 				pages: 0,
 				savedRecords: 0,
 				saveOk: true,
-				failedFromSec: gap.toSec - 120,
-				failedToSec: gap.toSec
+				failedFromSec: fromSec,
+				failedToSec: fromSec + 120
 			};
 		}
 	};
@@ -2108,38 +2123,34 @@ test("a verified history-page timeout is counted and later gap groups continue",
 		}
 	};
 
-	const result = await r.historyRepair.repairAllGaps(reader, probe);
+	const stopReason = await r.historyRepair.repairFromBaseline(reader, probe);
 
-	assert.deepEqual(attempted, [first, second]);
-	assert.equal(resetCount, 2, "each successful post-timeout probe resets partial history frames");
-	assert.equal(result.stopReason, "COMPLETE");
-	assert.equal(result.timedOutPages, 2);
-	assert.equal(
-		r.db.prepare("SELECT COUNT(*) AS n FROM vital_history_failures WHERE timeout_count=1").get()
-			.n,
-		2
-	);
+	assert.deepEqual(attempted, [from]);
+	assert.equal(resetCount, 1, "a successful post-timeout probe resets partial history frames");
+	assert.equal(stopReason, "COMPLETE");
 });
 
-test("a failed post-timeout probe stops repair without blaming the history page", async (t) => {
+test("a failed post-timeout probe stops the connection without accounting the page", async (t) => {
 	const r = await createRuntime(t);
+	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
 	const now = Math.floor(Date.now() / 1000);
-	const first = now - 900;
-	const second = now - 500;
-	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${first})`);
-	r.db.exec(`INSERT INTO vital_ready_ranges (from_sec,to_sec) VALUES (${now - 700},${second})`);
+	const from = now - 900;
+	const ceiling = now - 10;
+	r.db.exec(
+		`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec,classified_until_sec) VALUES (1,${from},${ceiling})`
+	);
 	const attempted = [];
 	const reader = {
-		async readVitalGapGroup(gap) {
-			attempted.push(gap.fromSec);
+		async readVitalRangeForward(fromSec) {
+			attempted.push(fromSec);
 			return {
 				status: "TIMEOUT",
 				message: "wait vital response timeout",
 				pages: 0,
 				savedRecords: 0,
 				saveOk: true,
-				failedFromSec: gap.toSec - 120,
-				failedToSec: gap.toSec
+				failedFromSec: fromSec,
+				failedToSec: fromSec + 120
 			};
 		}
 	};
@@ -2149,27 +2160,26 @@ test("a failed post-timeout probe stops repair without blaming the history page"
 		}
 	};
 
-	const result = await r.historyRepair.repairAllGaps(reader, probe);
+	const stopReason = await r.historyRepair.repairFromBaseline(reader, probe);
 
-	assert.deepEqual(attempted, [first]);
-	assert.equal(result.stopReason, "DEVICE_UNRESPONSIVE");
-	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM vital_history_failures").get().n, 0);
+	assert.deepEqual(attempted, [from]);
+	assert.equal(stopReason, "DEVICE_UNRESPONSIVE");
+	// 设备不回就是失败：`B` 一步都不能动，这一段留到下一次连接重读。
+	assert.equal(await baseline.getBaseline(), from);
 });
 
-test("the third verified timeout abandons and accounts only its exact page", async (t) => {
+test("a device that never answers never advances the baseline", async (t) => {
 	const r = await createRuntime(t);
+	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
 	const now = Math.floor(Date.now() / 1000);
 	const from = now - 130;
 	const to = now - 10;
-	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${from})`);
-	const { historyFailureStore } = await r.load(
-		".cool/bluetooth/history/history-failure-store.ts"
+	r.db.exec(
+		`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec,classified_until_sec) VALUES (1,${from},${to})`
 	);
-	await historyFailureStore.recordFailure(from, to, now - 20);
-	await historyFailureStore.recordFailure(from, to, now - 10);
 	const reader = {
 		resetVitalResponseState() {},
-		async readVitalGapGroup() {
+		async readVitalRangeForward() {
 			return {
 				status: "TIMEOUT",
 				message: "wait vital response timeout",
@@ -2187,22 +2197,11 @@ test("the third verified timeout abandons and accounts only its exact page", asy
 		}
 	};
 
-	const result = await r.historyRepair.repairAllGaps(reader, probe);
-
-	assert.equal(result.abandonedPages, 1);
-	assert.equal(
-		await (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline.getBaseline(),
-		to
-	);
-	assert.equal(
-		r.db.prepare("SELECT COUNT(*) AS n FROM vital_history_failures WHERE abandoned=1").get().n,
-		1
-	);
-	assert.equal(
-		r.db.prepare("SELECT COUNT(*) AS n FROM vital_ready_ranges").get().n,
-		0,
-		"an abandoned range already consumed by B must not be reinserted"
-	);
+	// 反复连接、反复不回：`B` 原地不动。没有回答不等于「设备没有这一段」——把它折算成
+	// 记账会让 `B` 以每次一页的速度啃掉历史，而设备里可能真有这段数据。
+	for (let i = 0; i < 3; i++)
+		assert.equal(await r.historyRepair.repairFromBaseline(reader, probe), "COMPLETE");
+	assert.equal(await baseline.getBaseline(), from);
 });
 
 test("scheduler keeps automatic work queued when the initial protocol probe fails", async (t) => {
@@ -2277,7 +2276,22 @@ test("scheduler clears device failures only after a fully responsive flush", asy
 				healthy++;
 			}
 		},
-		history: {},
+		history: {
+			// 同一次连接里把 `[B, stableCeiling)` 读完即算成功；这里的桩只为让补录
+			// 走完整条路径（含 `markHistorySynced`），不模拟设备行为。
+			async readVitalRangeForward(fromSec, toSec) {
+				await (
+					await r.load(".cool/bluetooth/history/baseline.ts")
+				).historyBaseline.advanceAccounted(toSec, Math.floor(Date.now() / 1000));
+				return {
+					status: "DONE",
+					message: "target window complete",
+					pages: 1,
+					savedRecords: 0,
+					saveOk: true
+				};
+			}
+		},
 		tick: {
 			markHistorySynced() {
 				synced++;
@@ -2295,30 +2309,6 @@ test("scheduler clears device failures only after a fully responsive flush", asy
 	assert.equal(synced, 1);
 });
 
-test("a successful manual abandoned-page retry clears its audit without rewinding baseline", async (t) => {
-	const r = await createRuntime(t);
-	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
-	const { historyFailureStore } = await r.load(
-		".cool/bluetooth/history/history-failure-store.ts"
-	);
-	const before = Math.floor(Date.now() / 1000) - 10;
-	r.db.exec(`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec) VALUES (1,${before})`);
-	await historyFailureStore.recordFailure(before - 120, before, before - 30);
-	await historyFailureStore.recordFailure(before - 120, before, before - 20);
-	await historyFailureStore.recordFailure(before - 120, before, before - 10);
-	const reader = {
-		async readVitalRangeManual() {
-			return { status: "DONE", saveOk: true, savedRecords: 10 };
-		}
-	};
-
-	const result = await r.historyRepair.retryAbandonedRange(reader, before - 120, before);
-
-	assert.equal(result.status, "DONE");
-	assert.deepEqual(await historyFailureStore.listAbandoned(), []);
-	assert.equal(await baseline.getBaseline(), before);
-});
-
 test("device pages render the decoupled protocol-health warning", async () => {
 	const component = await readFile("pages/device/components/DeviceHealthWarning.uvue", "utf8");
 	const indexPage = await readFile("pages/device/index.uvue", "utf8");
@@ -2333,11 +2323,15 @@ test("device pages render the decoupled protocol-health warning", async () => {
 	assert.equal(detailPage.includes("<DeviceHealthWarning"), true);
 });
 
-test("history-gap diagnostics expose abandoned pages through the repair use case", async () => {
-	const popup = await readFile("pages/device/components/HistoryGapRepairPopup.uvue", "utf8");
+test("the repair popup offers only the full-window read", async () => {
+	const popup = await readFile("pages/device/components/HistoryRepairPopup.uvue", "utf8");
 	const page = await readFile("pages/device/test.uvue", "utf8");
-	assert.equal(popup.includes("listAbandonedHistoryRanges"), true);
-	assert.equal(popup.includes('emit("retry-abandoned"'), true);
-	assert.equal(page.includes('@retry-abandoned="retryAbandonedHistoryRange"'), true);
-	assert.match(page, /retryAbandonedRange\(\s*deviceStore\.history/);
+	const repair = await readFile(".cool/store/device/history-repair.ts", "utf8");
+	// 「设备不回」不再是需要跨连接记住的状态：没有审计记录，也就没有「已放弃页」列表
+	// 和逐页重读入口，弹窗只剩「把 `[B, 记账上限)` 读一整段」这一件事。
+	assert.equal(popup.includes("已放弃历史页"), false);
+	assert.equal(popup.includes("retry-abandoned"), false);
+	assert.equal(popup.includes("abandoned"), false);
+	assert.equal(page.includes("retryAbandoned"), false);
+	assert.equal(repair.includes("abandon"), false);
 });

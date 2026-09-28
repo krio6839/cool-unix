@@ -196,11 +196,14 @@ export function decodeAdvStatus(status: number): AdvStatus {
 /**
  * 实时广播展示值：0 是设备的原始值；只有非零且校验失败才标为无效。
  * 该函数不参与数据持久化或上传，避免展示规则改变原始采集数据。
+ *
+ * fractionDigits <= 0 时取整，不能直接 toString()：`rmssd` 是 float32，
+ * 转成 JS double 后带着尾数（32.4 → 32.400001525878906），直接展示会出现一长串小数。
  */
 export function formatRealtimeMetric(value: number, valid: boolean, fractionDigits: number): string {
 	if (value == 0) return "0";
 	if (valid == false) return "invalid";
-	if (fractionDigits <= 0) return value.toString();
+	if (fractionDigits <= 0) return Math.round(value).toString();
 	return value.toFixed(fractionDigits);
 }
 

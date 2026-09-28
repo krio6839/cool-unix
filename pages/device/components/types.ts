@@ -19,9 +19,9 @@ export type HistoryQuickReadPopupProps = {
 	busy: boolean;
 	exportCount: number;
 };
-/** 补录只按缺口端点走，不再有任务 id：缺口是推算出来的，没有可寻址的行。 */
-export type HistoryGapRepairPayload = { fromSec: number; toSec: number };
-export type HistoryGapRepairPopupProps = {
+/** 补录只按时间端点走，不再有任务 id：端点是推算出来的，没有可寻址的行。 */
+export type HistoryRepairPayload = { fromSec: number; toSec: number };
+export type HistoryRepairPopupProps = {
 	busy: boolean;
 	commandMessage: string;
 	revision: number;

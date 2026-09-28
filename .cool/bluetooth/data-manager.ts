@@ -7,7 +7,6 @@
  */
 import { bluetoothDatabase } from "./database";
 import { historyBaseline, BASELINE_SCHEMA } from "./history/baseline";
-import { HISTORY_FAILURE_SCHEMA } from "./history/history-failure-store";
 import { logger } from "../service/logger";
 import type { SelectSqlResult } from "@/uni_modules/meibao-Sqlite";
 import type {
@@ -47,13 +46,10 @@ export class BluetoothDataManager {
 	private async initDatabase(): Promise<boolean> {
 		const opened = await bluetoothDatabase.open();
 		if (opened == false) return false;
-		// 基准时间跨冷启动保留。数据库重开或 App 重启都不能让已记账的时间重新变成缺口；
+		// 基准时间跨冷启动保留。数据库重开或 App 重启都不能让已记账的时间重新变成未记账；
 		// 产品在重新绑定时由 clearAllData() 一并清除。
 		try {
-			if (
-				(await bluetoothDatabase.transaction(BASELINE_SCHEMA.concat(HISTORY_FAILURE_SCHEMA))) == false
-			)
-				return false;
+			if ((await bluetoothDatabase.transaction(BASELINE_SCHEMA)) == false) return false;
 			await historyBaseline.initializeIfMissing(Math.floor(Date.now() / 1000));
 			return true;
 		} catch (error) {
@@ -283,14 +279,11 @@ export class BluetoothDataManager {
 		const baseline = await historyBaseline.getBaseline();
 		const nowSec = Math.floor(Date.now() / 1000);
 		const ceiling = historyBaseline.stableCeiling(nowSec);
-		const gaps = await historyBaseline.listRepairGaps(nowSec);
-		const readyRanges = await historyBaseline.listReadyRanges();
 		return {
 			baselineSec: baseline,
 			stableCeilingSec: ceiling,
-			gapGroups: gaps.length,
-			gapSeconds: historyBaseline.sumRepairSeconds(gaps),
-			readyRanges: readyRanges.length,
+			behindSeconds: Math.max(0, ceiling - baseline),
+			classifiedUntilSec: await historyBaseline.getClassifiedUntil(),
 			unuploadedCount: await this.getUnuploadedPpiCount(),
 			earliestUnuploadedSec: await this.queryTimestamp(
 				"SELECT MIN(timestamp) FROM ppi_data WHERE uploaded = 0"
@@ -519,9 +512,7 @@ export class BluetoothDataManager {
 			"DELETE FROM sleep_data",
 			"DELETE FROM ppi_data",
 			"DELETE FROM realtime_broadcast_data",
-			"DELETE FROM vital_ready_ranges",
-			"DELETE FROM vital_sync_state",
-			"DELETE FROM vital_history_failures"
+			"DELETE FROM vital_sync_state"
 		]);
 		if (cleared == false) {
 			logger.error("bluetooth", "[BOOM-DATA] 清空旧设备数据失败");
@@ -530,7 +521,7 @@ export class BluetoothDataManager {
 		logger.info("bluetooth", "数据库数据清空完成");
 	}
 
-	/** 显式清空当前绑定的基准时间与已记账区间，不影响已经保存和待上传的每秒数据。 */
+	/** 显式清空当前绑定的基准与分类进度，不影响已经保存和待上传的每秒数据。 */
 	async clearHistorySession(): Promise<void> {
 		try {
 			if ((await this.clearHistorySessionRaw()) == false)
@@ -543,12 +534,8 @@ export class BluetoothDataManager {
 	}
 
 	private async clearHistorySessionRaw(): Promise<boolean> {
-		if ((await bluetoothDatabase.execute("DELETE FROM vital_ready_ranges")) == false)
-			throw new Error("清空已记账区间失败");
 		if ((await bluetoothDatabase.execute("DELETE FROM vital_sync_state")) == false)
 			throw new Error("清空基准时间失败");
-		if ((await bluetoothDatabase.execute("DELETE FROM vital_history_failures")) == false)
-			throw new Error("清空历史失败记录失败");
 		return true;
 	}
 

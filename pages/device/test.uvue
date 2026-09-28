@@ -103,10 +103,10 @@
 				<view class="panel-header"
 					><view
 						><cl-text color="white" :size="15" :pt="{ className: 'font-bold' }">{{
-							t("基准时间与缺口")
+							t("基准时间与补录")
 						}}</cl-text
 						><cl-text color="gray-400" :size="12">{{
-							t("缺口由 B 与已记账区间相减得出，不落库")
+							t("补录固定读 [B, 记账上限)，不枚举区间")
 						}}</cl-text></view
 					><cl-button
 						type="primary"
@@ -130,10 +130,10 @@
 							baselinePanel.ceilingText
 						}}</text></view
 					><view class="baseline-cell"
-						><text class="cell-label">{{ t("已记账区间") }}</text
-						><text class="cell-value">{{ baselinePanel.readyText }}</text></view
+						><text class="cell-label">{{ t("已判定到 C") }}</text
+						><text class="cell-value cell-value-small">{{ baselinePanel.classifiedText }}</text></view
 					><view class="baseline-cell"
-						><text class="cell-label">{{ t("待补总计") }}</text
+						><text class="cell-label">{{ t("落后 / 待补") }}</text
 						><text class="cell-value">{{ baselinePanel.repairText }}</text></view
 					></view
 				>
@@ -144,15 +144,7 @@
 				<text v-if="tickError != ''" class="baseline-error">{{
 					t("心跳异常") + ": " + tickError
 				}}</text>
-				<text v-if="baselinePanel.gapLines.length == 0" class="baseline-empty">{{
-					t("当前没有待补的历史缺口")
-				}}</text>
-				<view
-					v-for="line in baselinePanel.gapLines"
-					:key="line"
-					class="baseline-gap"
-					><text class="baseline-gap-text">{{ line }}</text></view
-				>
+				<text class="baseline-empty">{{ baselinePanel.stateText }}</text>
 			</view>
 			<view class="entry-grid">
 				<cl-button
@@ -181,13 +173,12 @@
 			@stop="stopVitalAutoRead"
 			@export="exportVitalHistoryCsv"
 		/>
-		<HistoryGapRepairPopup
-			v-model:show="historyGapRepairPopupVisible"
-			:busy="activeCommand == 'HISTORY_GAP'"
-			:command-message="getResp('HISTORY_GAP')"
-			:revision="historyGapRevision"
-			@repair-history-gap="repairHistoryGap"
-			@retry-abandoned="retryAbandonedHistoryRange"
+		<HistoryRepairPopup
+			v-model:show="historyRepairPopupVisible"
+			:busy="activeCommand == 'HISTORY_REPAIR'"
+			:command-message="getResp('HISTORY_REPAIR')"
+			:revision="historyRepairRevision"
+			@repair="repairHistoryWindow"
 		/>
 		<VitalProtocolPopup
 			v-model:show="vitalProtocolPopupVisible"
@@ -246,11 +237,10 @@ import type { PpgPositionOption } from "@/.cool";
 import { useUi, type ClSelectOption } from "@/uni_modules/cool-ui";
 import type { VitalAutoReadResult } from "@/.cool/store/device/history-reader";
 import { buildVitalHistoryCsv } from "@/.cool/bluetooth/history/export";
-import { historyBaseline, type HistoryGap } from "@/.cool/bluetooth/history/baseline";
-import { retryAbandonedRange } from "@/.cool/store/device/history-repair";
+import { historyBaseline } from "@/.cool/bluetooth/history/baseline";
 import { saveCsvToDownloads } from "@/uni_modules/boom-csv-saver";
 import DataDiagnosticsPopup from "./components/DataDiagnosticsPopup.uvue";
-import HistoryGapRepairPopup from "./components/HistoryGapRepairPopup.uvue";
+import HistoryRepairPopup from "./components/HistoryRepairPopup.uvue";
 import HistoryQuickReadPopup from "./components/HistoryQuickReadPopup.uvue";
 import VitalProtocolPopup from "./components/VitalProtocolPopup.uvue";
 import EventProtocolPopup from "./components/EventProtocolPopup.uvue";
@@ -258,7 +248,7 @@ import DeviceControlPopup from "./components/DeviceControlPopup.uvue";
 import type {
 	DevicePopupPayload,
 	EventPopupPayload,
-	HistoryGapRepairPayload,
+	HistoryRepairPayload,
 	VitalPopupPayload,
 	VitalPopupText
 } from "./components/types";
@@ -294,18 +284,18 @@ type AdvText = {
 	vHex: string;
 };
 
-type TestEntryKey = "quick" | "gap" | "vital" | "event" | "control" | "diagnostics";
+type TestEntryKey = "quick" | "repair" | "vital" | "event" | "control" | "diagnostics";
 type TestEntry = { key: TestEntryKey; label: string };
 
 const ui = useUi();
 const { device: deviceStore } = useStore();
 
 const databasePopupVisible = ref(false);
-const historyGapRepairPopupVisible = ref(false);
+const historyRepairPopupVisible = ref(false);
 /**
- * 测试页手动补录直接调用 history.readVitalGapGroup，不经过心跳，
+ * 测试页手动补录直接调用 history.readVitalRangeForward，不经过心跳，
  * 因此不会更新 lastHistorySyncAt。补完必须自己抬一次版本，否则弹窗和基准面板
- * 留着补录之前的旧缺口。
+ * 留着补录之前的旧数字。
  */
 const manualHistoryRevision = ref<number>(0);
 /**
@@ -315,7 +305,7 @@ const manualHistoryRevision = ref<number>(0);
  * 真问题**，而这是除日志外唯一的落点。没有它，「心跳在跑但什么都没做」只能靠翻日志。
  */
 const tickError = computed<string>(() => deviceStore.tick.lastError.value);
-const historyGapRevision = computed<number>(() => {
+const historyRepairRevision = computed<number>(() => {
 	const plannedAt = deviceStore.tick.lastCheckAt.value;
 	const completedAt = deviceStore.tick.lastHistorySyncAt.value;
 	const manualAt = manualHistoryRevision.value;
@@ -324,26 +314,26 @@ const historyGapRevision = computed<number>(() => {
 });
 const quickHistoryPopupVisible = ref(false);
 /**
- * 基准时间面板：直接展示 `B`、`vital_ready_ranges` 与由此推出的缺口。
+ * 基准时间面板：直接展示 `B`、分类游标 `C` 与「还有多少秒没记账」。
  *
- * 面板不轮询数据库——它挂在 `historyGapRevision` 上，只有规划/补录真的发生过才重读，
+ * 面板不轮询数据库——它挂在 `historyRepairRevision` 上，只有规划/补录真的发生过才重读，
  * 否则 30 天保留窗口下每帧广播都去查一次小表是白烧电。
  */
 type BaselinePanelState = {
 	baselineText: string;
 	ceilingText: string;
-	readyText: string;
+	classifiedText: string;
 	repairText: string;
-	gapLines: string[];
+	stateText: string;
 	errorText: string;
 };
 const baselineLoading = ref(false);
 const baselinePanel = ref<BaselinePanelState>({
 	baselineText: "-",
 	ceilingText: "-",
-	readyText: "0",
+	classifiedText: "0",
 	repairText: "0",
-	gapLines: [],
+	stateText: "",
 	errorText: ""
 });
 /**
@@ -365,40 +355,41 @@ async function refreshBaselinePanel(): Promise<void> {
 	try {
 		const nowSec = getNowSec();
 		const snapshot = await historyBaseline.snapshot(nowSec);
-		const lines: string[] = [];
-		for (let i = 0; i < snapshot.gaps.length; i++) {
-			const gap = snapshot.gaps[i];
-			lines.push(
-				`#${i + 1} ${formatEventWindowTime(gap.fromSec)} ~ ${formatEventWindowTime(gap.toSec - 1)}` +
-					` | ${t("待补")} ${gap.repairSeconds}s` +
-					(gap.bridgeSeconds > 0 ? ` | ${t("桥接跨过")} ${gap.bridgeSeconds}s` : "")
-			);
-		}
-		let total = 0;
-		for (let i = 0; i < snapshot.gaps.length; i++) total += snapshot.gaps[i].repairSeconds;
+		// 落后量是「要不要发起补录连接」的直接依据：它到不了 CONNECT_MIN_BEHIND_SEC，
+		// 心跳就不会连设备，待补的秒留着也正常。面板把 B / 记账上限 / 落后量并排露出来，
+		// 一眼就能区分「还在等」和「该连了都没连」。
+		const behind = snapshot.behind;
+		const stateText =
+			behind > 0
+				? t("读取窗口") +
+					" " +
+					formatEventWindowTime(snapshot.baseline) +
+					" → " +
+					formatEventWindowTime(snapshot.ceiling - 1)
+				: t("基准时间已贴着记账上限，当前没有待补数据");
 		baselinePanel.value = {
 			baselineText: `${snapshot.baseline} (${formatEventWindowTime(snapshot.baseline)})`,
 			ceilingText: `${snapshot.ceiling} (${formatEventWindowTime(snapshot.ceiling)})`,
-			readyText: snapshot.readyRanges.length.toString(),
-			repairText: `${total}s / ${snapshot.gaps.length} ${t("组")}`,
-			gapLines: lines,
+			classifiedText: `${snapshot.classifiedUntil} (${formatEventWindowTime(snapshot.classifiedUntil)})`,
+			repairText: `${behind}s`,
+			stateText: stateText,
 			errorText: ""
 		};
 	} catch (error) {
 		baselinePanel.value = {
 			baselineText: "-",
 			ceilingText: "-",
-			readyText: "0",
+			classifiedText: "0",
 			repairText: "0",
-			gapLines: [],
+			stateText: "",
 			errorText: `${t("读取基准时间失败")}: ${error}`
 		};
 	} finally {
 		baselineLoading.value = false;
 	}
 }
-// 规划/补录完成后自动重读；`historyGapRevision` 由 sync 的 lastCheckAt/lastHistorySyncAt 驱动。
-watch(historyGapRevision, (value: number) => {
+// 规划/补录完成后自动重读；`historyRepairRevision` 由 sync 的 lastCheckAt/lastHistorySyncAt 驱动。
+watch(historyRepairRevision, (value: number) => {
 	if (value > 0) refreshBaselinePanel();
 });
 const vitalProtocolPopupVisible = ref(false);
@@ -407,7 +398,7 @@ const deviceControlPopupVisible = ref(false);
 const diagnosticsPopupVisible = ref(false);
 const testEntries: TestEntry[] = [
 	{ key: "quick", label: t("快速历史读取") },
-	{ key: "gap", label: t("历史缺口补录") },
+	{ key: "repair", label: t("历史补录") },
 	{ key: "vital", label: t("生命体征协议") },
 	{ key: "event", label: t("事件协议") },
 	{ key: "control", label: t("设备控制") },
@@ -726,8 +717,8 @@ function openTestEntry(key: TestEntryKey): void {
 		quickHistoryPopupVisible.value = true;
 		return;
 	}
-	if (key == "gap") {
-		historyGapRepairPopupVisible.value = true;
+	if (key == "repair") {
+		historyRepairPopupVisible.value = true;
 		return;
 	}
 	if (key == "vital") {
@@ -789,7 +780,7 @@ async function runQueuedGattCommand(cmd: string, runner: () => Promise<boolean>)
 	return ok;
 }
 
-function historyGapResultText(result: VitalAutoReadResult): string {
+function historyRepairResultText(result: VitalAutoReadResult): string {
 	if (result.message == "0x3A send failed") return t("补录失败：0x3A 发送失败");
 	if (result.message == "0x3B send failed") return t("补录失败：0x3B 发送失败");
 	if (result.message == "wait vital response timeout") return t("补录失败：等待设备响应超时");
@@ -798,58 +789,34 @@ function historyGapResultText(result: VitalAutoReadResult): string {
 	if (result.saveOk == false) return t("补录失败：页面处理未完成");
 	if (result.status != "DONE") return t("补录未完成") + "：" + result.message;
 	if (result.savedRecords == 0) return t("补录完成：设备未返回有效生命体征");
-	return t("连续缺口补录完成");
+	return t("连续补录完成");
 }
 
-/** 测试页指定 SQLite 中的一条待补任务，仍复用正式的逐页落库与游标推进流程。 */
-async function repairHistoryGap(payload: HistoryGapRepairPayload): Promise<void> {
+/** 测试页对指定区间做一次手动补录，仍复用正式的逐页落库与游标推进流程。 */
+async function repairHistoryWindow(payload: HistoryRepairPayload): Promise<void> {
 	if (payload.toSec <= payload.fromSec) return;
-	const ok = await runQueuedGattCommand("HISTORY_GAP", async () => {
+	const ok = await runQueuedGattCommand("HISTORY_REPAIR", async () => {
 		try {
-			setCommandResponse("HISTORY_GAP", `${t("连续缺口补录")} 0x3A → 0x3B`);
-			// 直接按缺口端点读，不再先查任务行：缺口是推算出来的，没有可寻址的表行。
-			const gap: HistoryGap = {
-				fromSec: payload.fromSec,
-				toSec: payload.toSec,
-				repairSeconds: payload.toSec - payload.fromSec,
-				bridgeSeconds: 0
-			};
-			const result = await deviceStore.history.readVitalGapGroup(gap);
+			setCommandResponse("HISTORY_REPAIR", `${t("连续补录")} 0x3A → 0x3B`);
+			// 直接按区间端点顺序读，不先查任务行：窗口是推算出来的，没有可寻址的表行。
+			const result = await deviceStore.history.readVitalRangeForward(
+				payload.fromSec,
+				payload.toSec
+			);
 			setCommandResponse(
-				"HISTORY_GAP",
-				`${historyGapResultText(result)}, ${t("页数")} ${result.pages}, ${t("保存")} ${result.savedRecords}`
+				"HISTORY_REPAIR",
+				`${historyRepairResultText(result)}, ${t("页数")} ${result.pages}, ${t("保存")} ${result.savedRecords}`
 			);
 			return result.saveOk && result.status == "DONE";
 		} catch (error) {
-			setCommandResponse("HISTORY_GAP", `${t("指定缺口补录失败")}: ${error}`);
+			setCommandResponse("HISTORY_REPAIR", `${t("指定区间补录失败")}: ${error}`);
 			return false;
 		}
 	});
-	// 手动补录不经过 sync，主动抬版本让弹窗重读本批缺口。
+	// 手动补录不经过 sync，主动抬版本让弹窗重读这一轮补录之后的数字。
 	manualHistoryRevision.value = Date.now();
 	ui.showToast({
-		message: ok ? t("连续缺口补录已完成") : t("连续缺口补录失败"),
-		type: ok ? "success" : "error"
-	});
-}
-
-async function retryAbandonedHistoryRange(payload: HistoryGapRepairPayload): Promise<void> {
-	if (payload.toSec <= payload.fromSec) return;
-	const ok = await runQueuedGattCommand("HISTORY_GAP", async () => {
-		const result = await retryAbandonedRange(
-			deviceStore.history,
-			payload.fromSec,
-			payload.toSec
-		);
-		setCommandResponse(
-			"HISTORY_GAP",
-			`${historyGapResultText(result)}, ${t("页数")} ${result.pages}, ${t("保存")} ${result.savedRecords}`
-		);
-		return result.status == "DONE" && result.saveOk == true;
-	});
-	manualHistoryRevision.value = Date.now();
-	ui.showToast({
-		message: ok ? t("已放弃历史页重读完成") : t("已放弃历史页重读失败"),
+		message: ok ? t("连续补录已完成") : t("连续补录失败"),
 		type: ok ? "success" : "error"
 	});
 }
@@ -1966,19 +1933,6 @@ function runDeviceCommand(command: string): void {
 	font-size: 12px;
 	line-height: 18px;
 	margin-top: 6px;
-}
-
-.baseline-gap {
-	margin-top: 6px;
-	padding: 8px;
-	border-radius: 8px;
-	background-color: rgba(255, 255, 255, 0.04);
-}
-
-.baseline-gap-text {
-	color: #e5e7eb;
-	font-size: 12px;
-	line-height: 18px;
 }
 
 .broadcast-panel .panel-header {

@@ -7,9 +7,9 @@ export const HISTORY_PPI_RETENTION_SEC = 30 * 24 * 60 * 60;
 /**
  * 本地 PPI 覆盖查询。
  *
- * 这里**只碰 `ppi_data`**。「设备已确认」的那一半由 `vital_ready_ranges` 承担，
- * 直接通过 `historyBaseline.listReadyRanges()` 读取——本文件不再提供转发方法，
- * 因为那会引入 `baseline.ts` ⇄ `coverage-service.ts` 的循环导入。
+ * 这里**只碰 `ppi_data`**。「设备已确认」的那一半不落表——`B` 自己就是「已经算到哪」的
+ * 那条线，读取每确认一页就把它推过去，所以在分类看来 `ppi_data` 没数据就是真的没数据
+ * （见 `baseline.ts` 的 `HistoryBaseline`）。
  */
 class HistoryCoverageService {
 	/** 返回保留窗口左端，最小为 Unix 秒 1，避免生成从 1970 年开始的无效区间。 */
@@ -21,7 +21,7 @@ class HistoryCoverageService {
 	 * 查询 `[fromSec, toSec)` 内本地已有的 PPI 秒。
 	 *
 	 * 返回值按时间升序；空区间直接返回空数组。数据库异常必须抛出，不能伪装成
-	 * “本地没有数据”，否则分类会制造不存在的历史缺口。
+	 * “本地没有数据”，否则分类会把没记录的时间误判成不合格。
 	 */
 	async getPpiTimestamps(range: HistoryTimeRange): Promise<number[]> {
 		if (range.toSec <= range.fromSec) return [];

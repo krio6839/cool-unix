@@ -37,6 +37,15 @@ export class DeviceBroadcast {
 	private boundBroadcastScanning: boolean = false;
 	private lastBoundBroadcastHandledAt: number = 0;
 	private lastAcceptedBoundBroadcastUtc: number = 0;
+	/**
+	 * 最近一次收到绑定广播的时刻。
+	 *
+	 * **刻意不随扫描窗口重置**（`resetBoundScanWindow()` 不清它）：它要回答的是
+	 * 「设备还在不在场」，而扫描重启恰恰多发生在设备消失的时候，如果跟着清零就永远
+	 * 得不到「静默过久」这个结论。心跳用它决定要不要发起一次补录连接——设备不在场
+	 * 时连接只会白等一次超时。
+	 */
+	private lastBroadcastSeenAt: number = 0;
 	private lastBoundScanCallbackAt: number = 0;
 	private lastBoundScanDebugAt: number = 0;
 	private lastTimeSyncAttemptAt: number = 0;
@@ -174,6 +183,17 @@ export class DeviceBroadcast {
 				: this.lastBoundBroadcastHandledAt;
 		if (latestAt <= 0) return -1;
 		return Date.now() - latestAt;
+	}
+
+	/**
+	 * 最近一次收到绑定广播距今多久（毫秒）。从未收到过返回 `-1`，表示「未知」。
+	 *
+	 * 心跳用它判断设备是否在场：**未知按在场处理**，只有明确静默超过静默期才跳过
+	 * 连接尝试，避免冷启动这种「还没见过广播」的正常阶段被误判成设备不在。
+	 */
+	getBroadcastAgeMs(): number {
+		if (this.lastBroadcastSeenAt <= 0) return -1;
+		return Date.now() - this.lastBroadcastSeenAt;
 	}
 
 	/* ===== 绑定广播扫描监控 ===== */
@@ -351,6 +371,7 @@ export class DeviceBroadcast {
 		if (r.utc == this.lastAcceptedBoundBroadcastUtc) return true;
 		this.lastAcceptedBoundBroadcastUtc = r.utc;
 		this.lastBoundBroadcastHandledAt = Date.now();
+		this.lastBroadcastSeenAt = this.lastBoundBroadcastHandledAt;
 		return false;
 	}
 

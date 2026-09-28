@@ -14,7 +14,7 @@ export type SyncReason = "startup" | "timer" | "manual";
 export type GattTaskName =
 	| "vitalAuto"
 	| "vitalRecent"
-	| "vitalGap"
+	| "vitalHistory"
 	| "event"
 	| "timeSync"
 	| "unbind"

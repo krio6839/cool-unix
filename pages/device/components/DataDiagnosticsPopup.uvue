@@ -266,7 +266,7 @@ function formatStats(item: UploadTableStats): string {
 }
 
 function formatHistorySession(item: HistorySessionDiagnostics): string {
-	return `history baseline: B=${formatSecTime(item.baselineSec)}, stableCeiling=${formatSecTime(item.stableCeilingSec)}, gapGroups=${item.gapGroups}, gapSeconds=${item.gapSeconds}, readyRanges=${item.readyRanges}, unuploaded=${item.unuploadedCount}, unuploadedRange=${formatSecTime(item.earliestUnuploadedSec)} -> ${formatSecTime(item.latestUnuploadedSec)}`;
+	return `history baseline: B=${formatSecTime(item.baselineSec)}, stableCeiling=${formatSecTime(item.stableCeilingSec)}, behind=${item.behindSeconds}s, C=${formatSecTime(item.classifiedUntilSec)}, unuploaded=${item.unuploadedCount}, unuploadedRange=${formatSecTime(item.earliestUnuploadedSec)} -> ${formatSecTime(item.latestUnuploadedSec)}`;
 }
 
 async function loadOverview(): Promise<void> {

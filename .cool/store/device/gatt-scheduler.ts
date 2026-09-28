@@ -1,6 +1,6 @@
 import { EVENT_QUERY_TYPE_BY_TIME } from "../../bluetooth";
 import { sleepTimeout } from "../../utils";
-import { repairAllGaps } from "./history-repair";
+import { repairFromBaseline } from "./history-repair";
 import type { Device } from "./index";
 import type {
 	GattFlushReason,
@@ -227,9 +227,8 @@ export class DeviceGattScheduler {
 				return;
 			}
 			protocolHealthy = true;
-			// 没有时长上限：需要补的缺口就一直补，补到没有缺口再断开。原来「120 秒必须
-			// 断开把通道还给广播」的约束取消了——连接期间掐掉广播留下的缺秒就是普通缺口，
-			// 断开时不为它做任何事，由下一次连接顺带补掉（方案 9.1、9.3）。
+			// 一次补录就是把 `[B, stableCeiling)` 读完，不设时长上限。连接期间掐掉广播留下的
+			// 缺秒就是普通缺秒，断开时不需要为它做任何事，由下一次连接顺带补掉。
 			while (this.tasks.length > 0) {
 				const task = this.takeNextTask();
 				if (task == null) break;
@@ -416,19 +415,19 @@ export class DeviceGattScheduler {
 				`[BOOM-EVENT] 新事件解析结果:\n${this.device.history.formatEventAutoBrief(result.items, 20)}`
 			);
 		}
-		// 读事件期间停广播留下的缺秒不在这里补：它是普通缺口，由下一次连接
+		// 读事件期间停广播留下的缺秒不在这里补：它和其他未记账的秒一样，由下一次连接
 		// （10 分钟自动检查，或任何本来就要连的任务）按统一记账补掉。
 	}
 
 	private async runHistoryRepair(task: GattQueueTask): Promise<GattTaskOutcome> {
-		// 缺口不截断、连接不设时长：一轮把 `listRepairGaps()` 的缺口全部读完。
-		// 连接本身由本调度器持有（停广播 → 连接 → 跑任务 → 恢复广播），
-		// `repairAllGaps()` 只负责在已连接的通道上把缺口读掉，不碰连接。
+		// 读取窗口是 `[B, stableCeiling)` 一整段，不按区间逐段截断；连接本身由本调度器
+		// 持有（停广播 → 连接 → 跑任务 → 恢复广播），`repairFromBaseline()` 只负责在
+		// 已连接的通道上把这一段顺序读掉，不碰连接。
 		// 返回值只用于判断设备是否失活；补录数字仍由历史模块自行记录。
 		try {
-			const result = await repairAllGaps(this.device.history, this.device.protocolProbe);
+			const stopReason = await repairFromBaseline(this.device.history, this.device.protocolProbe);
 			this.device.tick.markHistorySynced();
-			if (result.stopReason == "DEVICE_UNRESPONSIVE") return "STOP_DEVICE_UNRESPONSIVE";
+			if (stopReason == "DEVICE_UNRESPONSIVE") return "STOP_DEVICE_UNRESPONSIVE";
 		} catch (e) {
 			logger.warn("bluetooth", "[BOOM-HISTORY] 补录异常:", e);
 		}

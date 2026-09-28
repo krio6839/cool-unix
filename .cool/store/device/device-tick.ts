@@ -1,27 +1,17 @@
 /**
  * 心跳：全套后台节奏的**唯一决策点**。
  *
- * 三件事各归各的模块——广播负责采集（`broadcast.ts` 落库后只喊一声 `poke()`）、
- * 判断负责推进基准（`history/baseline.ts`）、补数据负责连接读取
- * （`history-repair.ts`）。**这个文件是它们之间唯一的时序约定**：谁都不认识别人的
- * 节奏，只知道自己被 tick 到了。
+ * 三件事各归各的模块——广播负责采集（`broadcast.ts` 落库后只喊一声 `poke()`）、判定负责
+ * 推进基准（`history/baseline.ts`）、补数据负责连接读取（`history-repair.ts`）。这个文件
+ * 是它们之间唯一的时序约定：谁都不认识别人的节奏，只知道自己被 tick 到了。
  *
- * 一次 tick 做三件事，顺序固定：
+ * 一次 tick 固定两步：`classify()`（同时推进 `B` 与 `C`）→ `uploadData()`，然后
+ * `maybeConnect()`。判定与上传是两件独立的事——判定依据是本地的 `ppi_data`，不是上传结果，
+ * 弱网下上传失败只会让 `uploaded` 保持 0，不会把已经收齐的秒判成待补。
  *
- * 1. `classify()`        —— 把 `[C, stableCeiling)` 里新稳定的秒判成合格或缺口。
- * 2. `advanceBaseline()` —— 把合格的秒吸收进 `B`。
- * 3. `uploadData()`      —— 把待传的记录推上去。
- *
- * 判定与上传是**两件独立的事**：判定依据是本地的 `ppi_data`，不是上传结果。
- * 上传失败时 `uploaded` 保持 0，由下一轮 tick 继续消费，不会因为弱网把已经收齐
- * 的秒判成待补。
- *
- * 1 + 2 不能省：分类把新稳定的秒写进 `vital_ready_ranges`，`advanceBaseline()`
- * 再把这个区间消费掉、`B` 才真的前进。广播在线时这一步每轮都在追，`B` 因此贴着
- * `stableCeiling`，不累积。
- *
- * 连接（第 4 件事）按 `CONNECT_INTERVAL_MS` 单独节流：连接会掐掉广播，所以它的
- * 频率由「本来就必须连的事」决定，缺口只搭顺风车，不制造连接（方案 8.4）。
+ * 广播在线时分类每轮都在追，`B` 与 `C` 因此一起贴着 `stableCeiling`，不累积。
+ * 连接由三道闸门把关（`B` 的落后量、最小间隔、设备是否在场）：连接会掐掉广播，所以它的
+ * 频率由「本来就必须连的事」决定，落后量只搭顺风车，不制造连接。
  */
 import { ref } from "vue";
 import { formatHistorySec, historyBaseline } from "../../bluetooth/history/baseline";
@@ -36,27 +26,39 @@ export class DeviceTick {
 	/**
 	 * `poke()` 的限流：两次 tick 至少隔这么久。也是定时兜底的间隔。
 	 *
-	 * **必须是类级 static，不能写成模块级 `const`**：UTS 把整个工程合成一个 Kotlin
-	 * 文件，模块级 `const` 会变成文件级字段，按模块顺序在 `IndexKt.<clinit>` 里赋值。
-	 * `device` 单例的声明位置比这些常量早，它的构造函数又会直接调 `start()` → `poke()`，
-	 * 于是 `poke()` 在 `<clinit>` 没跑完时就读到这个还没赋值的字段（JVM 默认 `null`），
+	 * **必须是类级 static，不能写成模块级 `const`**：UTS 把整个工程合成一个 Kotlin 文件，
+	 * 模块级 `const` 会变成文件级字段，在 `IndexKt.<clinit>` 里赋值；而 `device` 单例声明
+	 * 更早、构造时就会调 `start()` → `poke()`，于是读到还没赋值的字段（JVM 默认 `null`），
 	 * 触发 `NumberKt.compareTo(other=null)` 的 NPE，并让整个 `IndexKt` 变成
-	 * NoClassDefFoundError。类级 static 随类初始化，早于任何实例构造，没有这个顺序问题。
+	 * NoClassDefFoundError。类级 static 随类初始化，没有这个顺序问题。
 	 */
 	private static readonly TICK_MIN_INTERVAL_MS = 60 * 1000;
 	/**
-	 * 连接最小间隔，同时是「缺口要等多久才被补」的上界（方案 9.6）。
+	 * 连接最小间隔，同时是「落后量要等多久才被补」的上界。
 	 *
-	 * 它顺带提供了缺口读取失败的天然退避：缺口不落库，没有 `retry_at` / `attempts`，
-	 * 失败后缺口原样留着，下一轮到这里才会再试一次。
+	 * 它顺带提供读取失败的天然退避：没记账的秒不落库，没有 `retry_at` / `attempts`，
+	 * 失败后落后量原样留着，下一轮到间隔满了才会再试一次。
 	 */
 	private static readonly CONNECT_INTERVAL_MS = 10 * 60 * 1000;
 
 	/**
-	 * 整轮心跳抛出时留下的错误文本。这是除日志外**唯一**的落点，测试页会显示它。
+	 * 连接触发门槛：`B` 落后 `stableCeiling` 不足这么多秒时一律不连。
 	 *
-	 * 单轮失败不改变行为（下一轮照跑），但连续出现说明有真问题；没有这个字段，
-	 * 「心跳在跑但什么都没做」就只能靠翻日志才能看出来。
+	 * 这是「减少连接次数」的主要旋钮。广播健康时 `B` 由合格判定逐秒推进、落后只有几秒，
+	 * 这里天然不成立；只有跨不过去的不合格段（设备关机、长时间丢包）才会把落后量攒上来。
+	 * 卡住的那点秒不会丢：读取窗口 `[B, stableCeiling)` 一直包含它们。
+	 */
+	private static readonly CONNECT_MIN_BEHIND_SEC = 300;
+
+	/**
+	 * 设备在场静默期：这么久没收到过绑定广播就认为设备不在场，此时连接只会白等一次超时。
+	 * 后台广播是常态可用的，所以「长时间收不到广播」是一个可信的不在场信号。
+	 */
+	private static readonly PRESENCE_SILENCE_MS = 5 * 60 * 1000;
+
+	/**
+	 * 整轮心跳抛出时留下的错误文本，测试页会显示它。单轮失败不改变行为（下一轮照跑），
+	 * 但连续出现说明有真问题；没有这个字段，「心跳在跑但什么都没做」只能靠翻日志看出来。
 	 */
 	lastError = ref<string>("");
 	/** 最近一次判定的时刻与结论，测试页据此重读基准面板。 */
@@ -64,15 +66,13 @@ export class DeviceTick {
 	lastHistorySyncAt = ref<number>(0);
 
 	private device: Device;
-	/**
-	 * 一轮 tick 的串行标志。
-	 *
-	 * `poke()` 会被每一帧广播调用，而一轮 tick 里有若干次 await（数据库查询、
-	 * 网络请求），不设防就会重入并交错。进入时置真、`finally` 置假。
-	 */
+	/** 一轮 tick 的串行标志。`poke()` 被每帧广播调用，而一轮里有若干次 await，不设防会重入。 */
 	private ticking: boolean = false;
 	private lastTickAt: number = 0;
 	private lastConnectCheckAt: number = 0;
+	/** 「这一轮不连」的原因说明的限流状态，见 `logStall()`。 */
+	private lastStallLogAt: number = 0;
+	private lastStallLogKey: string = "";
 	private timer: number | null = null;
 
 	constructor(device: Device) {
@@ -125,12 +125,12 @@ export class DeviceTick {
 		this.lastTickAt = Date.now();
 		try {
 			const nowSec = Math.floor(Date.now() / 1000);
-			// 一次 tick 只读一次 `B`：分类不改 `B`（只写 `vital_ready_ranges`），
-			// 所以开头这个值对紧随其后的推进与列缺口都成立，作为参数一路传下去。
-			// 推进在最后会回读一次确认落库结果，那是唯一必须重读的地方。
-			const startBaseline = await historyBaseline.getBaseline();
-			await historyBaseline.classify(nowSec, startBaseline);
-			const baseline = await historyBaseline.advanceBaseline(nowSec, startBaseline);
+			// 一次 tick 只读一次 `B`：分类同时推进两个游标，开头这个值对后面的连接闸门也成立。
+			const classified = await historyBaseline.classify(
+				nowSec,
+				await historyBaseline.getBaseline()
+			);
+			const baseline = classified.baselineAfter;
 			this.lastCheckAt.value = Date.now();
 			this.lastError.value = "";
 			logger.info(
@@ -148,31 +148,65 @@ export class DeviceTick {
 	}
 
 	/**
-	 * 按最小间隔检查一次缺口，有就入队连接。
+	 * 按「落后量 + 最小间隔 + 设备在场」三道闸门决定要不要发起一次补录连接。
 	 *
-	 * **缺口不制造连接**：没有加急触发，它只等这个间隔（方案 8.4）。加急连接只有
-	 * 本来就「必须连」的事——校时、事件读取、手动命令，它们各自入队、绕过这个间隔。
+	 * 三道闸门各挡一类浪费：`B` 落后很少就没有必要连；读取失败后落后量仍然过线，最小间隔
+	 * 就是它的退避；设备不在场时广播本来就没有，连接只会白等一次超时。
 	 *
-	 * `baseline` 由 `runTick` 传入：那是 `advanceBaseline()` 刚算出的当前 `B`，
-	 * 这里再读一次库只会拿到同一个值（中间没有别的写入者）。
+	 * **落后量不制造连接**：没有加急触发，最急也是等这个间隔。加急连接只有本来就「必须连」
+	 * 的事——校时、事件读取、手动命令，它们各自入队、绕过这里。
+	 *
+	 * `baseline` 由 `runTick` 传入：那是本轮 `classify()` 判完后的当前 `B`，中间没有别的
+	 * 写入者，这里再读一次库只会拿到同一个值。
 	 */
 	private async maybeConnect(nowSec: number, baseline: number): Promise<void> {
 		const now = Date.now();
-		if (this.lastConnectCheckAt > 0 && now - this.lastConnectCheckAt < DeviceTick.CONNECT_INTERVAL_MS)
-			return;
-		// 先置时刻再判缺口：读取失败时缺口原样留着，下一轮到这里才会再试一次，
-		// 这个间隔本身就是它的退避（方案 8.3）。
-		this.lastConnectCheckAt = now;
-		const gaps = await historyBaseline.listRepairGaps(nowSec, baseline);
-		if (gaps.length == 0) {
-			logger.info("bluetooth", `[BOOM-BASE] 基准停驻: B=${baseline}, 缺口组=0, 缺口秒=0`);
+		const ceiling = historyBaseline.stableCeiling(nowSec);
+		const behind = ceiling - baseline;
+		if (behind < DeviceTick.CONNECT_MIN_BEHIND_SEC) {
+			this.logStall(
+				"behind",
+				`[BOOM-BASE] 基准停驻: B=${baseline}, 落后=${behind}s, 未达连接门槛=${DeviceTick.CONNECT_MIN_BEHIND_SEC}s`
+			);
 			return;
 		}
+		if (this.lastConnectCheckAt > 0 && now - this.lastConnectCheckAt < DeviceTick.CONNECT_INTERVAL_MS)
+			return;
+		const broadcastAgeMs = this.device.broadcast.getBroadcastAgeMs();
+		if (broadcastAgeMs >= DeviceTick.PRESENCE_SILENCE_MS) {
+			this.logStall(
+				"absent",
+				`[BOOM-BASE] 基准停驻: B=${baseline}, 落后=${behind}s, 但已 ${Math.round(broadcastAgeMs / 1000)}s 未收到广播，判定设备不在场，跳过连接`
+			);
+			return;
+		}
+		// 先置时刻再入队：读取失败时落后量原样留着，下一轮到间隔满了才会再试一次。
+		this.lastConnectCheckAt = now;
 		logger.info(
 			"bluetooth",
-			`[BOOM-BASE] 基准停驻: B=${baseline}, 阻塞起点=${gaps[0].fromSec}, 缺口组=${gaps.length}, 缺口秒=${historyBaseline.sumRepairSeconds(gaps)}`
+			`[BOOM-BASE] 触发补录连接: B=${baseline}, stableCeiling=${ceiling}, 落后=${behind}s, 读取窗口=${baseline}~${ceiling}`
 		);
 		this.device.scheduler.enqueueHistoryRepair("timer");
 		this.device.scheduler.requestFlush("timer");
+	}
+
+	/**
+	 * 「这一轮不连」的原因说明：同一原因 10 分钟最多打一行。
+	 *
+	 * 心跳每 60 秒一轮，无条件打就是每天 1440 行，会把内存与 SQLite 的 1000 条缓冲占满，
+	 * 真出问题时的前后文反而被冲掉。按 `key` 而不是整行文本判断，因为 `落后=${behind}s`
+	 * 每轮都在变；原因本身变化时（门槛 → 不在场）立即打，不吃限流。
+	 */
+	private logStall(key: string, text: string): void {
+		const now = Date.now();
+		if (
+			key == this.lastStallLogKey &&
+			this.lastStallLogAt > 0 &&
+			now - this.lastStallLogAt < DeviceTick.CONNECT_INTERVAL_MS
+		)
+			return;
+		this.lastStallLogAt = now;
+		this.lastStallLogKey = key;
+		logger.info("bluetooth", text);
 	}
 }

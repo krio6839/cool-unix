@@ -84,14 +84,12 @@ export type UploadTableStats = {
 export type HistorySessionDiagnostics = {
 	/** 基准时间：`[0, baselineSec)` 已全部记账完毕。 */
 	baselineSec: number;
-	/** 记账右端，同时也是缺口右端。 */
+	/** 记账右端（`stableCeiling`）：这之后的时间尚未稳定，不参与判定。 */
 	stableCeilingSec: number;
-	/** 当前可读缺口的分组数（含桥接合并）。 */
-	gapGroups: number;
-	/** 缺口里真正要补的秒数，不含桥接跨过的部分。 */
-	gapSeconds: number;
-	/** `vital_ready_ranges` 的行数。运行时通常接近 0——建完就被推进消费掉。 */
-	readyRanges: number;
+	/** 还有多少秒没有记账（`stableCeilingSec - baselineSec`），也是连接闸门的输入。 */
+	behindSeconds: number;
+	/** 分类游标 `C`：已经判定过的右端。`C > B` 说明 `B` 正卡在某段不合格段上。 */
+	classifiedUntilSec: number;
 	unuploadedCount: number;
 	earliestUnuploadedSec: number;
 	latestUnuploadedSec: number;
