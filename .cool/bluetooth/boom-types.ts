@@ -84,7 +84,10 @@ export type RealtimeBroadcast = {
 	hrValid: boolean;
 	ppi: number;
 	ppiValid: boolean;
-	spo2Pct: number; // 950 → 95.0
+	/** 设备原始值，×10：950 = 95.0%。落库与上传只认它。 */
+	spo2: number;
+	/** 展示用折算值（`spo2 / 10`），不参与落库与上传。 */
+	spo2Pct: number;
 	spo2Valid: boolean;
 	bhr: number;
 	bhrValid: boolean;
@@ -235,15 +238,10 @@ export type EventDataWear = {
 	after: number;
 };
 
-/** 2.1.4.2.6 SleepResult：eventData = 22B packed LE vital_sleep_result_t */
-export type EventDataSleepResult = {
-	sleepOnsetTime: number; // sleep_onset_time，距当前秒数
-	awakeTime: number; // awake_time，距当前秒数
-	lightSleepPeriod: number; // light_sleep_period，浅度睡眠时长
-	deepSleepPeriod: number; // deep_sleep_period，深度睡眠时长
-	otherSleepPeriod: number; // other_sleep_period，其他睡眠时长
-	heartRateRest: number; // heart_rate_rest，静息心率 bpm
-};
+/**
+ * 2.1.4.2.6 SleepResult：eventData = 22B。
+ * 它解析出来的六个统计值有专门的模型（`types.ts` 的 `SleepData`），这里不再重复声明一份。
+ */
 
 /** 2.1.4.2.7 Sedentary：eventData = 2B LE（久坐阈值秒数） */
 export type EventDataSedentary = {

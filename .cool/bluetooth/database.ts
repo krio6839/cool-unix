@@ -20,18 +20,46 @@ import { logger } from "../service/logger";
 
 const DB_NAME = "bluetooth_db";
 
-/** sleep_data 的当前结构。重建旧表时复用同一份 DDL，避免两处定义漂移。 */
-const sleepTableSql = (tableName: string): string => `CREATE TABLE IF NOT EXISTS ${tableName} (
-        id TEXT PRIMARY KEY,
-        report_timestamp INTEGER NOT NULL,
-        sleep_onset_time INTEGER,
-        awake_time INTEGER,
-        light_sleep_period INTEGER,
-        deep_sleep_period INTEGER,
-        other_sleep_period INTEGER,
-        heart_rate_rest INTEGER,
-        uploaded INTEGER DEFAULT 0
+/**
+ * sleep_data：一行 = 一条设备睡眠事件。
+ *
+ * 主键就是事件结算时刻，不再另造 `id`——两者是同一个值，留两份只多一条翻译路径。
+ * 六个统计值由设备事件整体给出，要么一起有、要么这条事件无效，所以都是 NOT NULL：
+ * 表结构自己就能保证「查出来的行一定构造得出上传报文」。
+ */
+const SLEEP_TABLE_SQL = `CREATE TABLE IF NOT EXISTS sleep_data (
+        report_timestamp INTEGER PRIMARY KEY,
+        sleep_onset_time INTEGER NOT NULL,
+        awake_time INTEGER NOT NULL,
+        light_sleep_period INTEGER NOT NULL,
+        deep_sleep_period INTEGER NOT NULL,
+        other_sleep_period INTEGER NOT NULL,
+        heart_rate_rest INTEGER NOT NULL,
+        uploaded INTEGER NOT NULL DEFAULT 0
       )`;
+
+/** `SLEEP_TABLE_SQL` 的列名（顺序一致），用于判断已有表是不是当前结构。 */
+const SLEEP_TABLE_COLUMNS =
+	"report_timestamp,sleep_onset_time,awake_time,light_sleep_period,deep_sleep_period,other_sleep_period,heart_rate_rest,uploaded";
+
+/**
+ * ppi_data：一行 = 设备给的一秒。
+ *
+ * `activity`（设备 `status` 的低 3 位，睡眠详情就靠它）是 NOT NULL：每条广播和每个历史秒
+ * 都带着它，没有「这一秒不知道活动状态」的情况。
+ */
+const PPI_TABLE_SQL = `CREATE TABLE IF NOT EXISTS ppi_data (
+        id TEXT PRIMARY KEY,
+        timestamp INTEGER NOT NULL,
+        hr INTEGER NOT NULL,
+        spo2 INTEGER NOT NULL,
+        ppi INTEGER NOT NULL,
+        activity INTEGER NOT NULL,
+        uploaded INTEGER NOT NULL DEFAULT 0
+      )`;
+
+/** `PPI_TABLE_SQL` 的列名（顺序一致），用于判断已有表是不是当前结构。 */
+const PPI_TABLE_COLUMNS = "id,timestamp,hr,spo2,ppi,activity,uploaded";
 
 class BluetoothDatabase {
 	private isOpen: boolean = false;
@@ -173,24 +201,13 @@ class BluetoothDatabase {
 	private async initTables(): Promise<void> {
 		await this.execute("DROP TABLE IF EXISTS bluetooth_data");
 
-		await this.execute(sleepTableSql("sleep_data"));
-		await this.migrateSleepTable();
+		await this.recreateSleepTableIfStale();
+		await this.execute(SLEEP_TABLE_SQL);
 
-		await this.execute(
-			"CREATE INDEX IF NOT EXISTS idx_sleep_report ON sleep_data(report_timestamp)"
-		);
 		await this.execute("CREATE INDEX IF NOT EXISTS idx_sleep_uploaded ON sleep_data(uploaded)");
 
-		await this.execute(`CREATE TABLE IF NOT EXISTS ppi_data (
-        id TEXT PRIMARY KEY,
-        timestamp INTEGER NOT NULL,
-        hr INTEGER NOT NULL,
-        spo2 INTEGER NOT NULL,
-        ppi INTEGER NOT NULL,
-        activity INTEGER,
-        uploaded INTEGER DEFAULT 0
-      )`);
-		await this.migratePpiActivityColumn();
+		await this.recreatePpiTableIfStale();
+		await this.execute(PPI_TABLE_SQL);
 
 		await this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_timestamp ON ppi_data(timestamp)");
 		await this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_uploaded ON ppi_data(uploaded)");
@@ -235,110 +252,69 @@ class BluetoothDatabase {
       )`);
 	}
 
-	private async hasColumn(tableName: string, columnName: string): Promise<boolean> {
+	/** 表的现有列名；表不存在时返回空数组。 */
+	private async tableColumns(tableName: string): Promise<string[]> {
 		const result = await this.query("PRAGMA table_info(" + tableName + ")");
-		if (result == null) return false;
-		for (let i = 0; i < result.rows.length; i++) {
-			const row = result.rows[i];
-			const name = row[1] as string;
-			if (name == columnName) return true;
-		}
-		return false;
-	}
-
-	/** 旧版 PPI 保留原值与 uploaded 状态，新 activity 默认 NULL。 */
-	private async migratePpiActivityColumn(): Promise<void> {
-		if ((await this.hasColumn("ppi_data", "activity")) == true) return;
-		if ((await this.execute("ALTER TABLE ppi_data ADD COLUMN activity INTEGER")) == false)
-			throw new Error("ppi_data activity 字段迁移失败");
-	}
-
-	/**
-	 * 把旧结构的 sleep_data 迁到当前结构。
-	 *
-	 * 不能用 `ALTER TABLE ... DROP COLUMN`：那需要 SQLite 3.35+（Android 14 才带），
-	 * minSdk 21 的机器上会直接语法报错。旧表一旦带着 `record_count INTEGER NOT NULL`
-	 * 留在原地，`storeSleepData` 的 `INSERT OR IGNORE` 会把 NOT NULL 冲突当成"可忽略"
-	 * 静默跳过——行没写进去，SQL 却算执行成功，表现为「事件里明明有睡眠、saved 也涨，
-	 * 但睡眠库始终为空，且日志里一条错都没有」。
-	 *
-	 * 所以改成整表重建。旧结构没有设备原始睡眠统计，只有已经上传的数据保留作审计；
-	 * 未上传旧行不能构造新接口报文，迁移时丢弃。
-	 * 全程只用 CREATE / INSERT SELECT / DROP / RENAME，不依赖高版本语法。
-	 */
-	private async migrateSleepTable(): Promise<void> {
-		const columns = await this.sleepTableColumns();
-		if (columns.length == 0) return;
-		const currentColumns = [
-			"id",
-			"report_timestamp",
-			"sleep_onset_time",
-			"awake_time",
-			"light_sleep_period",
-			"deep_sleep_period",
-			"other_sleep_period",
-			"heart_rate_rest",
-			"uploaded"
-		];
-		let upToDate = columns.length == currentColumns.length;
-		for (let i = 0; i < currentColumns.length; i++) {
-			if (columns.includes(currentColumns[i]) == false) upToDate = false;
-		}
-		if (upToDate == true) return;
-
-		logger.info("bluetooth", `[DB] sleep_data 结构过旧,重建: 现有列=${columns.join(",")}`);
-		const targets = currentColumns;
-		const sources: string[] = [];
-		for (let i = 0; i < targets.length; i++) {
-			const name = targets[i];
-			if (columns.includes(name) == true) sources.push(name);
-			else if (name == "id") sources.push("CAST(report_timestamp AS TEXT)");
-			else if (name == "report_timestamp" || name == "uploaded") sources.push("0");
-			else sources.push("NULL");
-		}
-		let rowFilter = " WHERE 0";
-		if (columns.includes("uploaded") == true) {
-			rowFilter = " WHERE uploaded=1";
-			const statisticColumns = [
-				"sleep_onset_time",
-				"awake_time",
-				"light_sleep_period",
-				"deep_sleep_period",
-				"other_sleep_period",
-				"heart_rate_rest"
-			];
-			let hasStatistics = true;
-			for (let i = 0; i < statisticColumns.length; i++) {
-				if (columns.includes(statisticColumns[i]) == false) hasStatistics = false;
-			}
-			if (hasStatistics == true)
-				rowFilter =
-					" WHERE uploaded=1 OR (sleep_onset_time IS NOT NULL AND awake_time IS NOT NULL AND light_sleep_period IS NOT NULL AND deep_sleep_period IS NOT NULL AND other_sleep_period IS NOT NULL AND heart_rate_rest IS NOT NULL)";
-		}
-
-		const rebuilt = await this.transaction([
-			"DROP TABLE IF EXISTS sleep_data_migrating",
-			sleepTableSql("sleep_data_migrating"),
-			`INSERT INTO sleep_data_migrating (${targets.join(", ")}) SELECT ${sources.join(", ")} FROM sleep_data${rowFilter}`,
-			"DROP TABLE sleep_data",
-			"ALTER TABLE sleep_data_migrating RENAME TO sleep_data"
-		]);
-		if (rebuilt == false) {
-			// 重建失败时旧表还在（事务已回滚）。这里必须抛：留着旧结构继续跑，
-			// 睡眠会一直"保存成功"却一行都写不进去。
-			throw new Error("sleep_data 结构重建失败");
-		}
-		logger.info("bluetooth", "[DB] sleep_data 结构重建完成");
-	}
-
-	private async sleepTableColumns(): Promise<string[]> {
-		const result = await this.query("PRAGMA table_info(sleep_data)");
 		if (result == null) return [];
 		const names: string[] = [];
 		for (let i = 0; i < result.rows.length; i++) {
 			names.push(result.rows[i][1] as string);
 		}
 		return names;
+	}
+
+	private async hasColumn(tableName: string, columnName: string): Promise<boolean> {
+		return (await this.tableColumns(tableName)).includes(columnName);
+	}
+
+	/**
+	 * ppi_data 是待上传队列，只认当前结构：列集合对不上、或 `activity` 还是可空的，
+	 * 一律丢表重建。
+	 *
+	 * 缺 `activity` 的表是按「睡眠详情还不在每秒数据里」的版本建的，那些行既没有睡眠详情
+	 * 也没法补出来；可空则意味着旧行会以 `NULL` 进入上传报文。两种都不值得留——留一种，
+	 * 就得在每次写入前挂一条「回填 activity」的语句，而当天写进去的行永远用不上它。
+	 */
+	private async recreatePpiTableIfStale(): Promise<void> {
+		const columns = await this.tableColumns("ppi_data");
+		if (columns.length == 0) return;
+		let stale = columns.join(",") != PPI_TABLE_COLUMNS;
+		if (stale == false) stale = await this.columnIsNullable("ppi_data", "activity");
+		if (stale == false) return;
+
+		logger.info("bluetooth", `[DB] ppi_data 结构已变,丢弃重建: 现有列=${columns.join(",")}`);
+		await this.execute("DROP TABLE IF EXISTS ppi_data");
+	}
+
+	/** 该列是否可空（`PRAGMA table_info` 的 notnull 位为 0）；列不存在时返回 false。 */
+	private async columnIsNullable(tableName: string, columnName: string): Promise<boolean> {
+		const result = await this.query("PRAGMA table_info(" + tableName + ")");
+		if (result == null) return false;
+		for (let i = 0; i < result.rows.length; i++) {
+			const row = result.rows[i];
+			if ((row[1] as string) != columnName) continue;
+			return parseInt(row[3] as string) == 0;
+		}
+		return false;
+	}
+
+	/**
+	 * sleep_data 是纯本地的事件缓存，没有迁移价值：六个统计值只存在于设备事件里，
+	 * 旧结构的行既缺列也缺值，拼不出现在的上传报文。所以结构不一致就整表丢掉重建，
+	 * 不做列对列的搬运。
+	 *
+	 * 必须直接 DROP 重建、不能把旧表留在原地：旧表带着 `record_count INTEGER NOT NULL`
+	 * 这类列时，`storeSleepData` 的 `INSERT OR IGNORE` 会把 NOT NULL 冲突当成「可忽略」
+	 * 静默跳过——行没写进去，SQL 却算执行成功，表现为「事件里明明有睡眠、saved 也在涨，
+	 * 但睡眠库始终为空，且日志里一条错都没有」。
+	 */
+	private async recreateSleepTableIfStale(): Promise<void> {
+		const columns = await this.tableColumns("sleep_data");
+		if (columns.length == 0) return;
+		if (columns.join(",") == SLEEP_TABLE_COLUMNS) return;
+
+		logger.info("bluetooth", `[DB] sleep_data 结构已变,丢弃重建: 现有列=${columns.join(",")}`);
+		await this.execute("DROP TABLE IF EXISTS sleep_data");
 	}
 
 	/** realtime_broadcast_data 只是实时缓存；旧结构直接丢弃重建，避免无意义迁移。 */

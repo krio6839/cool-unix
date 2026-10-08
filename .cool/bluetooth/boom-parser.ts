@@ -26,7 +26,6 @@ import type {
 	EventDataSetTime,
 	EventDataFormatDS,
 	EventDataWear,
-	EventDataSleepResult,
 	EventDataSedentary,
 	EventDataParsed
 } from "./boom-types";
@@ -230,7 +229,8 @@ export function toRealtimeBroadcast(d: CustomAdvData): RealtimeBroadcast {
 		hrValid: d.hr >= 28 && d.hr <= 240,
 		ppi: d.ppi,
 		ppiValid: d.ppi > 0,
-		spo2Pct: d.spo2 / 10, // 950 → 95.0
+		spo2: d.spo2,
+		spo2Pct: d.spo2 / 10, // 仅供展示，落库与上传用原始值
 		spo2Valid: d.spo2 >= 700 && d.spo2 <= 1000,
 		bhr: d.bhr,
 		bhrValid: d.bhr >= 28 && d.bhr <= 240,
@@ -456,26 +456,28 @@ export function parseEventDataWear(eventDataHex: string): EventDataWear {
 	};
 }
 
-/** 2.1.4.2.6 SleepResult：eventData = 22B（4B+4B+4B+4B+4B+2B LE） */
-export function parseEventDataSleepResult(eventDataHex: string): EventDataSleepResult {
-	if (eventDataHex.length < 44) {
-		return {
-			sleepOnsetTime: 0,
-			awakeTime: 0,
-			lightSleepPeriod: 0,
-			deepSleepPeriod: 0,
-			otherSleepPeriod: 0,
-			heartRateRest: 0
-		};
-	}
-	return {
-		sleepOnsetTime: parseU32LE(eventDataHex, 0),
-		awakeTime: parseU32LE(eventDataHex, 8),
-		lightSleepPeriod: parseU32LE(eventDataHex, 16),
-		deepSleepPeriod: parseU32LE(eventDataHex, 24),
-		otherSleepPeriod: parseU32LE(eventDataHex, 32),
-		heartRateRest: parseU16LE(eventDataHex, 40)
+/**
+ * 2.1.4.2.6 SleepResult：eventData = 22B（4B+4B+4B+4B+4B+2B LE）
+ *
+ * 直接产出 `parsedEvent` 形状，中间不再造一个结构体再逐字段搬一遍。
+ */
+export function parseEventDataSleepResult(eventDataHex: string): EventDataParsed {
+	const result: UTSJSONObject = {
+		sleepOnsetTime: 0,
+		awakeTime: 0,
+		lightSleepPeriod: 0,
+		deepSleepPeriod: 0,
+		otherSleepPeriod: 0,
+		heartRateRest: 0
 	};
+	if (eventDataHex.length < 44) return result;
+	result["sleepOnsetTime"] = parseU32LE(eventDataHex, 0);
+	result["awakeTime"] = parseU32LE(eventDataHex, 8);
+	result["lightSleepPeriod"] = parseU32LE(eventDataHex, 16);
+	result["deepSleepPeriod"] = parseU32LE(eventDataHex, 24);
+	result["otherSleepPeriod"] = parseU32LE(eventDataHex, 32);
+	result["heartRateRest"] = parseU16LE(eventDataHex, 40);
+	return result;
 }
 
 /** 2.1.4.2.7 Sedentary：eventData = 2B LE（久坐阈值秒数） */
@@ -529,18 +531,8 @@ export function parseEventData(eventType: number, eventDataHex: string): EventDa
 			const result: UTSJSONObject = { before: parsed.before, after: parsed.after };
 			return result;
 		}
-		case LOG_EVENT_TYPE.SleepResult: {
-			const parsed = parseEventDataSleepResult(eventDataHex);
-			const result: UTSJSONObject = {
-				sleepOnsetTime: parsed.sleepOnsetTime,
-				awakeTime: parsed.awakeTime,
-				lightSleepPeriod: parsed.lightSleepPeriod,
-				deepSleepPeriod: parsed.deepSleepPeriod,
-				otherSleepPeriod: parsed.otherSleepPeriod,
-				heartRateRest: parsed.heartRateRest
-			};
-			return result;
-		}
+		case LOG_EVENT_TYPE.SleepResult:
+			return parseEventDataSleepResult(eventDataHex);
 		case LOG_EVENT_TYPE.Sedentary: {
 			const parsed = parseEventDataSedentary(eventDataHex);
 			const result: UTSJSONObject = { thresholdSec: parsed.thresholdSec };

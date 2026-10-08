@@ -13,11 +13,11 @@
 				/>
 				<text class="protocol-seconds">{{ t("协议秒") }}：{{ startSecText }}</text>
 				<cl-select class="form-field" v-model="direction" :options="directionOptions" />
-				<cl-select
-					class="form-field"
-					v-model="minutes"
-					:options="minutesOptions"
-				/><cl-button
+				<cl-select class="form-field" v-model="minutes" :options="minutesOptions" />
+				<text class="protocol-hint">{{
+					t("向前 (0)：从起点往回读到基准 B，只落库不记账；向后 (1)：从起点读到记账上限，并推进基准。")
+				}}</text>
+				<cl-button
 					class="form-field"
 					type="primary"
 					color="#047857"
@@ -25,7 +25,7 @@
 					size="small"
 					:disabled="props.busy"
 					@tap="submitVital"
-					>{{ t("发送 0x3A 并连续读取 0x3B") }}</cl-button
+					>{{ t("从该时间开始（0x3A 连续读 0x3B）") }}</cl-button
 				>
 				<cl-button
 					class="form-field"
@@ -86,11 +86,17 @@ const startSecText = computed<string>(() => {
 	const sec = toUnixSec(startTime.value);
 	return sec > 0 ? sec.toString() : "-";
 });
-const direction = ref(0);
+/**
+ * 0x3A 的两个协议参数，与设备协议一致：`0`=向更早（从起点往回翻页）、`1`=向更新。
+ *
+ * 默认 `1`：正式补录就是向更新读，测试页默认跟上，免得每次手动再选一遍。`0` 翻的是基准
+ * 已经确认过的那一段，只落库不记账。
+ */
+const direction = ref(1);
 const minutes = ref(2);
 const directionOptions: ClSelectOption[] = [
-	{ label: t("向前 (0)"), value: 0 },
-	{ label: t("向后 (1)"), value: 1 }
+	{ label: t("向前 (0，更早)"), value: 0 },
+	{ label: t("向后 (1，更新)"), value: 1 }
 ];
 const minutesOptions: ClSelectOption[] = [
 	{ label: t("2 分钟"), value: 2 },
@@ -142,6 +148,11 @@ function submitVital(): void {
 }
 .protocol-seconds {
 	color: #93c5fd;
+}
+.protocol-hint {
+	margin-top: 6px;
+	color: #94a3b8;
+	line-height: 16px;
 }
 .form-error {
 	color: #fecaca;

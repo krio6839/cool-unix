@@ -12,7 +12,6 @@ import type { SelectSqlResult } from "@/uni_modules/meibao-Sqlite";
 import type {
 	SleepData,
 	PpiData,
-	HeartRateRecord,
 	RealtimeBroadcastRecord,
 	StoreRealtimeBroadcastInput,
 	UploadTableStats,
@@ -24,6 +23,16 @@ import type {
  * 上传侧一轮会反复调用它直到排空，所以这里只管「一次取多少」，不管「一轮传几批」。
  */
 const PPI_UPLOAD_PAGE_SIZE = 300;
+
+/**
+ * 睡眠链路的取数列（顺序即 `parseSleepDataRow` 的下标）。
+ *
+ * 上传报文需要六个统计值齐全。这件事由表结构的 NOT NULL 保证，所以这里只列列名，
+ * 不再拼一套「统计值齐全」的查询条件：结构变了就重建表，库里的行一定发得出去。
+ * 两处查询共用同一份列名，否则改一处漏一处就会出现「查出来的行发不出去」。
+ */
+const SLEEP_COLUMNS =
+	"report_timestamp, sleep_onset_time, awake_time, light_sleep_period, deep_sleep_period, other_sleep_period, heart_rate_rest, uploaded";
 
 /**
  * 蓝牙数据管理器类
@@ -79,37 +88,6 @@ export class BluetoothDataManager {
 		return bluetoothDatabase.query(sql);
 	}
 
-	/**
-	 * 批量存储历史心率血氧数据到 ppi_data 表
-	 * 将多条记录拼接为单条 INSERT OR IGNORE SQL，
-	 * 将 N 次 SQLite execute 减为 1 次，显著降低调度开销。
-	 * @param records 历史心率记录数组
-	 * @returns 是否插入成功（false 表示数据库错误；重复 id 由 INSERT OR IGNORE 静默跳过）
-	 */
-	async storeHistoricalHeartRateRecordsBatch(records: Array<HeartRateRecord>): Promise<boolean> {
-		if (records.length == 0) {
-			return true;
-		}
-		const values = records
-			.map(
-				(r) =>
-					`('${r.timestamp}', ${r.timestamp}, ${r.heartRate}, ${r.bloodOxygen}, ${r.ppi}, ${r.activity}, 0)`
-			)
-			.join(",");
-		const statements: string[] = [];
-		for (let i = 0; i < records.length; i++) {
-			const record = records[i];
-			statements.push(
-				`UPDATE ppi_data SET activity=${record.activity} WHERE id='${record.timestamp}' AND activity IS NULL`
-			);
-		}
-		statements.push(
-			`INSERT OR IGNORE INTO ppi_data (id, timestamp, hr, spo2, ppi, activity, uploaded) VALUES ${values}`
-		);
-		if ((await this.ensureDatabaseReady()) == false) return false;
-		return bluetoothDatabase.transaction(statements);
-	}
-
 	async storeBroadcastPpiData(
 		timestamp: number,
 		hr: number,
@@ -120,10 +98,9 @@ export class BluetoothDataManager {
 		// 0 是设备返回的有效原始值；广播时间已在调用方校验，不能据此丢弃上传秒。
 		if (timestamp <= 0 || activity < 0 || activity > 7) return false;
 		if ((await this.ensureDatabaseReady()) == false) return false;
-		return bluetoothDatabase.transaction([
-			`UPDATE ppi_data SET activity=${activity} WHERE id='${timestamp}' AND activity IS NULL`,
+		return this.execute(
 			`INSERT OR IGNORE INTO ppi_data (id, timestamp, hr, spo2, ppi, activity, uploaded) VALUES ('${timestamp}', ${timestamp}, ${hr}, ${spo2}, ${ppi}, ${activity}, 0)`
-		]);
+		);
 	}
 
 	/**
@@ -153,7 +130,7 @@ export class BluetoothDataManager {
 			activity: r.activity,
 			hr: r.hr,
 			ppi: r.ppi,
-			spo2: Math.round(r.spo2Pct * 10),
+			spo2: r.spo2,
 			bhr: r.bhr,
 			eventSeq: r.eventSeq,
 			hasNewEvent: r.hasNewEvent,
@@ -204,7 +181,7 @@ export class BluetoothDataManager {
 			hr: parseInt(row[2] as string),
 			spo2: parseInt(row[3] as string),
 			ppi: parseInt(row[4] as string),
-			activity: row[5] == null ? null : parseInt(row[5] as string),
+			activity: parseInt(row[5] as string),
 			uploaded: parseInt(row[6] as string) == 1
 		} as PpiData;
 	}
@@ -235,17 +212,17 @@ export class BluetoothDataManager {
 		} as RealtimeBroadcastRecord;
 	}
 
+	/** `sleep_data` 行 → `SleepData`（列顺序见 `SLEEP_COLUMNS`）。 */
 	private parseSleepDataRow(row: Array<string>): SleepData {
 		return {
-			id: row[0] as string,
-			reportTimestamp: parseInt(row[1] as string),
-			sleepOnsetTime: row[2] == null ? null : parseInt(row[2] as string),
-			awakeTime: row[3] == null ? null : parseInt(row[3] as string),
-			lightSleepPeriod: row[4] == null ? null : parseInt(row[4] as string),
-			deepSleepPeriod: row[5] == null ? null : parseInt(row[5] as string),
-			otherSleepPeriod: row[6] == null ? null : parseInt(row[6] as string),
-			heartRateRest: row[7] == null ? null : parseInt(row[7] as string),
-			uploaded: parseInt(row[8] as string) == 1
+			reportTimestamp: parseInt(row[0] as string),
+			sleepOnsetTime: parseInt(row[1] as string),
+			awakeTime: parseInt(row[2] as string),
+			lightSleepPeriod: parseInt(row[3] as string),
+			deepSleepPeriod: parseInt(row[4] as string),
+			otherSleepPeriod: parseInt(row[5] as string),
+			heartRateRest: parseInt(row[6] as string),
+			uploaded: parseInt(row[7] as string) == 1
 		} as SleepData;
 	}
 
@@ -540,33 +517,16 @@ export class BluetoothDataManager {
 	}
 
 	/**
-	 * 存储睡眠数据
-	 * 用 INSERT OR IGNORE 按 reportTimestamp 幂等去重，重复事件不会重置 uploaded。
-	 * @param sleepData 睡眠数据
+	 * 存储睡眠事件
+	 * 用 INSERT OR IGNORE 按主键幂等去重，重复事件不会重置 uploaded。
+	 * @param sleepData 设备事件给出的六个统计值
 	 * @returns SQL 是否执行成功
 	 */
 	async storeSleepData(sleepData: SleepData): Promise<boolean> {
-		const {
-			reportTimestamp,
-			sleepOnsetTime,
-			awakeTime,
-			lightSleepPeriod,
-			deepSleepPeriod,
-			otherSleepPeriod,
-			heartRateRest
-		} = sleepData;
-		if (
-			sleepOnsetTime == null ||
-			awakeTime == null ||
-			lightSleepPeriod == null ||
-			deepSleepPeriod == null ||
-			otherSleepPeriod == null ||
-			heartRateRest == null
-		) return false;
-		const sleepId = reportTimestamp.toString();
+		const reportTimestamp = sleepData.reportTimestamp;
 		const sleepSql = `INSERT OR IGNORE INTO sleep_data
-			(id, report_timestamp, sleep_onset_time, awake_time, light_sleep_period, deep_sleep_period, other_sleep_period, heart_rate_rest, uploaded)
-			VALUES ('${sleepId}', ${reportTimestamp}, ${sleepOnsetTime}, ${awakeTime}, ${lightSleepPeriod}, ${deepSleepPeriod}, ${otherSleepPeriod}, ${heartRateRest}, 0)`;
+			(report_timestamp, sleep_onset_time, awake_time, light_sleep_period, deep_sleep_period, other_sleep_period, heart_rate_rest)
+			VALUES (${reportTimestamp}, ${sleepData.sleepOnsetTime}, ${sleepData.awakeTime}, ${sleepData.lightSleepPeriod}, ${sleepData.deepSleepPeriod}, ${sleepData.otherSleepPeriod}, ${sleepData.heartRateRest})`;
 		const ok = await this.execute(sleepSql);
 		if (ok == false) {
 			logger.error("bluetooth", `[BOOM] 睡眠数据写入失败: report_timestamp=${reportTimestamp}`);
@@ -575,75 +535,70 @@ export class BluetoothDataManager {
 	}
 
 	/**
-	 * 获取未上传的睡眠数据
-	 * @returns 未上传的睡眠数据数组
+	 * 获取未上传的睡眠事件
+	 * @returns 未上传的睡眠事件数组（按时间升序不影响组装，主键即时刻）
 	 */
 	async getUnuploadedSleepData(): Promise<SleepData[]> {
-		const sql =
-			"SELECT id, report_timestamp, sleep_onset_time, awake_time, light_sleep_period, deep_sleep_period, other_sleep_period, heart_rate_rest, uploaded FROM sleep_data WHERE uploaded = 0";
+		const sql = "SELECT " + SLEEP_COLUMNS + " FROM sleep_data WHERE uploaded = 0";
 		const result = await this.query(sql);
 
 		if (result == null) {
 			throw new Error("读取待上传睡眠数据失败");
 		}
 
-		const sleepDataList: SleepData[] = [];
-
-		for (let i = 0; i < result.rows.length; i++) {
-			sleepDataList.push(this.parseSleepDataRow(result.rows[i]));
-		}
-
-		return sleepDataList;
+		return this.parseSleepDataRows(result.rows);
 	}
 
 	async getSleepDataCount(): Promise<number> {
 		return this.queryCount("SELECT COUNT(*) FROM sleep_data");
 	}
 
+	/** 待上传条数走单条 COUNT，不把行拉回来（与 `getUnuploadedSleepData()` 同口径）。 */
 	async getUnuploadedSleepDataCount(): Promise<number> {
 		return this.queryCount("SELECT COUNT(*) FROM sleep_data WHERE uploaded = 0");
 	}
 
-	async getRecentSleepData(
-		limit: number,
-		uploaded: boolean | null,
-		completeOnly: boolean = false
-	): Promise<SleepData[]> {
+	/**
+	 * 最近的睡眠事件（诊断与重传用）。
+	 * @param uploaded `true` 已上传 / `false` 未上传 / `null` 不限
+	 */
+	async getRecentSleepData(limit: number, uploaded: boolean | null): Promise<SleepData[]> {
 		const safeLimit = limit <= 0 ? 10 : limit;
-		let sql =
-			"SELECT id, report_timestamp, sleep_onset_time, awake_time, light_sleep_period, deep_sleep_period, other_sleep_period, heart_rate_rest, uploaded FROM sleep_data";
+		let sql = "SELECT " + SLEEP_COLUMNS + " FROM sleep_data";
 		if (uploaded != null) {
 			sql += uploaded == true ? " WHERE uploaded = 1" : " WHERE uploaded = 0";
-		}
-		if (completeOnly == true) {
-			sql += uploaded == null ? " WHERE " : " AND ";
-			sql +=
-				"sleep_onset_time IS NOT NULL AND awake_time IS NOT NULL AND light_sleep_period IS NOT NULL AND deep_sleep_period IS NOT NULL AND other_sleep_period IS NOT NULL AND heart_rate_rest IS NOT NULL";
 		}
 		sql += " ORDER BY report_timestamp DESC LIMIT " + safeLimit.toString();
 		const result = await this.query(sql);
 		if (result == null) {
 			return [];
 		}
+		return this.parseSleepDataRows(result.rows);
+	}
 
+	/** 查询结果逐行转成 `SleepData`。 */
+	private parseSleepDataRows(rows: Array<Array<string>>): SleepData[] {
 		const sleepDataList: SleepData[] = [];
-		for (let i = 0; i < result.rows.length; i++) {
-			sleepDataList.push(this.parseSleepDataRow(result.rows[i]));
+		for (let i = 0; i < rows.length; i++) {
+			sleepDataList.push(this.parseSleepDataRow(rows[i]));
 		}
 		return sleepDataList;
 	}
 
 	/**
-	 * 标记睡眠数据为已上传
-	 * @param ids 睡眠数据ID数组
+	 * 标记睡眠事件为已上传。
+	 * 主键就是 `report_timestamp`，所以按时间戳标记，不需要再翻译成 id。
+	 * @param timestamps 事件的 reportTimestamp 秒数数组
 	 */
-	async markSleepAsUploaded(ids: string[]): Promise<boolean> {
-		if (ids.length == 0) {
+	async markSleepAsUploadedByTimestamps(timestamps: number[]): Promise<boolean> {
+		if (timestamps.length == 0) {
 			return true;
 		}
 
-		const idList = ids.map((id) => `'${id}'`).join(",");
-		const sql = `UPDATE sleep_data SET uploaded = 1 WHERE id IN (${idList})`;
+		const sql =
+			"UPDATE sleep_data SET uploaded = 1 WHERE report_timestamp IN (" +
+			timestamps.join(",") +
+			")";
 		return await this.execute(sql);
 	}
 }

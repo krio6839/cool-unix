@@ -63,8 +63,8 @@ const eventBatch = (...items) => "00" + items.join("");
 test("vital reads do not spread callback options through Android JSON serialization", async () => {
 	const source = await readFile(".cool/store/device/history-reader.ts", "utf8");
 	const method = source.slice(
-		source.indexOf("async readVitalDataAuto("),
-		source.indexOf("async readVitalRangeForward(")
+		source.indexOf("private async readVitalRange("),
+		source.indexOf("private async saveVitalPage(")
 	);
 	assert.equal(method.includes("...options"), false);
 });
@@ -92,8 +92,9 @@ test("quick vital history offers export after retaining all parsed pages", async
 	assert.equal(source.includes("保存到下载"), true);
 	assert.equal(source.includes("Download/BOOM"), true);
 	assert.equal(source.includes("停止当前读取"), true);
-	// 手动读取不许再走 `readVitalDataAuto` 那条旁路：它既不带方向 1，也不记账，
-	// 所以这里盯住手动读取函数本体，只认 `readVitalRangeForward` + 保留页面 + 可中断。
+	// 手动读取不许再走 `readVitalDataAuto` 那条旁路：它自己发 0x3A/0x3B、不落库也不记账。
+	// 这里盯住手动读取函数本体：仍只认 `readVitalRangeForward` + 保留页面 + 可中断，
+	// 而 0x3A 的方向/分钟作为选项透传下去，由读取器统一发命令。
 	const manual = source.slice(
 		source.indexOf("async function runManualHistoryRead("),
 		source.indexOf("async function testVitalHistoryRange(")
@@ -101,9 +102,9 @@ test("quick vital history offers export after retaining all parsed pages", async
 	assert.equal(manual.includes("readVitalRangeForward(fromSec, toSec, {"), true);
 	assert.equal(manual.includes("retainResponses: true"), true);
 	assert.equal(manual.includes("shouldStop: () => vitalAutoReading.value == false,"), true);
+	assert.equal(manual.includes("direction: direction"), true);
+	assert.equal(manual.includes("minutes: minutes"), true);
 	assert.equal(manual.includes("readVitalDataAuto("), false);
-	// 旧旁路固定方向 0（向过去翻页），手动读取不再有理由出现它。
-	assert.equal(manual.includes("direction: 0"), false);
 	assert.equal(manual.includes("reachedTarget"), false);
 });
 
@@ -187,7 +188,7 @@ test("six popup components keep their responsibilities and bottom full-height pr
 	const expectations = {
 		HistoryQuickReadPopup: ["read-range", "read-from-baseline", "stop", "export"],
 		HistoryRepairPopup: ["repairWindow", "historyBaseline.snapshot", "scheduleOpenRefresh"],
-		VitalProtocolPopup: ["0x3A", "0x3B", "cl-select-date", "协议秒"],
+		VitalProtocolPopup: ["0x3A", "0x3B", "cl-select-date", "协议秒", "directionOptions", "minutesOptions"],
 		EventProtocolPopup: ["0x3C", "0x3D", "cl-select-date", "协议秒"],
 		DeviceControlPopup: ["disconnect", "restore", "clear-error"],
 		DataDiagnosticsPopup: ["upload", "诊断日志"]
@@ -232,7 +233,7 @@ test("one tick does classification and upload in a fixed order", async (t) => {
 	// 本地 PPI 覆盖 [B, ceiling)：判定会把它整段记进 ready，`B` 因此推到右端。
 	const values = [];
 	for (let second = now - 300; second < now - 10; second++)
-		values.push(`('${second}',${second},0,0,0,NULL,0)`);
+		values.push(`('${second}',${second},0,0,0,0,0)`);
 	r.db.exec(`INSERT INTO ppi_data VALUES ${values.join(",")}`);
 
 	const tick = new r.DeviceTick({ boundDeviceId: "device" });
@@ -281,7 +282,7 @@ test("one tick reads the baseline once and classifies a single window", async (t
 	// 本地 PPI 覆盖整个窗口：判定会把它整段记进 ready，`B` 一步推到 `stableCeiling`。
 	const values = [];
 	for (let second = from; second < now - 10; second++)
-		values.push(`('${second}',${second},0,0,0,NULL,0)`);
+		values.push(`('${second}',${second},0,0,0,0,0)`);
 	r.db.exec(`INSERT INTO ppi_data VALUES ${values.join(",")}`);
 	const counts = { getBaseline: 0 };
 	const original = baseline.getBaseline.bind(baseline);
@@ -622,32 +623,17 @@ test("a valid all-zero broadcast second enters the PPI upload queue with activit
 	]);
 });
 
-test("PPI activity is uploaded, legacy null is retained, and rereads only enrich null", async (t) => {
+test("the stored activity of each second is what gets uploaded", async (t) => {
 	const r = await createRuntime(t);
 	r.db.exec(
-		"INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('1',1,60,980,1000,NULL,0),('2',2,61,981,1001,6,0)"
+		"INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('1',1,60,980,1000,3,0),('2',2,61,981,1001,6,0)"
 	);
-	assert.equal(await r.manager.storeBroadcastPpiData(1, 70, 990, 1100, 3), true);
-	assert.equal(await r.manager.storeHistoricalHeartRateRecordsBatch([
-		{ timestamp: 2, heartRate: 70, bloodOxygen: 0, ppi: 1100, activity: 1 }
-	]), true);
-	assert.deepEqual(rows(r.db, "SELECT timestamp,activity FROM ppi_data ORDER BY timestamp"), [
-		{ timestamp: 1, activity: 3 },
-		{ timestamp: 2, activity: 6 }
-	]);
 	assert.equal(await r.uploader.uploadPpiData(), true);
 	const post = r.posts.find((item) => item.url.indexOf("/ppi") >= 0);
 	assert.deepEqual(post.data.datas.map((item) => item.activity), [3, 6]);
-
-	r.db.exec(
-		"INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('3',3,62,982,1002,NULL,0)"
-	);
-	assert.equal(await r.uploader.uploadPpiData(), true);
-	const legacyPost = r.posts.filter((item) => item.url.indexOf("/ppi") >= 0).at(-1);
-	assert.equal(legacyPost.data.datas[0].activity, null);
 });
 
-test("legacy PPI schema gains nullable activity without losing rows", async (t) => {
+test("a stale ppi_data schema without activity is dropped instead of migrated", async (t) => {
 	const r = await createRuntime(t);
 	r.db.exec("DROP TABLE ppi_data");
 	r.db.exec(`CREATE TABLE ppi_data (
@@ -656,15 +642,16 @@ test("legacy PPI schema gains nullable activity without losing rows", async (t) 
 	r.db.exec("INSERT INTO ppi_data VALUES ('old',123,60,980,1000,1)");
 	await r.database.close();
 	await r.database.open();
-	assert.deepEqual(rows(r.db, "SELECT id,timestamp,activity,uploaded FROM ppi_data"), [
-		{ id: "old", timestamp: 123, activity: null, uploaded: 1 }
-	]);
-	await r.database.close();
-	await r.database.open();
+	// 缺 activity 的行构造不出上传报文，也不做列对列搬运：整表重建，旧行不留。
+	assert.deepEqual(rows(r.db, "SELECT id FROM ppi_data"), []);
 	assert.equal(
-		r.db.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('ppi_data') WHERE name='activity'").get().n,
+		r.db.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('ppi_data') WHERE name='activity' AND \"notnull\"=1").get().n,
 		1
 	);
+	r.db.exec(
+		"INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('fresh',200,60,980,1000,2,0)"
+	);
+	assert.deepEqual(rows(r.db, "SELECT id,activity FROM ppi_data"), [{ id: "fresh", activity: 2 }]);
 });
 test("broadcast persistence keeps raw values even when display validity is false", async () => {
 	const source = await readFile(".cool/store/device/broadcast.ts", "utf8");
@@ -673,7 +660,8 @@ test("broadcast persistence keeps raw values even when display validity is false
 		source.indexOf("private getBroadcastTimestamp")
 	);
 	assert.equal(method.includes("const hr = r.hr;"), true);
-	assert.equal(method.includes("const spo2 = Math.round(r.spo2Pct * 10);"), true);
+	// spo2 与 hr / ppi 同一口径：落库只认设备原始值，展示用的折算值不进数据库。
+	assert.equal(method.includes("const spo2 = r.spo2;"), true);
 	assert.equal(method.includes("const ppi = r.ppi;"), true);
 	assert.equal(method.includes("r.hrValid ?"), false);
 	assert.equal(method.includes("r.spo2Valid ?"), false);
@@ -737,9 +725,9 @@ test("a new device second is accepted even when its scan callback arrives within
 });
 test("PPI retention deletes only uploaded rows outside the thirty-day window", async (t) => {
 	const r = await createRuntime(t);
-	r.db.exec("INSERT INTO ppi_data VALUES ('old-uploaded',99,0,0,0,NULL,1)");
-	r.db.exec("INSERT INTO ppi_data VALUES ('old-pending',99,0,0,0,NULL,0)");
-	r.db.exec("INSERT INTO ppi_data VALUES ('current',100,0,0,0,NULL,1)");
+	r.db.exec("INSERT INTO ppi_data VALUES ('old-uploaded',99,0,0,0,0,1)");
+	r.db.exec("INSERT INTO ppi_data VALUES ('old-pending',99,0,0,0,0,0)");
+	r.db.exec("INSERT INTO ppi_data VALUES ('current',100,0,0,0,0,1)");
 	assert.equal(await r.manager.pruneUploadedPpiBefore(100), 1);
 	assert.deepEqual(rows(r.db, "SELECT id FROM ppi_data ORDER BY id"), [
 		{ id: "current" },
@@ -796,7 +784,7 @@ test("both existing success envelopes acknowledge uploads", async (t) => {
 test("logs, history diagnostics and uploads default to the same Beijing time", async (t) => {
 	// 2024-01-01 00:00:00Z，默认模式必须稳定解释成北京时间，不能受手机时区影响。
 	const r = await createRuntime(t);
-	r.db.exec("INSERT INTO ppi_data VALUES ('1704067200',1704067200,60,0,1000,NULL,0)");
+	r.db.exec("INSERT INTO ppi_data VALUES ('1704067200',1704067200,60,0,1000,0,0)");
 	assert.equal(await r.uploader.uploadPpiData(), true);
 	assert.equal(r.posts[0].data.datas[0].time, "2024-01-01 08:00:00");
 	assert.equal(r.posts[0].data.timezone, "08:00");
@@ -821,7 +809,7 @@ test("the local timezone config can make logs and uploads follow the phone timez
 	const r = await createRuntime(t);
 	const timezone = await r.load(".cool/utils/timezone.ts");
 	timezone.setAppTimezoneMode("system");
-	r.db.exec("INSERT INTO ppi_data VALUES ('1704067200',1704067200,60,0,1000,NULL,0)");
+	r.db.exec("INSERT INTO ppi_data VALUES ('1704067200',1704067200,60,0,1000,0,0)");
 	assert.equal(await r.uploader.uploadPpiData(), true);
 	assert.equal(r.posts[0].data.datas[0].time, "2023-12-31 19:00:00");
 	assert.equal(r.posts[0].data.timezone, "-05:00");
@@ -844,8 +832,8 @@ test("system-timezone PPI uploads split a sparse batch at a DST offset change", 
 	const r = await createRuntime(t);
 	const timezone = await r.load(".cool/utils/timezone.ts");
 	timezone.setAppTimezoneMode("system");
-	r.db.exec("INSERT INTO ppi_data VALUES ('winter',1704067200,60,0,1000,NULL,0)");
-	r.db.exec("INSERT INTO ppi_data VALUES ('summer',1719792000,61,0,1001,NULL,0)");
+	r.db.exec("INSERT INTO ppi_data VALUES ('winter',1704067200,60,0,1000,0,0)");
+	r.db.exec("INSERT INTO ppi_data VALUES ('summer',1719792000,61,0,1001,0,0)");
 
 	assert.equal(await r.uploader.uploadPpiData(), true);
 	assert.equal(r.posts.length, 2);
@@ -1036,9 +1024,9 @@ test("sleep UI keeps only the live server-backed flow and one precise diagnostic
 test("sleep diagnostics count pending rows without loading the full upload queue", async (t) => {
 	const r = await createRuntime(t);
 	r.db.exec(`INSERT INTO sleep_data
-		(id,report_timestamp,sleep_onset_time,awake_time,light_sleep_period,deep_sleep_period,other_sleep_period,heart_rate_rest,uploaded)
-		VALUES ('pending',1000,60,0,30,20,10,55,0),
-		('uploaded',2000,60,0,30,20,10,55,1)`);
+		(report_timestamp,sleep_onset_time,awake_time,light_sleep_period,deep_sleep_period,other_sleep_period,heart_rate_rest,uploaded)
+		VALUES (1000,60,0,30,20,10,55,0),
+		(2000,60,0,30,20,10,55,1)`);
 	assert.equal(await r.manager.getUnuploadedSleepDataCount(), 1);
 });
 
@@ -1077,6 +1065,7 @@ test("history persistence failure reports zero saved and does not start uploadin
 	const r = await createRuntime(t);
 	let released = false;
 	const device = {
+		boundDeviceId: "device",
 		beginGattTask: () => true,
 		endGattTask: () => {
 			released = true;
@@ -1084,7 +1073,7 @@ test("history persistence failure reports zero saved and does not start uploadin
 		event: { resetDataIdentifierReassembler() {} },
 		protocol: {
 			async readVitalData() {
-				reader.latestVitalDataResponse = page(1000);
+				reader.latestVitalDataResponse = page(1300);
 				reader.vitalDataResponseSeqValue++;
 				return true;
 			}
@@ -1093,14 +1082,10 @@ test("history persistence failure reports zero saved and does not start uploadin
 	const reader = new r.DeviceHistoryReader(device);
 	reader.sleep = async () => {};
 	r.executeFailure = true;
-	const read = await reader.readVitalDataAuto({
-		startSec: 1300,
-		direction: 0,
-		minutes: 2
-	});
+	const read = await reader.readVitalRangeForward(1300, 1420);
 	assert.equal(read.saveOk, false);
 	assert.equal(read.savedRecords, 0);
-	assert.equal(read.uploadAttempted, false);
+	assert.equal(read.uploadScheduled, false);
 	assert.equal(r.posts.length, 0);
 	assert.equal(released, true);
 });
@@ -1108,6 +1093,7 @@ test("history persistence failure reports zero saved and does not start uploadin
 test("vital reader logs a pre-send exception with its message", async (t) => {
 	const r = await createRuntime(t);
 	const device = {
+		boundDeviceId: "device",
 		beginGattTask: () => true,
 		endGattTask() {},
 		event: {
@@ -1118,15 +1104,7 @@ test("vital reader logs a pre-send exception with its message", async (t) => {
 		protocol: {}
 	};
 	const reader = new r.DeviceHistoryReader(device);
-	await assert.rejects(
-		reader.readVitalDataAuto({
-			startSec: 1000,
-			direction: 0,
-			minutes: 2,
-			persistData: false
-		}),
-		/reset vital reassembler failed/
-	);
+	await assert.rejects(reader.readVitalRangeForward(1000, 1120, null), /reset vital reassembler failed/);
 	assert.equal(
 		r.logs.some((entry) => entry.items.join(" ").includes("reset vital reassembler failed")),
 		true
@@ -1188,7 +1166,7 @@ test("live broadcasts arriving mid-run do not extend it to the batch cap", async
 	r.seed(30);
 	// 实时广播每秒落库一条，比一次 HTTP 往返还快：每批都重查“当前未上传”会被新秒一直喂饱。
 	let liveSec = Math.floor(Date.now() / 1000);
-	const insertLive = r.db.prepare("INSERT INTO ppi_data VALUES (?, ?, 60, 0, 1000, NULL, 0)");
+	const insertLive = r.db.prepare("INSERT INTO ppi_data VALUES (?, ?, 60, 0, 1000, 0, 0)");
 	r.respond = (options) => {
 		liveSec += 1;
 		insertLive.run(String(liveSec), liveSec);
@@ -1216,7 +1194,7 @@ test("per-run budget leaves a large backlog for later and releases the upload lo
 
 test("sleep failure is preserved and contributes to uploadData result", async (t) => {
 	const r = await createRuntime(t);
-	r.db.exec("INSERT INTO sleep_data VALUES ('1000',1000,60,0,30,20,10,55,0)");
+	r.db.exec("INSERT INTO sleep_data VALUES (1000,60,0,30,20,10,55,0)");
 	r.response = { status: "error" };
 	assert.equal(await r.uploader.uploadData(), false);
 	assert.equal(r.db.prepare("SELECT uploaded FROM sleep_data").get().uploaded, 0);
@@ -1228,7 +1206,7 @@ test("sleep failure is preserved and contributes to uploadData result", async (t
 test("an in-flight PPI upload does not silently drop the sleep upload", async (t) => {
 	const r = await createRuntime(t);
 	r.seed(30);
-	r.db.exec("INSERT INTO sleep_data VALUES ('1000',1000,60,0,30,20,10,55,0)");
+	r.db.exec("INSERT INTO sleep_data VALUES (1000,60,0,30,20,10,55,0)");
 	// PPI 挂起不返回，模拟它连发多批占用上传通道的窗口；睡眠请求立即成功。
 	const pending = [];
 	r.respond = (options) => {
@@ -1251,29 +1229,39 @@ test("an in-flight PPI upload does not silently drop the sleep upload", async (t
 test("sleep upload sends event statistics and logs the same fields", async (t) => {
 	const r = await createRuntime(t);
 	r.db.exec(`INSERT INTO sleep_data
-		(id,report_timestamp,sleep_onset_time,awake_time,light_sleep_period,deep_sleep_period,other_sleep_period,heart_rate_rest,uploaded)
-		VALUES ('1000',1000,25200,1800,14400,7200,1800,55,0)`);
+		(report_timestamp,sleep_onset_time,awake_time,light_sleep_period,deep_sleep_period,other_sleep_period,heart_rate_rest,uploaded)
+		VALUES (1000,25200,1800,14400,7200,1800,55,0)`);
 	assert.equal(await r.uploader.uploadSleepData(), true);
 	const line = r.logs.map((x) => x.items.join(" ")).find((x) => x.includes("上传睡眠数据:"));
 	assert.ok(line != null, "no sleep upload line was logged");
-	for (const field of ["count=", "ids=", "sleepOnsetTime=25200", "awakeTime=1800", "light=14400", "deep=7200", "other=1800", "heartRateRest=55"]) {
+	for (const field of ["count=", "times=", "sleepOnsetTime=25200", "awakeTime=1800", "light=14400", "deep=7200", "other=1800", "heartRateRest=55"]) {
 		assert.equal(line.includes(field), true, `sleep log missing ${field}: ${line}`);
 	}
 	const post = r.posts.find((item) => item.url.indexOf("/sleep") >= 0);
-	assert.deepEqual(post.data.datas[0], {
-		time: "1970-01-01 00:16:40",
-		sleepOnsetTime: 25200,
-		awakeTime: 1800,
-		lightSleepPeriod: 14400,
-		deepSleepPeriod: 7200,
-		otherSleepPeriod: 1800,
-		heartRateRest: 55
+	// 报文里只剩路由信息 + 设备事件字段：分数类（recoverScore/sleepScore/tiredScore）
+	// 和上传时刻 `time` 都是本地恒定的假数据，已删。
+	// 事件的六个字段原样透传；`time` 走 App 统一时区（默认 08:00），与 PPI 报文同口径。
+	assert.deepEqual(post.data, {
+		address: "AA:BB",
+		device: "BOOM-AABB",
+		timezone: "08:00",
+		datas: [
+			{
+				time: "1970-01-01 08:16:40",
+				sleepOnsetTime: 25200,
+				awakeTime: 1800,
+				lightSleepPeriod: 14400,
+				deepSleepPeriod: 7200,
+				otherSleepPeriod: 1800,
+				heartRateRest: 55
+			}
+		]
 	});
 	// 设备未连接时跳过必须报出原因，否则只剩一个 false 无法定位。
 	const offline = await createRuntime(t);
 	offline.db.exec(`INSERT INTO sleep_data
-		(id,report_timestamp,sleep_onset_time,awake_time,light_sleep_period,deep_sleep_period,other_sleep_period,heart_rate_rest,uploaded)
-		VALUES ('1000',1000,25200,1800,14400,7200,1800,55,0)`);
+		(report_timestamp,sleep_onset_time,awake_time,light_sleep_period,deep_sleep_period,other_sleep_period,heart_rate_rest,uploaded)
+		VALUES (1000,25200,1800,14400,7200,1800,55,0)`);
 	offline.uploader.setDeviceInfo("BOOM", "");
 	assert.equal(await offline.uploader.uploadSleepData(), false);
 	assert.equal(
@@ -1282,29 +1270,39 @@ test("sleep upload sends event statistics and logs the same fields", async (t) =
 	);
 });
 
-test("sleep reupload skips migrated audit rows without blocking complete events", async (t) => {
-	const r = await createRuntime(t);
-	r.db.exec(`INSERT INTO sleep_data
-		(id,report_timestamp,sleep_onset_time,awake_time,light_sleep_period,deep_sleep_period,other_sleep_period,heart_rate_rest,uploaded)
-		VALUES ('legacy',1000,NULL,NULL,NULL,NULL,NULL,NULL,1),
-		('complete',2000,25200,1800,14400,7200,1800,55,1)`);
-	assert.equal(await r.uploader.reuploadSleepData(10), 1);
-	const posts = r.posts.filter((item) => item.url.indexOf("/sleep") >= 0);
-	assert.equal(posts.length, 1);
-	assert.equal(posts[0].data.datas.length, 1);
-	assert.equal(posts[0].data.datas[0].heartRateRest, 55);
-});
-
-test("sleep reupload applies its limit after excluding migrated audit rows", async (t) => {
+test("sleep reupload sends the newest uploaded event", async (t) => {
 	const r = await createRuntime(t);
 	const values = [];
-	for (let i = 0; i < 10; i++)
-		values.push(`('legacy-${i}',${3000 + i},NULL,NULL,NULL,NULL,NULL,NULL,1)`);
-	values.push("('complete',2000,25200,1800,14400,7200,1800,55,1)");
+	for (let i = 0; i < 10; i++) values.push(`(${3000 + i},25200,1800,14400,7200,1800,55,1)`);
+	values.push("(2000,25200,1800,14400,7200,1800,55,1)");
 	r.db.exec(`INSERT INTO sleep_data VALUES ${values.join(",")}`);
 	assert.equal(await r.uploader.reuploadSleepData(1), 1);
 	const post = r.posts.find((item) => item.url.indexOf("/sleep") >= 0);
-	assert.equal(post.data.datas[0].heartRateRest, 55);
+	assert.equal(post.data.datas.length, 1);
+	// 取最近一条：3009 → 1970-01-01 08:50:09（App 默认时区 +08:00）。
+	assert.equal(post.data.datas[0].time, "1970-01-01 08:50:09");
+});
+
+test("a pending sleep row uploads and an incomplete row cannot exist", async (t) => {
+	const r = await createRuntime(t);
+	// 六个统计值由设备事件整体给出，由表结构的 NOT NULL 保证：残缺行进不了库，
+	// 查询侧也就不需要再拼一套「统计值齐全」的过滤条件。
+	assert.throws(() => r.db.exec("INSERT INTO sleep_data (report_timestamp) VALUES (1000)"));
+	r.db.exec("INSERT INTO sleep_data VALUES (2000,25200,1800,14400,7200,1800,55,0)");
+	assert.equal(await r.manager.getUnuploadedSleepDataCount(), 1);
+	const queued = await r.manager.getUnuploadedSleepData();
+	assert.equal(queued.length, 1);
+	assert.equal(queued[0].reportTimestamp, 2000);
+	assert.equal(queued[0].uploaded, false);
+
+	assert.equal(await r.uploader.uploadSleepData(), true);
+	const post = r.posts.find((item) => item.url.indexOf("/sleep") >= 0);
+	assert.equal(post.data.datas.length, 1);
+	assert.equal(post.data.datas[0].sleepOnsetTime, 25200);
+	assert.equal(
+		r.db.prepare("SELECT uploaded FROM sleep_data WHERE report_timestamp=2000").get().uploaded,
+		1
+	);
 });
 
 test("per-frame reassembly noise cannot flush the diagnostic buffer", async (t) => {
@@ -1461,7 +1459,6 @@ test("automatic history releases GATT without waiting for slow upload responses"
 		assert.ok(outcome, "history is blocked by the network request");
 		assert.equal(released, true);
 		assert.equal(outcome.saveOk, true);
-		assert.equal(outcome.uploadAttempted, false);
 		assert.equal(outcome.uploadScheduled, true);
 	} finally {
 		if (pendingRequest)
@@ -1690,7 +1687,6 @@ test("a sleep result event read from the device lands in sleep_data", async (t) 
 	// 「最近睡眠」查的就是这张表。
 	assert.deepEqual(rows(r.db, "SELECT * FROM sleep_data"), [
 		{
-			id: "1700000000",
 			report_timestamp: 1700000000,
 			sleep_onset_time: 25200,
 			awake_time: 1800,
@@ -1750,29 +1746,28 @@ test("a sleep event whose write fails is not reported as saved", async (t) => {
 	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM sleep_data").get().n, 0);
 });
 
-test("a legacy sleep_data table keeps uploaded rows and drops pending rows", async (t) => {
+test("a legacy sleep_data table is dropped and rebuilt instead of migrated", async (t) => {
 	const r = await createRuntime(t);
-	// 复刻旧结构：多一个 NOT NULL 无默认值的 record_count、少一个 detail。
+	// 复刻旧结构：自造 id、多一个 NOT NULL 无默认值的 record_count、少一整组统计值。
 	r.db.exec("DROP TABLE IF EXISTS sleep_data");
 	r.db.exec(`CREATE TABLE sleep_data (
     id TEXT PRIMARY KEY, report_timestamp INTEGER NOT NULL, bedtime INTEGER NOT NULL,
     sleep_time INTEGER NOT NULL, wake_time INTEGER NOT NULL, getup_time INTEGER NOT NULL,
     record_count INTEGER NOT NULL, uploaded INTEGER DEFAULT 0)`);
 	r.db.exec("INSERT INTO sleep_data VALUES ('1699999999',1699999999,25200,23000,1500,0,1200,1)");
-	r.db.exec("INSERT INTO sleep_data VALUES ('1699999998',1699999998,25200,23000,1500,0,1200,0)");
 	r.db.exec("CREATE TABLE IF NOT EXISTS sleep_status_data (timestamp INTEGER PRIMARY KEY, activity INTEGER NOT NULL)");
 
 	const btDb = (await r.load(".cool/bluetooth/database.ts")).bluetoothDatabase;
 	await btDb.close();
 	await btDb.open();
 
+	// 旧结构的行拼不出上传报文，没有迁移价值：整表丢掉重建，旧行不再保留。
 	assert.deepEqual(
 		r.db
 			.prepare("PRAGMA table_info(sleep_data)")
 			.all()
 			.map((row) => row.name),
 		[
-			"id",
 			"report_timestamp",
 			"sleep_onset_time",
 			"awake_time",
@@ -1783,9 +1778,7 @@ test("a legacy sleep_data table keeps uploaded rows and drops pending rows", asy
 			"uploaded"
 		]
 	);
-	assert.deepEqual(rows(r.db, "SELECT id, uploaded, sleep_onset_time FROM sleep_data"), [
-		{ id: "1699999999", uploaded: 1, sleep_onset_time: null }
-	]);
+	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM sleep_data").get().n, 0);
 	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='sleep_status_data'").get().n, 0);
 
 	// 旧结构下 INSERT OR IGNORE 会把 NOT NULL 冲突静默吞掉：execute 返回 true、行没进去。
@@ -1799,25 +1792,24 @@ test("a legacy sleep_data table keeps uploaded rows and drops pending rows", asy
 		heartRateRest: 55
 	});
 	assert.equal(stored, true);
-	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM sleep_data").get().n, 2);
+	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM sleep_data").get().n, 1);
 	assert.equal((await r.manager.getUnuploadedSleepData()).length, 1);
 });
 
-test("sleep schema cleanup preserves complete pending rows when only an extra column is stale", async (t) => {
+test("sleep schema cleanup drops and rebuilds a stale table", async (t) => {
 	const r = await createRuntime(t);
 	r.db.exec("ALTER TABLE sleep_data ADD COLUMN stale_detail TEXT");
 	r.db.exec(`INSERT INTO sleep_data
-		(id,report_timestamp,sleep_onset_time,awake_time,light_sleep_period,deep_sleep_period,other_sleep_period,heart_rate_rest,uploaded,stale_detail)
-		VALUES ('pending',1700000000,25200,1800,14400,7200,1800,55,0,'old')`);
+		(report_timestamp,sleep_onset_time,awake_time,light_sleep_period,deep_sleep_period,other_sleep_period,heart_rate_rest,uploaded,stale_detail)
+		VALUES (1700000000,25200,1800,14400,7200,1800,55,0,'old')`);
 	await r.database.close();
 	await r.database.open();
-	assert.deepEqual(rows(r.db, "SELECT id,uploaded,heart_rate_rest FROM sleep_data"), [
-		{ id: "pending", uploaded: 0, heart_rate_rest: 55 }
-	]);
+	// 列集合对不上就整表重建，多出来的旧列与它那批行一起消失。
 	assert.equal(
 		r.db.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('sleep_data') WHERE name='stale_detail'").get().n,
 		0
 	);
+	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM sleep_data").get().n, 0);
 });
 
 test("a failed sleep insert is reported instead of counted as saved", async (t) => {

@@ -44,6 +44,7 @@ export type VitalProtocolPopupProps = {
 	autoDetail: string;
 	busy: boolean;
 };
+/** 0x3A 的三个协议参数：起点 + 方向（0 更早 / 1 更新）+ 每页分钟数（2 或 5）。 */
 export type VitalPopupPayload = { startSec: string; direction: number; minutes: number };
 export type EventProtocolPopupProps = {
 	eventHeader: string;

@@ -20,7 +20,7 @@ function seedPpi(db, from, to) {
 	if (to <= from) return;
 	const values = [];
 	for (let second = from; second < to; second++)
-		values.push(`('${second}',${second},0,0,0,NULL,0)`);
+		values.push(`('${second}',${second},0,0,0,0,0)`);
 	db.exec(`INSERT INTO ppi_data VALUES ${values.join(",")}`);
 }
 
@@ -769,6 +769,75 @@ test("a range read starts at the baseline and walks toward newer seconds", async
 	assert.equal(await r.baseline.getBaseline(), 210000);
 });
 
+/** 记录每一条 0x3A/0x3B 请求、按脚本返回页面的设备桩。 */
+function scriptedReader(r, send) {
+	const queries = [];
+	const device = {
+		boundDeviceId: "device",
+		beginGattTask: () => true,
+		endGattTask() {},
+		event: { resetDataIdentifierReassembler() {} },
+		protocol: {
+			async readVitalData(query) {
+				queries.push(query);
+				return send(0);
+			},
+			async continueReadVitalData(minutes) {
+				queries.push({ continueMinutes: minutes });
+				return send(1);
+			}
+		}
+	};
+	const reader = new r.DeviceHistoryReader(device);
+	reader.sleep = async () => {};
+	return { reader, queries };
+}
+
+test("an older-direction read starts at the window right end and never accounts", async (t) => {
+	const r = await setup(t);
+	const now = Math.floor(Date.now() / 1000);
+	const to = now - 120;
+	const from = to - 120;
+	await r.prime(from);
+	const { reader, queries } = scriptedReader(r, (step) => {
+		reader.latestVitalDataResponse = page(from, 120);
+		reader.vitalDataResponseSeqValue++;
+		return step == 0;
+	});
+
+	const read = await reader.readVitalRangeForward(from, to, { direction: 0, minutes: 5 });
+
+	// 窗口仍是 `[from, to)`，但向更早翻页必须从右端开始：起点是 `to`，不是 `from`。
+	assert.equal(queries[0].startSec, to);
+	assert.equal(queries[0].direction, 0);
+	assert.equal(queries[0].minutes, 5);
+	assert.equal(read.status, "DONE");
+	assert.equal(read.savedRecords, 120);
+	// 往回翻的是 `B` 已经确认过的那一段，所以一步都不能记账。
+	assert.equal(read.skippedAccounting, true);
+	assert.equal(await r.baseline.getBaseline(), from, "向更早读不得推进 B");
+});
+
+test("an older-direction read treats a later page as stalled", async (t) => {
+	const r = await setup(t);
+	const now = Math.floor(Date.now() / 1000);
+	const to = now - 120;
+	const from = to - 600;
+	await r.prime(from);
+	const { reader } = scriptedReader(r, (step) => {
+		reader.latestVitalDataResponse = step == 0 ? page(to - 120, 120) : page(to + 60, 120);
+		reader.vitalDataResponseSeqValue++;
+		return true;
+	});
+
+	const read = await reader.readVitalRangeForward(from, to, { direction: 0 });
+
+	// 向更早读时页起点只能变小；变大说明设备在回跳，必须停下来而不是继续读。
+	assert.equal(read.status, "PAGE_STALLED");
+	assert.equal(read.savedRecords, 120);
+	assert.equal(await r.baseline.getBaseline(), from);
+});
+
 /** 一个只返回给定页面、且不再续读的设备桩。用于验证落库与占位修复的语义。 */
 function readerReturning(r, response) {
 	const device = {
@@ -1051,9 +1120,9 @@ test("a valid re-read repairs a legacy placeholder row but never a real value", 
 	// 模拟旧版占位记录与一条真实记录并存。
 	r.db
 		.prepare(
-			"INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,uploaded) VALUES " +
-				`('${start}',${start},255,0,65535,1),` +
-				`('${start + 1}',${start + 1},70,0,1234,1)`
+			"INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES " +
+				`('${start}',${start},255,0,65535,2,1),` +
+				`('${start + 1}',${start + 1},70,0,1234,2,1)`
 		)
 		.run();
 	// 设备历史补录给出真实值；其余秒保持 FF，避免覆盖上面的断言。
@@ -1143,8 +1212,8 @@ test("a zero-value page is queued for upload rather than treated as missing", as
 test("database transaction excludes interleaved writes and rolls back only its own changes", async (t) => {
 	const r = await createRuntime(t);
 	r.failSql = (sql) => sql === "INVALID";
-	const tx = r.database.transaction(["INSERT INTO ppi_data VALUES ('1',1,0,0,0,NULL,0)", "INVALID"]);
-	const concurrent = r.database.execute("INSERT INTO ppi_data VALUES ('2',2,0,0,0,NULL,0)");
+	const tx = r.database.transaction(["INSERT INTO ppi_data VALUES ('1',1,0,0,0,0,0)", "INVALID"]);
+	const concurrent = r.database.execute("INSERT INTO ppi_data VALUES ('2',2,0,0,0,0,0)");
 	assert.equal(await tx, false);
 	assert.equal(await concurrent, true);
 	assert.deepEqual(

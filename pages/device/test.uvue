@@ -922,12 +922,11 @@ const quickHistoryStatus = ref<string>(t("尚未读取"));
 const quickHistoryPages = ref<number>(0);
 const quickHistorySeconds = ref<number>(0);
 const quickHistoryDays = ref<number>(0);
-const VITAL_FORM_DEFAULT_OFFSET_SECONDS = 120;
 
 /* ===== 参数输入子弹窗状态 ===== */
 
 /** 当前打开的表单类型（空=未打开） */
-const activeForm = ref<"" | "0x31" | "0x35" | "0x3A" | "0x3C">("");
+const activeForm = ref<"" | "0x31" | "0x35" | "0x3C">("");
 /** 子弹窗显示控制（v-model 双向绑定） */
 const formVisible = ref(false);
 
@@ -937,8 +936,6 @@ const formTitle = computed<string>(() => {
 			return t("设置设备编号");
 		case "0x35":
 			return t("0x35 写生物识别");
-		case "0x3A":
-			return t("生命体征读取流程");
 		case "0x3C":
 			return t("事件读取流程");
 		default:
@@ -952,8 +949,6 @@ const formStartSec = ref<string>("0");
 const formEndSec = ref<string>("0");
 const formEventRange = ref<string[]>([]);
 const formMaxCount = ref<string>("10");
-const formDirection = ref<number>(0);
-const formMinutes = ref<number>(2);
 const formType = ref<number>(0);
 // 0x35 生物识别表单字段
 const formGender = ref<number>(0);
@@ -970,23 +965,19 @@ const exampleList = computed<DocExample[]>(() => {
 	return DOC_EXAMPLES_BY_T.get(tCode) ?? [];
 });
 
-function resetVitalFormToCurrentWindow(): void {
-	const now = getNowSec();
-	const startSec = now - VITAL_FORM_DEFAULT_OFFSET_SECONDS;
-	formStartSec.value = startSec.toString();
-	formDirection.value = 0;
-	formMinutes.value = 2;
-	console.log(`[BOOM-TEST] 打开 0x3A 表单，刷新默认时间: nowSec=${now}, startSec=${startSec}`);
-}
-
 /**
- * 手动读取的公共实现：各入口只有窗口不同，链路完全一样——`readVitalRangeForward` 内部
- * 就是正式补录那一套，所以手动读到的秒同样会推进基准。
+ * 手动读取的公共实现：各入口只有窗口与协议参数不同，链路完全一样——`readVitalRangeForward`
+ * 内部就是正式补录那一套，所以手动读到的秒同样会推进基准。
+ *
+ * `direction` / `minutes` 是 0x3A 自己的参数（其他入口一律默认：向更新、2 分钟）。窗口始终
+ * 写作 `[fromSec, toSec)`，`direction = 0`（向更早）时从 `toSec` 那头往回翻。
  */
 async function runManualHistoryRead(
 	fromSec: number,
 	toSec: number,
-	title: string
+	title: string,
+	direction: number,
+	minutes: number
 ): Promise<void> {
 	vitalAutoReading.value = true;
 	vitalAutoDetail.value = "-";
@@ -1005,7 +996,9 @@ async function runManualHistoryRead(
 		const result = await deviceStore.history.readVitalRangeForward(fromSec, toSec, {
 			retainResponses: true,
 			shouldStop: () => vitalAutoReading.value == false,
-			label: readLabel
+			label: readLabel,
+			direction: direction,
+			minutes: minutes
 		});
 		vitalHistoryExportResponses.value = result.responses;
 		vitalAutoDetail.value = deviceStore.history.formatVitalAutoDetail(result.responses);
@@ -1015,13 +1008,17 @@ async function runManualHistoryRead(
 		quickHistoryPages.value = result.pages;
 		quickHistorySeconds.value = parsedSeconds;
 		const summary = `${historyReadResultText(result)} · ${t("页数")} ${result.pages} · ${t("落库")} ${result.savedRecords}`;
-		// 窗口左端晚于 `B` 时本轮只落库，基准一步不动。这不是失败，但读数的人必须知道，
-		// 否则会以为这段已经补进基准了。
+		// 只落库不记账有两种来路：起点晚于 `B`，或这一轮本来就是向更早读。都不是失败，
+		// 但读数的人必须知道基准没动，否则会以为这段已经并进去了。
+		const skippedReason =
+			direction == 0
+				? t("向更早读取（direction=0），本轮只落库不记账")
+				: t("起点晚于基准 B，本轮只落库不记账");
 		quickHistoryStatus.value = result.skippedAccounting
-			? `${t("起点晚于基准 B，本轮只落库不记账")} · ${summary}`
+			? `${skippedReason} · ${summary}`
 			: `${summary} · ${t("已保留本次解析数据，可保存到下载")}`;
 		if (result.skippedAccounting)
-			ui.showToast({ message: t("起点晚于基准 B，本轮只落库不记账"), type: "warn" });
+			ui.showToast({ message: skippedReason, type: "warn" });
 		setCommandResponse("VITAL", quickHistoryStatus.value);
 		return result.saveOk;
 	});
@@ -1039,13 +1036,13 @@ async function testVitalHistoryRange(days: number): Promise<void> {
 	const toSec = historyBaseline.stableCeiling(getNowSec());
 	const fromSec = toSec - days * 24 * 60 * 60;
 	quickHistoryDays.value = days;
-	await runManualHistoryRead(fromSec, toSec, `${t("手动读取近")} ${days} ${t("天")}`);
+	await runManualHistoryRead(fromSec, toSec, `${t("手动读取近")} ${days} ${t("天")}`, 1, 2);
 }
 
 /** 从基准 `B` 读到记账上限。起点恒等于 `B`，所以不会跳过任何没读过的秒。 */
 async function readHistoryFromBaseline(): Promise<void> {
 	const snapshot = await historyBaseline.snapshot(getNowSec());
-	await runManualHistoryRead(snapshot.baseline, snapshot.ceiling, t("从基准 B 读取"));
+	await runManualHistoryRead(snapshot.baseline, snapshot.ceiling, t("从基准 B 读取"), 1, 2);
 }
 
 /** 将本次快速历史读取的全部解析秒写入手机公共 Download/BOOM 目录。 */
@@ -1120,7 +1117,7 @@ const eventWindowPreviewText = computed<string>(() => {
 });
 
 /** 打开子弹窗并重置默认值 */
-function openForm(cmd: "0x31" | "0x35" | "0x3A" | "0x3C"): void {
+function openForm(cmd: "0x31" | "0x35" | "0x3C"): void {
 	switch (cmd) {
 		case "0x31":
 			formDeviceNumber.value = "";
@@ -1132,9 +1129,6 @@ function openForm(cmd: "0x31" | "0x35" | "0x3A" | "0x3C"): void {
 			formAge.value = "20";
 			formPpgPosition.value = 0;
 			formBhr.value = "60";
-			break;
-		case "0x3A":
-			resetVitalFormToCurrentWindow();
 			break;
 		case "0x3C": {
 			const now = getNowSec();
@@ -1235,59 +1229,6 @@ async function submitForm(): Promise<void> {
 				return true;
 			});
 			shouldClose = ok;
-			break;
-		}
-		case "0x3A": {
-			const startSec = parseInt(formStartSec.value, 10);
-			if (Number.isNaN(startSec) || startSec <= 0) {
-				ui.showToast({ message: t("起始时戳必须是正数"), type: "error" });
-				return;
-			}
-			vitalAutoReading.value = true;
-			vitalAutoDetail.value = "-";
-			closeForm();
-			await runQueuedGattCommand("VITAL", async (): Promise<boolean> => {
-				vitalAutoReading.value = true;
-				vitalAutoDetail.value = "-";
-				setCommandResponse("VITAL", t("0x3A 已开始，自动续读中"));
-				const result = await deviceStore.history.readVitalDataAuto({
-					startSec,
-					direction: formDirection.value,
-					minutes: formMinutes.value,
-					// 手动协议测试持续读取，只有用户停止或设备结束才退出。
-					maxPages: 0,
-					pageDelayMs: 250,
-					shouldStop: () => vitalAutoReading.value == false,
-					onProgress: (p) => {
-						if (p.phase == "0x3B" && p.page % 5 == 0) {
-							setCommandResponse("VITAL", `${t("自动续读")} ${p.page}`);
-						}
-					},
-					onPage: (r, page) => {
-						if (page % 5 != 0 && r.startSec != 0) return;
-						let validCount = 0;
-						for (let i = 0; i < r.vitalData.length; i++) {
-							if (r.vitalData[i].valid == true) validCount++;
-						}
-						setCommandResponse(
-							"VITAL",
-							`${page} ${t("段")} ${validCount}/${r.vitalData.length} ${t("有效")}`
-						);
-					}
-				});
-				vitalAutoReading.value = false;
-				vitalAutoDetail.value = deviceStore.history.formatVitalAutoDetail(result.responses);
-				setCommandResponse(
-					"VITAL",
-					result.done
-						? `${t("读取完成")} ${result.pages} ${t("段")} ${t("保存")} ${result.savedRecords}`
-						: result.stoppedByLimit
-							? `${t("达到上限")} ${result.pages} ${t("段")}`
-							: `${t("读取停止")} ${result.pages} ${t("段")}`
-				);
-				return true;
-			});
-			shouldClose = false;
 			break;
 		}
 		case "0x3C": {
@@ -1401,12 +1342,32 @@ function stopEventAutoRead(): void {
 	setCommandResponse("EVENT", t("已停止自动续读"));
 }
 
+/**
+ * 生命体征协议弹窗的手动读取：起点 + 方向 + 每页分钟数，就是 0x3A 自己的三个参数。
+ *
+ * 仍走正式补录那条链路（`readVitalRangeForward`），不另开旁路。窗口按方向定：
+ * 向更新读 `[起点, 记账上限)`，向更早读 `[基准 B, 起点)`——`B` 以下的秒已经补过，往回翻
+ * 只可能翻到它们，所以那一端就是天然的下界。两种方向的记账都由读取器自己判定并如实报出。
+ */
 async function submitVitalFromPopup(payload: VitalPopupPayload): Promise<void> {
-	formStartSec.value = payload.startSec;
-	formDirection.value = payload.direction;
-	formMinutes.value = payload.minutes;
-	activeForm.value = "0x3A";
-	await submitForm();
+	const startSec = parseInt(payload.startSec, 10);
+	if (Number.isNaN(startSec) || startSec <= 0) {
+		ui.showToast({ message: t("起始时戳必须是正数"), type: "error" });
+		return;
+	}
+	const readOlder = payload.direction == 0;
+	const baseline = await historyBaseline.getBaseline();
+	if (readOlder == true && startSec <= baseline) {
+		ui.showToast({ message: t("起点不晚于基准 B，向更早方向没有可读区间"), type: "warn" });
+		return;
+	}
+	await runManualHistoryRead(
+		readOlder == true ? baseline : startSec,
+		readOlder == true ? startSec : historyBaseline.stableCeiling(getNowSec()),
+		t("生命体征协议手动读取"),
+		payload.direction,
+		payload.minutes
+	);
 }
 
 async function submitEventFromPopup(payload: EventPopupPayload): Promise<void> {

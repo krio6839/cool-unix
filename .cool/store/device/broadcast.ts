@@ -635,7 +635,7 @@ export class DeviceBroadcast {
 		const timestamp = this.getBroadcastTimestamp(r);
 		// 有效性只影响展示/诊断；收到的协议原始值必须完整落库并上传。
 		const hr = r.hr;
-		const spo2 = Math.round(r.spo2Pct * 10);
+		const spo2 = r.spo2;
 		const ppi = r.ppi;
 		const ok = await bluetoothDataManager.storeBroadcastPpiData(
 			timestamp,

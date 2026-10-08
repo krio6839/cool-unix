@@ -18,7 +18,6 @@ import {
 	formatDateTimeInTimezone,
 	getAppTimezone
 } from "../utils/timezone";
-import { dayUts } from "../utils/day";
 import { UPLOAD_PPI_URL, UPLOAD_SLEEP_URL } from "./constants";
 import type {
 	SleepData,
@@ -115,7 +114,7 @@ export class BluetoothUploader {
 					datas.push({
 						time: formatDateTimeInTimezone(item.timestamp * 1000, batchTimezone),
 						hr: item.hr,
-						spo2: this.normalizeSpo2ForUpload(item.spo2),
+						spo2: item.spo2,
 						ppi: item.ppi,
 						activity: item.activity
 					});
@@ -202,7 +201,7 @@ export class BluetoothUploader {
 	/** 测试用：重新上传最近的已上传睡眠记录，不改变其状态。 */
 	async reuploadSleepData(count: number): Promise<number> {
 		if (count <= 0) return 0;
-		const uploadedSleepData = await bluetoothDataManager.getRecentSleepData(count, true, true);
+		const uploadedSleepData = await bluetoothDataManager.getRecentSleepData(count, true);
 		if (uploadedSleepData.length == 0) return 0;
 		const ok = await this.uploadSleepRecords(uploadedSleepData);
 		return ok ? uploadedSleepData.length : 0;
@@ -215,42 +214,55 @@ export class BluetoothUploader {
 			logger.info("bluetooth", "[BOOM-UPLOAD] 无待上传睡眠数据");
 			return true;
 		}
-		const ids = this.sleepRecordIds(sleepDataList);
+		// 睡眠行主键就是 reportTimestamp，日志与上传标记都用它，不再引入一套 id。
+		const timestamps = sleepDataList.map((item) => item.reportTimestamp);
 		if (this.sleepUploading == true) {
 			logger.info(
 				"bluetooth",
-				`[BOOM-UPLOAD] 睡眠上传跳过: 原因=上一轮睡眠上传未结束, count=${sleepDataList.length}, ids=${ids}`
+				`[BOOM-UPLOAD] 睡眠上传跳过: 原因=上一轮睡眠上传未结束, count=${sleepDataList.length}, times=${timestamps}`
 			);
 			return false;
 		}
 		if (this.deviceAddress == "") {
 			logger.info(
 				"bluetooth",
-				`[BOOM-UPLOAD] 睡眠上传跳过: 原因=设备未连接, count=${sleepDataList.length}, ids=${ids}`
+				`[BOOM-UPLOAD] 睡眠上传跳过: 原因=设备未连接, count=${sleepDataList.length}, times=${timestamps}`
 			);
 			return false;
 		}
 
 		this.sleepUploading = true;
 		try {
+			// 一个请求只有一个 `timezone`，datas 里每条的 `time` 都按它格式化。
+			// 睡眠链路原本用手机本地时区格式化、请求体却写固定时区，手机时区不是
+			// +08:00 时同一个睡眠窗口在两份报文里会差几个小时，服务端切出来的
+			// 逐秒曲线自然对不上；现在两条路都走 `getAppTimezone`。
+			const batchTimezone = getAppTimezone(sleepDataList[0].reportTimestamp * 1000);
 			const datas: SleepUploadDataItem[] = [];
 			for (let i = 0; i < sleepDataList.length; i++) {
-				datas.push(this.buildSleepUploadItem(sleepDataList[i]));
+				const item = sleepDataList[i];
+				datas.push({
+					time: formatDateTimeInTimezone(item.reportTimestamp * 1000, batchTimezone),
+					sleepOnsetTime: item.sleepOnsetTime,
+					awakeTime: item.awakeTime,
+					lightSleepPeriod: item.lightSleepPeriod,
+					deepSleepPeriod: item.deepSleepPeriod,
+					otherSleepPeriod: item.otherSleepPeriod,
+					heartRateRest: item.heartRateRest
+				});
 			}
+			// 只发设备给的东西：路由信息 + 事件字段。分数类字段原本是本地恒为 "1.0" 的
+			// 假数据、请求级 `time` 原本是上传时刻，都不是设备来源，已删。
 			const requestData: SleepUploadRequest = {
 				address: this.deviceAddress,
 				datas,
 				device: this.deviceName,
-				recoverScore: "1.0",
-				sleepScore: "1.0",
-				time: this.formatTimestamp(Date.now()),
-				timezone: "08:00",
-				tiredScore: "1.0"
+				timezone: batchTimezone
 			};
 
 			logger.info(
 				"bluetooth",
-				`[BOOM-UPLOAD] 上传睡眠数据: count=${datas.length}, ids=${ids}, ${this.describeSleepDatas(datas)}`
+				`[BOOM-UPLOAD] 上传睡眠数据: count=${datas.length}, times=${timestamps}, ${this.describeSleepDatas(datas)}`
 			);
 			const response = await request({
 				url: UPLOAD_SLEEP_URL,
@@ -261,16 +273,16 @@ export class BluetoothUploader {
 			});
 			logger.info("bluetooth", `[BOOM-UPLOAD] 睡眠数据上传响应: ${response}`);
 
-			if ((await bluetoothDataManager.markSleepAsUploaded(ids)) == false) {
+			if ((await bluetoothDataManager.markSleepAsUploadedByTimestamps(timestamps)) == false) {
 				throw new Error("睡眠上传已确认，但本地上传标记保存失败");
 			}
 			logger.info("bluetooth", `[BOOM-UPLOAD] 睡眠数据上传成功: count=${datas.length}`);
 			return true;
 		} catch (error) {
-			// 失败必须带 id 和原因：下一轮能不能补上，取决于这条记录是否还留在待传集合里。
+			// 失败必须带时刻和原因：下一轮能不能补上，取决于这条记录是否还留在待传集合里。
 			logger.error(
 				"bluetooth",
-				`[BOOM-UPLOAD] 睡眠数据上传失败: count=${sleepDataList.length}, ids=${ids}`,
+				`[BOOM-UPLOAD] 睡眠数据上传失败: count=${sleepDataList.length}, times=${timestamps}`,
 				error
 			);
 			return false;
@@ -279,61 +291,14 @@ export class BluetoothUploader {
 		}
 	}
 
-	/** 待标记的睡眠记录 id 数组（markSleepAsUploaded 需要数组）。 */
-	private sleepRecordIds(sleepDataList: SleepData[]): string[] {
-		const ids: string[] = [];
-		for (let i = 0; i < sleepDataList.length; i++) {
-			if (sleepDataList[i].id != null) ids.push(sleepDataList[i].id!);
-		}
-		return ids;
-	}
-
 	/** 睡眠上传摘要直接展示设备事件给出的统计值。 */
 	private describeSleepDatas(datas: SleepUploadDataItem[]): string {
-		const parts: string[] = [];
-		for (let i = 0; i < datas.length; i++) {
-			parts.push(
-				`[time=${datas[i].time}, sleepOnsetTime=${datas[i].sleepOnsetTime}, awakeTime=${datas[i].awakeTime}, light=${datas[i].lightSleepPeriod}, deep=${datas[i].deepSleepPeriod}, other=${datas[i].otherSleepPeriod}, heartRateRest=${datas[i].heartRateRest}]`
-			);
-		}
-		return parts.join(" ");
-	}
-
-	/** 构建睡眠上传数据项 */
-	private buildSleepUploadItem(sleepData: SleepData): SleepUploadDataItem {
-		const sleepOnsetTime = sleepData.sleepOnsetTime;
-		const awakeTime = sleepData.awakeTime;
-		const lightSleepPeriod = sleepData.lightSleepPeriod;
-		const deepSleepPeriod = sleepData.deepSleepPeriod;
-		const otherSleepPeriod = sleepData.otherSleepPeriod;
-		const heartRateRest = sleepData.heartRateRest;
-		if (
-			sleepOnsetTime == null ||
-			awakeTime == null ||
-			lightSleepPeriod == null ||
-			deepSleepPeriod == null ||
-			otherSleepPeriod == null ||
-			heartRateRest == null
-		) throw new Error(`睡眠统计不完整: id=${sleepData.id ?? ""}`);
-		return {
-			time: this.formatTimestamp(sleepData.reportTimestamp * 1000), // 转为毫秒
-			sleepOnsetTime,
-			awakeTime,
-			lightSleepPeriod,
-			deepSleepPeriod,
-			otherSleepPeriod,
-			heartRateRest
-		};
-	}
-
-	private normalizeSpo2ForUpload(spo2: number): number {
-		if (spo2 > 100) return Math.round(spo2 / 10);
-		return Math.round(spo2);
-	}
-
-	/** 睡眠链路暂时保持原来的手机本地时间格式，后续单独调整。 */
-	private formatTimestamp(timestamp: number): string {
-		return dayUts(timestamp).format("YYYY-MM-DD HH:mm:ss");
+		return datas
+			.map(
+				(item) =>
+					`[time=${item.time}, sleepOnsetTime=${item.sleepOnsetTime}, awakeTime=${item.awakeTime}, light=${item.lightSleepPeriod}, deep=${item.deepSleepPeriod}, other=${item.otherSleepPeriod}, heartRateRest=${item.heartRateRest}]`
+			)
+			.join(" ");
 	}
 
 	/**

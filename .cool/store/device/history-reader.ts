@@ -8,11 +8,11 @@ import {
 	LOG_EVENT_TYPE,
 	parseEventDataHeader,
 	parseLogDataList,
-	parseVitalDataResponse
+	parseVitalDataResponse,
+	VITAL_DIRECTION_OLDER
 } from "../../bluetooth";
 import type {
 	EventDataHeaderResponse,
-	HeartRateRecord,
 	LogDataItem,
 	SleepData,
 	VitalDataPerSecond,
@@ -38,13 +38,10 @@ export type VitalAutoReadOptions = {
 	maxPages?: number;
 	pageDelayMs?: number;
 	timeoutMs?: number;
-	persistData?: boolean;
-	uploadAfterSave?: boolean;
 	/** 自动持久化补录不需要把所有已落库页面继续留在内存；手动导出默认保留。 */
 	retainResponses?: boolean;
 	shouldStop?: () => boolean;
 	onProgress?: (progress: HistoryReadProgress) => void;
-	onPage?: (response: VitalDataQueryResponse, page: number) => void;
 	persistPage?: (response: VitalDataQueryResponse) => Promise<boolean>;
 };
 
@@ -62,9 +59,8 @@ export type VitalAutoReadResult = {
 	 * 见 `readVitalRange` 里的记账前提。
 	 */
 	skippedAccounting: boolean;
-	uploadAttempted: boolean;
+	/** 本轮是否喊了心跳去排上传；不等待上传结果。 */
 	uploadScheduled: boolean;
-	uploadOk: boolean;
 	failedFromSec: number | null;
 	failedToSec: number | null;
 };
@@ -81,6 +77,15 @@ export type VitalRangeReadOptions = {
 	shouldStop?: (() => boolean) | null;
 	/** 日志标签；`null` 时用「基准补录」。 */
 	label?: string;
+	/**
+	 * 0x3A 的读取方向：`0`=向更早（从窗口右端往回翻页）、`1`=向更新。缺省 `1`。
+	 *
+	 * 窗口始终写作 `[fromSec, toSec)`，方向只决定从哪一端开始翻，翻页结束条件随之取反。
+	 * `0` 翻的正是 `B` 已确认过的那一段，所以那一轮一律不记账，见 `readVitalRange`。
+	 */
+	direction?: number;
+	/** 每页分钟数（`0x3A`/`0x3B` 都只接受 2 或 5）。缺省 2。 */
+	minutes?: number;
 };
 
 /**
@@ -311,68 +316,8 @@ export class DeviceHistoryReader implements RangeReader {
 		this.eventGlobalSnSeen.clear();
 	}
 
-	async readVitalDataAuto(options: VitalAutoReadOptions): Promise<VitalAutoReadResult> {
-		if (this.device.beginGattTask("vitalAuto") == false) {
-			return this.makeVitalResult("STOPPED", "gatt busy", 0, []);
-		}
-		this.setDisplaySuspended(true);
-		try {
-			// 手动页也沿用自动补录的落库顺序：确认写入成功后才允许发送下一条 0x3B。
-			let savedRecords = 0;
-			let saveOk = true;
-			const savePages = options.persistData != false;
-			const callerPersistPage = options.persistPage;
-			// UTS Android 会把对象展开编译为 Fastjson 的 JavaBean 拷贝；当回调捕获页面状态时，
-			// Fastjson 无法序列化 Lambda。逐字段传递，保留回调引用本身。
-			const result = await this.readVitalDataAutoInner({
-				startSec: options.startSec,
-				direction: options.direction,
-				minutes: options.minutes,
-				maxPages: options.maxPages,
-				pageDelayMs: options.pageDelayMs,
-				timeoutMs: options.timeoutMs,
-				shouldStop: options.shouldStop,
-				onProgress: options.onProgress,
-				onPage: options.onPage,
-				persistPage: async (response: VitalDataQueryResponse) => {
-					// 保留调用方页回调；其拒绝时不能继续读取或写入本地数据。
-					if (callerPersistPage != null && (await callerPersistPage(response)) == false)
-						return false;
-					if (savePages == false) return true;
-					// 只保存本页，避免长读取期间把已收到的数据仅留在内存中。
-					const records = this.toHeartRateRecords([response]);
-					if (
-						(await bluetoothDataManager.storeHistoricalHeartRateRecordsBatch(
-							records
-						)) == false
-					) {
-						saveOk = false;
-						return false;
-					}
-					savedRecords += records.length;
-					return true;
-				}
-			});
-			if (savePages == false) return result;
-			result.saveOk = saveOk;
-			result.savedRecords = savedRecords;
-			if (result.savedRecords > 0 && options.uploadAfterSave != false) {
-				result.uploadAttempted = true;
-				result.uploadOk = await bluetoothUploader.uploadData();
-			}
-			return result;
-		} catch (error) {
-			// Android 对 Error 对象直接序列化会只显示 {}，转成文本才能保留真实异常原因。
-			logger.error("bluetooth", `[BOOM-HISTORY] 生命体征读取异常: ${error}`);
-			throw error;
-		} finally {
-			this.setDisplaySuspended(false);
-			this.device.endGattTask("vitalAuto");
-		}
-	}
-
 	/**
-	 * 向更新方向顺序读 `[fromSec, toSec)`。自动补录与测试页的手动读取走的是这一条链路。
+	 * 顺序读 `[fromSec, toSec)`。自动补录与测试页的手动读取走的是这一条链路。
 	 *
 	 * 设备在 `direction=1` 下会跳过没记录的时间、直接给下一段有数据的页，所以一路读下去
 	 * 就是完整的补录，不必先在本地算出一张待补区间清单再逐段翻页。
@@ -380,6 +325,9 @@ export class DeviceHistoryReader implements RangeReader {
 	 * **`fromSec` 应当就是当前的 `B`**（自动补录、以及测试页的「从基准 B 读取」都满足）。
 	 * 传更晚的起点是允许的，但那会跳过 `[B, fromSec)`：这段既没读过、设备也没确认过，
 	 * 所以 `readVitalRange` 会把本轮降级成「只落库不记账」。
+	 *
+	 * `options.direction = 0` 时窗口不变、从右端往回翻（测试页的「向更早」），同样只落库不记账——
+	 * 见 `readVitalRange`。
 	 *
 	 * `options` 不能给默认值：本方法实现 `RangeReader`，UTS 不许覆盖方法声明默认值。不需要
 	 * 可选项时显式传 `null`。
@@ -409,6 +357,9 @@ export class DeviceHistoryReader implements RangeReader {
 	 * **记账前提是 `startSec <= B`。** `advanceAccounted` 只会抬高 `B`，所以从更晚的起点读时，
 	 * 第一页的页终点就会把 `[B, startSec)` 这段**既没读过、设备也没确认过**的秒记成已记账，
 	 * 等于平白抹掉一段补录机会。这种情况降级成「只落库不记账」，并如实报给调用方。
+	 *
+	 * `direction = 0` 时窗口不变、仍写作 `[startSec, anchor)`，只是从右端 `anchor` 开始往回翻，
+	 * 读到 `startSec` 收尾；它翻的正是已确认过的那一段，所以同样只落库不记账。
 	 */
 	private async readVitalRange(
 		label: string,
@@ -422,15 +373,26 @@ export class DeviceHistoryReader implements RangeReader {
 			return this.makeVitalResult("STOPPED", "read window is empty", 0, []);
 		let retainResponses = false;
 		let externalStop: (() => boolean) | null = null;
+		let direction = VITAL_READ_DIRECTION;
+		let minutes = VITAL_READ_MINUTES;
 		if (options != null) {
 			if (options.retainResponses == true) retainResponses = true;
 			if (options.shouldStop != null) externalStop = options.shouldStop!;
+			if (options.direction != null) direction = options.direction!;
+			if (options.minutes != null && options.minutes! > 0) minutes = options.minutes!;
 		}
+		const readOlder = direction == VITAL_DIRECTION_OLDER;
 		// 记账判定放在占用 GATT 任务之前：这中间只有一次读库，但它会抛，抛了就没有 finally
 		// 去 `endGattTask`，通道会一直显示为忙。
 		const currentBaseline = await historyBaseline.getBaseline();
-		const account = startSec <= currentBaseline;
-		if (account == false) {
+		// `B` 只向上推进：向更早方向读的整段都在 `B` 以下，一步都不能记账。
+		const account = readOlder == false && startSec <= currentBaseline;
+		if (readOlder == true) {
+			logger.info(
+				"bluetooth",
+				`[BOOM-HISTORY] ${label}向更早读取，本轮只落库不记账: window=${startSec}~${anchor}, B=${currentBaseline}`
+			);
+		} else if (account == false) {
 			logger.warn(
 				"bluetooth",
 				`[BOOM-HISTORY] ${label}起点晚于基准，本轮只落库不记账: window=${startSec}~${anchor}, B=${currentBaseline}`
@@ -446,8 +408,8 @@ export class DeviceHistoryReader implements RangeReader {
 		let lastStart = 0;
 		let failure = "";
 		let pageStalled = false;
-		/** 已经「记账或确认」到的右端：首包晚于它就说明中间那段设备明确没有数据。 */
-		let accountedUntil = startSec;
+		/** 已经「记账或确认」到的那一端：向更新方向是右端，向更早方向是左端。 */
+		let accountedUntil = readOlder == true ? anchor : startSec;
 		// 页层诊断计数：累计到整段结束一并打印，逐页打印会把诊断缓冲区冲掉。
 		let pageSeconds = 0;
 		let validSeconds = 0;
@@ -456,12 +418,13 @@ export class DeviceHistoryReader implements RangeReader {
 		try {
 			logger.info(
 				"bluetooth",
-				`[BOOM-HISTORY] ${label}开始: window=${startSec}~${anchor}, anchor=${startSec}, minutes=${VITAL_READ_MINUTES}, direction=${VITAL_READ_DIRECTION}, 记账=${account}`
+				`[BOOM-HISTORY] ${label}开始: window=${startSec}~${anchor}, minutes=${minutes}, direction=${direction}, 记账=${account}`
 			);
 			const result = await this.readVitalDataAutoInner({
-				startSec: startSec,
-				direction: VITAL_READ_DIRECTION,
-				minutes: VITAL_READ_MINUTES,
+				// 0x3A 的起点是「从哪一秒开始翻页」：向更新读是窗口左端，向更早读是窗口右端。
+				startSec: readOlder == true ? anchor : startSec,
+				direction: direction,
+				minutes: minutes,
 				maxPages: 0,
 				timeoutMs: DEFAULT_TIMEOUT_MS,
 				pageDelayMs: DEFAULT_PAGE_DELAY_MS,
@@ -489,14 +452,23 @@ export class DeviceHistoryReader implements RangeReader {
 							stopRead = true;
 							return true;
 						}
-						if (lastStart > 0 && response.startSec <= lastStart) {
-							pageStalled = true;
-							failure = "历史页面未向更晚时间推进";
-							logger.warn(
-								"bluetooth",
-								`[BOOM-HISTORY] ${label}页面停滞: previous=${lastStart}, current=${response.startSec}`
-							);
-							return false;
+						if (lastStart > 0) {
+							const stalled =
+								readOlder == true
+									? response.startSec >= lastStart
+									: response.startSec <= lastStart;
+							if (stalled) {
+								pageStalled = true;
+								failure =
+									readOlder == true
+										? "历史页面未向更早时间推进"
+										: "历史页面未向更晚时间推进";
+								logger.warn(
+									"bluetooth",
+									`[BOOM-HISTORY] ${label}页面停滞: previous=${lastStart}, current=${response.startSec}`
+								);
+								return false;
+							}
 						}
 						if (
 							response.n <= 0 ||
@@ -504,7 +476,7 @@ export class DeviceHistoryReader implements RangeReader {
 							response.rmssdSdnn.length != response.n
 						)
 							throw new Error("历史页面结构无效");
-						if (response.startSec >= anchor) {
+						if (readOlder == false && response.startSec >= anchor) {
 							// 设备直接跳到窗口右端之外：`[accountedUntil, anchor)` 整段无数据。
 							// 按「没返回就是没有」收尾，不当作读取失败。
 							if (account == true) {
@@ -540,11 +512,18 @@ export class DeviceHistoryReader implements RangeReader {
 						}
 						saved += await this.saveVitalPage(response, startSec, anchor, account);
 						lastStart = response.startSec;
-						// 记账右端跟着页走：页声明的范围就是「设备回答过这一段」，哪怕整页
-						// 都是全 FF 也要推进，否则下一轮又来读同一段。
+						// 覆盖边界跟着页走：页声明的范围就是「设备回答过这一段」，哪怕整页
+						// 都是全 FF 也要推进，否则下一轮又来读同一段。向更早读时页终点在
+						// 起点之前，边界要取页起点。
 						const pageEnd = response.startSec + response.n * 60;
-						if (pageEnd > accountedUntil) accountedUntil = pageEnd;
-						stopRead = accountedUntil >= anchor;
+						if (readOlder == true) {
+							if (response.startSec < accountedUntil)
+								accountedUntil = response.startSec;
+						} else if (pageEnd > accountedUntil) {
+							accountedUntil = pageEnd;
+						}
+						stopRead =
+							readOlder == true ? accountedUntil <= startSec : accountedUntil >= anchor;
 						return true;
 					} catch (error) {
 						saveOk = false;
@@ -561,11 +540,17 @@ export class DeviceHistoryReader implements RangeReader {
 			// 页面重复/回跳与无回复超时是不同状态，但由补录层复用同一页级失败策略。
 			if (pageStalled == true) result.status = "PAGE_STALLED";
 			if (result.status == "TIMEOUT" || result.status == "PAGE_STALLED") {
-				// 向更新方向读时，失败的是「最近一次收到的页之后那一页」；首包就失败则退化成
-				// 窗口的第一页。补录层用这个区间在日志里指出设备卡在哪一页。
-				const failedFrom = lastStart > 0 ? lastStart : startSec;
-				result.failedFromSec = failedFrom;
-				result.failedToSec = Math.min(anchor, failedFrom + VITAL_READ_MINUTES * 60);
+				// 失败的是「最近一次收到的页之后（或之前）那一页」；首包就失败则退化成
+				// 窗口靠近起点的那一页。补录层用这个区间在日志里指出设备卡在哪一页。
+				if (readOlder == true) {
+					const failedTo = lastStart > 0 ? lastStart : anchor;
+					result.failedFromSec = Math.max(startSec, failedTo - minutes * 60);
+					result.failedToSec = failedTo;
+				} else {
+					const failedFrom = lastStart > 0 ? lastStart : startSec;
+					result.failedFromSec = failedFrom;
+					result.failedToSec = Math.min(anchor, failedFrom + minutes * 60);
+				}
 			}
 			if (
 				result.status == "STOPPED" &&
@@ -636,9 +621,6 @@ export class DeviceHistoryReader implements RangeReader {
 			if (timestamp >= nowSec) continue;
 			const activity = item.status & 0x07;
 			values.push(`('${timestamp}',${timestamp},${item.hr},0,${item.ppi},${activity},0)`);
-			statements.push(
-				`UPDATE ppi_data SET activity=${activity} WHERE id='${timestamp}' AND activity IS NULL`
-			);
 			// 旧版留下的占位记录（hr=255/ppi=65535）要按真实值修正并重新排队上传；
 			// 其余情况由下面的 INSERT OR IGNORE 补写。
 			if (item.hr != 255 || item.ppi != 65535)
@@ -710,9 +692,6 @@ export class DeviceHistoryReader implements RangeReader {
 			if (options.retainResponses != false) responses.push(response);
 			if (options.persistPage != null && (await options.persistPage!(response)) == false) {
 				return this.makeVitalResult("STOPPED", "page persistence failed", page, responses);
-			}
-			if (options.onPage != null) {
-				options.onPage!(response, page);
 			}
 			if (options.shouldStop != null && options.shouldStop!() == true) {
 				return this.makeVitalResult("STOPPED", "stopped by caller", page, responses);
@@ -953,37 +932,10 @@ export class DeviceHistoryReader implements RangeReader {
 			savedRecords: 0,
 			saveOk: true,
 			skippedAccounting: false,
-			uploadAttempted: false,
 			uploadScheduled: false,
-			uploadOk: false,
 			failedFromSec: null,
 			failedToSec: null
 		};
-	}
-
-	private toHeartRateRecords(responses: VitalDataQueryResponse[]): HeartRateRecord[] {
-		const records: HeartRateRecord[] = [];
-		const seen = new Map<number, boolean>();
-		for (let p = 0; p < responses.length; p++) {
-			const response = responses[p];
-			if (response.startSec <= 0) continue;
-			for (let i = 0; i < response.vitalData.length; i++) {
-				const item = response.vitalData[i];
-				if (item.valid == false) continue;
-				const timestamp = response.startSec + i;
-				if (timestamp <= 0) continue;
-				if (seen.has(timestamp)) continue;
-				seen.set(timestamp, true);
-				records.push({
-					timestamp,
-					heartRate: item.hr,
-					bloodOxygen: 0,
-					ppi: item.ppi,
-					activity: item.status & 0x07
-				} as HeartRateRecord);
-			}
-		}
-		return records;
 	}
 
 	private makeEventResult(

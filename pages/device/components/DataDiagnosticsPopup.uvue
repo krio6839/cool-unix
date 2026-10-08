@@ -254,11 +254,12 @@ function formatBroadcast(item: RealtimeBroadcastRecord): string {
 }
 
 function formatPpi(item: PpiData): string {
-	return `time=${formatSecTime(item.timestamp)}, hr=${item.hr}, spo2=${item.spo2}, ppi=${item.ppi}, activity=${item.activity}, uploaded=${item.uploaded}, id=${item.id}`;
+	// `ppi_data.spo2` 存的是设备原始值（×10），界面上要折成百分比再显示。
+	return `time=${formatSecTime(item.timestamp)}, hr=${item.hr}, spo2=${(item.spo2 / 10).toFixed(1)}%, ppi=${item.ppi}, activity=${item.activity}, uploaded=${item.uploaded}, id=${item.id}`;
 }
 
 function formatSleep(item: SleepData): string {
-	return `report=${formatSecTime(item.reportTimestamp)}, uploaded=${item.uploaded}, sleepOnsetTime=${item.sleepOnsetTime}, awakeTime=${item.awakeTime}, lightSleepPeriod=${item.lightSleepPeriod}, deepSleepPeriod=${item.deepSleepPeriod}, otherSleepPeriod=${item.otherSleepPeriod}, heartRateRest=${item.heartRateRest}, id=${item.id}`;
+	return `report=${formatSecTime(item.reportTimestamp)}, uploaded=${item.uploaded}, sleepOnsetTime=${item.sleepOnsetTime}, awakeTime=${item.awakeTime}, lightSleepPeriod=${item.lightSleepPeriod}, deepSleepPeriod=${item.deepSleepPeriod}, otherSleepPeriod=${item.otherSleepPeriod}, heartRateRest=${item.heartRateRest}`;
 }
 
 function formatStats(item: UploadTableStats): string {

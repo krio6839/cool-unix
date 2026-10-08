@@ -259,6 +259,10 @@ export async function createRuntime(t) {
 		BOOM_CMD: btConstants.BOOM_CMD,
 		LOG_EVENT_NAMES: btConstants.LOG_EVENT_NAMES,
 		LOG_EVENT_TYPE: btConstants.LOG_EVENT_TYPE,
+		// 读取方向是 `0x3A` 的合法值域（0/1），协议层会拿它做入参校验；桩里漏掉它
+		// 会让校验恒为 false，测试里的 `0x3A` 永远发不出去。
+		VITAL_DIRECTION_OLDER: btConstants.VITAL_DIRECTION_OLDER,
+		VITAL_DIRECTION_NEWER: btConstants.VITAL_DIRECTION_NEWER,
 		parseEventDataHeader: btParser.parseEventDataHeader,
 		parseLogDataList: btParser.parseLogDataList,
 		parseVitalDataResponse: btParser.parseVitalDataResponse,
@@ -281,7 +285,7 @@ export async function createRuntime(t) {
 	state.manager = manager;
 	state.request = cache.get(".cool/service/index.ts").namespace.request;
 	state.seed = (count) => {
-		const insert = db.prepare("INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES (?, ?, 60, 0, 1000, NULL, 0)");
+		const insert = db.prepare("INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES (?, ?, 60, 0, 1000, 0, 0)");
 		const base = Math.floor(Date.now() / 1000) - count - 10;
 		for (let i = 1; i <= count; i++) {
 			const timestamp = base + i;
