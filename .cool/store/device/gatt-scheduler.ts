@@ -80,9 +80,13 @@ export class DeviceGattScheduler {
 
 	enqueueEventBackfill(deviceId: string, reason: SyncReason): boolean {
 		if (deviceId == "") return false;
-		// 因通道忙回队的事件任务还在排队：不重复入队，但仍要触发 flush，
-		// 否则它会一直等到下一次 eventSeq 变化才被执行。
-		if (this.hasQueuedTaskKind("readEvent") == true) return true;
+		// 兜底没有广播帧来推它，所以入队必须自己触发一次 flush，否则要等到下一次
+		// `eventSeq` 变化才会被执行。因通道忙回队的事件任务同样要触发——回队后没人管
+		// 正是它最大的风险，不能只靠下一次广播。
+		if (this.hasQueuedTaskKind("readEvent") == true) {
+			this.requestFlush("timer");
+			return true;
+		}
 		if (this.isTaskRunning("readEvent") == true) return false;
 		const task = this.makeTask("readEvent", "normal");
 		task.deviceId = deviceId;
@@ -90,6 +94,7 @@ export class DeviceGattScheduler {
 		task.historyReason = reason;
 		task.key = "readEvent";
 		this.upsertTask(task);
+		this.requestFlush("timer");
 		return true;
 	}
 

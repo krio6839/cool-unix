@@ -242,7 +242,8 @@ test("one tick does classification and upload in a fixed order", async (t) => {
 		enqueueHistoryRepair() {
 			order.push("connect");
 		},
-		requestFlush() {}
+		requestFlush() {},
+		enqueueEventBackfill: () => false
 	};
 	// 记录两步的先后：判定 → 上传。推进基准不再是独立一步，它就在 `classify()` 里面。
 	const realClassify = baseline.classify.bind(baseline);
@@ -293,7 +294,7 @@ test("one tick reads the baseline once and classifies a single window", async (t
 	const tick = new r.DeviceTick({
 		boundDeviceId: "device",
 		broadcast: { getBroadcastAgeMs: () => 0 },
-		scheduler: { enqueueHistoryRepair() {}, requestFlush() {} }
+		scheduler: { enqueueHistoryRepair() {}, requestFlush() {}, enqueueEventBackfill: () => false }
 	});
 	await tick.runTick("timer");
 	assert.equal(tick.lastError.value, "");
@@ -341,7 +342,7 @@ test("a stalled connection reason is logged at most once per connect interval", 
 	const tick = new r.DeviceTick({
 		boundDeviceId: "device",
 		broadcast: { getBroadcastAgeMs: () => 0 },
-		scheduler: { enqueueHistoryRepair() {}, requestFlush() {} }
+		scheduler: { enqueueHistoryRepair() {}, requestFlush() {}, enqueueEventBackfill: () => false }
 	});
 	const nowSec = Math.floor(Date.now() / 1000);
 	/** 日志桩把 `logger.info(tag, text)` 记成 `{ level, items }`，取 `items[1]` 就是正文。 */
@@ -677,7 +678,7 @@ test("a new device second is accepted even when its scan callback arrives within
 		broadcastDebug: { value: null },
 		errorMessage: { value: "" },
 		tick: { poke() {} },
-		scheduler: { enqueueReadEvent() {}, enqueueTimeSync() {} },
+		scheduler: { enqueueReadEvent() {}, enqueueTimeSync() {}, enqueueEventBackfill: () => false },
 		connection: { restartBoundBroadcastScan() {} },
 		event: { boomTimestamp: { value: 0 }, lastNotifyAtValue: 0 },
 		saveBoundDeviceName() {},
@@ -745,7 +746,8 @@ test("automatic repair continues after one planning/database failure", async (t)
 		enqueueHistoryRepair(reason) {
 			enqueued.push(reason);
 		},
-		requestFlush() {}
+		requestFlush() {},
+		enqueueEventBackfill: () => false
 	};
 	// 第一轮数据库读失败：整轮抛出并记进 lastError，而不是被当成「没有待补」。
 	r.queryFailure = true;
@@ -2346,4 +2348,117 @@ test("the repair popup offers only the full-window read", async () => {
 	assert.equal(popup.includes("abandoned"), false);
 	assert.equal(page.includes("retryAbandoned"), false);
 	assert.equal(repair.includes("abandon"), false);
+});
+
+test("event backfill enqueues a normal read and flushes itself", async (t) => {
+	const r = await createRuntime(t);
+	const { DeviceGattScheduler } = await r.load(".cool/store/device/gatt-scheduler.ts");
+	const device = { boundDeviceId: "AA:BB" };
+	const scheduler = new DeviceGattScheduler(device);
+	// 兜底没有广播帧来推它：入队（以及「已有 readEvent 排队」这条回队路径）都必须自己
+	// 触发一次 flush，否则任务会一直等到下一次 `eventSeq` 变化——那正是它要兜的漏。
+	const flushes = [];
+	scheduler.requestFlush = (reason) => {
+		flushes.push(reason);
+	};
+	assert.equal(scheduler.enqueueEventBackfill("AA:BB", "timer"), true);
+	assert.deepEqual(flushes, ["timer"]);
+	assert.equal(scheduler.tasks.length, 1);
+	assert.equal(scheduler.tasks[0].eventSeq, -1);
+	assert.equal(scheduler.tasks[0].priority, "normal");
+	// 第二次入队命中同一个 key，不新增任务，但仍要触发 flush。
+	assert.equal(scheduler.enqueueEventBackfill("AA:BB", "timer"), true);
+	assert.deepEqual(flushes, ["timer", "timer"]);
+	assert.equal(scheduler.tasks.length, 1);
+	// 没有绑定设备时不入队也不 flush。
+	assert.equal(scheduler.enqueueEventBackfill("", "timer"), false);
+	assert.equal(flushes.length, 2);
+});
+
+test("the heartbeat reads events about once an hour", async (t) => {
+	const r = await createRuntime(t);
+	const calls = [];
+	const tick = new r.DeviceTick({
+		boundDeviceId: "AA:BB",
+		broadcast: { getBroadcastAgeMs: () => 0 },
+		scheduler: {
+			enqueueEventBackfill(deviceId, reason) {
+				calls.push({ deviceId, reason });
+				return true;
+			}
+		}
+	});
+	const minutes = (n) => {
+		r.dateOffsetMs += n * 60 * 1000;
+	};
+	// 从没读过：首次心跳就投一次（App 关闭期间产生的睡眠事件没有广播来提醒）。
+	tick.maybeBackfillEvents();
+	assert.deepEqual(calls, [{ deviceId: "AA:BB", reason: "timer" }]);
+	// 一小时内不重复投，不看上一次读成没读成。
+	minutes(59);
+	tick.maybeBackfillEvents();
+	assert.equal(calls.length, 1);
+	minutes(2);
+	tick.maybeBackfillEvents();
+	assert.equal(calls.length, 2);
+	// 没绑定设备时不投。
+	const unbound = new r.DeviceTick({
+		boundDeviceId: "",
+		broadcast: { getBroadcastAgeMs: () => 0 },
+		scheduler: { enqueueEventBackfill: () => false }
+	});
+	unbound.maybeBackfillEvents();
+	assert.equal(unbound.lastEventReadAt, 0);
+});
+
+test("a backfilled event read runs without a broadcast to push it", async (t) => {
+	const r = await createRuntime(t);
+	const { DeviceGattScheduler } = await r.load(".cool/store/device/gatt-scheduler.ts");
+	let reads = 0;
+	const device = {
+		boundDeviceId: "AA:BB",
+		isGattTaskBusy: () => false,
+		getGattTaskName: () => "",
+		connection: {
+			async switchToConnectMode() {
+				return true;
+			},
+			async switchToBroadcastMode() {},
+			async disconnectDevice() {}
+		},
+		protocolProbe: {
+			async check() {
+				return { status: "OK", latencyMs: 10, deviceTimestamp: 1760000000 };
+			}
+		},
+		health: { recordUnresponsive() {}, recordHealthyConnection() {} },
+		history: {
+			async readEventDataAuto() {
+				reads++;
+				return {
+					status: "DONE",
+					message: "",
+					pages: 1,
+					items: [],
+					savedSleepRecords: 0,
+					saveOk: true,
+					uploadAttempted: false,
+					uploadOk: false
+				};
+			},
+			formatEventAutoBrief: () => ""
+		},
+		errorMessage: { value: "" }
+	};
+	const scheduler = new DeviceGattScheduler(device);
+	// 入队不在这里自动 flush（否则会与下面的显式 flush 并发）：只验证队列内容。
+	scheduler.requestFlush = () => {};
+	scheduler.enqueueEventBackfill("AA:BB", "timer");
+
+	await scheduler.flush("timer");
+
+	// 兜底任务不依赖 `eventSeq`（-1），执行完队列清空：广播那条路断了以后，它是事件读取
+	// 唯一的去路。
+	assert.equal(reads, 1);
+	assert.equal(scheduler.tasks.length, 0);
 });

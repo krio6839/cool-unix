@@ -5,13 +5,18 @@
  * 推进基准（`history/baseline.ts`）、补数据负责连接读取（`history-repair.ts`）。这个文件
  * 是它们之间唯一的时序约定：谁都不认识别人的节奏，只知道自己被 tick 到了。
  *
- * 一次 tick 固定两步：`classify()`（同时推进 `B` 与 `C`）→ `uploadData()`，然后
- * `maybeConnect()`。判定与上传是两件独立的事——判定依据是本地的 `ppi_data`，不是上传结果，
- * 弱网下上传失败只会让 `uploaded` 保持 0，不会把已经收齐的秒判成待补。
+ * 一次 tick 固定三步：`classify()`（同时推进 `B` 与 `C`）→ `uploadData()`，然后
+ * `maybeBackfillEvents()` 与 `maybeConnect()`。判定与上传是两件独立的事——判定依据是本地
+ * 的 `ppi_data`，不是上传结果，弱网下上传失败只会让 `uploaded` 保持 0，不会把已经收齐的秒
+ * 判成待补。
  *
  * 广播在线时分类每轮都在追，`B` 与 `C` 因此一起贴着 `stableCeiling`，不累积。
  * 连接由三道闸门把关（`B` 的落后量、最小间隔、设备是否在场）：连接会掐掉广播，所以它的
  * 频率由「本来就必须连的事」决定，落后量只搭顺风车，不制造连接。
+ *
+ * 事件读取（睡眠事件的唯一来路）是这层节奏里的一个例外：它有自己的一条底线——**至少每小时
+ * 读一次**，由 `maybeBackfillEvents()` 在每轮心跳里检查。它不吃那三道闸门，理由见
+ * `maybeBackfillEvents()`。
  */
 import { ref } from "vue";
 import { formatHistorySec, historyBaseline } from "../../bluetooth/history/baseline";
@@ -57,6 +62,20 @@ export class DeviceTick {
 	private static readonly PRESENCE_SILENCE_MS = 5 * 60 * 1000;
 
 	/**
+	 * 事件读取的间隔：距上次发起事件读取满这么久，心跳就再投一次 `readEvent`。
+	 *
+	 * 广播 `eventSeq` 变化是正常路径，这个间隔只覆盖它漏掉的两条路：设备长时间不产生新事件
+	 * （序号不动），以及那一次读取失败后没人再试（`readEvent` 只有「通道忙」才回队，
+	 * `TIMEOUT` / `SEND_FAILED` 直接丢弃）。成功与否一视同仁——都等满这个间隔再读下一次，
+	 * 它自己就是重试机制。
+	 *
+	 * 取 1 小时：读取窗口本身是最近 24 小时、最多 10 条（`EVENT_SYNC_WINDOW_SECONDS`），1 小时
+	 * 远小于它，事件不会因为读得晚而漏掉；睡眠事件一天 1~2 条（入睡结算 / 醒来结算），
+	 * 1 小时的陈旧度对睡眠报告够用。
+	 */
+	private static readonly EVENT_READ_INTERVAL_MS = 60 * 60 * 1000;
+
+	/**
 	 * 整轮心跳抛出时留下的错误文本，测试页会显示它。单轮失败不改变行为（下一轮照跑），
 	 * 但连续出现说明有真问题；没有这个字段，「心跳在跑但什么都没做」只能靠翻日志看出来。
 	 */
@@ -70,6 +89,8 @@ export class DeviceTick {
 	private ticking: boolean = false;
 	private lastTickAt: number = 0;
 	private lastConnectCheckAt: number = 0;
+	/** 上次发起事件读取的时刻。0 = 还没读过，首次心跳就投一次。 */
+	private lastEventReadAt: number = 0;
 	/** 「这一轮不连」的原因说明的限流状态，见 `logStall()`。 */
 	private lastStallLogAt: number = 0;
 	private lastStallLogKey: string = "";
@@ -138,6 +159,8 @@ export class DeviceTick {
 				`[BOOM-BASE] 刻度: now=${formatHistorySec(nowSec)}, stableCeiling=${formatHistorySec(historyBaseline.stableCeiling(nowSec))}, B=${formatHistorySec(baseline)}, reason=${reason}`
 			);
 			await bluetoothUploader.uploadData();
+			// 兜底排在连接闸门之前：它不吃三道闸门，而且和闸门放行的补录任务会合并进同一次连接。
+			this.maybeBackfillEvents();
 			await this.maybeConnect(nowSec, baseline);
 		} catch (e) {
 			this.lastError.value = `${e}`;
@@ -188,6 +211,33 @@ export class DeviceTick {
 		);
 		this.device.scheduler.enqueueHistoryRepair("timer");
 		this.device.scheduler.requestFlush("timer");
+	}
+
+	/**
+	 * 事件读取：距上次发起读取满 `EVENT_READ_INTERVAL_MS` 就投一次普通优先级 `readEvent`。
+	 *
+	 * **它不吃 `maybeConnect()` 的三道闸门，这是刻意的。** 它要覆盖的正是「广播没新事件 /
+	 * 广播链路本身不可用」的场景，用落后量或在场闸门去卡它，等于在最需要它的时候把它关掉；
+	 * 事件读取也不依赖广播——它自己就是那条连接。代价控制只交给上面那个间隔常量。
+	 *
+	 * 记的是「投过了」，不区分读成没读成：投完就重新计时，成功失败都等满一小时再读下一次。
+	 * 所以它自己就是重试机制，不需要额外的失败退避。
+	 */
+	private maybeBackfillEvents(): void {
+		const deviceId = this.device.boundDeviceId;
+		if (deviceId == "") return;
+		const now = Date.now();
+		if (now - this.lastEventReadAt < DeviceTick.EVENT_READ_INTERVAL_MS) return;
+		const sinceText =
+			this.lastEventReadAt > 0
+				? `${Math.round((now - this.lastEventReadAt) / 1000)}s`
+				: "从未";
+		this.lastEventReadAt = now;
+		this.device.scheduler.enqueueEventBackfill(deviceId, "timer");
+		logger.info(
+			"bluetooth",
+			`[BOOM-TICK] 已入队事件兜底读取: device=${deviceId}, 距上次=${sinceText}, 间隔=${Math.round(DeviceTick.EVENT_READ_INTERVAL_MS / 60000)}分钟`
+		);
 	}
 
 	/**
