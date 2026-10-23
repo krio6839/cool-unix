@@ -25,9 +25,10 @@ export type LoadStatusApiResponse = {
 	totalLoad: number;
 	loadProgress: number;
 	avgLoad: number;
-	restingHeartRate: number;
-	steps: number;
-	calories: number;
+	// 三项都可能没有数据：0 是合法值（例如刚起床的步数），所以用 null 表示「接口没给」。
+	restingHeartRate: number | null;
+	steps: number | null;
+	calories: number | null;
 	realtimeLoadData: TimeValuePair[];
 	loadZones: LoadZones;
 	heartRateZoneData: TimeValuePair[];

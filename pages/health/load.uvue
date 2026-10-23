@@ -149,7 +149,7 @@ import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
 import Chart from "./components/chart.uvue";
 
-const { device, load, realtime } = useStore();
+const { device, load } = useStore();
 const currentDate = ref<string>(dayUts().format("YYYY-MM-DD"));
 const loadTrendDays = ref<string>("7d");
 const sportLoadDays = ref<string>("7d");
@@ -238,12 +238,12 @@ function onSleepPressureDaysChange(days: string) {
 	fetchSleepPressure(days);
 }
 
+// 当前值取接口（/load_status），设备原始值只在设备测试页出现。
 const loadStatusItems = computed((): HealthItem[] => {
-	const realtimeValues = realtime.healthCardValues.value;
 	const restingHeartRate =
-		realtimeValues.restingHeartRate == null ? "-" : realtimeValues.restingHeartRate.toString();
-	const steps = realtime.steps.value == null ? "-" : realtime.steps.value.toString();
-	const calories = realtime.calories.value == null ? "-" : realtime.calories.value.toFixed(1);
+		load.restingHeartRate.value == null ? "-" : load.restingHeartRate.value.toString();
+	const steps = load.steps.value == null ? "-" : load.steps.value.toString();
+	const calories = load.calories.value == null ? "-" : load.calories.value.toFixed(1);
 	return [
 		{ label: "平均负荷", value: `${load.avgLoad.value}` },
 		{ label: "静息心率", value: restingHeartRate },

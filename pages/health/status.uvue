@@ -60,7 +60,7 @@ import Header from "./components/header.uvue";
 import Status from "./components/status.uvue";
 import Chart from "./components/chart.uvue";
 
-const { device, status, realtime } = useStore();
+const { device, status } = useStore();
 const selectedDate = ref<string>(dayUts().format("YYYY-MM-DD"));
 const readinessDays = ref<string>("7d");
 
@@ -102,11 +102,12 @@ function onReadinessDaysChange(days: string) {
 	fetchReadinessData(days);
 }
 
+// 当前值取接口（/status），设备原始值只在设备测试页出现。
 const healthItems = computed((): HealthItem[] => {
-	const realtimeValues = realtime.healthCardValues.value;
-	const hrv = realtimeValues.hrv == null ? "-" : `${realtimeValues.hrv}ms`;
-	const restingHeartRate =
-		realtimeValues.restingHeartRate == null ? "-" : `${realtimeValues.restingHeartRate}bpm`;
+	const hrvValue = status.hrv.value;
+	const restingValue = status.restingHeartRate.value;
+	const hrv = hrvValue > 0 ? `${hrvValue}ms` : "-";
+	const restingHeartRate = `${restingValue}bpm`;
 	return [
 		{ label: "心率变异性", value: hrv, trend: "up" as TrendType },
 		{
@@ -279,14 +280,12 @@ const readinessChartOption = computed((): UTSJSONObject => {
 	const chartData = status.readinessData.value ?? [];
 	const fullDateData = getDateRange(selectedDate.value, getDaysFromOption(readinessDays.value));
 	const dateData = fullDateData.map((date: string): string => date.slice(5));
-	const valueData = fullDateData.map(
-		(date: string): number | null => {
-			const item = chartData.find((chartItem: DateValuePair): boolean => {
-				return chartItem.date == date;
-			});
-			return item?.value ?? null;
-		}
-	);
+	const valueData = fullDateData.map((date: string): number | null => {
+		const item = chartData.find((chartItem: DateValuePair): boolean => {
+			return chartItem.date == date;
+		});
+		return item?.value ?? null;
+	});
 
 	let option: UTSJSONObject = {
 		tooltip: {
@@ -360,7 +359,6 @@ const readinessChartOption = computed((): UTSJSONObject => {
 function goBack() {
 	uni.navigateBack();
 }
-
 </script>
 
 <style lang="scss" scoped></style>

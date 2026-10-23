@@ -94,6 +94,9 @@
 						><text class="cell-label">{{ t("步数") }}</text
 						><text class="cell-value">{{ rtText.steps }}</text></view
 					><view class="broadcast-cell"
+						><text class="cell-label">{{ t("卡路里") }}</text
+						><text class="cell-value">{{ rtText.calories }} kcal</text></view
+					><view class="broadcast-cell"
 						><text class="cell-label">{{ t("上次接收") }}</text
 						><text class="cell-value">{{ rtText.receivedAt }}</text></view
 					></view

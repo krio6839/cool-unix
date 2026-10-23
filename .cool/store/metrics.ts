@@ -7,6 +7,11 @@ import type { DateValuePair } from "../types/common";
 export class Metrics {
 	data = ref<BodyMetricsApiResponse | null>(null);
 
+	/**
+	 * 四个指标共用一份 currentData，切换指标时上一次的值会短暂留在 ref 里。
+	 * 页面靠这个标记把它显示成占位符，避免「点静息心率先看到心率的数字」。
+	 */
+	loading = ref<boolean>(false);
 	currentData = ref<string>("");
 	normalRange = ref<string>("");
 	trendData = ref<DateValuePair[]>([]);
@@ -21,6 +26,7 @@ export class Metrics {
 		startDate: string,
 		endDate: string
 	): Promise<void> {
+		this.loading.value = true;
 		return new Promise((resolve, reject) => {
 			request({
 				url: `/devices/${deviceId}/body_metrics`,
@@ -31,9 +37,11 @@ export class Metrics {
 					if (res != null && isObject(res)) {
 						this.setMetricsData(res);
 					}
+					this.loading.value = false;
 					resolve();
 				})
 				.catch((err) => {
+					this.loading.value = false;
 					console.error("获取身体指标失败:", err);
 					reject(getErrorMessage(err, "请求失败"));
 				});
@@ -58,6 +66,7 @@ export class Metrics {
 
 	clear(): void {
 		this.data.value = null;
+		this.loading.value = false;
 		this.currentData.value = "";
 		this.normalRange.value = "";
 		this.trendData.value = [];

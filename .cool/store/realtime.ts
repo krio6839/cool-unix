@@ -8,9 +8,9 @@ const BROADCAST_STALE_MS = 5 * 60 * 1000;
 /**
  * 0x50 广播实时展示 store。
  *
- * 这里只保存“当前屏幕要展示的最新值”，数据来源是本地
- * realtime_broadcast_data 最新记录或新收到的 0x50 广播。
- * 趋势图、分析文案仍走各自接口 store，不放在这里。
+ * 这里只服务首页健康卡片：那四张卡要跟设备实时跳动，不能等接口轮询。
+ * 其余页面（身体指标 / 状态 / 负荷 / 睡眠）一律读接口，不碰设备原始值。
+ * 数据来源是本地 realtime_broadcast_data 最新记录或新收到的 0x50 广播。
  */
 export class Realtime {
 	private staleTimer: number = 0;
@@ -22,7 +22,7 @@ export class Realtime {
 		this.scheduleInitialRestore();
 	}
 
-	/** 首页/metrics/状态页共享的当前生命体征值 */
+	/** 首页健康卡片展示的当前生命体征值 */
 	healthCardValues = ref<HealthCardValues>({
 		heartRate: null,
 		restingHeartRate: null,
@@ -30,10 +30,6 @@ export class Realtime {
 		hrv: null
 	});
 
-	/** 负荷页当前步数，来自新版 24B 广播 steps_everyday */
-	steps = ref<number | null>(null);
-	/** 负荷页当前卡路里，单位 kcal，来自 calorie_everyday / 100 */
-	calories = ref<number | null>(null);
 	/** 最近一次收到/恢复的广播时间，用于判断首页实时数据是否过期 */
 	lastBroadcastReceivedAt = ref<number | null>(null);
 
@@ -45,8 +41,6 @@ export class Realtime {
 			oxygen: null,
 			hrv: null
 		} as HealthCardValues;
-		this.steps.value = null;
-		this.calories.value = null;
 		this.lastBroadcastReceivedAt.value = null;
 	}
 
@@ -68,9 +62,6 @@ export class Realtime {
 			oxygen: record.spo2 >= 700 && record.spo2 <= 1000 ? record.spo2 / 10 : (current.oxygen ?? null),
 			hrv: record.rmssd > 0 ? record.rmssd : (current.hrv ?? null)
 		} as HealthCardValues;
-		this.steps.value = record.stepsEveryday > 0 ? record.stepsEveryday : this.steps.value;
-		this.calories.value =
-			record.calorieEveryday > 0 ? record.calorieEveryday / 100 : this.calories.value;
 		this.startStaleTimer(record.receivedAt);
 	}
 

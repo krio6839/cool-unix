@@ -53,6 +53,8 @@ const isIgnoreToken = (url: string) => {
 export function request(options: RequestOptions): Promise<any | null> {
 	let { url, method = "GET", data, header = {}, timeout = 60000, showError } = options;
 	const startedAt = Date.now();
+	// 失败提示里要能看出是哪个接口，所以在拼 baseUrl 之前留一份原始路径。
+	const apiPath = url;
 
 	const { user } = useStore();
 
@@ -75,9 +77,32 @@ export function request(options: RequestOptions): Promise<any | null> {
 	}
 
 	return new Promise((resolve, reject) => {
+		// 失败提示要带上「哪个接口 + 什么状态」，否则只有一句「服务异常」没法定位。
+		// 形如：GET /devices/BOOM-0001/status · HTTP 500 · 服务异常
+		const describeFailure = (statusCode: number, code: number, message: string): string => {
+			const parts: string[] = [];
+			parts.push(method);
+			parts.push(apiPath);
+			if (statusCode > 0) {
+				parts.push(`HTTP ${statusCode}`);
+			}
+			if (code != 0) {
+				parts.push(`code ${code}`);
+			}
+			if (message != "") {
+				parts.push(message);
+			}
+			return parts.join(" · ");
+		};
+
 		// 带提示的拒绝函数
-		const rejectWithNotice = (res: Response) => {
-			const message = res.message ?? t("请求失败");
+		const rejectWithNotice = (res: Response, statusCode: number) => {
+			const detail = res.message ?? "";
+			const message = describeFailure(
+				statusCode,
+				res.code ?? 0,
+				detail == "" ? t("请求失败") : detail
+			);
 			defaultErrorNotice.show({
 				message,
 				showType: showError
@@ -119,17 +144,18 @@ export function request(options: RequestOptions): Promise<any | null> {
 					// 401 无权限
 					if (res.statusCode == 401) {
 						user.logout();
-						rejectWithNotice({ message: t("无权限") } as Response);
+						rejectWithNotice({ message: t("无权限") } as Response, 401);
 					}
 
 					// 502 服务异常
 					else if (res.statusCode == 502) {
-						rejectWithNotice({ message: t("服务异常") } as Response);
+						rejectWithNotice({ message: t("服务异常") } as Response, 502);
 					}
 
 					// 404 未找到
 					else if (res.statusCode == 404) {
-						let message = `[404] ${url}`;
+						// 路径由 describeFailure 统一带上，这里只说「为什么」。
+						let message = t("接口不存在");
 						if (
 							typeof res.data == "object" &&
 							!Array.isArray(res.data) &&
@@ -140,7 +166,7 @@ export function request(options: RequestOptions): Promise<any | null> {
 								message = detail;
 							}
 						}
-						return rejectWithNotice({ message } as Response);
+						return rejectWithNotice({ message } as Response, 404);
 					}
 
 					// 200 正常响应
@@ -166,9 +192,12 @@ export function request(options: RequestOptions): Promise<any | null> {
 									detail: body,
 									message: "上传响应未明确确认成功"
 								});
-								return rejectWithNotice({
-									message: "上传响应未明确确认成功"
-								} as Response);
+								return rejectWithNotice(
+									{
+										message: "上传响应未明确确认成功"
+									} as Response,
+									res.statusCode
+								);
 							}
 						}
 						if (res.data == null) {
@@ -204,7 +233,10 @@ export function request(options: RequestOptions): Promise<any | null> {
 											duration: Date.now() - startedAt,
 											detail: res.data
 										});
-										rejectWithNotice({ message, code } as Response);
+										rejectWithNotice(
+											{ message, code } as Response,
+											res.statusCode
+										);
 										break;
 								}
 							} else if (isSuccessStatus) {
@@ -216,7 +248,7 @@ export function request(options: RequestOptions): Promise<any | null> {
 							}
 						}
 					} else {
-						rejectWithNotice({ message: t("服务异常") } as Response);
+						rejectWithNotice({ message: t("服务异常") } as Response, res.statusCode);
 					}
 				},
 
@@ -230,7 +262,7 @@ export function request(options: RequestOptions): Promise<any | null> {
 						duration: Date.now() - startedAt,
 						detail: message
 					});
-					rejectWithNotice({ message } as Response);
+					rejectWithNotice({ message: `${t("网络异常")} · ${message}` } as Response, 0);
 				}
 			});
 		};
@@ -244,7 +276,7 @@ export function request(options: RequestOptions): Promise<any | null> {
 					if (storage.isExpired("refreshToken")) {
 						// 刷新token也过期，直接退出登录
 						user.logout();
-						rejectWithNotice({ message: t("登录已过期，请重新登录") } as Response);
+						rejectWithNotice({ message: t("登录已过期，请重新登录") } as Response, 0);
 						return;
 					}
 
@@ -254,7 +286,7 @@ export function request(options: RequestOptions): Promise<any | null> {
 							Authorization = token;
 							next();
 						},
-						fail: (message: string) => rejectWithNotice({ message } as Response)
+						fail: (message: string) => rejectWithNotice({ message } as Response, 0)
 					} as PendingRequest);
 					// 如果当前没有在刷新token，则发起刷新
 					if (!isRefreshing) {

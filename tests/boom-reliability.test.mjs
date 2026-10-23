@@ -1023,6 +1023,18 @@ test("sleep UI keeps only the live server-backed flow and one precise diagnostic
 	assert.equal(diagnostics.includes("formatSleep"), true);
 });
 
+test("health pages read server data and only the home card uses the live broadcast", async () => {
+	// 页面展示一律走接口；设备原始值只出现在设备测试页。首页那四张卡例外，要实时跳动。
+	const metricsPage = await readFile("pages/health/metrics.uvue", "utf8");
+	assert.equal(metricsPage.includes("realtime."), false);
+	const statusPage = await readFile("pages/health/status.uvue", "utf8");
+	assert.equal(statusPage.includes("realtime."), false);
+	const loadPage = await readFile("pages/health/load.uvue", "utf8");
+	assert.equal(loadPage.includes("realtime."), false);
+	const card = await readFile("pages/index/components/health-card.uvue", "utf8");
+	assert.equal(card.includes("realtime.healthCardValues"), true);
+});
+
 test("sleep diagnostics count pending rows without loading the full upload queue", async (t) => {
 	const r = await createRuntime(t);
 	r.db.exec(`INSERT INTO sleep_data
@@ -1139,6 +1151,33 @@ test("refresh failure rejects all queued requests and allows a later refresh", a
 	await r.request({ url: "/three" });
 	assert.equal(r.posts.length, 1);
 	assert.equal(r.posts[0].header.Authorization, "renewed");
+});
+
+test("request failures name the endpoint and status instead of a bare message", async (t) => {
+	const r = await createRuntime(t);
+	r.respond = (options) => options.success({ statusCode: 500, data: {} });
+	await assert.rejects(
+		() => r.request({ url: "/devices/BOOM-0001/status" }),
+		(err) => {
+			// 只有一句「服务异常」时，线上根本看不出是哪个接口挂了。
+			assert.equal(err.includes("GET"), true);
+			assert.equal(err.includes("/devices/BOOM-0001/status"), true);
+			assert.equal(err.includes("HTTP 500"), true);
+			assert.equal(err.includes("服务异常"), true);
+			return true;
+		}
+	);
+
+	r.respond = (options) => options.fail({ errMsg: "request:fail timeout" });
+	await assert.rejects(
+		() => r.request({ url: "/devices/BOOM-0001/go" }),
+		(err) => {
+			// 网络层失败没有状态码，但同样要带出接口路径。
+			assert.equal(err.includes("/devices/BOOM-0001/go"), true);
+			assert.equal(err.includes("网络异常"), true);
+			return true;
+		}
+	);
 });
 
 test("a failed upload backs off instead of re-requesting on every trigger", async (t) => {

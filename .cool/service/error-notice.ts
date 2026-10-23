@@ -20,7 +20,8 @@ function toastNotice(message: string): void {
 	useUi().showToast({
 		message: message,
 		icon: "none",
-		duration: 2000
+		// 失败提示带着「方法 + 路径 + 状态码」，两秒读不完。
+		duration: 3500
 	});
 }
 
