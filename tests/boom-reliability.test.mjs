@@ -2098,10 +2098,105 @@ test("a verified stalled page does not stop the connection", async (t) => {
 	assert.deepEqual(attempted, [from]);
 	// 页停滞只说明这一页没读成：设备还活着，通道继续用，`B` 停在读到的位置等下一次连接。
 	assert.equal(stopReason, "COMPLETE");
+	// `page=` 后面是 `formatHistorySec` 的 `秒(可读时间)` 形式，正则只校验两个时间都带括号。
 	assert.match(
 		r.logs.map((entry) => entry.items.join(" ")).find((line) => line.includes("历史页读取失败")),
-		/status=PAGE_STALLED, page=\d+~\d+/
+		/status=PAGE_STALLED, page=\d+\(.+\)~\d+\(.+\)/
 	);
+});
+
+test("a stalled page re-anchors in the same connection and keeps reading", async (t) => {
+	const r = await createRuntime(t);
+	const now = Math.floor(Date.now() / 1000);
+	const from = now - 900;
+	const ceiling = now - 10;
+	r.db.exec(
+		`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec,classified_until_sec) VALUES (1,${from},${ceiling})`
+	);
+	const attempted = [];
+	// 第一次撞固件的480s 倒退（模拟真机：`startSec` 退回4 页），但 `B` 已经推进了 300 秒。
+	// 第二次按新的 `B` 重锚就一路读完了。
+	const reader = {
+		resetVitalResponseState() {},
+		async readVitalRangeForward(fromSec) {
+			attempted.push(fromSec);
+			if (attempted.length == 1) {
+				const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
+				await baseline.advanceAccounted(fromSec + 300, now);
+				return {
+					status: "PAGE_STALLED",
+					message: "历史页面未向更晚时间推进",
+					pages: 12,
+					savedRecords: 300,
+					saveOk: true,
+					failedFromSec: fromSec + 240,
+					failedToSec: fromSec + 360
+				};
+			}
+			return {
+				status: "DONE",
+				message: "target window complete",
+				pages: 20,
+				savedRecords: 600,
+				saveOk: true,
+				failedFromSec: null,
+				failedToSec: null
+			};
+		}
+	};
+	const probe = {
+		async check() {
+			return { status: "OK", latencyMs: 10, deviceTimestamp: now };
+		}
+	};
+
+	const stopReason = await r.historyRepair.repairFromBaseline(reader, probe);
+
+	// 第二次必须从「上一轮真正读到的位置」重新发 0x3A，而不是从原起点重来。
+	assert.deepEqual(attempted, [from, from + 300]);
+	assert.equal(stopReason, "COMPLETE");
+	const logs = r.logs.map((entry) => entry.items.join(" "));
+	assert.ok(
+		logs.some((line) => line.includes("停滞后同连接重锚续读") && line.includes("第1次")),
+		"the stall is retried inside the same connection"
+	);
+	assert.match(logs.find((line) => line.includes("补录结束")), /重锚次数=1/);
+});
+
+test("a stalled page with no progress is not retried", async (t) => {
+	const r = await createRuntime(t);
+	const now = Math.floor(Date.now() / 1000);
+	const from = now - 900;
+	const ceiling = now - 10;
+	r.db.exec(
+		`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec,classified_until_sec) VALUES (1,${from},${ceiling})`
+	);
+	// 一页都没推进：再发一次 0x3A 也是问同一段，设备答不出就是答不出。
+	const attempted = [];
+	const reader = {
+		resetVitalResponseState() {},
+		async readVitalRangeForward(fromSec) {
+			attempted.push(fromSec);
+			return {
+				status: "PAGE_STALLED",
+				message: "历史页面未向更晚时间推进",
+				pages: 0,
+				savedRecords: 0,
+				saveOk: true,
+				failedFromSec: fromSec,
+				failedToSec: fromSec + 120
+			};
+		}
+	};
+	const probe = {
+		async check() {
+			return { status: "OK", latencyMs: 10, deviceTimestamp: now };
+		}
+	};
+
+	await r.historyRepair.repairFromBaseline(reader, probe);
+
+	assert.deepEqual(attempted, [from]);
 });
 
 test("a successful post-timeout probe resets frames and lets the connection finish", async (t) => {
@@ -2461,4 +2556,170 @@ test("a backfilled event read runs without a broadcast to push it", async (t) =>
 	// 唯一的去路。
 	assert.equal(reads, 1);
 	assert.equal(scheduler.tasks.length, 0);
+});
+
+test("a burst of cached broadcast frames does not trigger a time sync", async (t) => {
+	const r = await createRuntime(t);
+	const { DeviceBroadcast } = await r.load(".cool/store/device/broadcast.ts");
+	const syncs = [];
+	const device = {
+		boundDeviceId: "AA:BB",
+		currentDeviceId: "",
+		realtime: { value: null },
+		broadcastDebug: { value: null },
+		event: { boomTimestamp: { value: 0 }, lastNotifyAtValue: 0 },
+		scheduler: {
+			enqueueTimeSync(diffSec, broadcastUtc) {
+				syncs.push({ diffSec, broadcastUtc });
+			}
+		},
+		getDisplayDeviceName: () => "BOOM-0001"
+	};
+	const broadcast = new DeviceBroadcast(device);
+	const ctx = {
+		source: "broadcast",
+		deviceId: "AA:BB",
+		name: "BOOM-0001",
+		rssi: -50,
+		rawHex: "",
+		vHex: ""
+	};
+	/** 一帧广播：`skewSec` 就是「设备 utc 比手机时间慢多少」。 */
+	const frame = (skewSec) => {
+		const nowMs = Date.now() + r.dateOffsetMs;
+		return {
+			utc: Math.floor(nowMs / 1000) - skewSec,
+			receivedAt: nowMs,
+			eventSeq: 1,
+			hasNewEvent: false,
+			batteryStatus: 0,
+			batteryStatusLabel: "正常",
+			ppgAttached: true,
+			behavior: 0,
+			behaviorLabel: "静止",
+			activity: 0,
+			activityLabel: "静止",
+			hr: 60,
+			hrValid: true,
+			ppi: 1000,
+			ppiValid: true,
+			rmssd: 0,
+			rmssdValid: false,
+			spo2Pct: 0,
+			spo2Valid: false,
+			bhr: 0,
+			bhrValid: false,
+			stepsEveryday: 0,
+			calorieKcal: 0,
+			voltageMv: 3300,
+			voltageV: 3.3
+		};
+	};
+
+	// 扫描缓存积压：同一秒里倒出好几帧，utc 横跨 90 秒，最后一帧追上了手机时间。
+	// 单帧看「diff=90s」和真偏差一模一样，据此校时就是上午那两次误判。
+	for (const skewSec of [90, 60, 30]) {
+		assert.equal(broadcast.handleInvalidBroadcastTime(ctx, frame(skewSec)), true);
+	}
+	// 缓存滞后只丢弃这几帧，一次校时都不该发。
+	assert.equal(syncs.length, 0);
+	// 追上来的一帧是可信的，同时把待确认的偏差清掉。
+	assert.equal(broadcast.handleInvalidBroadcastTime(ctx, frame(1)), false);
+	assert.equal(broadcast.timeSyncDriftSinceAt, 0);
+
+	// 真偏差：每一帧都在，且等再久也不会缩小 —— 要等够确认窗口才校时。
+	assert.equal(broadcast.handleInvalidBroadcastTime(ctx, frame(600)), true);
+	assert.equal(syncs.length, 0, "第一帧只观察，不立刻校时");
+	r.dateOffsetMs += 1000;
+	assert.equal(broadcast.handleInvalidBroadcastTime(ctx, frame(600)), true);
+	assert.equal(syncs.length, 0, "确认窗口内继续观察");
+	r.dateOffsetMs += 5000;
+	assert.equal(broadcast.handleInvalidBroadcastTime(ctx, frame(600)), true);
+	assert.equal(syncs.length, 1, "持续偏差才校时");
+	assert.equal(syncs[0].diffSec, 600);
+});
+
+test("a time sync is only accepted when the device reads back the value we wrote", async (t) => {
+	const r = await createRuntime(t);
+	const { DeviceGattScheduler } = await r.load(".cool/store/device/gatt-scheduler.ts");
+	/** 每次 sleep 推进虚拟时钟，超时窗口不用真等 3 秒。 */
+	const advanceClock = (fn) => {
+		let sleeps = 0;
+		r.sleep = async () => {
+			sleeps++;
+			r.dateOffsetMs += 200;
+			if (fn != null) fn(sleeps);
+		};
+	};
+	/** `readBackOffsetSec` 模拟设备回显的值：0 表示写成功，负数表示回了改前的旧值。 */
+	const makeDevice = (readBackOffsetSec) => {
+		const calls = { ok: 0, failed: 0 };
+		let sentSec = 0;
+		const device = {
+			beginGattTask: () => true,
+			endGattTask: () => {},
+			event: { boomTimestampSeqValue: 0, boomTimestamp: { value: 0 } },
+			protocol: {
+				async setTimestamp(sec) {
+					sentSec = sec;
+					return true;
+				},
+				async readTimestamp() {
+					device.event.boomTimestamp.value = sentSec + readBackOffsetSec;
+					device.event.boomTimestampSeqValue += 1;
+					return true;
+				}
+			},
+			broadcast: {
+				markTimeSyncOk() {
+					calls.ok++;
+				},
+				markBoundDeviceUnavailable() {
+					calls.failed++;
+				}
+			}
+		};
+		return { scheduler: new DeviceGattScheduler(device), calls, device, sent: () => sentSec };
+	};
+	const timeSyncTask = () => ({
+		seq: 1,
+		key: "timeSync",
+		kind: "timeSync",
+		priority: "urgent",
+		deviceId: "",
+		manualName: "",
+		manualRunner: null,
+		manualResolve: null,
+		eventSeq: 0,
+		diffSec: 600,
+		broadcastUtc: 0,
+		historyReason: "timer"
+	});
+
+	advanceClock();
+	const applied = makeDevice(0);
+	await applied.scheduler.runTimeSync(timeSyncTask());
+	assert.deepEqual(applied.calls, { ok: 1, failed: 0 });
+
+	// 设备没真的改（回显旧值）：只判「有没有新帧」的旧实现会把它当成功，之后既不重试
+	// 也不提示，用户看到的就是「一直在校时、时间永远对不上」。
+	advanceClock();
+	const stale = makeDevice(-3600);
+	await stale.scheduler.runTimeSync(timeSyncTask());
+	assert.deepEqual(stale.calls, { ok: 0, failed: 1 });
+	assert.equal(
+		r.logs.some((entry) => `${entry.items.join(" ")}`.includes("回读不一致")),
+		true,
+		"失败原因要写进日志，便于区分「没回帧」和「回了但没生效」"
+	);
+
+	// 写入回显和读取回显是两帧：中间夹一帧旧值也不该误判失败，等到一致的那帧为止。
+	const mixed = makeDevice(-3600);
+	advanceClock((sleeps) => {
+		if (sleeps != 2) return;
+		mixed.device.event.boomTimestamp.value = mixed.sent();
+		mixed.device.event.boomTimestampSeqValue += 1;
+	});
+	await mixed.scheduler.runTimeSync(timeSyncTask());
+	assert.deepEqual(mixed.calls, { ok: 1, failed: 0 });
 });

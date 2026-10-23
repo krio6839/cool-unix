@@ -189,7 +189,7 @@ export class DeviceTick {
 		if (behind < DeviceTick.CONNECT_MIN_BEHIND_SEC) {
 			this.logStall(
 				"behind",
-				`[BOOM-BASE] 基准停驻: B=${baseline}, 落后=${behind}s, 未达连接门槛=${DeviceTick.CONNECT_MIN_BEHIND_SEC}s`
+				`[BOOM-BASE] 基准停驻: B=${formatHistorySec(baseline)}, 落后=${behind}s, 未达连接门槛=${DeviceTick.CONNECT_MIN_BEHIND_SEC}s`
 			);
 			return;
 		}
@@ -199,7 +199,7 @@ export class DeviceTick {
 		if (broadcastAgeMs >= DeviceTick.PRESENCE_SILENCE_MS) {
 			this.logStall(
 				"absent",
-				`[BOOM-BASE] 基准停驻: B=${baseline}, 落后=${behind}s, 但已 ${Math.round(broadcastAgeMs / 1000)}s 未收到广播，判定设备不在场，跳过连接`
+				`[BOOM-BASE] 基准停驻: B=${formatHistorySec(baseline)}, 落后=${behind}s, 但已 ${Math.round(broadcastAgeMs / 1000)}s 未收到广播，判定设备不在场，跳过连接`
 			);
 			return;
 		}
@@ -207,7 +207,7 @@ export class DeviceTick {
 		this.lastConnectCheckAt = now;
 		logger.info(
 			"bluetooth",
-			`[BOOM-BASE] 触发补录连接: B=${baseline}, stableCeiling=${ceiling}, 落后=${behind}s, 读取窗口=${baseline}~${ceiling}`
+			`[BOOM-BASE] 触发补录连接: B=${formatHistorySec(baseline)}, stableCeiling=${formatHistorySec(ceiling)}, 落后=${behind}s, 读取窗口=${formatHistorySec(baseline)}~${formatHistorySec(ceiling)}`
 		);
 		this.device.scheduler.enqueueHistoryRepair("timer");
 		this.device.scheduler.requestFlush("timer");

@@ -1,4 +1,5 @@
 import { EVENT_QUERY_TYPE_BY_TIME } from "../../bluetooth";
+import { formatHistorySec } from "../../bluetooth/history/baseline";
 import { sleepTimeout } from "../../utils";
 import { repairFromBaseline } from "./history-repair";
 import type { Device } from "./index";
@@ -17,6 +18,13 @@ const EVENT_SYNC_MAX_PAGES = 20;
 const EVENT_SYNC_TIMEOUT_MS = 10000;
 const EVENT_SYNC_AFTER_CONNECT_DELAY_MS = 800;
 const TIMESTAMP_VERIFY_TIMEOUT_MS = 3000;
+/**
+ * 校时回读允许的秒级误差（下发到回读之间设备自己会走几秒）。
+ *
+ * 必须远小于广播那侧的校时门槛（60s）：真失败时回读的偏差是几十秒甚至几年，
+ * 不会被这点余量放过。
+ */
+const TIMESTAMP_VERIFY_TOLERANCE_SEC = 10;
 
 export type GattQueueTask = {
 	seq: number;
@@ -370,12 +378,12 @@ export class DeviceGattScheduler {
 			}
 			await sleepTimeout(300);
 			await this.device.protocol.readTimestamp();
-			ok = await this.waitForTimestampResponse(beforeSeq, TIMESTAMP_VERIFY_TIMEOUT_MS);
+			ok = await this.waitForTimestampResponse(beforeSeq, nowSec, TIMESTAMP_VERIFY_TIMEOUT_MS);
 			if (ok == true) {
 				logger.info("bluetooth", `[BOOM-ADV] 自动校时完成: utc=${nowSec}`);
 				this.device.broadcast.markTimeSyncOk();
 			} else {
-				logger.warn("bluetooth", "[BOOM-ADV] 自动校时读回超时");
+				logger.warn("bluetooth", "[BOOM-ADV] 自动校时未生效: 回读未确认新时间");
 			}
 		} catch (e) {
 			logger.warn("bluetooth", "[BOOM-ADV] 自动校时异常:", e);
@@ -393,7 +401,7 @@ export class DeviceGattScheduler {
 		const startSec = endSec - EVENT_SYNC_WINDOW_SECONDS;
 		logger.info(
 			"bluetooth",
-			`[BOOM-EVENT] 开始读取${isBackfill ? "事件兜底" : "新事件"}: device=${task.deviceId}, eventSeq=${task.eventSeq}, window=${startSec}~${endSec}, maxCount=${EVENT_SYNC_MAX_COUNT}`
+			`[BOOM-EVENT] 开始读取${isBackfill ? "事件兜底" : "新事件"}: device=${task.deviceId}, eventSeq=${task.eventSeq}, window=${formatHistorySec(startSec)}~${formatHistorySec(endSec)}, maxCount=${EVENT_SYNC_MAX_COUNT}`
 		);
 		const result = await this.device.history.readEventDataAuto({
 			type: EVENT_QUERY_TYPE_BY_TIME,
@@ -478,13 +486,38 @@ export class DeviceGattScheduler {
 		this.tasks = kept;
 	}
 
-	private async waitForTimestampResponse(beforeSeq: number, timeoutMs: number): Promise<boolean> {
+	/**
+	 * 校时生没生效，只看设备回读的时间戳等不等于下发值。
+	 *
+	 * 设备写失败时同样会回一帧 0x33（回显的是改前的旧值），只判「有没有新帧」会把
+	 * 失败当成功——既不重试也不提示，用户看到的就是「一直在校时、时间永远对不上」。
+	 * 回显的值必须等于刚写下去的值。中间可能夹着上一帧的残响，所以要在超时窗口里
+	 * 等到一帧匹配为止，而不是见到第一帧不一致就判死。
+	 */
+	private async waitForTimestampResponse(
+		beforeSeq: number,
+		expectedSec: number,
+		timeoutMs: number
+	): Promise<boolean> {
 		const start = Date.now();
+		let seenSeq = beforeSeq;
+		let readBackSec = 0;
 		while (Date.now() - start < timeoutMs) {
-			if (this.device.event.boomTimestampSeqValue > beforeSeq) {
-				return true;
+			const seq = this.device.event.boomTimestampSeqValue;
+			if (seq > seenSeq) {
+				seenSeq = seq;
+				readBackSec = this.device.event.boomTimestamp.value;
+				let skewSec = readBackSec - expectedSec;
+				if (skewSec < 0) skewSec = 0 - skewSec;
+				if (skewSec <= TIMESTAMP_VERIFY_TOLERANCE_SEC) return true;
 			}
 			await sleepTimeout(120);
+		}
+		if (readBackSec != 0) {
+			logger.warn(
+				"bluetooth",
+				`[BOOM-ADV] 自动校时回读不一致: 下发=${expectedSec}, 回读=${readBackSec}`
+			);
 		}
 		return false;
 	}

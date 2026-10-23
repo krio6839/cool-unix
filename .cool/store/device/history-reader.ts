@@ -1,4 +1,4 @@
-import { historyBaseline } from "../../bluetooth/history/baseline";
+import { formatHistorySec, historyBaseline } from "../../bluetooth/history/baseline";
 import { bluetoothDatabase } from "../../bluetooth/database";
 import {
 	BOOM_CMD,
@@ -390,12 +390,12 @@ export class DeviceHistoryReader implements RangeReader {
 		if (readOlder == true) {
 			logger.info(
 				"bluetooth",
-				`[BOOM-HISTORY] ${label}向更早读取，本轮只落库不记账: window=${startSec}~${anchor}, B=${currentBaseline}`
+				`[BOOM-HISTORY] ${label}向更早读取，本轮只落库不记账: window=${formatHistorySec(startSec)}~${formatHistorySec(anchor)}, B=${formatHistorySec(currentBaseline)}`
 			);
 		} else if (account == false) {
 			logger.warn(
 				"bluetooth",
-				`[BOOM-HISTORY] ${label}起点晚于基准，本轮只落库不记账: window=${startSec}~${anchor}, B=${currentBaseline}`
+				`[BOOM-HISTORY] ${label}起点晚于基准，本轮只落库不记账: window=${formatHistorySec(startSec)}~${formatHistorySec(anchor)}, B=${formatHistorySec(currentBaseline)}`
 			);
 		}
 		if (this.device.beginGattTask("vitalHistory") == false)
@@ -418,7 +418,7 @@ export class DeviceHistoryReader implements RangeReader {
 		try {
 			logger.info(
 				"bluetooth",
-				`[BOOM-HISTORY] ${label}开始: window=${startSec}~${anchor}, minutes=${minutes}, direction=${direction}, 记账=${account}`
+				`[BOOM-HISTORY] ${label}开始: window=${formatHistorySec(startSec)}~${formatHistorySec(anchor)}, minutes=${minutes}, direction=${direction}, 记账=${account}`
 			);
 			const result = await this.readVitalDataAutoInner({
 				// 0x3A 的起点是「从哪一秒开始翻页」：向更新读是窗口左端，向更早读是窗口右端。
@@ -446,7 +446,7 @@ export class DeviceHistoryReader implements RangeReader {
 								confirmed += anchor - accountedUntil;
 								logger.info(
 									"bluetooth",
-									`[BOOM-HISTORY] 设备无数据确认: window=${accountedUntil}~${anchor}, confirmed秒=${anchor - accountedUntil}`
+									`[BOOM-HISTORY] 设备无数据确认: window=${formatHistorySec(accountedUntil)}~${formatHistorySec(anchor)}, confirmed秒=${anchor - accountedUntil}`
 								);
 							}
 							stopRead = true;
@@ -465,7 +465,7 @@ export class DeviceHistoryReader implements RangeReader {
 										: "历史页面未向更晚时间推进";
 								logger.warn(
 									"bluetooth",
-									`[BOOM-HISTORY] ${label}页面停滞: previous=${lastStart}, current=${response.startSec}`
+									`[BOOM-HISTORY] ${label}页面停滞: previous=${formatHistorySec(lastStart)}, current=${formatHistorySec(response.startSec)}, 倒退=${lastStart - response.startSec}s`
 								);
 								return false;
 							}
@@ -484,7 +484,7 @@ export class DeviceHistoryReader implements RangeReader {
 								confirmed += anchor - accountedUntil;
 								logger.info(
 									"bluetooth",
-									`[BOOM-HISTORY] 设备跳到窗口之后，按无数据收尾: page=${response.startSec}, window=${accountedUntil}~${anchor}, confirmed秒=${anchor - accountedUntil}`
+									`[BOOM-HISTORY] 设备跳到窗口之后，按无数据收尾: page=${formatHistorySec(response.startSec)}, window=${formatHistorySec(accountedUntil)}~${formatHistorySec(anchor)}, confirmed秒=${anchor - accountedUntil}`
 								);
 							}
 							stopRead = true;
@@ -501,7 +501,7 @@ export class DeviceHistoryReader implements RangeReader {
 								confirmed += response.startSec - accountedUntil;
 								logger.info(
 									"bluetooth",
-									`[BOOM-HISTORY] 设备跳过无数据段: ${accountedUntil}~${response.startSec}, confirmed秒=${response.startSec - accountedUntil}`
+									`[BOOM-HISTORY] 设备跳过无数据段: ${formatHistorySec(accountedUntil)}~${formatHistorySec(response.startSec)}, confirmed秒=${response.startSec - accountedUntil}`
 								);
 							}
 						}
@@ -567,7 +567,7 @@ export class DeviceHistoryReader implements RangeReader {
 			if (failure != "") result.message = failure;
 			logger.info(
 				"bluetooth",
-				`[BOOM-HISTORY] ${label}结束: window=${startSec}~${anchor}, status=${result.status}, pages=${result.pages}, 秒记录=${pageSeconds}, 有效秒=${validSeconds}, 全FF秒=${invalidSeconds}, 落库=${saved}, 已记账=${confirmed}s, elapsed=${Math.round((Date.now() - startedAt) / 1000)}s`
+				`[BOOM-HISTORY] ${label}结束: window=${formatHistorySec(startSec)}~${formatHistorySec(anchor)}, status=${result.status}, pages=${result.pages}, 秒记录=${pageSeconds}, 有效秒=${validSeconds}, 全FF秒=${invalidSeconds}, 落库=${saved}, 已记账=${confirmed}s, elapsed=${Math.round((Date.now() - startedAt) / 1000)}s`
 			);
 			if (
 				result.status == "TIMEOUT" ||
@@ -577,7 +577,7 @@ export class DeviceHistoryReader implements RangeReader {
 			) {
 				logger.warn(
 					"bluetooth",
-					`[BOOM-HISTORY] ${label}失败: window=${startSec}~${anchor}, status=${result.status}, pages=${result.pages}, message=${result.message}`
+					`[BOOM-HISTORY] ${label}失败: window=${formatHistorySec(startSec)}~${formatHistorySec(anchor)}, status=${result.status}, pages=${result.pages}, message=${result.message}`
 				);
 			}
 			return result;
@@ -643,7 +643,7 @@ export class DeviceHistoryReader implements RangeReader {
 			await historyBaseline.advanceAccounted(pageLimit, nowSec);
 		logger.info(
 			"bluetooth",
-			`[BOOM-HISTORY] 页落库: page=${page.startSec}, 新增秒=${values.length}, 记账到=${account == true ? accountedTo : "跳过"}`
+			`[BOOM-HISTORY] 页落库: page=${formatHistorySec(page.startSec)}, 新增秒=${values.length}, 记账到=${account == true ? formatHistorySec(accountedTo) : "跳过"}`
 		);
 		return values.length;
 	}

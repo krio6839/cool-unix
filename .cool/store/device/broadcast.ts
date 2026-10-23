@@ -19,6 +19,7 @@ import type { DeviceInfo } from "../../bluetooth/kux";
 
 const BROADCAST_TIME_DRIFT_SEC = 10;
 const BROADCAST_TIME_SYNC_DRIFT_SEC = 60;
+const BROADCAST_TIME_SYNC_CONFIRM_MS = 5 * 1000;
 const BROADCAST_TIME_SYNC_COOLDOWN_MS = 60 * 1000;
 const RECENT_GATT_TIME_SYNC_SUPPRESS_MS = 60 * 1000;
 const EVENT_SYNC_DEBOUNCE_MS = 30 * 1000;
@@ -56,6 +57,14 @@ export class DeviceBroadcast {
 	private pendingEventSeq: number = 0;
 	private pendingPreviousEventSeq: number = 0;
 	private lastTimeSyncOkAt: number = 0;
+	/**
+	 * 「第一帧看起来偏了」的时刻与当时的偏差。
+	 *
+	 * 见 `isTimeSyncDriftConfirmed()`：单帧偏差不算数，要等到后面的帧仍然偏、且已经
+	 * 持续 `BROADCAST_TIME_SYNC_CONFIRM_MS` 才认。0 表示当前没有待确认的偏差。
+	 */
+	private timeSyncDriftSinceAt: number = 0;
+	private timeSyncDriftSec: number = 0;
 	private lastBroadcastUtc: number = 0;
 	private lastBroadcastVHex: string = "";
 	private staleBroadcastRepeatCount: number = 0;
@@ -499,23 +508,70 @@ export class DeviceBroadcast {
 
 	/* ===== 时间校验 / 事件通知 ===== */
 
+	/**
+	 * 时间不可信的整帧直接丢弃（返回 true），不拆出「只留生理值」这条路。
+	 *
+	 * `utc` 就是 `realtime_broadcast_data` / `ppi_data` 的时间轴主键，留一帧「时间是
+	 * 2000-01-01」的心率落库，等于把数据写到错误的那一天去，比丢掉更糟。下面
+	 * `storeBroadcastPpiData()` 里「原始值完整落库」说的是**生理值不做范围过滤**，
+	 * 不包含时间。2026-10-15 明确：时间不对，整帧都不要。
+	 */
 	private handleInvalidBroadcastTime(ctx: BroadcastPacketContext, r: RealtimeBroadcast): boolean {
-		if (this.isBroadcastUtcUsable(r) == true) return false;
+		if (this.isBroadcastUtcUsable(r) == true) {
+			this.clearTimeSyncDriftCandidate();
+			return false;
+		}
 		this.publishDebugInfoByDevice(ctx, r);
 		const diffSec = this.getBroadcastUtcDiffSec(r);
-		if (diffSec >= BROADCAST_TIME_SYNC_DRIFT_SEC) {
+		if (this.isTimeSyncDriftConfirmed(diffSec, r.utc) == true) {
 			logger.warn(
 				"bluetooth",
-				`[BOOM-ADV] 广播 UTC 不可信，丢弃本条数据并尝试校时: device=${ctx.deviceId}, diff=${diffSec}s, utc=${r.utc}`
+				`[BOOM-ADV] 广播 UTC 不可信，丢弃本条数据并尝试校时: device=${ctx.deviceId}, diff=${diffSec}s, 首次偏差=${this.timeSyncDriftSec}s, utc=${r.utc}`
 			);
 			this.requestTimeSyncFromBroadcast(diffSec, r.utc);
 		} else {
 			logger.warn(
 				"bluetooth",
-				`[BOOM-ADV] 广播 UTC 轻微滞后，丢弃本条缓存数据: device=${ctx.deviceId}, diff=${diffSec}s, utc=${r.utc}`
+				`[BOOM-ADV] 广播 UTC 滞后，丢弃本条缓存数据并继续观察: device=${ctx.deviceId}, diff=${diffSec}s, utc=${r.utc}, 已持续=${this.getTimeSyncDriftElapsedMs()}ms`
 			);
 		}
 		return true;
+	}
+
+	/**
+	 * 判「设备时钟真的偏了」必须跨帧确认，不能拿单帧的 `receivedAt - utc` 下结论。
+	 *
+	 * BLE 扫描缓存会把积压的广播一次性倒出来：同一秒内进来好几帧，`utc` 却横跨几十秒，
+	 * 单帧算出来的偏差和真偏一模一样，据此校时纯属误判——这时候探活读回的设备时间往往
+	 * 和手机一秒不差。缓存积压的特征是它自己会消失：下一帧 `utc` 追上手机时间，偏差归零；
+	 * 真偏差则每一帧都在，且不会因为多等几秒而缩小。
+	 */
+	private isTimeSyncDriftConfirmed(diffSec: number, utc: number): boolean {
+		if (diffSec < BROADCAST_TIME_SYNC_DRIFT_SEC) {
+			this.clearTimeSyncDriftCandidate();
+			return false;
+		}
+		const now = Date.now();
+		if (this.timeSyncDriftSinceAt == 0) {
+			this.timeSyncDriftSinceAt = now;
+			this.timeSyncDriftSec = diffSec;
+			logger.warn(
+				"bluetooth",
+				`[BOOM-ADV] 广播 UTC 偏差首次出现，先跨帧确认再校时: diff=${diffSec}s, utc=${utc}`
+			);
+			return false;
+		}
+		return now - this.timeSyncDriftSinceAt >= BROADCAST_TIME_SYNC_CONFIRM_MS;
+	}
+
+	private getTimeSyncDriftElapsedMs(): number {
+		if (this.timeSyncDriftSinceAt == 0) return 0;
+		return Date.now() - this.timeSyncDriftSinceAt;
+	}
+
+	private clearTimeSyncDriftCandidate(): void {
+		this.timeSyncDriftSinceAt = 0;
+		this.timeSyncDriftSec = 0;
 	}
 
 	private markBroadcastEventNotice(deviceId: string, r: RealtimeBroadcast): void {
@@ -586,6 +642,7 @@ export class DeviceBroadcast {
 
 	markTimeSyncOk(): void {
 		this.lastTimeSyncOkAt = Date.now();
+		this.clearTimeSyncDriftCandidate();
 	}
 
 	markBoundDeviceUnavailable(): void {
@@ -633,7 +690,8 @@ export class DeviceBroadcast {
 
 	private async storeBroadcastPpiData(r: RealtimeBroadcast): Promise<void> {
 		const timestamp = this.getBroadcastTimestamp(r);
-		// 有效性只影响展示/诊断；收到的协议原始值必须完整落库并上传。
+		// 生理值不做范围过滤：hr/ppi/spo2 的「有效位」只影响展示与诊断，收到的原始值照样落库。
+		// 时间不在这个豁免里——时间不可信的整帧在 handleInvalidBroadcastTime() 就已经丢了。
 		const hr = r.hr;
 		const spo2 = r.spo2;
 		const ppi = r.ppi;
