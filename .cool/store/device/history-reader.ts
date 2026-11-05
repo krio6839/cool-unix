@@ -620,7 +620,13 @@ export class DeviceHistoryReader implements RangeReader {
 			if (timestamp < fromSec || timestamp >= toSec) continue;
 			if (timestamp >= nowSec) continue;
 			const activity = item.status & 0x07;
-			values.push(`('${timestamp}',${timestamp},${item.hr},0,${item.ppi},${activity},0)`);
+			const behavior = (item.status >> 3) & 0x07;
+			const ppgAttached = (item.status >> 6) & 0x01;
+			// 逐秒历史 `0x3A` 只有 hr / status / ppi：bhr、当日步数、卡路里、rmssd 设备根本没给，
+			// 这几列写 NULL 而不是 0——0 在步数与卡路里上是合法值，后端会当成真实数据。
+			values.push(
+				`('${timestamp}',${timestamp},${item.hr},0,${item.ppi},${activity},${behavior},${ppgAttached},NULL,NULL,NULL,NULL,0)`
+			);
 			// 旧版留下的占位记录（hr=255/ppi=65535）要按真实值修正并重新排队上传；
 			// 其余情况由下面的 INSERT OR IGNORE 补写。
 			if (item.hr != 255 || item.ppi != 65535)
@@ -629,7 +635,7 @@ export class DeviceHistoryReader implements RangeReader {
 		}
 		if (values.length > 0)
 			statements.push(
-				`INSERT OR IGNORE INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ${values.join(",")}`
+				`INSERT OR IGNORE INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,behavior,ppg_attached,bhr,steps_everyday,calorie_everyday,rmssd,uploaded) VALUES ${values.join(",")}`
 			);
 		if (statements.length > 0) {
 			if ((await bluetoothDatabase.transaction(statements)) == false)

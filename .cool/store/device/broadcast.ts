@@ -695,13 +695,22 @@ export class DeviceBroadcast {
 		const hr = r.hr;
 		const spo2 = r.spo2;
 		const ppi = r.ppi;
-		const ok = await bluetoothDataManager.storeBroadcastPpiData(
+		// 只有 rmssd 需要挡 NaN：设备没算出有效浮点时它是 NaN，直接拼进 SQL 会变成字符串。
+		let rmssd: number | null = null;
+		if (r.rmssd == r.rmssd) rmssd = r.rmssd;
+		const ok = await bluetoothDataManager.storeBroadcastPpiData({
 			timestamp,
 			hr,
 			spo2,
 			ppi,
-			r.activity & 0x07
-		);
+			activity: r.activity & 0x07,
+			behavior: r.behavior,
+			ppgAttached: r.ppgAttached == true ? 1 : 0,
+			bhr: r.bhr,
+			stepsEveryday: r.stepsEveryday,
+			calorieEveryday: r.calorieEveryday,
+			rmssd
+		});
 		// 广播只采集：落库成功后喊一声心跳，由它决定判不判、传不传。
 		// 这里不认识「分钟」「判定」「上传」任何一个概念——节奏全部收敛在 device-tick.ts。
 		if (ok == true) this.device.tick.poke("broadcast");

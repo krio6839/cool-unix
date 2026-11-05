@@ -47,6 +47,9 @@ const SLEEP_TABLE_COLUMNS =
  *
  * `activity`（设备 `status` 的低 3 位，睡眠详情就靠它）是 NOT NULL：每条广播和每个历史秒
  * 都带着它，没有「这一秒不知道活动状态」的情况。
+ *
+ * `behavior` 之后的列**可空**，因为逐秒历史 `0x3A` 里没有这些值：那一秒发 `NULL`，
+ * 与「值为 0」区分开（0 在步数、卡路里、bhr 上都是合法值）。
  */
 const PPI_TABLE_SQL = `CREATE TABLE IF NOT EXISTS ppi_data (
         id TEXT PRIMARY KEY,
@@ -55,11 +58,18 @@ const PPI_TABLE_SQL = `CREATE TABLE IF NOT EXISTS ppi_data (
         spo2 INTEGER NOT NULL,
         ppi INTEGER NOT NULL,
         activity INTEGER NOT NULL,
+        behavior INTEGER,
+        ppg_attached INTEGER,
+        bhr INTEGER,
+        steps_everyday INTEGER,
+        calorie_everyday INTEGER,
+        rmssd REAL,
         uploaded INTEGER NOT NULL DEFAULT 0
       )`;
 
 /** `PPI_TABLE_SQL` 的列名（顺序一致），用于判断已有表是不是当前结构。 */
-const PPI_TABLE_COLUMNS = "id,timestamp,hr,spo2,ppi,activity,uploaded";
+const PPI_TABLE_COLUMNS =
+	"id,timestamp,hr,spo2,ppi,activity,behavior,ppg_attached,bhr,steps_everyday,calorie_everyday,rmssd,uploaded";
 
 class BluetoothDatabase {
 	private isOpen: boolean = false;

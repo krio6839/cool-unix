@@ -23,6 +23,25 @@ const le = (value, bytes) => {
 	return hex;
 };
 /**
+ * 一帧广播进 PPI 队列的输入。
+ *
+ * 只有五个生理值是每条必有的；bhr / 步数 / 卡路里 / rmssd 只有实时广播那一秒才有值，
+ * 历史补回来的秒是 null，所以这里给一组「有值」的默认，需要时单独覆盖。
+ */
+const broadcastPpi = (timestamp, hr, spo2, ppi, activity) => ({
+	timestamp,
+	hr,
+	spo2,
+	ppi,
+	activity,
+	behavior: 0,
+	ppgAttached: 0,
+	bhr: 0,
+	stepsEveryday: 0,
+	calorieEveryday: 0,
+	rmssd: null
+});
+/**
  * 按 2.1.4 拼一条 Log_Data_t。
  * 头部 4B(flag,flag2,crc8,payload_len) + sn(2) + global_sn(4) + ts(4) + tick(4)
  * + eventType(1) + dataLen(1) + eventData = 40B 固定段 + eventData。
@@ -234,7 +253,9 @@ test("one tick does classification and upload in a fixed order", async (t) => {
 	const values = [];
 	for (let second = now - 300; second < now - 10; second++)
 		values.push(`('${second}',${second},0,0,0,0,0)`);
-	r.db.exec(`INSERT INTO ppi_data VALUES ${values.join(",")}`);
+	r.db.exec(
+		`INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ${values.join(",")}`
+	);
 
 	const tick = new r.DeviceTick({ boundDeviceId: "device" });
 	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
@@ -284,7 +305,9 @@ test("one tick reads the baseline once and classifies a single window", async (t
 	const values = [];
 	for (let second = from; second < now - 10; second++)
 		values.push(`('${second}',${second},0,0,0,0,0)`);
-	r.db.exec(`INSERT INTO ppi_data VALUES ${values.join(",")}`);
+	r.db.exec(
+		`INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ${values.join(",")}`
+	);
 	const counts = { getBaseline: 0 };
 	const original = baseline.getBaseline.bind(baseline);
 	baseline.getBaseline = async (...args) => {
@@ -618,10 +641,48 @@ test("a history repair uses one continuous 0x3A/0x3B reader", async () => {
 
 test("a valid all-zero broadcast second enters the PPI upload queue with activity", async (t) => {
 	const r = await createRuntime(t);
-	assert.equal(await r.manager.storeBroadcastPpiData(12345, 0, 0, 0, 2), true);
+	assert.equal(await r.manager.storeBroadcastPpiData(broadcastPpi(12345, 0, 0, 0, 2)), true);
 	assert.deepEqual(rows(r.db, "SELECT timestamp,hr,spo2,ppi,activity,uploaded FROM ppi_data"), [
 		{ timestamp: 12345, hr: 0, spo2: 0, ppi: 0, activity: 2, uploaded: 0 }
 	]);
+});
+
+test("a broadcast second uploads every field the device packed into the frame", async (t) => {
+	const r = await createRuntime(t);
+	assert.equal(
+		await r.manager.storeBroadcastPpiData({
+			timestamp: 1700000000,
+			hr: 62,
+			spo2: 950,
+			ppi: 980,
+			activity: 2,
+			behavior: 1,
+			ppgAttached: 1,
+			bhr: 55,
+			stepsEveryday: 5123,
+			calorieEveryday: 1234,
+			rmssd: 42.5
+		}),
+		true
+	);
+	assert.equal(await r.uploader.uploadPpiData(), true);
+	const post = r.posts.find((item) => item.url.indexOf("/ppi") >= 0);
+	const { time, ...fields } = post.data.datas[0];
+	assert.equal(typeof time, "string");
+	// 广播这一秒设备给了什么就传什么：behavior / ppg / bhr / 步数 / 卡路里 / rmssd 一起走，
+	// 不在这里做任何折算（spo2 仍是 ×10 原始值，calorie 仍是 ×100）。
+	assert.deepEqual(fields, {
+		hr: 62,
+		spo2: 950,
+		ppi: 980,
+		activity: 2,
+		behavior: 1,
+		ppgAttached: 1,
+		bhr: 55,
+		steps: 5123,
+		calorie: 1234,
+		rmssd: 42.5
+	});
 });
 
 test("the stored activity of each second is what gets uploaded", async (t) => {
@@ -726,9 +787,11 @@ test("a new device second is accepted even when its scan callback arrives within
 });
 test("PPI retention deletes only uploaded rows outside the thirty-day window", async (t) => {
 	const r = await createRuntime(t);
-	r.db.exec("INSERT INTO ppi_data VALUES ('old-uploaded',99,0,0,0,0,1)");
-	r.db.exec("INSERT INTO ppi_data VALUES ('old-pending',99,0,0,0,0,0)");
-	r.db.exec("INSERT INTO ppi_data VALUES ('current',100,0,0,0,0,1)");
+	const ppiInsert = (id, timestamp, uploaded) =>
+		`INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('${id}',${timestamp},0,0,0,0,${uploaded})`;
+	r.db.exec(ppiInsert("old-uploaded", 99, 1));
+	r.db.exec(ppiInsert("old-pending", 99, 0));
+	r.db.exec(ppiInsert("current", 100, 1));
 	assert.equal(await r.manager.pruneUploadedPpiBefore(100), 1);
 	assert.deepEqual(rows(r.db, "SELECT id FROM ppi_data ORDER BY id"), [
 		{ id: "current" },
@@ -786,7 +849,9 @@ test("both existing success envelopes acknowledge uploads", async (t) => {
 test("logs, history diagnostics and uploads default to the same Beijing time", async (t) => {
 	// 2024-01-01 00:00:00Z，默认模式必须稳定解释成北京时间，不能受手机时区影响。
 	const r = await createRuntime(t);
-	r.db.exec("INSERT INTO ppi_data VALUES ('1704067200',1704067200,60,0,1000,0,0)");
+	r.db.exec(
+		"INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('1704067200',1704067200,60,0,1000,0,0)"
+	);
 	assert.equal(await r.uploader.uploadPpiData(), true);
 	assert.equal(r.posts[0].data.datas[0].time, "2024-01-01 08:00:00");
 	assert.equal(r.posts[0].data.timezone, "08:00");
@@ -811,7 +876,9 @@ test("the local timezone config can make logs and uploads follow the phone timez
 	const r = await createRuntime(t);
 	const timezone = await r.load(".cool/utils/timezone.ts");
 	timezone.setAppTimezoneMode("system");
-	r.db.exec("INSERT INTO ppi_data VALUES ('1704067200',1704067200,60,0,1000,0,0)");
+	r.db.exec(
+		"INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('1704067200',1704067200,60,0,1000,0,0)"
+	);
 	assert.equal(await r.uploader.uploadPpiData(), true);
 	assert.equal(r.posts[0].data.datas[0].time, "2023-12-31 19:00:00");
 	assert.equal(r.posts[0].data.timezone, "-05:00");
@@ -834,8 +901,12 @@ test("system-timezone PPI uploads split a sparse batch at a DST offset change", 
 	const r = await createRuntime(t);
 	const timezone = await r.load(".cool/utils/timezone.ts");
 	timezone.setAppTimezoneMode("system");
-	r.db.exec("INSERT INTO ppi_data VALUES ('winter',1704067200,60,0,1000,0,0)");
-	r.db.exec("INSERT INTO ppi_data VALUES ('summer',1719792000,61,0,1001,0,0)");
+	r.db.exec(
+		"INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('winter',1704067200,60,0,1000,0,0)"
+	);
+	r.db.exec(
+		"INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('summer',1719792000,61,0,1001,0,0)"
+	);
 
 	assert.equal(await r.uploader.uploadPpiData(), true);
 	assert.equal(r.posts.length, 2);
@@ -1207,7 +1278,9 @@ test("live broadcasts arriving mid-run do not extend it to the batch cap", async
 	r.seed(30);
 	// 实时广播每秒落库一条，比一次 HTTP 往返还快：每批都重查“当前未上传”会被新秒一直喂饱。
 	let liveSec = Math.floor(Date.now() / 1000);
-	const insertLive = r.db.prepare("INSERT INTO ppi_data VALUES (?, ?, 60, 0, 1000, 0, 0)");
+	const insertLive = r.db.prepare(
+		"INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES (?, ?, 60, 0, 1000, 0, 0)"
+	);
 	r.respond = (options) => {
 		liveSec += 1;
 		insertLive.run(String(liveSec), liveSec);
@@ -1445,7 +1518,10 @@ test("broadcast ingest stores activity with PPI and has no sleep staging table",
 
 	// activity 只随 PPI 保存，不再进入独立的睡眠逐秒表。
 	const r = await createRuntime(t);
-	assert.equal(await r.manager.storeBroadcastPpiData(1700000000, 60, 980, 500, 2), true);
+	assert.equal(
+		await r.manager.storeBroadcastPpiData(broadcastPpi(1700000000, 60, 980, 500, 2)),
+		true
+	);
 	assert.deepEqual(rows(r.db, "SELECT timestamp,activity FROM ppi_data"), [
 		{ timestamp: 1700000000, activity: 2 }
 	]);

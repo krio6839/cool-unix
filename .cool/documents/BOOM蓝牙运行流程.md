@@ -194,15 +194,20 @@ App 启动后，如果已有绑定设备：
 - `spo2 = 设备原始值（×10，950 = 95.0%），设备没给时 0`
 - `ppi = 无效时 0`
 - `activity = status Bit[2:0]`，范围 `0~7`，与本秒 PPI 同行保存和上传。
+- `behavior = status Bit[5:3]`、`ppg_attached = status Bit[6]`，同一个 `status` 字节拆出来的，一起入库。
+- `bhr` / `steps_everyday` / `calorie_everyday` / `rmssd` 取设备原值；`steps` 与 `calorie` 是**当日累计快照**（同一天每秒重复同一个数，不是增量），`rmssd` 是 float32，NaN 落 `NULL`。
+- 电压 `v`、电池状态 `status2`（含事件序号）**不入库、不上传**：它们与健康数据无关，事件序号只在广播处理时用于判断要不要去读 `0x3C`。
 - 落库和上传一律用设备给的原值：`hr` / `spo2` / `ppi` 都不做换算，只有界面展示时才把 `spo2 / 10` 折成百分比。
 
 历史生命体征 `0x3A/0x3B` 没有血氧字段，按原始每秒记录判定：
 
 - 只有完整六字节都是 `FF`（`FFFFFFFFFFFF`）才是无效秒；全零和部分字段为 `FF` 都是有效秒，进入本地上传队列。
 - `timestamp = response.startSec + secondIndex`，跳过无效记录时保留原始秒索引，不压缩时间。
-- `hr / ppi` 保留解析值，包括 `0`；`spo2 = 0`；`activity = status & 0x07`。不再按心率或 PPI 是否大于零过滤。
+- `hr / ppi` 保留解析值，包括 `0`；`spo2 = 0`；`activity = status & 0x07`、`behavior = (status >> 3) & 0x07`、`ppg_attached = (status >> 6) & 0x01`。不再按心率或 PPI 是否大于零过滤。
+- `bhr` / `steps_everyday` / `calorie_everyday` / `rmssd` 写 `NULL`：协议 2.1.3 的逐秒记录里根本没有这几列，写 0 会让「没给」和「值为 0」混在一起。
 - 排除尚未产生的未来秒；重读相同秒按本地时间戳主键去重。历史重放可修正旧版保存的 `hr=255, ppi=65535` 占位记录并重新排队，但不会无依据删除旧记录。
 - `ppi_data.activity` 是 `NOT NULL`：广播秒和历史秒都带着 `status`，不存在「这一秒不知道活动状态」。旧表缺这一列、或它是可空的，说明那些行来自「逐秒数据里还没有活动状态」的版本，一律整表丢弃重建——不做列对列搬运，也不在每次写入前挂一条回填语句（当天写进去的行永远用不上它）。
+- `behavior` 之后的列全部可空：只有实时广播那一秒才有值，历史补回来的秒是 `NULL`。表结构列集合对不上就整表重建（`recreatePpiTableIfStale`），未上传缓存会丢，但它本来就是缓存。
 
 上传策略：
 

@@ -11,6 +11,26 @@ const page = (startSec, count = 120) => ({
 });
 
 /**
+ * 一帧广播进 PPI 队列的输入。
+ *
+ * 历史逐秒 `0x3A` 没有 bhr / 步数 / 卡路里 / rmssd，那几列是 null；这里给「有值」的默认，
+ * 需要验证缺值语义时单独覆盖。
+ */
+const broadcastPpi = (timestamp, hr, spo2, ppi, activity) => ({
+	timestamp,
+	hr,
+	spo2,
+	ppi,
+	activity,
+	behavior: 0,
+	ppgAttached: 0,
+	bhr: 0,
+	stepsEveryday: 0,
+	calorieEveryday: 0,
+	rmssd: null
+});
+
+/**
  * 预置一段本地 PPI。
  *
  * 判定只看 `ppi_data.timestamp` 有没有这一秒，`hr/spo2/ppi` 是不是零不影响
@@ -21,7 +41,9 @@ function seedPpi(db, from, to) {
 	const values = [];
 	for (let second = from; second < to; second++)
 		values.push(`('${second}',${second},0,0,0,0,0)`);
-	db.exec(`INSERT INTO ppi_data VALUES ${values.join(",")}`);
+	db.exec(
+		`INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ${values.join(",")}`
+	);
 }
 
 /**
@@ -1147,7 +1169,10 @@ test("a fully valid re-read repairs a broadcast all-FF second", async (t) => {
 	const start = 209880;
 	await r.prime(start);
 	// 广播把设备给的 FF 原始值照存（广播不按有效性过滤）。
-	assert.equal(await r.manager.storeBroadcastPpiData(start, 255, 0, 65535, 2), true);
+	assert.equal(
+		await r.manager.storeBroadcastPpiData(broadcastPpi(start, 255, 0, 65535, 2)),
+		true
+	);
 	// 补录给出真实值：必须写成 60/1000 而不是占位值，断言才有区分度
 	// （若写成 0/0，就无法分辨「补全了」和「压根没动」）。
 	const valid = page(start, 120);
@@ -1180,12 +1205,52 @@ test("historical vital persistence stores only the low three activity bits", asy
 	);
 });
 
+test("a history second leaves the columns the device never sends as null", async (t) => {
+	const r = await setup(t);
+	const start = 209880;
+	await r.prime(start);
+	const vital = page(start, 120);
+	// status = 0b1010101：bit6=1 佩戴中、bit5-3=010 步行、bit2-0=101 活动量高。
+	vital.vitalData[0] = { hr: 60, status: 0b1010101, pitch: 0, acc: 0, ppi: 1000, valid: true };
+	for (let i = 1; i < vital.vitalData.length; i++) vital.vitalData[i].valid = false;
+	await readerReturning(r, vital).readVitalRangeForward(start, start + 120);
+	const row = r.db
+		.prepare(
+			`SELECT behavior, ppg_attached, bhr, steps_everyday, calorie_everyday, rmssd FROM ppi_data WHERE id='${start}'`
+		)
+		.get();
+	// 逐秒历史 `0x3A` 只带 hr / status / ppi：status 里有的两位照存，
+	// 其余四列设备没给就是 NULL，不能拿 0 顶替（0 在步数、卡路里、bhr 上都是合法值）。
+	assert.deepEqual(
+		{ ...row },
+		{
+			behavior: 2,
+			ppg_attached: 1,
+			bhr: null,
+			steps_everyday: null,
+			calorie_everyday: null,
+			rmssd: null
+		}
+	);
+	// 上传报文原样透传 NULL：历史秒不能被折算成 0。
+	assert.equal(await r.uploader.uploadPpiData(), true);
+	const post = r.posts.find((item) => item.url.indexOf("/ppi") >= 0);
+	const uploaded = post.data.datas[0];
+	assert.deepEqual(
+		[uploaded.bhr, uploaded.steps, uploaded.calorie, uploaded.rmssd],
+		[null, null, null, null]
+	);
+});
+
 test("a partially invalid broadcast row is not repaired by a valid re-read", async (t) => {
 	const r = await setup(t);
 	const start = 209880;
 	await r.prime(start);
 	// 广播的 hr 与 ppi 各自独立取原始值：心率有效但 PPI 缺失时是混合行。
-	assert.equal(await r.manager.storeBroadcastPpiData(start, 70, 0, 65535, 2), true);
+	assert.equal(
+		await r.manager.storeBroadcastPpiData(broadcastPpi(start, 70, 0, 65535, 2)),
+		true
+	);
 	const valid = page(start, 120);
 	for (let i = 1; i < valid.vitalData.length; i++) valid.vitalData[i].valid = false;
 	await readerReturning(r, valid).readVitalRangeForward(start, start + 120);
@@ -1212,8 +1277,13 @@ test("a zero-value page is queued for upload rather than treated as missing", as
 test("database transaction excludes interleaved writes and rolls back only its own changes", async (t) => {
 	const r = await createRuntime(t);
 	r.failSql = (sql) => sql === "INVALID";
-	const tx = r.database.transaction(["INSERT INTO ppi_data VALUES ('1',1,0,0,0,0,0)", "INVALID"]);
-	const concurrent = r.database.execute("INSERT INTO ppi_data VALUES ('2',2,0,0,0,0,0)");
+	const tx = r.database.transaction([
+		"INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('1',1,0,0,0,0,0)",
+		"INVALID"
+	]);
+	const concurrent = r.database.execute(
+		"INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('2',2,0,0,0,0,0)"
+	);
 	assert.equal(await tx, false);
 	assert.equal(await concurrent, true);
 	assert.deepEqual(

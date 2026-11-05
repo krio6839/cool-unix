@@ -25,7 +25,11 @@ export type SleepData = {
 };
 
 /**
- * PPI数据记录（数据库记录）
+ * PPI数据记录（数据库记录），一行 = 设备给的一秒。
+ *
+ * `behavior` 之后的列只有**实时广播**那一秒才有值：逐秒历史 `0x3A` 的
+ * `VitalData_Per_Second` 只有 hr / status / pitch / acc / ppi，设备根本没给
+ * bhr / 步数 / 卡路里 / rmssd。缺值是 `null` 而不是 0——0 在这些字段上都是合法值。
  */
 export type PpiData = {
 	id: string;
@@ -34,7 +38,40 @@ export type PpiData = {
 	spo2: number;
 	ppi: number;
 	activity: number;
+	/** 设备 `status` 的 bit5-3（行为类型） */
+	behavior: number | null;
+	/** 设备 `status` 的 bit6（PPG 佩戴），0/1 */
+	ppgAttached: number | null;
+	/** 静息心率 bpm */
+	bhr: number | null;
+	/** 当日累计步数（快照，不是增量） */
+	stepsEveryday: number | null;
+	/** 当日累计运动卡路里 ×100 kcal（快照，不是增量） */
+	calorieEveryday: number | null;
+	/** RMSSD ms，设备 float32 原值 */
+	rmssd: number | null;
 	uploaded: boolean;
+};
+
+/**
+ * 一帧广播写入 PPI 队列的输入。
+ *
+ * 与 `RealtimeBroadcast` 分开，是因为这里只要「能进数据库的原始值」：展示用的
+ * `xxxValid` 折算值一律不参与落库。
+ */
+export type BroadcastPpiRecord = {
+	timestamp: number;
+	hr: number;
+	spo2: number;
+	ppi: number;
+	activity: number;
+	behavior: number;
+	ppgAttached: number;
+	bhr: number;
+	stepsEveryday: number;
+	calorieEveryday: number;
+	/** NaN 在这里被转成 null（设备没算出来时是无效浮点） */
+	rmssd: number | null;
 };
 
 /**
@@ -111,6 +148,9 @@ export type HistorySessionDiagnostics = {
  *
  * `activity` 就是设备 `status` 的低 3 位，**睡眠详情由它承担**：
  * 0 深睡 / 1 浅睡 / 2 其他睡眠 / 3 精神放松 / 4 活动量低 / 5 活动量高 / 6 精神兴奋 / 7 身体压力。
+ *
+ * `behavior` 及之后的字段只有实时广播秒才有值，历史补回来的秒发 `null`：
+ * 设备的历史逐秒记录里没有这些列，用 0 顶替会让后端把「没给」读成真实值。
  */
 export type PpiDataItem = {
 	time: string;
@@ -119,6 +159,16 @@ export type PpiDataItem = {
 	spo2: number;
 	ppi: number;
 	activity: number;
+	/** 行为类型 0-7，`status` bit5-3 */
+	behavior: number | null;
+	/** PPG 佩戴 0/1，`status` bit6 */
+	ppgAttached: number | null;
+	bhr: number | null;
+	/** 当日累计步数（快照） */
+	steps: number | null;
+	/** 当日累计运动卡路里 ×100 kcal（快照） */
+	calorie: number | null;
+	rmssd: number | null;
 };
 
 /**

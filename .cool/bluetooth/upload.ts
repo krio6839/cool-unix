@@ -116,7 +116,15 @@ export class BluetoothUploader {
 						hr: item.hr,
 						spo2: item.spo2,
 						ppi: item.ppi,
-						activity: item.activity
+						activity: item.activity,
+						// 下面这些列只有实时广播那一秒有值，历史补回来的秒是 null：
+						// 原样透传，不能在这里折算成 0。
+						behavior: item.behavior,
+						ppgAttached: item.ppgAttached,
+						bhr: item.bhr,
+						steps: item.stepsEveryday,
+						calorie: item.calorieEveryday,
+						rmssd: item.rmssd
 					});
 					uploadedIds.push(item.id);
 				}

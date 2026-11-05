@@ -12,6 +12,7 @@ import type { SelectSqlResult } from "@/uni_modules/meibao-Sqlite";
 import type {
 	SleepData,
 	PpiData,
+	BroadcastPpiRecord,
 	RealtimeBroadcastRecord,
 	StoreRealtimeBroadcastInput,
 	UploadTableStats,
@@ -33,6 +34,15 @@ const PPI_UPLOAD_PAGE_SIZE = 300;
  */
 const SLEEP_COLUMNS =
 	"report_timestamp, sleep_onset_time, awake_time, light_sleep_period, deep_sleep_period, other_sleep_period, heart_rate_rest, uploaded";
+
+/**
+ * PPI 的取数列（顺序即 `parsePpiDataRow` 的下标），必须与 `PPI_TABLE_SQL` 的列顺序一致。
+ *
+ * 五处查询共用一份：加列时漏改一处，就会出现「查出来的行少一列、上传报文少一个字段」，
+ * 而且只在上传时才会暴露。
+ */
+const PPI_COLUMNS =
+	"id, timestamp, hr, spo2, ppi, activity, behavior, ppg_attached, bhr, steps_everyday, calorie_everyday, rmssd, uploaded";
 
 /**
  * 蓝牙数据管理器类
@@ -88,18 +98,19 @@ export class BluetoothDataManager {
 		return bluetoothDatabase.query(sql);
 	}
 
-	async storeBroadcastPpiData(
-		timestamp: number,
-		hr: number,
-		spo2: number,
-		ppi: number,
-		activity: number
-	): Promise<boolean> {
+	/**
+	 * 一帧广播进上传队列。
+	 *
+	 * 缺值的列只有 `rmssd`：设备没算出有效浮点时传 `null`，落库也是 NULL，
+	 * 不能拿 0 顶替（0 会被后端读成「HRV = 0 ms」）。
+	 */
+	async storeBroadcastPpiData(record: BroadcastPpiRecord): Promise<boolean> {
 		// 0 是设备返回的有效原始值；广播时间已在调用方校验，不能据此丢弃上传秒。
-		if (timestamp <= 0 || activity < 0 || activity > 7) return false;
+		if (record.timestamp <= 0 || record.activity < 0 || record.activity > 7) return false;
 		if ((await this.ensureDatabaseReady()) == false) return false;
+		const rmssdSql = record.rmssd == null ? "NULL" : record.rmssd.toString();
 		return this.execute(
-			`INSERT OR IGNORE INTO ppi_data (id, timestamp, hr, spo2, ppi, activity, uploaded) VALUES ('${timestamp}', ${timestamp}, ${hr}, ${spo2}, ${ppi}, ${activity}, 0)`
+			`INSERT OR IGNORE INTO ppi_data (${PPI_COLUMNS}) VALUES ('${record.timestamp}', ${record.timestamp}, ${record.hr}, ${record.spo2}, ${record.ppi}, ${record.activity}, ${record.behavior}, ${record.ppgAttached}, ${record.bhr}, ${record.stepsEveryday}, ${record.calorieEveryday}, ${rmssdSql}, 0)`
 		);
 	}
 
@@ -182,8 +193,33 @@ export class BluetoothDataManager {
 			spo2: parseInt(row[3] as string),
 			ppi: parseInt(row[4] as string),
 			activity: parseInt(row[5] as string),
-			uploaded: parseInt(row[6] as string) == 1
+			behavior: this.parseNullableInt(row[6]),
+			ppgAttached: this.parseNullableInt(row[7]),
+			bhr: this.parseNullableInt(row[8]),
+			stepsEveryday: this.parseNullableInt(row[9]),
+			calorieEveryday: this.parseNullableInt(row[10]),
+			rmssd: this.parseNullableFloat(row[11]),
+			uploaded: parseInt(row[12] as string) == 1
 		} as PpiData;
+	}
+
+	/**
+	 * 可空整数列：SQLite 的 NULL 回来是 null 或空串，都当「这一秒设备没给」。
+	 * 直接 `parseInt` 会得到 NaN，拼进上传报文就是坏字段。
+	 */
+	private parseNullableInt(value: string): number | null {
+		if (value == null || value == "") return null;
+		const parsed = parseInt(value);
+		if (isNaN(parsed) == true) return null;
+		return parsed;
+	}
+
+	/** 可空浮点列（`rmssd` 是设备 float32，不能按整数截断）。 */
+	private parseNullableFloat(value: string): number | null {
+		if (value == null || value == "") return null;
+		const parsed = parseFloat(value);
+		if (isNaN(parsed) == true) return null;
+		return parsed;
 	}
 
 	private parseRealtimeBroadcastRow(row: Array<string>): RealtimeBroadcastRecord {
@@ -346,7 +382,7 @@ export class BluetoothDataManager {
 	 */
 	async getLatestPpiData(): Promise<PpiData | null> {
 		const sql =
-			"SELECT id, timestamp, hr, spo2, ppi, activity, uploaded FROM ppi_data ORDER BY timestamp DESC LIMIT 1";
+			"SELECT " + PPI_COLUMNS + " FROM ppi_data ORDER BY timestamp DESC LIMIT 1";
 		const result = await this.query(sql);
 		if (result == null || result.rows.length == 0) {
 			return null;
@@ -361,7 +397,9 @@ export class BluetoothDataManager {
 	async getRecentPpiData(limit: number): Promise<PpiData[]> {
 		const safeLimit = limit <= 0 ? 10 : limit;
 		const sql =
-			"SELECT id, timestamp, hr, spo2, ppi, activity, uploaded FROM ppi_data ORDER BY timestamp DESC LIMIT " +
+			"SELECT " +
+			PPI_COLUMNS +
+			" FROM ppi_data ORDER BY timestamp DESC LIMIT " +
 			safeLimit.toString();
 		const result = await this.query(sql);
 		if (result == null) {
@@ -379,7 +417,9 @@ export class BluetoothDataManager {
 		const safeLimit = limit <= 0 ? 10 : limit;
 		const uploadedValue = uploaded == true ? 1 : 0;
 		const sql =
-			"SELECT id, timestamp, hr, spo2, ppi, activity, uploaded FROM ppi_data WHERE uploaded = " +
+			"SELECT " +
+			PPI_COLUMNS +
+			" FROM ppi_data WHERE uploaded = " +
 			uploadedValue.toString() +
 			" ORDER BY timestamp DESC LIMIT " +
 			safeLimit.toString();
@@ -403,7 +443,9 @@ export class BluetoothDataManager {
 		let where = "uploaded = 0";
 		if (maxTimestamp != null) where += " AND timestamp <= " + maxTimestamp.toString();
 		const sql =
-			"SELECT id, timestamp, hr, spo2, ppi, activity, uploaded FROM ppi_data WHERE " +
+			"SELECT " +
+			PPI_COLUMNS +
+			" FROM ppi_data WHERE " +
 			where +
 			" ORDER BY timestamp ASC LIMIT " +
 			PPI_UPLOAD_PAGE_SIZE;
