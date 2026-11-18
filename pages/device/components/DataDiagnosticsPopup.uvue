@@ -250,7 +250,7 @@ function formatBroadcast(item: RealtimeBroadcastRecord): string {
 	const spo2Pct = (item.spo2 / 10).toFixed(1);
 	const voltage = (item.voltageMv / 1000).toFixed(3);
 	const calories = (item.calorieEveryday / 100).toFixed(1);
-	return `received=${formatMsTime(item.receivedAt)}, utc=${formatSecTime(item.utc)}, hr=${item.hr}, bhr=${item.bhr}, spo2=${spo2Pct}%, ppi=${item.ppi}, rmssd=${item.rmssd}ms, steps=${item.stepsEveryday}, calories=${calories}kcal, v=${voltage}V, eventSeq=${item.eventSeq}, newEvent=${item.hasNewEvent}, battery=${getBatteryStatusLabel(item.batteryStatus)}, ppg=${item.ppgAttached}, behavior=${item.behavior}, activity=${item.activity}, device=${item.deviceId}, raw=${item.rawHex}`;
+	return `received=${formatMsTime(item.receivedAt)}, utc=${formatSecTime(item.utc)}, hr=${item.hr}, bhr=${item.bhr}, spo2=${spo2Pct}%, ppi=${item.ppi}, rmssd=${item.rmssd}ms, steps=${item.stepsEveryday}, calories=${calories}kcal, v=${voltage}V, eventSeq=${item.eventSeq}, newEvent=${item.hasNewEvent}, battery=${getBatteryStatusLabel(item.batteryStatus)}, ppg=${item.ppgAttached}, behavior=${item.behavior}, activity=${item.activity}, rssi=${item.rssi}, device=${item.deviceId}`;
 }
 
 function formatPpi(item: PpiData): string {

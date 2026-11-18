@@ -46,14 +46,19 @@ const SLEEP_TABLE_COLUMNS =
  * broadcast_data：一行 = 设备给的一秒（广播秒，或历史补录补回来的秒）。
  *
  * 广播到达时整行写入设备给的**原始值**，不做生理范围过滤、不换算单位；页面展示时才
- * 决定哪些值能用。历史补录只填 `hr / spo2 / ppi / activity` 四列，其余保持默认 0——
- * 补录那条链路本来就没有血压、电量、步数，缺的就是缺的。
+ * 决定哪些值能用。历史补录只填 `hr / spo2 / ppi / activity` 四列，其余保持默认——
+ * 补录那条链路本来就没有静息心率、电量、步数，缺的就是缺的。
  *
  * `received_at` 兼作来源标记：广播行是手机接收毫秒（>0），补录行是 0。
  * 「取最近一条有效广播」靠它过滤：补录补的是刚过去的秒，时间戳可能比最后一条广播更晚，
  * 不过滤就会取到一条只有四个字段的补录行，首页的 bhr / rmssd 直接变 0。
  *
- * `raw_hex / v_hex` 原样保留：解析规则以后会变，原始字节留着才能重算；诊断弹窗也靠它。
+ * **不存原始 hex**：协议 24 字节已经全部解析成列，`raw_hex / v_hex` 每行要 84 字节，
+ * 而它们的唯一用途是诊断时「看一眼原始帧」。诊断改成读内存里最近 20 帧
+ * （`broadcastDebug`），既够用又不用为每一秒付这个钱。协议真改了，旧帧本来也解析不出来。
+ *
+ * `extra_1..3` 是给协议扩展留的：可空 INTEGER，没值时 SQLite 只在行头占 1 字节，
+ * 不占数据区。**不是垃圾桶**——真加字段时应该把它改名成有语义的列，而不是一直往里塞。
  */
 const BROADCAST_TABLE_SQL = `CREATE TABLE IF NOT EXISTS broadcast_data (
         id TEXT PRIMARY KEY,
@@ -73,15 +78,17 @@ const BROADCAST_TABLE_SQL = `CREATE TABLE IF NOT EXISTS broadcast_data (
         rmssd INTEGER NOT NULL DEFAULT 0,
         steps_everyday INTEGER NOT NULL DEFAULT 0,
         calorie_everyday INTEGER NOT NULL DEFAULT 0,
-        raw_hex TEXT NOT NULL DEFAULT '',
-        v_hex TEXT NOT NULL DEFAULT '',
+        rssi INTEGER NOT NULL DEFAULT 0,
         device_id TEXT NOT NULL DEFAULT '',
-        uploaded INTEGER NOT NULL DEFAULT 0
+        uploaded INTEGER NOT NULL DEFAULT 0,
+        extra_1 INTEGER,
+        extra_2 INTEGER,
+        extra_3 INTEGER
       )`;
 
 /** `BROADCAST_TABLE_SQL` 的列名（顺序一致），用于判断已有表是不是当前结构。 */
 const BROADCAST_TABLE_COLUMNS =
-	"id,timestamp,received_at,voltage_mv,ppg_attached,behavior,activity,hr,ppi,spo2,bhr,event_seq,has_new_event,battery_status,rmssd,steps_everyday,calorie_everyday,raw_hex,v_hex,device_id,uploaded";
+	"id,timestamp,received_at,voltage_mv,ppg_attached,behavior,activity,hr,ppi,spo2,bhr,event_seq,has_new_event,battery_status,rmssd,steps_everyday,calorie_everyday,rssi,device_id,uploaded,extra_1,extra_2,extra_3";
 
 class BluetoothDatabase {
 	private isOpen: boolean = false;

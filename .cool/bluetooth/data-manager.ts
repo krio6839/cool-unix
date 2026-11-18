@@ -107,15 +107,13 @@ export class BluetoothDataManager {
 		// 0 是设备返回的有效原始值；广播时间已在调用方校验，不能据此丢弃上传秒。
 		if (timestamp <= 0) return null;
 		if ((await this.ensureDatabaseReady()) == false) return null;
-		const rawHex = this.escapeSqlText(input.rawHex);
-		const vHex = this.escapeSqlText(input.vHex);
 		const deviceId = this.escapeSqlText(input.deviceId);
 		const ppgAttached = r.ppgAttached == true ? 1 : 0;
 		const hasNewEvent = r.hasNewEvent == true ? 1 : 0;
 		const sql =
 			"INSERT OR IGNORE INTO broadcast_data " +
-			"(id, timestamp, received_at, voltage_mv, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, event_seq, has_new_event, battery_status, rmssd, steps_everyday, calorie_everyday, raw_hex, v_hex, device_id, uploaded) VALUES " +
-			`('${timestamp}', ${timestamp}, ${r.receivedAt}, ${r.voltageMv}, ${ppgAttached}, ${r.behavior}, ${r.activity}, ${r.hr}, ${r.ppi}, ${r.spo2}, ${r.bhr}, ${r.eventSeq}, ${hasNewEvent}, ${r.batteryStatus}, ${r.hrvMs}, ${r.stepsEveryday}, ${r.calorieEveryday}, '${rawHex}', '${vHex}', '${deviceId}', 0)`;
+			"(id, timestamp, received_at, voltage_mv, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, event_seq, has_new_event, battery_status, rmssd, steps_everyday, calorie_everyday, rssi, device_id, uploaded) VALUES " +
+			`('${timestamp}', ${timestamp}, ${r.receivedAt}, ${r.voltageMv}, ${ppgAttached}, ${r.behavior}, ${r.activity}, ${r.hr}, ${r.ppi}, ${r.spo2}, ${r.bhr}, ${r.eventSeq}, ${hasNewEvent}, ${r.batteryStatus}, ${r.hrvMs}, ${r.stepsEveryday}, ${r.calorieEveryday}, ${input.rssi}, '${deviceId}', 0)`;
 		if ((await this.execute(sql)) == false) return null;
 		// 写成功就直接用内存里的这一帧返回，不再读回：同一行刚写过，读回来的是同一个值。
 		return this.buildBroadcastRecord(input);
@@ -142,8 +140,7 @@ export class BluetoothDataManager {
 			rmssd: r.hrvMs,
 			stepsEveryday: r.stepsEveryday,
 			calorieEveryday: r.calorieEveryday,
-			rawHex: input.rawHex,
-			vHex: input.vHex,
+			rssi: input.rssi,
 			deviceId: input.deviceId
 		} as RealtimeBroadcastRecord;
 	}
@@ -156,7 +153,7 @@ export class BluetoothDataManager {
 	 */
 	async getLatestBroadcastSecond(): Promise<RealtimeBroadcastRecord | null> {
 		const sql =
-			"SELECT id, timestamp, received_at, voltage_mv, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, event_seq, has_new_event, battery_status, rmssd, steps_everyday, calorie_everyday, raw_hex, v_hex, device_id FROM broadcast_data WHERE received_at > 0 ORDER BY timestamp DESC LIMIT 1";
+			"SELECT id, timestamp, received_at, voltage_mv, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, event_seq, has_new_event, battery_status, rmssd, steps_everyday, calorie_everyday, rssi, device_id FROM broadcast_data WHERE received_at > 0 ORDER BY timestamp DESC LIMIT 1";
 		const result = await this.query(sql);
 		if (result == null || result.rows.length == 0) {
 			return null;
@@ -202,9 +199,8 @@ export class BluetoothDataManager {
 			rmssd: parseInt(row[14] as string),
 			stepsEveryday: parseInt(row[15] as string),
 			calorieEveryday: parseInt(row[16] as string),
-			rawHex: row[17] as string,
-			vHex: row[18] as string,
-			deviceId: row[19] as string
+			rssi: parseInt(row[17] as string),
+			deviceId: row[18] as string
 		} as RealtimeBroadcastRecord;
 	}
 
@@ -317,7 +313,7 @@ export class BluetoothDataManager {
 	async getRecentBroadcastRecords(limit: number): Promise<RealtimeBroadcastRecord[]> {
 		const safeLimit = limit <= 0 ? 10 : limit;
 		const sql =
-			"SELECT id, timestamp, received_at, voltage_mv, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, event_seq, has_new_event, battery_status, rmssd, steps_everyday, calorie_everyday, raw_hex, v_hex, device_id FROM broadcast_data WHERE received_at > 0 ORDER BY timestamp DESC LIMIT " +
+			"SELECT id, timestamp, received_at, voltage_mv, ppg_attached, behavior, activity, hr, ppi, spo2, bhr, event_seq, has_new_event, battery_status, rmssd, steps_everyday, calorie_everyday, rssi, device_id FROM broadcast_data WHERE received_at > 0 ORDER BY timestamp DESC LIMIT " +
 			safeLimit.toString();
 		const result = await this.query(sql);
 		if (result == null) {

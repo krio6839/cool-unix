@@ -744,8 +744,7 @@ export class DeviceBroadcast {
 		// 时间不在这个豁免里——时间不可信的整帧在 handleInvalidBroadcastTime() 就已经丢了。
 		const record = await bluetoothDataManager.storeBroadcastSecond({
 			broadcast: r,
-			rawHex: ctx.rawHex,
-			vHex: ctx.vHex,
+			rssi: ctx.rssi,
 			deviceId: ctx.deviceId
 		});
 		if (record != null) {

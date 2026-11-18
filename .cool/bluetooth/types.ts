@@ -59,8 +59,8 @@ export type RealtimeBroadcastRecord = {
 	rmssd: number;
 	stepsEveryday: number;
 	calorieEveryday: number;
-	rawHex: string;
-	vHex: string;
+	/** 广播信号强度（负数，越接近 0 越强）。诊断断连时看它。 */
+	rssi: number;
 	deviceId: string;
 };
 
@@ -70,8 +70,8 @@ export type RealtimeBroadcastRecord = {
  */
 export type StoreBroadcastSecondInput = {
 	broadcast: RealtimeBroadcast;
-	rawHex: string;
-	vHex: string;
+	/** 广播信号强度；补录路径不走这里，所以只有实时广播会填。 */
+	rssi: number;
 	deviceId: string;
 };
 

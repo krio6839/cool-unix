@@ -1149,7 +1149,7 @@ test("a fully valid re-read repairs a broadcast all-FF second", async (t) => {
 	const start = 209880;
 	await r.prime(start);
 	// 广播把设备给的 FF 原始值照存（广播不按有效性过滤）。
-	assert.ok((await r.manager.storeBroadcastSecond({ broadcast: makeBroadcast({ utc: start, hr: 255, spo2: 0, ppi: 65535, activity: 2 }), rawHex: "", vHex: "", deviceId: "AA:BB" })) != null)
+	assert.ok((await r.manager.storeBroadcastSecond({ broadcast: makeBroadcast({ utc: start, hr: 255, spo2: 0, ppi: 65535, activity: 2 }), rssi: -60, deviceId: "AA:BB" })) != null)
 	// 补录给出真实值：必须写成 60/1000 而不是占位值，断言才有区分度
 	// （若写成 0/0，就无法分辨「补全了」和「压根没动」）。
 	const valid = page(start, 120);
@@ -1187,7 +1187,7 @@ test("a partially invalid broadcast row is not repaired by a valid re-read", asy
 	const start = 209880;
 	await r.prime(start);
 	// 广播的 hr 与 ppi 各自独立取原始值：心率有效但 PPI 缺失时是混合行。
-	assert.ok((await r.manager.storeBroadcastSecond({ broadcast: makeBroadcast({ utc: start, hr: 70, spo2: 0, ppi: 65535, activity: 2 }), rawHex: "", vHex: "", deviceId: "AA:BB" })) != null)
+	assert.ok((await r.manager.storeBroadcastSecond({ broadcast: makeBroadcast({ utc: start, hr: 70, spo2: 0, ppi: 65535, activity: 2 }), rssi: -60, deviceId: "AA:BB" })) != null)
 	const valid = page(start, 120);
 	for (let i = 1; i < valid.vitalData.length; i++) valid.vitalData[i].valid = false;
 	await readerReturning(r, valid).readVitalRangeForward(start, start + 120);

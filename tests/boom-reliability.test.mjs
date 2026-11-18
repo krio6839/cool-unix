@@ -621,8 +621,7 @@ test("a valid all-zero broadcast second enters the PPI upload queue with activit
 	assert.ok(
 		(await r.manager.storeBroadcastSecond({
 			broadcast: makeBroadcast({ utc: 12345, activity: 2 }),
-			rawHex: "",
-			vHex: "",
+			rssi: -60,
 			deviceId: "AA:BB"
 		})) != null
 	);
@@ -1447,8 +1446,7 @@ test("broadcast ingest writes one second row carrying activity, with no sleep st
 	assert.ok(
 		(await r.manager.storeBroadcastSecond({
 			broadcast: makeBroadcast({ utc: 1700000000, hr: 60, spo2: 980, ppi: 500, activity: 2 }),
-			rawHex: "",
-			vHex: "",
+			rssi: -60,
 			deviceId: "AA:BB"
 		})) != null
 	);
