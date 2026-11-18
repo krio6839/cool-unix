@@ -285,7 +285,7 @@ export async function createRuntime(t) {
 	state.manager = manager;
 	state.request = cache.get(".cool/service/index.ts").namespace.request;
 	state.seed = (count) => {
-		const insert = db.prepare("INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES (?, ?, 60, 0, 1000, 0, 0)");
+		const insert = db.prepare("INSERT INTO broadcast_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES (?, ?, 60, 0, 1000, 0, 0)");
 		const base = Math.floor(Date.now() / 1000) - count - 10;
 		for (let i = 1; i <= count; i++) {
 			const timestamp = base + i;
@@ -293,4 +293,32 @@ export async function createRuntime(t) {
 		}
 	};
 	return state;
+}
+
+/**
+ * 造一帧解析后的广播。
+ *
+ * `storeBroadcastSecond()` 读的是 `RealtimeBroadcast`，字段很多；用例只关心其中一两个，
+ * 其余给默认值。`hrvMs` 在落库时映射成 `rmssd` 列。
+ */
+export function makeBroadcast(overrides = {}) {
+	return {
+		utc: 1,
+		receivedAt: 1000,
+		voltageMv: 4000,
+		ppgAttached: true,
+		behavior: 0,
+		activity: 0,
+		hr: 0,
+		ppi: 0,
+		spo2: 0,
+		bhr: 0,
+		eventSeq: 0,
+		hasNewEvent: false,
+		batteryStatus: 0,
+		hrvMs: 0,
+		stepsEveryday: 0,
+		calorieEveryday: 0,
+		...overrides
+	};
 }

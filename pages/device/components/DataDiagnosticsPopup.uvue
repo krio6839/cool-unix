@@ -254,7 +254,7 @@ function formatBroadcast(item: RealtimeBroadcastRecord): string {
 }
 
 function formatPpi(item: PpiData): string {
-	// `ppi_data.spo2` 存的是设备原始值（×10），界面上要折成百分比再显示。
+	// `broadcast_data.spo2` 存的是设备原始值（×10），界面上要折成百分比再显示。
 	return `time=${formatSecTime(item.timestamp)}, hr=${item.hr}, spo2=${(item.spo2 / 10).toFixed(1)}%, ppi=${item.ppi}, activity=${item.activity}, uploaded=${item.uploaded}, id=${item.id}`;
 }
 
@@ -273,22 +273,20 @@ function formatHistorySession(item: HistorySessionDiagnostics): string {
 async function loadOverview(): Promise<void> {
 	if (setLoading(t("数据库总览")) == false) return;
 	try {
-		const broadcastCount = await bluetoothDataManager.getRealtimeBroadcastDataCount();
-		const latestBroadcast = await bluetoothDataManager.getLatestRealtimeBroadcastRecord();
-		const ppiCount = await bluetoothDataManager.getPpiDataCount();
+		const broadcastCount = await bluetoothDataManager.getBroadcastDataCount();
+		const latestBroadcast = await bluetoothDataManager.getLatestBroadcastSecond();
 		const sleepCount = await bluetoothDataManager.getSleepDataCount();
 		const latestPpi = await bluetoothDataManager.getLatestPpiData();
 		const unuploadedPpiCount = await bluetoothDataManager.getUnuploadedPpiCount();
 		const unuploadedSleepCount = await bluetoothDataManager.getUnuploadedSleepDataCount();
 		const historySession = await bluetoothDataManager.getHistorySessionDiagnostics();
 		const result: string[] = [];
-		result.push(`realtime_broadcast_data count=${broadcastCount}`);
+		result.push(`broadcast_data count=${broadcastCount}, unuploaded=${unuploadedPpiCount}`);
 		result.push(
 			latestBroadcast == null
 				? "latest broadcast=无"
 				: `latest broadcast: ${formatBroadcast(latestBroadcast)}`
 		);
-		result.push(`ppi_data count=${ppiCount}, unuploaded=${unuploadedPpiCount}`);
 		result.push(latestPpi == null ? "latest ppi=无" : `latest ppi: ${formatPpi(latestPpi)}`);
 		result.push(`sleep_data count=${sleepCount}, unuploaded=${unuploadedSleepCount}`);
 		result.push(formatHistorySession(historySession));
@@ -327,7 +325,7 @@ async function loadUploadAudit(): Promise<void> {
 async function loadBroadcastRows(): Promise<void> {
 	if (setLoading(t("最近 10 条广播")) == false) return;
 	try {
-		const data = await bluetoothDataManager.getRecentRealtimeBroadcastRecords(10);
+		const data = await bluetoothDataManager.getRecentBroadcastRecords(10);
 		const result: string[] = [];
 		for (let i = 0; i < data.length; i++) {
 			const item = data[i];
@@ -364,7 +362,7 @@ async function loadUploadedRows(): Promise<void> {
 		const ppi = await bluetoothDataManager.getRecentPpiDataByUploadStatus(10, true);
 		const sleep = await bluetoothDataManager.getRecentSleepData(10, true);
 		const result: string[] = [];
-		result.push(`ppi_data uploaded recent=${ppi.length}`);
+		result.push(`broadcast_data uploaded recent=${ppi.length}`);
 		for (let i = 0; i < ppi.length; i++) {
 			result.push(`ppi ${formatPpi(ppi[i])}`);
 		}
@@ -386,7 +384,7 @@ async function loadUnuploadedRows(): Promise<void> {
 		const ppi = await bluetoothDataManager.getRecentPpiDataByUploadStatus(10, false);
 		const sleep = await bluetoothDataManager.getRecentSleepData(10, false);
 		const result: string[] = [];
-		result.push(`ppi_data unuploaded recent=${ppi.length}`);
+		result.push(`broadcast_data unuploaded recent=${ppi.length}`);
 		for (let i = 0; i < ppi.length; i++) {
 			result.push(`ppi ${formatPpi(ppi[i])}`);
 		}

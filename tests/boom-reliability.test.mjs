@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { createRuntime } from "./helpers/boom-runtime.mjs";
+import { createRuntime, makeBroadcast } from "./helpers/boom-runtime.mjs";
 
 const rows = (db, sql) =>
 	db
@@ -234,7 +234,7 @@ test("one tick does classification and upload in a fixed order", async (t) => {
 	const values = [];
 	for (let second = now - 300; second < now - 10; second++)
 		values.push(`('${second}',${second},0,0,0,0,0)`);
-	r.db.exec(`INSERT INTO ppi_data VALUES ${values.join(",")}`);
+	r.db.exec(`INSERT INTO broadcast_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ${values.join(",")}`);
 
 	const tick = new r.DeviceTick({ boundDeviceId: "device" });
 	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
@@ -259,7 +259,7 @@ test("one tick does classification and upload in a fixed order", async (t) => {
 
 	await tick.runTick("timer");
 
-	// 判定先于上传：上传依据是本地的 ppi_data，判定不被上传结果影响。
+	// 判定先于上传：上传依据是本地的 broadcast_data，判定不被上传结果影响。
 	assert.deepEqual(order, ["classify", "upload"]);
 	assert.equal(tick.lastError.value, "");
 	assert.equal(tick.lastCheckAt.value > 0, true);
@@ -284,7 +284,7 @@ test("one tick reads the baseline once and classifies a single window", async (t
 	const values = [];
 	for (let second = from; second < now - 10; second++)
 		values.push(`('${second}',${second},0,0,0,0,0)`);
-	r.db.exec(`INSERT INTO ppi_data VALUES ${values.join(",")}`);
+	r.db.exec(`INSERT INTO broadcast_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ${values.join(",")}`);
 	const counts = { getBaseline: 0 };
 	const original = baseline.getBaseline.bind(baseline);
 	baseline.getBaseline = async (...args) => {
@@ -618,8 +618,15 @@ test("a history repair uses one continuous 0x3A/0x3B reader", async () => {
 
 test("a valid all-zero broadcast second enters the PPI upload queue with activity", async (t) => {
 	const r = await createRuntime(t);
-	assert.equal(await r.manager.storeBroadcastPpiData(12345, 0, 0, 0, 2), true);
-	assert.deepEqual(rows(r.db, "SELECT timestamp,hr,spo2,ppi,activity,uploaded FROM ppi_data"), [
+	assert.ok(
+		(await r.manager.storeBroadcastSecond({
+			broadcast: makeBroadcast({ utc: 12345, activity: 2 }),
+			rawHex: "",
+			vHex: "",
+			deviceId: "AA:BB"
+		})) != null
+	);
+	assert.deepEqual(rows(r.db, "SELECT timestamp,hr,spo2,ppi,activity,uploaded FROM broadcast_data"), [
 		{ timestamp: 12345, hr: 0, spo2: 0, ppi: 0, activity: 2, uploaded: 0 }
 	]);
 });
@@ -627,46 +634,46 @@ test("a valid all-zero broadcast second enters the PPI upload queue with activit
 test("the stored activity of each second is what gets uploaded", async (t) => {
 	const r = await createRuntime(t);
 	r.db.exec(
-		"INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('1',1,60,980,1000,3,0),('2',2,61,981,1001,6,0)"
+		"INSERT INTO broadcast_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('1',1,60,980,1000,3,0),('2',2,61,981,1001,6,0)"
 	);
 	assert.equal(await r.uploader.uploadPpiData(), true);
 	const post = r.posts.find((item) => item.url.indexOf("/ppi") >= 0);
 	assert.deepEqual(post.data.datas.map((item) => item.activity), [3, 6]);
 });
 
-test("a stale ppi_data schema without activity is dropped instead of migrated", async (t) => {
+test("a stale broadcast_data schema without activity is dropped instead of migrated", async (t) => {
 	const r = await createRuntime(t);
-	r.db.exec("DROP TABLE ppi_data");
-	r.db.exec(`CREATE TABLE ppi_data (
+	r.db.exec("DROP TABLE broadcast_data");
+	r.db.exec(`CREATE TABLE broadcast_data (
 		id TEXT PRIMARY KEY, timestamp INTEGER NOT NULL, hr INTEGER NOT NULL,
 		spo2 INTEGER NOT NULL, ppi INTEGER NOT NULL, uploaded INTEGER DEFAULT 0)`);
-	r.db.exec("INSERT INTO ppi_data VALUES ('old',123,60,980,1000,1)");
+	r.db.exec("INSERT INTO broadcast_data VALUES ('old',123,60,980,1000,1)");
 	await r.database.close();
 	await r.database.open();
 	// 缺 activity 的行构造不出上传报文，也不做列对列搬运：整表重建，旧行不留。
-	assert.deepEqual(rows(r.db, "SELECT id FROM ppi_data"), []);
+	assert.deepEqual(rows(r.db, "SELECT id FROM broadcast_data"), []);
 	assert.equal(
-		r.db.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('ppi_data') WHERE name='activity' AND \"notnull\"=1").get().n,
+		r.db.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('broadcast_data') WHERE name='activity' AND \"notnull\"=1").get().n,
 		1
 	);
 	r.db.exec(
-		"INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('fresh',200,60,980,1000,2,0)"
+		"INSERT INTO broadcast_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('fresh',200,60,980,1000,2,0)"
 	);
-	assert.deepEqual(rows(r.db, "SELECT id,activity FROM ppi_data"), [{ id: "fresh", activity: 2 }]);
+	assert.deepEqual(rows(r.db, "SELECT id,activity FROM broadcast_data"), [{ id: "fresh", activity: 2 }]);
 });
 test("broadcast persistence keeps raw values even when display validity is false", async () => {
-	const source = await readFile(".cool/store/device/broadcast.ts", "utf8");
+	const source = await readFile(".cool/bluetooth/data-manager.ts", "utf8");
 	const method = source.slice(
-		source.indexOf("private async storeBroadcastPpiData"),
-		source.indexOf("private getBroadcastTimestamp")
+		source.indexOf("async storeBroadcastSecond("),
+		source.indexOf("private buildBroadcastRecord")
 	);
-	assert.equal(method.includes("const hr = r.hr;"), true);
-	// spo2 与 hr / ppi 同一口径：落库只认设备原始值，展示用的折算值不进数据库。
-	assert.equal(method.includes("const spo2 = r.spo2;"), true);
-	assert.equal(method.includes("const ppi = r.ppi;"), true);
-	assert.equal(method.includes("r.hrValid ?"), false);
-	assert.equal(method.includes("r.spo2Valid ?"), false);
-	assert.equal(method.includes("r.ppiValid ?"), false);
+	// 落库只认设备原始值：hr / spo2 / ppi 的「有效位」只影响展示，不能在这一层折算或清零。
+	assert.equal(method.includes("${r.hr}"), true);
+	assert.equal(method.includes("${r.spo2}"), true);
+	assert.equal(method.includes("${r.ppi}"), true);
+	assert.equal(method.includes("hrValid"), false);
+	assert.equal(method.includes("spo2Valid"), false);
+	assert.equal(method.includes("ppiValid"), false);
 });
 test("a new device second is accepted even when its scan callback arrives within one second", async (t) => {
 	const r = await createRuntime(t);
@@ -726,11 +733,11 @@ test("a new device second is accepted even when its scan callback arrives within
 });
 test("PPI retention deletes only uploaded rows outside the thirty-day window", async (t) => {
 	const r = await createRuntime(t);
-	r.db.exec("INSERT INTO ppi_data VALUES ('old-uploaded',99,0,0,0,0,1)");
-	r.db.exec("INSERT INTO ppi_data VALUES ('old-pending',99,0,0,0,0,0)");
-	r.db.exec("INSERT INTO ppi_data VALUES ('current',100,0,0,0,0,1)");
+	r.db.exec("INSERT INTO broadcast_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('old-uploaded',99,0,0,0,0,1)");
+	r.db.exec("INSERT INTO broadcast_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('old-pending',99,0,0,0,0,0)");
+	r.db.exec("INSERT INTO broadcast_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('current',100,0,0,0,0,1)");
 	assert.equal(await r.manager.pruneUploadedPpiBefore(100), 1);
-	assert.deepEqual(rows(r.db, "SELECT id FROM ppi_data ORDER BY id"), [
+	assert.deepEqual(rows(r.db, "SELECT id FROM broadcast_data ORDER BY id"), [
 		{ id: "current" },
 		{ id: "old-pending" }
 	]);
@@ -769,7 +776,7 @@ for (const response of [null, "ok", {}, { status: "error" }, { code: 0, status: 
 		r.response = response;
 		assert.equal(await r.uploader.uploadPpiData(), false);
 		assert.equal(
-			r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data WHERE uploaded = 0").get().n,
+			r.db.prepare("SELECT COUNT(*) AS n FROM broadcast_data WHERE uploaded = 0").get().n,
 			2
 		);
 	});
@@ -780,13 +787,13 @@ test("both existing success envelopes acknowledge uploads", async (t) => {
 	r.seed(2);
 	r.response = { code: 0, data: null };
 	assert.equal(await r.uploader.uploadPpiData(), true);
-	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data WHERE uploaded = 1").get().n, 2);
+	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM broadcast_data WHERE uploaded = 1").get().n, 2);
 });
 
 test("logs, history diagnostics and uploads default to the same Beijing time", async (t) => {
 	// 2024-01-01 00:00:00Z，默认模式必须稳定解释成北京时间，不能受手机时区影响。
 	const r = await createRuntime(t);
-	r.db.exec("INSERT INTO ppi_data VALUES ('1704067200',1704067200,60,0,1000,0,0)");
+	r.db.exec("INSERT INTO broadcast_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('1704067200',1704067200,60,0,1000,0,0)");
 	assert.equal(await r.uploader.uploadPpiData(), true);
 	assert.equal(r.posts[0].data.datas[0].time, "2024-01-01 08:00:00");
 	assert.equal(r.posts[0].data.timezone, "08:00");
@@ -811,7 +818,7 @@ test("the local timezone config can make logs and uploads follow the phone timez
 	const r = await createRuntime(t);
 	const timezone = await r.load(".cool/utils/timezone.ts");
 	timezone.setAppTimezoneMode("system");
-	r.db.exec("INSERT INTO ppi_data VALUES ('1704067200',1704067200,60,0,1000,0,0)");
+	r.db.exec("INSERT INTO broadcast_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('1704067200',1704067200,60,0,1000,0,0)");
 	assert.equal(await r.uploader.uploadPpiData(), true);
 	assert.equal(r.posts[0].data.datas[0].time, "2023-12-31 19:00:00");
 	assert.equal(r.posts[0].data.timezone, "-05:00");
@@ -834,8 +841,8 @@ test("system-timezone PPI uploads split a sparse batch at a DST offset change", 
 	const r = await createRuntime(t);
 	const timezone = await r.load(".cool/utils/timezone.ts");
 	timezone.setAppTimezoneMode("system");
-	r.db.exec("INSERT INTO ppi_data VALUES ('winter',1704067200,60,0,1000,0,0)");
-	r.db.exec("INSERT INTO ppi_data VALUES ('summer',1719792000,61,0,1001,0,0)");
+	r.db.exec("INSERT INTO broadcast_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('winter',1704067200,60,0,1000,0,0)");
+	r.db.exec("INSERT INTO broadcast_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('summer',1719792000,61,0,1001,0,0)");
 
 	assert.equal(await r.uploader.uploadPpiData(), true);
 	assert.equal(r.posts.length, 2);
@@ -900,16 +907,16 @@ test("backlog is bounded per request; failed batch remains retryable", async (t)
 	assert.equal(r.posts.length, 2);
 	assert.ok(r.posts.every((p) => p.data.datas.length <= 300));
 	assert.equal(
-		r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data WHERE uploaded = 1").get().n,
+		r.db.prepare("SELECT COUNT(*) AS n FROM broadcast_data WHERE uploaded = 1").get().n,
 		300
 	);
 	assert.equal(
-		r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data WHERE uploaded = 0").get().n,
+		r.db.prepare("SELECT COUNT(*) AS n FROM broadcast_data WHERE uploaded = 0").get().n,
 		450
 	);
 	r.respond = null;
 	assert.equal(await r.uploader.uploadPpiData(), true);
-	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data WHERE uploaded = 0").get().n, 0);
+	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM broadcast_data WHERE uploaded = 0").get().n, 0);
 });
 
 test("upload lock covers database reads and prevents duplicate simultaneous batches", async (t) => {
@@ -954,7 +961,7 @@ test("upload has one automatic entry point and no count/interval gate", async (t
 	// 秒级广播只落库 + 喊一声心跳，不认识「分钟」「判定」「上传」任何一个概念。
 	const broadcast = await readFile(".cool/store/device/broadcast.ts", "utf8");
 	const store = broadcast.slice(
-		broadcast.indexOf("private async storeBroadcastPpiData"),
+		broadcast.indexOf("private async storeBroadcastRecordByDevice"),
 		broadcast.indexOf("private getBroadcastTimestamp")
 	);
 	assert.equal(store.includes("requestPpiUpload"), false);
@@ -1207,7 +1214,7 @@ test("live broadcasts arriving mid-run do not extend it to the batch cap", async
 	r.seed(30);
 	// 实时广播每秒落库一条，比一次 HTTP 往返还快：每批都重查“当前未上传”会被新秒一直喂饱。
 	let liveSec = Math.floor(Date.now() / 1000);
-	const insertLive = r.db.prepare("INSERT INTO ppi_data VALUES (?, ?, 60, 0, 1000, 0, 0)");
+	const insertLive = r.db.prepare("INSERT INTO broadcast_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES (?, ?, 60, 0, 1000, 0, 0)");
 	r.respond = (options) => {
 		liveSec += 1;
 		insertLive.run(String(liveSec), liveSec);
@@ -1217,7 +1224,7 @@ test("live broadcasts arriving mid-run do not extend it to the batch cap", async
 	assert.equal(r.posts.length, 1);
 	assert.equal(r.posts[0].data.datas.length, 30);
 	// 读取期间新到的实时秒留到下一轮，既不撑长本轮，也不算本轮失败。
-	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data WHERE uploaded = 0").get().n, 1);
+	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM broadcast_data WHERE uploaded = 0").get().n, 1);
 });
 
 test("per-run budget leaves a large backlog for later and releases the upload lock", async (t) => {
@@ -1226,7 +1233,7 @@ test("per-run budget leaves a large backlog for later and releases the upload lo
 	assert.equal(await r.uploader.uploadPpiData(), false);
 	assert.ok(r.posts.length <= 10);
 	assert.equal(
-		r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data WHERE uploaded = 0").get().n,
+		r.db.prepare("SELECT COUNT(*) AS n FROM broadcast_data WHERE uploaded = 0").get().n,
 		600
 	);
 	assert.equal(r.uploader.isUploading, false);
@@ -1421,32 +1428,31 @@ test("an idle app still archives its logs instead of holding them in memory", as
 	assert.equal(r.archived.length - base, 2, "the next overdue batch was not archived");
 });
 
-test("broadcast ingest stores activity with PPI and has no sleep staging table", async (t) => {
+test("broadcast ingest writes one second row carrying activity, with no sleep staging table", async (t) => {
 	const source = await readFile(".cool/store/device/broadcast.ts", "utf8");
 	const start = source.indexOf("private async storeBroadcastRecordByDevice");
 	assert.ok(start > 0, "storeBroadcastRecordByDevice not found");
-	// 取到下一个方法定义为止：这里要检查的是“谁在 record != null 里面”。
 	const body = source.slice(start, source.indexOf("\n\tprivate ", start + 10));
-	const guard = body.indexOf("if (record != null)");
-	assert.ok(guard > 0, "the record guard is gone");
-	// 落库结果只允许控制展示缓存，不能再包住任何落库调用。
-	const guardedBlock = body.slice(guard, body.indexOf("}", guard));
+	// 一秒一行：广播只落一次库，展示和上传读的是同一行，没有第二个落库调用。
 	assert.equal(
-		guardedBlock.includes("storeBroadcastPpiData"),
-		false,
-		"PPI storage is still inside the record != null block"
+		body.split("storeBroadcastSecond").length - 1,
+		1,
+		"broadcast ingest must write the second row exactly once"
 	);
-	// PPI 落库必须在展示表 guard 之后发生。
-	assert.ok(
-		body.indexOf("storeBroadcastPpiData") > guard,
-		"PPI storage happens before the record guard"
-	);
+	assert.equal(body.includes("storeBroadcastPpiData"), false);
 	assert.equal(source.includes("storeBroadcastSleepActivity"), false);
 
-	// activity 只随 PPI 保存，不再进入独立的睡眠逐秒表。
+	// activity 随这一秒一起保存，不再进入独立的睡眠逐秒表。
 	const r = await createRuntime(t);
-	assert.equal(await r.manager.storeBroadcastPpiData(1700000000, 60, 980, 500, 2), true);
-	assert.deepEqual(rows(r.db, "SELECT timestamp,activity FROM ppi_data"), [
+	assert.ok(
+		(await r.manager.storeBroadcastSecond({
+			broadcast: makeBroadcast({ utc: 1700000000, hr: 60, spo2: 980, ppi: 500, activity: 2 }),
+			rawHex: "",
+			vHex: "",
+			deviceId: "AA:BB"
+		})) != null
+	);
+	assert.deepEqual(rows(r.db, "SELECT timestamp,activity FROM broadcast_data"), [
 		{ timestamp: 1700000000, activity: 2 }
 	]);
 	assert.equal(
@@ -1526,7 +1532,7 @@ test("scheduled history upload is coalesced and eventually acknowledges saved ro
 	await new Promise(setImmediate);
 	assert.equal(r.uploader.isUploading, false);
 	assert.equal(
-		r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data WHERE uploaded = 1").get().n,
+		r.db.prepare("SELECT COUNT(*) AS n FROM broadcast_data WHERE uploaded = 1").get().n,
 		300
 	);
 });
@@ -1569,7 +1575,7 @@ test("forward history starts at the older edge and stops at the newer edge", asy
 	assert.equal(continues, 9);
 	assert.equal(read.savedRecords, 1200);
 	assert.deepEqual(
-		rows(r.db, "SELECT MIN(timestamp) AS first, MAX(timestamp) AS last FROM ppi_data"),
+		rows(r.db, "SELECT MIN(timestamp) AS first, MAX(timestamp) AS last FROM broadcast_data"),
 		[{ first: 100000, last: 101199 }]
 	);
 });
@@ -1623,7 +1629,7 @@ test("recent window queries from the baseline and excludes future seconds", asyn
 	// 未到来的秒既不落库也不记账：`B` 不会越过 `stableCeiling`。
 	assert.ok(read.savedRecords > 0);
 	assert.equal(
-		r.db.prepare("SELECT MAX(timestamp) AS last FROM ppi_data").get().last < after,
+		r.db.prepare("SELECT MAX(timestamp) AS last FROM broadcast_data").get().last < after,
 		true
 	);
 	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;

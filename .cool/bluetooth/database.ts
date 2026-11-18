@@ -43,23 +43,45 @@ const SLEEP_TABLE_COLUMNS =
 	"report_timestamp,sleep_onset_time,awake_time,light_sleep_period,deep_sleep_period,other_sleep_period,heart_rate_rest,uploaded";
 
 /**
- * ppi_data：一行 = 设备给的一秒。
+ * broadcast_data：一行 = 设备给的一秒（广播秒，或历史补录补回来的秒）。
  *
- * `activity`（设备 `status` 的低 3 位，睡眠详情就靠它）是 NOT NULL：每条广播和每个历史秒
- * 都带着它，没有「这一秒不知道活动状态」的情况。
+ * 广播到达时整行写入设备给的**原始值**，不做生理范围过滤、不换算单位；页面展示时才
+ * 决定哪些值能用。历史补录只填 `hr / spo2 / ppi / activity` 四列，其余保持默认 0——
+ * 补录那条链路本来就没有血压、电量、步数，缺的就是缺的。
+ *
+ * `received_at` 兼作来源标记：广播行是手机接收毫秒（>0），补录行是 0。
+ * 「取最近一条有效广播」靠它过滤：补录补的是刚过去的秒，时间戳可能比最后一条广播更晚，
+ * 不过滤就会取到一条只有四个字段的补录行，首页的 bhr / rmssd 直接变 0。
+ *
+ * `raw_hex / v_hex` 原样保留：解析规则以后会变，原始字节留着才能重算；诊断弹窗也靠它。
  */
-const PPI_TABLE_SQL = `CREATE TABLE IF NOT EXISTS ppi_data (
+const BROADCAST_TABLE_SQL = `CREATE TABLE IF NOT EXISTS broadcast_data (
         id TEXT PRIMARY KEY,
         timestamp INTEGER NOT NULL,
-        hr INTEGER NOT NULL,
-        spo2 INTEGER NOT NULL,
-        ppi INTEGER NOT NULL,
-        activity INTEGER NOT NULL,
+        received_at INTEGER NOT NULL DEFAULT 0,
+        voltage_mv INTEGER NOT NULL DEFAULT 0,
+        ppg_attached INTEGER NOT NULL DEFAULT 0,
+        behavior INTEGER NOT NULL DEFAULT 0,
+        activity INTEGER NOT NULL DEFAULT 0,
+        hr INTEGER NOT NULL DEFAULT 0,
+        ppi INTEGER NOT NULL DEFAULT 0,
+        spo2 INTEGER NOT NULL DEFAULT 0,
+        bhr INTEGER NOT NULL DEFAULT 0,
+        event_seq INTEGER NOT NULL DEFAULT 0,
+        has_new_event INTEGER NOT NULL DEFAULT 0,
+        battery_status INTEGER NOT NULL DEFAULT 0,
+        rmssd INTEGER NOT NULL DEFAULT 0,
+        steps_everyday INTEGER NOT NULL DEFAULT 0,
+        calorie_everyday INTEGER NOT NULL DEFAULT 0,
+        raw_hex TEXT NOT NULL DEFAULT '',
+        v_hex TEXT NOT NULL DEFAULT '',
+        device_id TEXT NOT NULL DEFAULT '',
         uploaded INTEGER NOT NULL DEFAULT 0
       )`;
 
-/** `PPI_TABLE_SQL` 的列名（顺序一致），用于判断已有表是不是当前结构。 */
-const PPI_TABLE_COLUMNS = "id,timestamp,hr,spo2,ppi,activity,uploaded";
+/** `BROADCAST_TABLE_SQL` 的列名（顺序一致），用于判断已有表是不是当前结构。 */
+const BROADCAST_TABLE_COLUMNS =
+	"id,timestamp,received_at,voltage_mv,ppg_attached,behavior,activity,hr,ppi,spo2,bhr,event_seq,has_new_event,battery_status,rmssd,steps_everyday,calorie_everyday,raw_hex,v_hex,device_id,uploaded";
 
 class BluetoothDatabase {
 	private isOpen: boolean = false;
@@ -206,50 +228,26 @@ class BluetoothDatabase {
 
 		await this.execute("CREATE INDEX IF NOT EXISTS idx_sleep_uploaded ON sleep_data(uploaded)");
 
-		await this.recreatePpiTableIfStale();
-		await this.execute(PPI_TABLE_SQL);
+		await this.recreateBroadcastTableIfStale();
+		await this.execute(BROADCAST_TABLE_SQL);
 
-		await this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_timestamp ON ppi_data(timestamp)");
-		await this.execute("CREATE INDEX IF NOT EXISTS idx_ppi_uploaded ON ppi_data(uploaded)");
+		await this.execute(
+			"CREATE INDEX IF NOT EXISTS idx_broadcast_timestamp ON broadcast_data(timestamp)"
+		);
+		await this.execute(
+			"CREATE INDEX IF NOT EXISTS idx_broadcast_uploaded ON broadcast_data(uploaded)"
+		);
 
-		// activity 已随 ppi_data 保存；旧逐秒睡眠暂存表不再有消费者。
+		// activity 已随 broadcast_data 保存；旧逐秒睡眠暂存表不再有消费者。
 		await this.execute("DROP TABLE IF EXISTS sleep_status_data");
 
-		await this.recreateRealtimeBroadcastTableIfLegacy();
-		await this.createRealtimeBroadcastTable();
+		// 单行广播缓存已并入 broadcast_data：整表连同两个时间索引一起丢掉。
+		await this.execute("DROP TABLE IF EXISTS realtime_broadcast_data");
+		await this.execute("DROP INDEX IF EXISTS idx_realtime_broadcast_timestamp");
+		await this.execute("DROP INDEX IF EXISTS idx_realtime_broadcast_received");
 
-		await this.execute(
-			"CREATE INDEX IF NOT EXISTS idx_realtime_broadcast_timestamp ON realtime_broadcast_data(timestamp)"
-		);
-		await this.execute(
-			"CREATE INDEX IF NOT EXISTS idx_realtime_broadcast_received ON realtime_broadcast_data(received_at)"
-		);
-	}
-
-	private async createRealtimeBroadcastTable(): Promise<boolean> {
-		return await this.execute(`CREATE TABLE IF NOT EXISTS realtime_broadcast_data (
-        id TEXT PRIMARY KEY,
-        timestamp INTEGER NOT NULL,
-        received_at INTEGER NOT NULL,
-        utc INTEGER NOT NULL,
-        voltage_mv INTEGER NOT NULL,
-        ppg_attached INTEGER NOT NULL,
-        behavior INTEGER NOT NULL,
-        activity INTEGER NOT NULL,
-        hr INTEGER NOT NULL,
-        ppi INTEGER NOT NULL,
-        spo2 INTEGER NOT NULL,
-        bhr INTEGER NOT NULL,
-        event_seq INTEGER NOT NULL DEFAULT 0,
-        has_new_event INTEGER NOT NULL DEFAULT 0,
-        battery_status INTEGER NOT NULL DEFAULT 0,
-        rmssd INTEGER NOT NULL DEFAULT 0,
-        steps_everyday INTEGER NOT NULL DEFAULT 0,
-        calorie_everyday INTEGER NOT NULL DEFAULT 0,
-        raw_hex TEXT NOT NULL DEFAULT '',
-        v_hex TEXT NOT NULL DEFAULT '',
-        device_id TEXT NOT NULL DEFAULT ''
-      )`);
+		// ppi_data 已改名为 broadcast_data，旧表只在升级时存在一次。
+		await this.execute("DROP TABLE IF EXISTS ppi_data");
 	}
 
 	/** 表的现有列名；表不存在时返回空数组。 */
@@ -263,27 +261,26 @@ class BluetoothDatabase {
 		return names;
 	}
 
-	private async hasColumn(tableName: string, columnName: string): Promise<boolean> {
-		return (await this.tableColumns(tableName)).includes(columnName);
-	}
-
 	/**
-	 * ppi_data 是待上传队列，只认当前结构：列集合对不上、或 `activity` 还是可空的，
-	 * 一律丢表重建。
+	 * broadcast_data 是待上传队列 + 广播留档，只认当前结构：列集合对不上、或 `activity`
+	 * 还是可空的，一律丢表重建。
 	 *
 	 * 缺 `activity` 的表是按「睡眠详情还不在每秒数据里」的版本建的，那些行既没有睡眠详情
 	 * 也没法补出来；可空则意味着旧行会以 `NULL` 进入上传报文。两种都不值得留——留一种，
 	 * 就得在每次写入前挂一条「回填 activity」的语句，而当天写进去的行永远用不上它。
 	 */
-	private async recreatePpiTableIfStale(): Promise<void> {
-		const columns = await this.tableColumns("ppi_data");
+	private async recreateBroadcastTableIfStale(): Promise<void> {
+		const columns = await this.tableColumns("broadcast_data");
 		if (columns.length == 0) return;
-		let stale = columns.join(",") != PPI_TABLE_COLUMNS;
-		if (stale == false) stale = await this.columnIsNullable("ppi_data", "activity");
+		let stale = columns.join(",") != BROADCAST_TABLE_COLUMNS;
+		if (stale == false) stale = await this.columnIsNullable("broadcast_data", "activity");
 		if (stale == false) return;
 
-		logger.info("bluetooth", `[DB] ppi_data 结构已变,丢弃重建: 现有列=${columns.join(",")}`);
-		await this.execute("DROP TABLE IF EXISTS ppi_data");
+		logger.info(
+			"bluetooth",
+			`[DB] broadcast_data 结构已变,丢弃重建: 现有列=${columns.join(",")}`
+		);
+		await this.execute("DROP TABLE IF EXISTS broadcast_data");
 	}
 
 	/** 该列是否可空（`PRAGMA table_info` 的 notnull 位为 0）；列不存在时返回 false。 */
@@ -315,16 +312,6 @@ class BluetoothDatabase {
 
 		logger.info("bluetooth", `[DB] sleep_data 结构已变,丢弃重建: 现有列=${columns.join(",")}`);
 		await this.execute("DROP TABLE IF EXISTS sleep_data");
-	}
-
-	/** realtime_broadcast_data 只是实时缓存；旧结构直接丢弃重建，避免无意义迁移。 */
-	private async recreateRealtimeBroadcastTableIfLegacy(): Promise<void> {
-		const hasStatus = await this.hasColumn("realtime_broadcast_data", "status");
-		const hasStatus2 = await this.hasColumn("realtime_broadcast_data", "status2");
-		if (hasStatus == false && hasStatus2 == false) return;
-
-		logger.info("bluetooth", "[DB] 旧 realtime_broadcast_data 结构已丢弃并重建");
-		await this.execute("DROP TABLE IF EXISTS realtime_broadcast_data");
 	}
 
 	// 执行 SQL 语句

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createRuntime } from "./helpers/boom-runtime.mjs";
+import { createRuntime, makeBroadcast } from "./helpers/boom-runtime.mjs";
 
 const page = (startSec, count = 120) => ({
 	startSec,
@@ -13,7 +13,7 @@ const page = (startSec, count = 120) => ({
 /**
  * 预置一段本地 PPI。
  *
- * 判定只看 `ppi_data.timestamp` 有没有这一秒，`hr/spo2/ppi` 是不是零不影响
+ * 判定只看 `broadcast_data.timestamp` 有没有这一秒，`hr/spo2/ppi` 是不是零不影响
  * 「本地已有」——所以这里全部写 0。
  */
 function seedPpi(db, from, to) {
@@ -21,7 +21,9 @@ function seedPpi(db, from, to) {
 	const values = [];
 	for (let second = from; second < to; second++)
 		values.push(`('${second}',${second},0,0,0,0,0)`);
-	db.exec(`INSERT INTO ppi_data VALUES ${values.join(",")}`);
+	db.exec(
+		`INSERT INTO broadcast_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ${values.join(",")}`
+	);
 }
 
 /**
@@ -586,7 +588,7 @@ test("clearing an app session removes repair bookkeeping but keeps collected sec
 	seedPpi(r.db, now - 300, now);
 	await r.baseline.classify(now);
 	await r.manager.clearHistorySession();
-	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data").get().n, 300);
+	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM broadcast_data").get().n, 300);
 	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM vital_sync_state").get().n, 0);
 	// 清空后基准回到起点，整段重新变成未记账。
 	assert.equal(await r.baseline.getBaseline(), 1);
@@ -764,7 +766,7 @@ test("a range read starts at the baseline and walks toward newer seconds", async
 	assert.equal(connected.queries[0].startSec, 208800);
 	assert.equal(connected.queries[0].direction, 1);
 	assert.equal(read.savedRecords, 1200);
-	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data").get().n, 1200);
+	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM broadcast_data").get().n, 1200);
 	// 每页确认完就把 `B` 推过去，读到哪就记到哪。
 	assert.equal(await r.baseline.getBaseline(), 210000);
 });
@@ -892,7 +894,7 @@ test("a read window starting after the baseline persists data without advancing 
 
 	assert.equal(read.skippedAccounting, true);
 	assert.equal(read.savedRecords, 120);
-	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data").get().n, 120);
+	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM broadcast_data").get().n, 120);
 	assert.equal(await r.baseline.getBaseline(), start - 600, "later start must not move B");
 });
 
@@ -917,7 +919,7 @@ test("a page write failure keeps the already-committed rows readable", async (t)
 	assert.equal(read.status, "SEND_FAILED");
 	assert.equal(read.savedRecords, 120);
 	// 落库与记账都已经发生：下一次连接从新的 B 继续，不需要重读这一段。
-	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data").get().n, 120);
+	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM broadcast_data").get().n, 120);
 	assert.equal(await r.baseline.getBaseline(), 208920);
 });
 
@@ -952,7 +954,7 @@ test("a page later than the window start confirms the skipped seconds as no-data
 	assert.equal(result.saveOk, true);
 	assert.equal(result.savedRecords, 120);
 	assert.equal(continues, 1);
-	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data").get().n, 120);
+	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM broadcast_data").get().n, 120);
 	// 被跳过的 60 秒按「设备已确认无数据」处理，和这一页一起把 `B` 推到页终点——
 	// 不这么做 `B` 就会永远卡在这 60 秒前面，每次心跳都重连一次。
 	assert.equal(await r.baseline.getBaseline(), from + 60 + 120);
@@ -995,7 +997,7 @@ test("a device page at the window right edge ends the read as no-data, not as fa
 	assert.equal(result.saveOk, true);
 	assert.equal(result.status, "DONE");
 	assert.equal(continues, 0);
-	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data").get().n, 0);
+	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM broadcast_data").get().n, 0);
 	// 设备说没有就按「没有」记账：整段确认无数据，`B` 直接推到窗口右端。
 	const ceiling = historyCeiling(readAtSec);
 	const baseline = await r.baseline.getBaseline();
@@ -1072,22 +1074,22 @@ test("persistPage rejection stops the read without saving anything further", asy
 	assert.equal(read.saveOk, true);
 	// 落库失败的路径由 saveVisualPage 的异常分支覆盖（见上面的落库失败用例）；
 	// 这里确认读取本身不因为 persistPage 返回 true 而多做工作。
-	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data").get().n > 0, true);
+	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM broadcast_data").get().n > 0, true);
 });
 
 /* ===== 页面落库语义（无效秒、占位修复） ===== */
 
-test("an invalid second never overwrites an existing ppi_data row", async (t) => {
+test("an invalid second never overwrites an existing broadcast_data row", async (t) => {
 	const r = await setup(t);
 	const start = 209880;
 	const to = 210000;
 	await r.prime(start);
 	// 先用一页真实数据建起本地这一段的秒。
 	await readerReturning(r, page(start, 120)).readVitalRangeForward(start, to);
-	r.db.prepare("UPDATE ppi_data SET hr=70, ppi=1234, uploaded=1").run();
+	r.db.prepare("UPDATE broadcast_data SET hr=70, ppi=1234, uploaded=1").run();
 	const before = r.db
 		.prepare(
-			"SELECT COUNT(*) AS n, SUM(hr) AS hr, SUM(ppi) AS ppi, SUM(uploaded) AS up FROM ppi_data"
+			"SELECT COUNT(*) AS n, SUM(hr) AS hr, SUM(ppi) AS ppi, SUM(uploaded) AS up FROM broadcast_data"
 		)
 		.get();
 	assert.equal(before.n, 120);
@@ -1101,13 +1103,13 @@ test("an invalid second never overwrites an existing ppi_data row", async (t) =>
 
 	const after = r.db
 		.prepare(
-			"SELECT COUNT(*) AS n, SUM(hr) AS hr, SUM(ppi) AS ppi, SUM(uploaded) AS up FROM ppi_data"
+			"SELECT COUNT(*) AS n, SUM(hr) AS hr, SUM(ppi) AS ppi, SUM(uploaded) AS up FROM broadcast_data"
 		)
 		.get();
 	// 行数、数值、上传标记都不得被无效数据改动。
 	assert.deepEqual({ ...after }, { ...before });
 	assert.equal(
-		r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data WHERE hr=255 OR ppi=65535").get().n,
+		r.db.prepare("SELECT COUNT(*) AS n FROM broadcast_data WHERE hr=255 OR ppi=65535").get().n,
 		0
 	);
 });
@@ -1120,7 +1122,7 @@ test("a valid re-read repairs a legacy placeholder row but never a real value", 
 	// 模拟旧版占位记录与一条真实记录并存。
 	r.db
 		.prepare(
-			"INSERT INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES " +
+			"INSERT INTO broadcast_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES " +
 				`('${start}',${start},255,0,65535,2,1),` +
 				`('${start + 1}',${start + 1},70,0,1234,2,1)`
 		)
@@ -1131,12 +1133,12 @@ test("a valid re-read repairs a legacy placeholder row but never a real value", 
 	for (let i = 1; i < valid.vitalData.length; i++) valid.vitalData[i].valid = false;
 	await readerReturning(r, valid).readVitalRangeForward(start, end);
 	const repaired = r.db
-		.prepare(`SELECT hr, ppi, uploaded FROM ppi_data WHERE id='${start}'`)
+		.prepare(`SELECT hr, ppi, uploaded FROM broadcast_data WHERE id='${start}'`)
 		.get();
 	// 占位行被补全并重新排队上传。
 	assert.deepEqual({ ...repaired }, { hr: 0, ppi: 0, uploaded: 0 });
 	const untouched = r.db
-		.prepare(`SELECT hr, ppi, uploaded FROM ppi_data WHERE id='${start + 1}'`)
+		.prepare(`SELECT hr, ppi, uploaded FROM broadcast_data WHERE id='${start + 1}'`)
 		.get();
 	// 真实值不被重读改写（占位修复只认 hr=255 AND ppi=65535 的行）。
 	assert.deepEqual({ ...untouched }, { hr: 70, ppi: 1234, uploaded: 1 });
@@ -1147,7 +1149,7 @@ test("a fully valid re-read repairs a broadcast all-FF second", async (t) => {
 	const start = 209880;
 	await r.prime(start);
 	// 广播把设备给的 FF 原始值照存（广播不按有效性过滤）。
-	assert.equal(await r.manager.storeBroadcastPpiData(start, 255, 0, 65535, 2), true);
+	assert.ok((await r.manager.storeBroadcastSecond({ broadcast: makeBroadcast({ utc: start, hr: 255, spo2: 0, ppi: 65535, activity: 2 }), rawHex: "", vHex: "", deviceId: "AA:BB" })) != null)
 	// 补录给出真实值：必须写成 60/1000 而不是占位值，断言才有区分度
 	// （若写成 0/0，就无法分辨「补全了」和「压根没动」）。
 	const valid = page(start, 120);
@@ -1155,13 +1157,13 @@ test("a fully valid re-read repairs a broadcast all-FF second", async (t) => {
 	for (let i = 1; i < valid.vitalData.length; i++) valid.vitalData[i].valid = false;
 	await readerReturning(r, valid).readVitalRangeForward(start, start + 120);
 	const repaired = r.db
-		.prepare(`SELECT hr, ppi, uploaded FROM ppi_data WHERE id='${start}'`)
+		.prepare(`SELECT hr, ppi, uploaded FROM broadcast_data WHERE id='${start}'`)
 		.get();
 	// 补全并重新排队上传（广播存进去的是 uploaded=0，重读后仍是 0）。
 	assert.deepEqual({ ...repaired }, { hr: 60, ppi: 1000, uploaded: 0 });
 	// 整行 FF 是占位判定的唯一依据：补完就不该再有该行残留 FF。
 	assert.equal(
-		r.db.prepare(`SELECT COUNT(*) AS n FROM ppi_data WHERE hr=255 AND ppi=65535`).get().n,
+		r.db.prepare(`SELECT COUNT(*) AS n FROM broadcast_data WHERE hr=255 AND ppi=65535`).get().n,
 		0
 	);
 });
@@ -1175,7 +1177,7 @@ test("historical vital persistence stores only the low three activity bits", asy
 	for (let i = 1; i < vital.vitalData.length; i++) vital.vitalData[i].valid = false;
 	await readerReturning(r, vital).readVitalRangeForward(start, start + 120);
 	assert.equal(
-		r.db.prepare(`SELECT activity FROM ppi_data WHERE id='${start}'`).get().activity,
+		r.db.prepare(`SELECT activity FROM broadcast_data WHERE id='${start}'`).get().activity,
 		5
 	);
 });
@@ -1185,11 +1187,11 @@ test("a partially invalid broadcast row is not repaired by a valid re-read", asy
 	const start = 209880;
 	await r.prime(start);
 	// 广播的 hr 与 ppi 各自独立取原始值：心率有效但 PPI 缺失时是混合行。
-	assert.equal(await r.manager.storeBroadcastPpiData(start, 70, 0, 65535, 2), true);
+	assert.ok((await r.manager.storeBroadcastSecond({ broadcast: makeBroadcast({ utc: start, hr: 70, spo2: 0, ppi: 65535, activity: 2 }), rawHex: "", vHex: "", deviceId: "AA:BB" })) != null)
 	const valid = page(start, 120);
 	for (let i = 1; i < valid.vitalData.length; i++) valid.vitalData[i].valid = false;
 	await readerReturning(r, valid).readVitalRangeForward(start, start + 120);
-	const row = r.db.prepare(`SELECT hr, ppi FROM ppi_data WHERE id='${start}'`).get();
+	const row = r.db.prepare(`SELECT hr, ppi FROM broadcast_data WHERE id='${start}'`).get();
 	// 占位修复要求整行都是 FF，混合行落不进这个条件，只能保留广播的原值。
 	assert.deepEqual({ ...row }, { hr: 70, ppi: 65535 });
 });
@@ -1201,7 +1203,7 @@ test("a zero-value page is queued for upload rather than treated as missing", as
 	await connected.reader.readVitalRangeForward(start, start + 120);
 	// 0 是设备返回的有效原始值，必须进入上传队列。
 	assert.equal(
-		r.db.prepare("SELECT COUNT(*) AS n FROM ppi_data WHERE hr=0 AND ppi=0 AND uploaded=0").get()
+		r.db.prepare("SELECT COUNT(*) AS n FROM broadcast_data WHERE hr=0 AND ppi=0 AND uploaded=0").get()
 			.n,
 		120
 	);
@@ -1212,13 +1214,13 @@ test("a zero-value page is queued for upload rather than treated as missing", as
 test("database transaction excludes interleaved writes and rolls back only its own changes", async (t) => {
 	const r = await createRuntime(t);
 	r.failSql = (sql) => sql === "INVALID";
-	const tx = r.database.transaction(["INSERT INTO ppi_data VALUES ('1',1,0,0,0,0,0)", "INVALID"]);
-	const concurrent = r.database.execute("INSERT INTO ppi_data VALUES ('2',2,0,0,0,0,0)");
+	const tx = r.database.transaction(["INSERT INTO broadcast_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('1',1,0,0,0,0,0)", "INVALID"]);
+	const concurrent = r.database.execute("INSERT INTO broadcast_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ('2',2,0,0,0,0,0)");
 	assert.equal(await tx, false);
 	assert.equal(await concurrent, true);
 	assert.deepEqual(
 		r.db
-			.prepare("SELECT id FROM ppi_data")
+			.prepare("SELECT id FROM broadcast_data")
 			.all()
 			.map((x) => x.id),
 		["2"]

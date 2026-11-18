@@ -7,8 +7,8 @@ export const HISTORY_PPI_RETENTION_SEC = 30 * 24 * 60 * 60;
 /**
  * 本地 PPI 覆盖查询。
  *
- * 这里**只碰 `ppi_data`**。「设备已确认」的那一半不落表——`B` 自己就是「已经算到哪」的
- * 那条线，读取每确认一页就把它推过去，所以在分类看来 `ppi_data` 没数据就是真的没数据
+ * 这里**只碰 `broadcast_data`**。「设备已确认」的那一半不落表——`B` 自己就是「已经算到哪」的
+ * 那条线，读取每确认一页就把它推过去，所以在分类看来 `broadcast_data` 没数据就是真的没数据
  * （见 `baseline.ts` 的 `HistoryBaseline`）。
  */
 class HistoryCoverageService {
@@ -26,7 +26,7 @@ class HistoryCoverageService {
 	async getPpiTimestamps(range: HistoryTimeRange): Promise<number[]> {
 		if (range.toSec <= range.fromSec) return [];
 		const result = await bluetoothDatabase.query(
-			`SELECT timestamp FROM ppi_data WHERE timestamp>=${range.fromSec} AND timestamp<${range.toSec} ORDER BY timestamp ASC`
+			`SELECT timestamp FROM broadcast_data WHERE timestamp>=${range.fromSec} AND timestamp<${range.toSec} ORDER BY timestamp ASC`
 		);
 		if (result == null) throw new Error("读取本地 PPI 覆盖失败");
 		const values: number[] = [];

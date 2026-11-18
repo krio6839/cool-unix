@@ -10,7 +10,7 @@ const BROADCAST_STALE_MS = 5 * 60 * 1000;
  *
  * 这里只服务首页健康卡片：那四张卡要跟设备实时跳动，不能等接口轮询。
  * 其余页面（身体指标 / 状态 / 负荷 / 睡眠）一律读接口，不碰设备原始值。
- * 数据来源是本地 realtime_broadcast_data 最新记录或新收到的 0x50 广播。
+ * 数据来源是本地 broadcast_data 里最近一条广播行，或新收到的 0x50 广播。
  */
 export class Realtime {
 	private staleTimer: number = 0;
@@ -66,7 +66,7 @@ export class Realtime {
 	}
 
 	async refreshFromLatestBroadcastRecord(): Promise<void> {
-		const record = await bluetoothDataManager.getLatestRealtimeBroadcastRecord();
+		const record = await bluetoothDataManager.getLatestBroadcastSecond();
 		if (record == null) {
 			this.scheduleInitialRestore();
 			return;

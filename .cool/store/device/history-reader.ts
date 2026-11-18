@@ -592,10 +592,10 @@ export class DeviceHistoryReader implements RangeReader {
 	}
 
 	/**
-	 * 落一页数据并记账，顺序固定：先把有效秒写进 `ppi_data`（`uploaded=0`）留住数据，
+	 * 落一页数据并记账，顺序固定：先把有效秒写进 `broadcast_data`（`uploaded=0`）留住数据，
 	 * 再把该页**可确认的范围**记进 `B`（`advanceAccounted` 内部按 `stableCeiling` 封顶）。
 	 *
-	 * 无效秒（全 `FF`）不写 `ppi_data`，但它们同样是「设备确认这里没有」，所以整页范围仍然
+	 * 无效秒（全 `FF`）不写 `broadcast_data`，但它们同样是「设备确认这里没有」，所以整页范围仍然
 	 * 让 `B` 前进。若只有取到数据才算数，设备确实没记录的那一分钟会永远不合格、`B` 永远卡死。
 	 *
 	 * `account` 为 `false` 时只落库：窗口左端晚于 `B`，这段记账会越过没读过的秒。
@@ -624,12 +624,12 @@ export class DeviceHistoryReader implements RangeReader {
 			// 旧版留下的占位记录（hr=255/ppi=65535）要按真实值修正并重新排队上传；
 			// 其余情况由下面的 INSERT OR IGNORE 补写。
 			if (item.hr != 255 || item.ppi != 65535)
-				statements.push(`UPDATE ppi_data SET hr=${item.hr},ppi=${item.ppi},uploaded=0
+				statements.push(`UPDATE broadcast_data SET hr=${item.hr},ppi=${item.ppi},uploaded=0
    WHERE id='${timestamp}' AND hr=255 AND ppi=65535`);
 		}
 		if (values.length > 0)
 			statements.push(
-				`INSERT OR IGNORE INTO ppi_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ${values.join(",")}`
+				`INSERT OR IGNORE INTO broadcast_data (id,timestamp,hr,spo2,ppi,activity,uploaded) VALUES ${values.join(",")}`
 			);
 		if (statements.length > 0) {
 			if ((await bluetoothDatabase.transaction(statements)) == false)

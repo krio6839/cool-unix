@@ -68,7 +68,7 @@ export type RealtimeBroadcastRecord = {
  * 0x50 广播入库输入。
  * 调用方只提供解析结果和原始上下文，数据库字段映射统一由 BluetoothDataManager 维护。
  */
-export type StoreRealtimeBroadcastInput = {
+export type StoreBroadcastSecondInput = {
 	broadcast: RealtimeBroadcast;
 	rawHex: string;
 	vHex: string;

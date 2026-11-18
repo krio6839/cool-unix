@@ -40,6 +40,14 @@ export class DeviceBroadcast {
 	private lastBoundBroadcastHandledAt: number = 0;
 	private lastAcceptedBoundBroadcastUtc: number = 0;
 	/**
+	 * 最近一次真正落库的设备秒。
+	 *
+	 * `shouldSkipBoundBroadcastDuplicate()` 只按 utc 去掉「绑定设备的扫描广播」的重复帧；
+	 * GATT 连接期间的 0x50（`source=gatt`）和未绑定设备的帧都走不到那层，10Hz 逐帧落库。
+	 * 落库表 `broadcast_data` 是秒粒度（主键就是秒），这里按秒兜一次，同秒其余帧只更新内存展示。
+	 */
+	private lastStoredBroadcastSec: number = 0;
+	/**
 	 * 最近一次收到绑定广播的时刻。
 	 *
 	 * **刻意不随扫描窗口重置**（`resetBoundScanWindow()` 不清它）：它要回答的是
@@ -92,7 +100,7 @@ export class DeviceBroadcast {
 
 	private async hydrateLatestEventSeq(): Promise<void> {
 		try {
-			const record = await bluetoothDataManager.getLatestRealtimeBroadcastRecord();
+			const record = await bluetoothDataManager.getLatestBroadcastSecond();
 			if (record == null || record.deviceId == "") return;
 			this.lastEventSeqByDevice.set(record.deviceId, record.eventSeq);
 			this.seenEventSeqByDevice.set(record.deviceId, true);
@@ -519,9 +527,9 @@ export class DeviceBroadcast {
 	/**
 	 * 时间不可信的整帧直接丢弃（返回 true），不拆出「只留生理值」这条路。
 	 *
-	 * `utc` 就是 `realtime_broadcast_data` / `ppi_data` 的时间轴主键，留一帧「时间是
+	 * `utc` 就是 `broadcast_data` 的时间轴主键，留一帧「时间是
 	 * 2000-01-01」的心率落库，等于把数据写到错误的那一天去，比丢掉更糟。下面
-	 * `storeBroadcastPpiData()` 里「原始值完整落库」说的是**生理值不做范围过滤**，
+	 * `storeBroadcastSecond()` 里「原始值完整落库」说的是**生理值不做范围过滤**，
 	 * 不包含时间。2026-10-15 明确：时间不对，整帧都不要。
 	 */
 	private handleInvalidBroadcastTime(ctx: BroadcastPacketContext, r: RealtimeBroadcast): boolean {
@@ -727,36 +735,26 @@ export class DeviceBroadcast {
 		ctx: BroadcastPacketContext,
 		r: RealtimeBroadcast
 	): Promise<void> {
-		const record = await bluetoothDataManager.storeRealtimeBroadcast({
+		// 绑定设备的扫描广播已经按 utc 去过重，但 GATT 期间（source=gatt）和未绑定设备没有
+		// 那层保护，10Hz 会逐帧落库。表是秒粒度，同秒其余帧只更新内存展示。
+		const sec = this.getBroadcastTimestamp(r);
+		if (sec == this.lastStoredBroadcastSec) return;
+		this.lastStoredBroadcastSec = sec;
+		// 生理值不做范围过滤：hr/ppi/spo2 的「有效位」只影响展示与诊断，收到的原始值照样落库。
+		// 时间不在这个豁免里——时间不可信的整帧在 handleInvalidBroadcastTime() 就已经丢了。
+		const record = await bluetoothDataManager.storeBroadcastSecond({
 			broadcast: r,
 			rawHex: ctx.rawHex,
 			vHex: ctx.vHex,
 			deviceId: ctx.deviceId
 		});
 		if (record != null) {
+			// 同一行既是展示数据也是待上传数据：落库成功就同步刷新首页四张卡。
 			realtime.setBroadcastRecord(record);
+			// 广播只采集：落库成功后喊一声心跳，由它决定判不判、传不传。
+			// 这里不认识「分钟」「判定」「上传」任何一个概念——节奏全部收敛在 device-tick.ts。
+			this.device.tick.poke("broadcast");
 		}
-		// 入库失败只影响展示用的广播表；上传使用的 PPI（含 activity）独立落库。
-		await this.storeBroadcastPpiData(r);
-	}
-
-	private async storeBroadcastPpiData(r: RealtimeBroadcast): Promise<void> {
-		const timestamp = this.getBroadcastTimestamp(r);
-		// 生理值不做范围过滤：hr/ppi/spo2 的「有效位」只影响展示与诊断，收到的原始值照样落库。
-		// 时间不在这个豁免里——时间不可信的整帧在 handleInvalidBroadcastTime() 就已经丢了。
-		const hr = r.hr;
-		const spo2 = r.spo2;
-		const ppi = r.ppi;
-		const ok = await bluetoothDataManager.storeBroadcastPpiData(
-			timestamp,
-			hr,
-			spo2,
-			ppi,
-			r.activity & 0x07
-		);
-		// 广播只采集：落库成功后喊一声心跳，由它决定判不判、传不传。
-		// 这里不认识「分钟」「判定」「上传」任何一个概念——节奏全部收敛在 device-tick.ts。
-		if (ok == true) this.device.tick.poke("broadcast");
 	}
 
 	private getBroadcastTimestamp(r: RealtimeBroadcast): number {

@@ -4,7 +4,7 @@
  * 职责：
  * - 蓝牙适配器初始化、状态监听
  * - 设备扫描：设备名前缀匹配 "BOOM-"
- * - 绑定设备广播解析 → realtime_broadcast_data，本轮状态同步到 device.realtime
+ * - 绑定设备广播解析 → broadcast_data（每秒一行），本轮状态同步到 device.realtime
  * - GATT 临时直连 + 配对扫描（首次配对）
  * - 连接成功后的 GATT 流程（services 发现 → notify 启用）
  */

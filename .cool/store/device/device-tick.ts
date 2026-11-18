@@ -7,7 +7,7 @@
  *
  * 一次 tick 固定三步：`classify()`（同时推进 `B` 与 `C`）→ `uploadData()`，然后
  * `maybeBackfillEvents()` 与 `maybeConnect()`。判定与上传是两件独立的事——判定依据是本地
- * 的 `ppi_data`，不是上传结果，弱网下上传失败只会让 `uploaded` 保持 0，不会把已经收齐的秒
+ * 的 `broadcast_data`，不是上传结果，弱网下上传失败只会让 `uploaded` 保持 0，不会把已经收齐的秒
  * 判成待补。
  *
  * 广播在线时分类每轮都在追，`B` 与 `C` 因此一起贴着 `stableCeiling`，不累积。
