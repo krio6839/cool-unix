@@ -212,7 +212,6 @@ export function request(options: RequestOptions): Promise<any | null> {
 							const hasCode = codeVal != null;
 							// 兼容非标准响应（如上传接口：{ message, status: "success" }）
 							const isSuccessStatus = statusVal == "success";
-							console.log(isSuccessStatus, hasCode);
 							if (hasCode) {
 								// 标准响应：按原有 code 校验
 								const { code, message, data } = parse<Response>(

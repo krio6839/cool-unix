@@ -11,6 +11,8 @@ import type {
 	SyncReason
 } from "./types/gatt-types";
 import { logger } from "../../service/logger";
+import { BROADCAST_TIME_DRIFT_SEC } from "./broadcast";
+import type { ProtocolProbeResult } from "./protocol-probe";
 
 const EVENT_SYNC_WINDOW_SECONDS = 24 * 60 * 60;
 const EVENT_SYNC_MAX_COUNT = 10;
@@ -60,9 +62,63 @@ export class DeviceGattScheduler {
 	 * 同一轮内不再重复取用，否则回队任务会立刻再次命中预算检查，空转到整轮超时。
 	 */
 	private flushDeferredKeys = new Map<string, boolean>();
+	/**
+	 * 中止代号。`abortAll()` 自增，在途 flush 靠它发现自己已经作废。
+	 *
+	 * 只看 `tasks.length` 不够：任务被 `takeNextTask()` 取走后队列就是空的，flush 还会
+	 * 接着探活、发帧，而那次连接可能已经被删除设备流程断开。
+	 */
+	private abortGeneration: number = 0;
 
 	constructor(device: Device) {
 		this.device = device;
+	}
+
+	/**
+	 * 清空队列并中止在途 flush。
+	 *
+	 * 删除设备时 `unbind` 会抢通道、断连接，队列里的任务如果不作废，就会在一条已经
+	 * 断掉（或即将断掉）的链路上继续写特征值，换回 10006/10004/10008 三连错误。
+	 */
+	abortAll(reason: string): void {
+		const dropped = this.tasks.length;
+		this.abortGeneration++;
+		// 顺序不能反：`failManualTasks()` 靠遍历 `tasks` 找 manual 任务，清空后它就没事可做了，
+		// 手动命令的调用方会永远挂在 await 上。
+		this.failManualTasks();
+		this.tasks = [];
+		this.flushDeferredKeys.clear();
+		this.pauseCurrentFlush = true;
+		this.pendingFlushReason = "";
+		// 已出队、正在跑的任务由 flush 的代号检查收尾，这里只负责队列里的。
+		logger.info(
+			"bluetooth",
+			`[BOOM-SCHED] 队列已中止: reason=${reason}, 丢弃=${dropped}, 在途=${this.runningTask != null}`
+		);
+	}
+
+	/** 当前这次 flush 是否已经被 `abortAll()` 作废。 */
+	private isFlushAborted(generation: number): boolean {
+		return generation != this.abortGeneration;
+	}
+
+	/**
+	 * 探活读回的设备时间偏了就顺手排一次校时，本轮直接执行，不额外连一次设备。
+	 *
+	 * `sourceUtc` 传 0：这不是广播触发的，执行器按「探活发现偏差」记日志。
+	 */
+	private requestTimeSyncFromProbe(probe: ProtocolProbeResult): void {
+		if (probe.deviceTimestamp <= 0) return;
+		const nowSec = Math.floor(Date.now() / 1000);
+		let diffSec = nowSec - probe.deviceTimestamp;
+		if (diffSec < 0) diffSec = 0 - diffSec;
+		if (diffSec <= BROADCAST_TIME_DRIFT_SEC) return;
+		if (this.device.broadcast.tryEnqueueTimeSync(diffSec, 0) == true) {
+			logger.warn(
+				"bluetooth",
+				`[BOOM-SCHED] 探活发现设备时间偏差，本轮顺带校时: diff=${diffSec}s`
+			);
+		}
 	}
 
 	enqueueTimeSync(diffSec: number, broadcastUtc: number): void {
@@ -208,6 +264,8 @@ export class DeviceGattScheduler {
 		let shouldContinueFlush = false;
 		let connected = false;
 		let protocolHealthy = false;
+		const generation = this.abortGeneration;
+		let aborted = false;
 		try {
 			// 一轮 flush 只占用一次 GATT：停广播、连接、按优先级执行、最后恢复广播。
 			logger.info(
@@ -228,8 +286,23 @@ export class DeviceGattScheduler {
 				this.failManualTasks();
 				return;
 			}
+			if (this.isFlushAborted(generation) == true) {
+				aborted = true;
+				logger.info("bluetooth", "[BOOM-SCHED] 本轮队列已中止，跳过探活");
+				return;
+			}
 			await sleepTimeout(EVENT_SYNC_AFTER_CONNECT_DELAY_MS);
+			if (this.isFlushAborted(generation) == true) {
+				aborted = true;
+				logger.info("bluetooth", "[BOOM-SCHED] 本轮队列已中止，放弃探活");
+				return;
+			}
 			const initialProbe = await this.device.protocolProbe.check();
+			if (this.isFlushAborted(generation) == true) {
+				aborted = true;
+				logger.info("bluetooth", "[BOOM-SCHED] 本轮队列已中止，跳过执行");
+				return;
+			}
 			if (initialProbe.status != "OK") {
 				this.device.health.recordUnresponsive();
 				this.failManualTasks();
@@ -240,15 +313,23 @@ export class DeviceGattScheduler {
 				return;
 			}
 			protocolHealthy = true;
+			// 探活已经读回了设备时间：偏了就在本轮顺手校掉。连接态扫描是停的，收不到广播，
+			// 设备 RTC 真偏了只能靠这里发现——绑定后的新设备往往就是这种情况。
+			this.requestTimeSyncFromProbe(initialProbe);
 			// 一次补录就是把 `[B, stableCeiling)` 读完，不设时长上限。连接期间掐掉广播留下的
 			// 缺秒就是普通缺秒，断开时不需要为它做任何事，由下一次连接顺带补掉。
-			while (this.tasks.length > 0) {
+			while (this.tasks.length > 0 && this.isFlushAborted(generation) == false) {
 				const task = this.takeNextTask();
 				if (task == null) break;
 				const outcome = await this.runTask(task);
 				if (outcome == "STOP_DEVICE_UNRESPONSIVE") {
 					protocolHealthy = false;
 					this.device.health.recordUnresponsive();
+					break;
+				}
+				if (this.isFlushAborted(generation) == true) {
+					aborted = true;
+					logger.info("bluetooth", "[BOOM-SCHED] 本轮队列已中止，停止执行后续任务");
 					break;
 				}
 				if (this.pauseCurrentFlush == true) {
@@ -261,7 +342,8 @@ export class DeviceGattScheduler {
 		} catch (e) {
 			logger.warn("bluetooth", "[BOOM-SCHED] 队列执行异常:", e);
 		} finally {
-			if (connected == true) {
+			// 中止后连接归删除流程处理（它自己会断），这里再切广播会把扫描拉起来。
+			if (connected == true && aborted == false) {
 				if (this.shouldRestoreBroadcast() == true) {
 					try {
 						await this.device.connection.switchToBroadcastMode();
@@ -283,6 +365,10 @@ export class DeviceGattScheduler {
 					nextReason = this.pendingFlushReason as GattFlushReason;
 				}
 				this.requestFlush(nextReason);
+			} else if (this.tasks.length > 0 && this.pendingFlushReason != "") {
+				// 中止之后又入队的新任务（例如重绑后的校时）：本轮已作废，但 pending 不能吞掉，
+				// 否则新任务要等到下一次有广播/心跳来推它才会执行。
+				this.requestFlush(this.pendingFlushReason as GattFlushReason);
 			}
 		}
 	}
@@ -365,9 +451,14 @@ export class DeviceGattScheduler {
 		}
 		let ok = false;
 		try {
+			// `broadcastUtc == 0` 是探活那条路排的，此时没有广播可比对，不能说成「偏差过大」。
+			const trigger =
+				task.broadcastUtc > 0
+					? "广播时间偏差过大"
+					: "探活发现设备时间偏差";
 			logger.warn(
 				"bluetooth",
-				`[BOOM-ADV] 广播时间偏差过大，自动校时: diff=${task.diffSec}s, advUtc=${task.broadcastUtc}`
+				`[BOOM-ADV] ${trigger}: diff=${task.diffSec}s, advUtc=${task.broadcastUtc}`
 			);
 			const nowSec = Math.floor(Date.now() / 1000);
 			const beforeSeq = this.device.event.boomTimestampSeqValue;

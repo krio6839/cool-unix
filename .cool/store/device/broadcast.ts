@@ -17,7 +17,8 @@ import { logger } from "../../service/logger";
 import type { DeviceInfo } from "../../bluetooth/kux";
 //#endif
 
-const BROADCAST_TIME_DRIFT_SEC = 10;
+/** 设备时间与手机差多少秒算「不可信」。探活那条路也用同一个门槛，所以导出。 */
+export const BROADCAST_TIME_DRIFT_SEC = 10;
 const BROADCAST_TIME_SYNC_DRIFT_SEC = 60;
 const BROADCAST_TIME_SYNC_CONFIRM_MS = 5 * 1000;
 const BROADCAST_TIME_SYNC_COOLDOWN_MS = 60 * 1000;
@@ -50,6 +51,13 @@ export class DeviceBroadcast {
 	private lastBoundScanCallbackAt: number = 0;
 	private lastBoundScanDebugAt: number = 0;
 	private lastTimeSyncAttemptAt: number = 0;
+	/**
+	 * 冷却期内「本条已丢但校时被跳过」的上次日志时刻。
+	 *
+	 * 设备时钟偏几年时每一帧都会走到确认分支，不节流就是每 100ms 一条同样的 warn，
+	 * 把真正有用的日志冲掉。
+	 */
+	private lastTimeSyncSkipLogAt: number = 0;
 	private lastEventSeqByDevice = new Map<string, number>();
 	private seenEventSeqByDevice = new Map<string, boolean>();
 	private pendingEventSyncTimer: number = 0;
@@ -524,11 +532,19 @@ export class DeviceBroadcast {
 		this.publishDebugInfoByDevice(ctx, r);
 		const diffSec = this.getBroadcastUtcDiffSec(r);
 		if (this.isTimeSyncDriftConfirmed(diffSec, r.utc) == true) {
-			logger.warn(
-				"bluetooth",
-				`[BOOM-ADV] 广播 UTC 不可信，丢弃本条数据并尝试校时: device=${ctx.deviceId}, diff=${diffSec}s, 首次偏差=${this.timeSyncDriftSec}s, utc=${r.utc}`
-			);
-			this.requestTimeSyncFromBroadcast(diffSec, r.utc);
+			const requested = this.requestTimeSyncFromBroadcast(diffSec, r.utc);
+			if (requested == true) {
+				logger.warn(
+					"bluetooth",
+					`[BOOM-ADV] 广播 UTC 不可信，丢弃本条数据并投递校时: device=${ctx.deviceId}, diff=${diffSec}s, 首次偏差=${this.timeSyncDriftSec}s, utc=${r.utc}`
+				);
+			} else if (Date.now() - this.lastTimeSyncSkipLogAt >= 5000) {
+				this.lastTimeSyncSkipLogAt = Date.now();
+				logger.warn(
+					"bluetooth",
+					`[BOOM-ADV] 广播 UTC 不可信，丢弃本条数据（校时冷却中）: device=${ctx.deviceId}, diff=${diffSec}s, utc=${r.utc}`
+				);
+			}
 		} else {
 			logger.warn(
 				"bluetooth",
@@ -630,14 +646,50 @@ export class DeviceBroadcast {
 		this.device.scheduler.enqueueReadEvent(deviceId, eventSeq);
 	}
 
-	private requestTimeSyncFromBroadcast(diffSec: number, broadcastUtc: number): void {
-		if (this.device.boundDeviceId == "") return;
-		const nowSec = Math.floor(Date.now() / 1000);
-		if (this.hasRecentGoodGattTimestamp(nowSec) == true) return;
+	/**
+	 * 校时的唯一入口：冷却期内返回 false，否则入队并占住冷却。
+	 *
+	 * 广播和 GATT 探活两条来源共用它。探活那条是给「连接态」兜底的——连接期间扫描是停的，
+	 * 收不到广播，设备 RTC 真偏了也不会有人发现，而探活本来就每轮读回一次设备时间。
+	 */
+	tryEnqueueTimeSync(diffSec: number, sourceUtc: number): boolean {
+		if (this.device.boundDeviceId == "") return false;
 		const nowMs = Date.now();
-		if (nowMs - this.lastTimeSyncAttemptAt < BROADCAST_TIME_SYNC_COOLDOWN_MS) return;
+		if (nowMs - this.lastTimeSyncAttemptAt < BROADCAST_TIME_SYNC_COOLDOWN_MS) {
+			return false;
+		}
 		this.lastTimeSyncAttemptAt = nowMs;
-		this.device.scheduler.enqueueTimeSync(diffSec, broadcastUtc);
+		this.device.scheduler.enqueueTimeSync(diffSec, sourceUtc);
+		return true;
+	}
+
+	/**
+	 * 返回是否真的投递了校时任务（冷却中被吞掉的返回 false）。
+	 *
+	 * 调用方靠这个返回值区分「已经安排校时」和「只是把帧丢了」，否则日志会把冷却期
+	 * 说成「正在尝试校时」，排查时完全误导。
+	 */
+	private requestTimeSyncFromBroadcast(
+		diffSec: number,
+		broadcastUtc: number
+	): boolean {
+		const nowSec = Math.floor(Date.now() / 1000);
+		if (this.hasRecentGoodGattTimestamp(nowSec) == true) return false;
+		return this.tryEnqueueTimeSync(diffSec, broadcastUtc);
+	}
+
+	/**
+	 * 清掉校时冷却与跨帧确认进度。
+	 *
+	 * 删除设备会让在途的校时任务连同 GATT 通道一起作废，那次「尝试」根本没把 0x33 发
+	 * 出去。冷却如果照常计时，重新绑定后要再等满 60 秒才会校时，这段时间设备回的
+	 * 全是 2000 年的时间轴，整帧整帧地丢。新绑定同理：换了设备，旧的冷却不该带过来。
+	 */
+	resetTimeSyncThrottle(): void {
+		this.lastTimeSyncAttemptAt = 0;
+		this.lastTimeSyncSkipLogAt = 0;
+		this.clearTimeSyncDriftCandidate();
+		logger.info("bluetooth", "[BOOM-ADV] 校时冷却已重置");
 	}
 
 	markTimeSyncOk(): void {

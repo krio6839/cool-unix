@@ -113,6 +113,15 @@ export class Device {
 
 	readonly gattLock = new DeviceGattTaskLock();
 
+	/**
+	 * 已经为哪台设备落过「新绑定」基准。
+	 *
+	 * `saveBoundDevice` 有两个调用点（`_markConnected` / `afterConnected`），绑定成功时
+	 * 会连着跑两次；`boundDeviceId` 要等内部的 await 之后才赋值，两次并发都读到同一个旧值，
+	 * 于是新绑定基准被初始化两遍（日志里是两条「新绑定基准初始化」）。
+	 */
+	private bindBaselineAppliedFor: string = "";
+
 	/* ===== 子管理器 ===== */
 	//#ifndef H5
 	readonly connection: DeviceConnection;
@@ -203,6 +212,8 @@ export class Device {
 	/** 持久化绑定设备 ID */
 	async saveBoundDevice(deviceId: string, deviceName: string = ""): Promise<void> {
 		const previousDeviceId = this.boundDeviceId;
+		const appliesNewBinding =
+			previousDeviceId != deviceId && this.bindBaselineAppliedFor != deviceId;
 		if (previousDeviceId != "" && previousDeviceId != deviceId) {
 			logger.info(
 				"bluetooth",
@@ -210,9 +221,12 @@ export class Device {
 			);
 			await bluetoothDataManager.clearAllData();
 		}
-		if (previousDeviceId != deviceId) {
+		if (appliesNewBinding == true) {
+			this.bindBaselineAppliedFor = deviceId;
 			await historyBaseline.resetForNewBinding(Math.floor(Date.now() / 1000));
 			this.health.bind(deviceId);
+			// 上一台设备留下的校时冷却不该带过来：新设备的 RTC 可能是任意值。
+			this.broadcast.resetTimeSyncThrottle();
 		}
 		this.boundDeviceId = deviceId;
 		if (deviceName != "") {
@@ -241,6 +255,7 @@ export class Device {
 		//#endif
 		this.boundDeviceId = "";
 		this.boundDeviceName = "";
+		this.bindBaselineAppliedFor = "";
 		this.health.reset();
 		storage.remove(KEY_BOUND_DEVICE_ID);
 		storage.remove(KEY_BOUND_DEVICE_NAME);
@@ -490,6 +505,10 @@ export class Device {
 	async deleteDevice(): Promise<void> {
 		logger.info("bluetooth", "[DEVICE] 用户删除设备");
 		this.isDeletingDevice = true;
+		// 先作废调度队列：下面 unbind 会抢通道并主动断开，在途任务不能继续在死链路上发帧。
+		this.scheduler.abortAll("delete-device");
+		// 被作废的那次校时并没有真的下发 0x33，冷却不该继续占着，重新绑定时要能立刻校。
+		this.broadcast.resetTimeSyncThrottle();
 		let remoteUnbindOk = false;
 		let remoteUnbindAttempted = false;
 

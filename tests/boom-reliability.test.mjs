@@ -2361,6 +2361,9 @@ test("scheduler keeps automatic work queued when the initial protocol probe fail
 	const device = {
 		boundDeviceId: "AA:BB",
 		isGattTaskBusy: () => false,
+		// 探活会读回设备时间，偏了就会请求校时；这些用例只关心队列/健康计数，
+		// 一律按「冷却中拒绝」处理，避免多出一条 timeSync 任务影响断言。
+		broadcast: { tryEnqueueTimeSync: () => false },
 		getGattTaskName: () => "",
 		connection: {
 			async switchToConnectMode() {
@@ -2405,6 +2408,9 @@ test("scheduler clears device failures only after a fully responsive flush", asy
 	const device = {
 		boundDeviceId: "AA:BB",
 		isGattTaskBusy: () => false,
+		// 探活会读回设备时间，偏了就会请求校时；这些用例只关心队列/健康计数，
+		// 一律按「冷却中拒绝」处理，避免多出一条 timeSync 任务影响断言。
+		broadcast: { tryEnqueueTimeSync: () => false },
 		getGattTaskName: () => "",
 		connection: {
 			async switchToConnectMode() {
@@ -2552,6 +2558,9 @@ test("a backfilled event read runs without a broadcast to push it", async (t) =>
 	const device = {
 		boundDeviceId: "AA:BB",
 		isGattTaskBusy: () => false,
+		// 探活会读回设备时间，偏了就会请求校时；这些用例只关心队列/健康计数，
+		// 一律按「冷却中拒绝」处理，避免多出一条 timeSync 任务影响断言。
+		broadcast: { tryEnqueueTimeSync: () => false },
 		getGattTaskName: () => "",
 		connection: {
 			async switchToConnectMode() {
