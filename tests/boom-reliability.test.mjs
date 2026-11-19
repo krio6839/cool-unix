@@ -1748,6 +1748,98 @@ test("a sleep result event read from the device lands in sleep_data", async (t) 
 	assert.equal(recent[0].reportTimestamp, 1700000000);
 });
 
+test("automatic event read stops at the lower window bound instead of exhausting pages", async (t) => {
+	const r = await createRuntime(t);
+	let continueCount = 0;
+	const device = {
+		boundDeviceId: "device",
+		beginGattTask: () => true,
+		endGattTask() {},
+		event: { resetDataIdentifierReassembler() {} },
+		protocol: {
+			async readEventData() {
+				reader.handleEventData(eventHeader(1, 10), 0x3c);
+				return true;
+			},
+			async continueReadEventData() {
+				continueCount++;
+				// 一页满 10 条，最后一条早于窗口下界；早停生效则不会再有第二页。
+				const items = [];
+				for (let i = 0; i < 9; i++)
+					items.push(logDataItem(9, "6009", { ts: 1700000100 + i, globalSn: 100 + i }));
+				items.push(logDataItem(9, "6009", { ts: 1699990000, globalSn: 200 }));
+				reader.handleEventData(eventBatch(...items), 0x3d);
+				return true;
+			}
+		}
+	};
+	const reader = new r.DeviceHistoryReader(device);
+	reader.sleep = async () => {};
+	const read = await reader.readEventDataAuto({
+		type: 1,
+		startSec: 1700000000,
+		endSec: 1700100000,
+		maxCount: 10,
+		maxPages: 20,
+		timeoutMs: 3000,
+		pageDelayMs: 0,
+		persistSleepData: false
+	});
+	assert.equal(continueCount, 1, "到达窗口下界后不应再发 0x3D");
+	assert.equal(read.status, "DONE");
+	assert.equal(read.pages, 1);
+	assert.equal(read.items.length, 10, "本批数据应完整保留在结果里");
+});
+
+test("manual all-events read ignores the window bound and keeps reading", async (t) => {
+	const r = await createRuntime(t);
+	let continueCount = 0;
+	const device = {
+		boundDeviceId: "device",
+		beginGattTask: () => true,
+		endGattTask() {},
+		event: { resetDataIdentifierReassembler() {} },
+		protocol: {
+			async readEventData() {
+				reader.handleEventData(eventHeader(1, 20), 0x3c);
+				return true;
+			},
+			async continueReadEventData() {
+				continueCount++;
+				if (continueCount === 1) {
+					// 满 10 条且全部远早于任何窗口；startSec=0 时不应触发早停。
+					const items = [];
+					for (let i = 0; i < 10; i++)
+						items.push(logDataItem(9, "6009", { ts: 1600000000 + i, globalSn: 300 + i }));
+					reader.handleEventData(eventBatch(...items), 0x3d);
+				} else {
+					// 不足 maxCount，读取自然收敛。
+					reader.handleEventData(
+						eventBatch(logDataItem(9, "6009", { ts: 1600000050, globalSn: 400 })),
+						0x3d
+					);
+				}
+				return true;
+			}
+		}
+	};
+	const reader = new r.DeviceHistoryReader(device);
+	reader.sleep = async () => {};
+	const read = await reader.readEventDataAuto({
+		type: 0,
+		startSec: 0,
+		endSec: 0,
+		maxCount: 10,
+		maxPages: 20,
+		timeoutMs: 3000,
+		pageDelayMs: 0,
+		persistSleepData: false
+	});
+	assert.equal(continueCount, 2, "startSec=0 应继续读到设备返回不足 maxCount");
+	assert.equal(read.status, "DONE");
+	assert.equal(read.items.length, 11);
+});
+
 test("a sleep event whose write fails is not reported as saved", async (t) => {
 	const r = await createRuntime(t);
 	const device = {

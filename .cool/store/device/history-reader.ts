@@ -822,6 +822,22 @@ export class DeviceHistoryReader implements RangeReader {
 			return this.makeEventResult("DONE", "no event data", header, page, startListCount);
 		}
 
+		// 记录设备返回的事件范围与请求窗口的关系（实测设备头跨度可达 33h，远超 24h 窗口）。
+		// 仅日志与告警，不做数据裁剪：设备时间可能回退到 epoch，裁剪会误伤；真正早停由
+		// 读到 item.ts < startSec 的边界判断负责，它基于实际条目而非可信度存疑的头时间。
+		if (options.startSec > 0 && options.endSec > 0) {
+			const headAllBefore = header.latestSec < options.startSec;
+			const headExceeds =
+				header.earliestSec < options.startSec || header.latestSec > options.endSec;
+			logger.info(
+				"bluetooth",
+				`[BOOM] 事件头与请求窗口: head=${this.formatMaybeTime(header.earliestSec)}~${this.formatMaybeTime(header.latestSec)}, window=${this.formatMaybeTime(options.startSec)}~${this.formatMaybeTime(options.endSec)}, exceeds=${headExceeds}, allBefore=${headAllBefore}`
+			);
+			if (headAllBefore == true) {
+				logger.warn("bluetooth", "[BOOM] 设备事件全部早于请求窗口，本轮读取预计无新增");
+			}
+		}
+
 		while (true) {
 			if (options.shouldStop != null && options.shouldStop!() == true) {
 				return this.makeEventResult(
@@ -905,6 +921,35 @@ export class DeviceHistoryReader implements RangeReader {
 					page,
 					startListCount
 				);
+			}
+
+			// 自动按时间读取时事件按倒序返回（最新在前）：本批一旦出现早于窗口下界的事件，
+			// 后续页只会更旧，立即收敛，不再发 0x3D。本批数据已追加进 eventDataListRaw，
+			// 仍完整保留在结果里。手动「读取全部事件」传 startSec=0，跳过此判断以保持持续读取语义。
+			if (options.startSec > 0) {
+				let outOfWindowTs = 0;
+				for (let i = 0; i < batch.length; i++) {
+					if (batch[i].ts < options.startSec) {
+						outOfWindowTs = batch[i].ts;
+						break;
+					}
+				}
+				if (outOfWindowTs > 0) {
+					logger.info(
+						"bluetooth",
+						`[BOOM] 事件读取到达窗口下界: page=${page}, ts=${outOfWindowTs}, startSec=${options.startSec}`
+					);
+					if (options.onProgress != null) {
+						options.onProgress!({ phase: "done", page, message: "window-reached" });
+					}
+					return this.makeEventResult(
+						"DONE",
+						"window reached",
+						header,
+						page,
+						startListCount
+					);
+				}
 			}
 
 			if (batchCount <= 0 || batchCount < options.maxCount) {
