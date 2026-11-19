@@ -40,7 +40,8 @@ import {
 	parseU16LE,
 	parseI16LE,
 	parseU32LE,
-	parseAscii
+	parseAscii,
+	parseFloat32LE
 } from "./boom-bytes";
 import { VITAL_MINUTES_OPTIONS, LOG_DATA_FLAG, LOG_EVENT_TYPE } from "./boom-constants";
 
@@ -295,24 +296,6 @@ export function parseVitalDataPerSecond(hex: string, off: number): VitalDataPerS
 	const raw = hex.substring(off, off + 12).toLowerCase();
 	const valid = raw.length == 12 && raw != "ffffffffffff";
 	return { hr, status, pitch, acc, ppi, valid };
-}
-
-/** UTS 跨端可用的 IEEE754 float32 小端解析，不依赖 DataView/Buffer。 */
-function parseFloat32LE(hex: string, off: number): number {
-	const b0 = parseU8(hex, off);
-	const b1 = parseU8(hex, off + 2);
-	const b2 = parseU8(hex, off + 4);
-	const b3 = parseU8(hex, off + 6);
-	const sign = (b3 & 0x80) == 0 ? 1 : -1;
-	const exponent = ((b3 & 0x7f) << 1) | (b2 >> 7);
-	const fraction = (b2 & 0x7f) * 65536 + b1 * 256 + b0;
-	if (exponent == 0) {
-		return sign * fraction * Math.pow(2, -149);
-	}
-	if (exponent == 255) {
-		return 0;
-	}
-	return sign * (1 + fraction / 8388608) * Math.pow(2, exponent - 127);
 }
 
 /** 解析 RMSSD/SDNN 8B（4B float LE + 4B float LE），全 FF 标记为无效 */

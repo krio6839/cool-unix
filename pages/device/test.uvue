@@ -220,7 +220,6 @@
 import { computed, reactive, ref, watch } from "vue";
 import {
 	DEVICE_NUMBER_MAX_LEN,
-	DOC_EXAMPLES_BY_T,
 	EVENT_QUERY_TYPE_ALL,
 	EVENT_QUERY_TYPE_BY_TIME,
 	dayUts,
@@ -231,7 +230,6 @@ import {
 	useStore
 } from "@/.cool";
 import type {
-	DocExample,
 	VibrationResult,
 	VibrationSpec,
 	VitalBiometric,
@@ -961,13 +959,6 @@ const formAge = ref<string>("20");
 const formPpgPosition = ref<number>(0);
 const formBhr = ref<string>("60");
 
-/** 当前表单可用的文档示例（按 T 码查 DOC_EXAMPLES_BY_T） */
-const exampleList = computed<DocExample[]>(() => {
-	if (activeForm.value == "") return [];
-	const tCode = parseInt(activeForm.value, 16);
-	return DOC_EXAMPLES_BY_T.get(tCode) ?? [];
-});
-
 /**
  * 手动读取的公共实现：各入口只有窗口与协议参数不同，链路完全一样——`readVitalRangeForward`
  * 内部就是正式补录那一套，所以手动读到的秒同样会推进基准。
@@ -1477,24 +1468,6 @@ async function testSetTimestamp(): Promise<void> {
 			message: ok ? t("0x33 已发送") : t("发送失败"),
 			type: ok ? "success" : "error"
 		});
-		return ok;
-	});
-}
-
-/** 快速发送文档示例（不填表单，直接发 raw 帧） */
-async function sendExample(ex: DocExample): Promise<void> {
-	const cmd = activeForm.value;
-	if (cmd == "") return;
-	const commandKey = cmd == "0x3A" ? "VITAL" : cmd == "0x3C" ? "EVENT" : cmd;
-	await runQueuedGattCommand(commandKey, async (): Promise<boolean> => {
-		ui.showToast({ message: `${t("发送示例")} ${ex.name}`, type: "warn" });
-		const ok = await deviceStore.protocol.sendRawFrame(ex.request);
-		setCommandResponse(commandKey, ok ? t("示例已发送，等待设备响应") : t("发送失败，请重试"));
-		ui.showToast({
-			message: ok ? t("已发送") : t("发送失败"),
-			type: ok ? "success" : "error"
-		});
-		if (ok) closeForm();
 		return ok;
 	});
 }
