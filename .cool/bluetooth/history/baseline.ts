@@ -7,20 +7,22 @@ import { logger } from "../../service/logger";
 import { formatAppDateTime, getAppTimezone } from "../../utils/timezone";
 
 /**
- * 历史进度只由两个游标表达，都存单行状态表 `vital_sync_state`（由数据库初始化流程幂等
- * 建表）里的两个整数：
+ * 历史进度存单行状态表 `vital_sync_state`（由数据库初始化流程幂等建表）：
  *
  * - `baseline_sec`（下称 `B`）：「读到哪」。`[0, B)` 每一秒都已记账，也是读取窗口左端。
  * - `classified_until_sec`（下称 `C`）：「判到哪」。省掉 `B` 卡住时每轮从 `B` 重判整段。
+ * - `event_global_sn`：事件读取已处理到的最大全局序号。设备倒序给事件，读到 <= 它的就停，
+ *   不受设备时间乱跳影响。删除设备/新绑定会清空本表，序号自然从头开始。
  *
- * 恒有 `B <= C <= stableCeiling`。两者都是裸的 Unix 秒，不整分钟对齐。
- * 判定与记账的规则见 `BOOM蓝牙运行流程.md` 第 8 节。
+ * 恒有 `B <= C <= stableCeiling`。前两者是裸的 Unix 秒，不整分钟对齐；`event_global_sn`
+ * 是设备的 uint32 自增序号，与秒无关。判定与记账规则见 `BOOM蓝牙运行流程.md` 第 8 节。
  */
 export const BASELINE_SCHEMA: string[] = [
 	`CREATE TABLE IF NOT EXISTS vital_sync_state (
 		id INTEGER PRIMARY KEY CHECK(id=1),
 		baseline_sec INTEGER NOT NULL,
-		classified_until_sec INTEGER NOT NULL DEFAULT 1
+		classified_until_sec INTEGER NOT NULL DEFAULT 1,
+		event_global_sn INTEGER NOT NULL DEFAULT 0
 	)`,
 	// 旧版本用区间表记「非连续地记过哪些秒」。进度现在只由 `B` 一个整数表达，
 	// 这张表已无人读写，升级时直接丢掉（幂等，重复启动无副作用）。
@@ -274,6 +276,24 @@ class HistoryBaseline {
 			throw new Error("分类游标迁移失败");
 	}
 
+	/** 兼容没有 event_global_sn 的旧表；纯新增列，默认 0 即从最早事件开始读。 */
+	private async ensureEventGlobalSnColumn(): Promise<void> {
+		const result = await bluetoothDatabase.query("PRAGMA table_info(vital_sync_state)");
+		if (result == null) throw new Error("读取基准时间表结构失败");
+		let exists = false;
+		for (let i = 0; i < result.rows.length; i++) {
+			if ((result.rows[i][1] as string) == "event_global_sn") exists = true;
+		}
+		if (exists == false) {
+			if (
+				(await bluetoothDatabase.execute(
+					"ALTER TABLE vital_sync_state ADD COLUMN event_global_sn INTEGER NOT NULL DEFAULT 0"
+				)) == false
+			)
+				throw new Error("事件序号字段迁移失败");
+		}
+	}
+
 	/**
 	 * 为新建的基准表落下启动点，并修复旧故障版本留下的「30 天起点」。
 	 *
@@ -284,6 +304,7 @@ class HistoryBaseline {
 	 */
 	async initializeIfMissing(nowSec: number): Promise<number> {
 		await this.ensureClassificationCursorColumn();
+		await this.ensureEventGlobalSnColumn();
 		const current = await this.getBaseline();
 		const retentionStart = historyCoverage.retentionStartSec(nowSec);
 		if (current > retentionStart) return current;
@@ -341,6 +362,28 @@ class HistoryBaseline {
 			`[BOOM-BASE] 基准推进: B=${formatHistorySec(retentionStart)}, 原因=expired, 保留起点=${formatHistorySec(retentionStart)}`
 		);
 		return retentionStart;
+	}
+
+	/* ===== 事件已读序号 ===== */
+
+	/** 读取已处理到的最大 globalSn；状态行尚未建立时返回 0（从最早事件开始）。 */
+	async getEventGlobalSn(): Promise<number> {
+		const result = await bluetoothDatabase.query(
+			"SELECT event_global_sn FROM vital_sync_state WHERE id=1"
+		);
+		if (result == null) throw new Error("读取事件序号失败");
+		if (result.rows.length == 0) return 0;
+		return parseInt(result.rows[0][0] as string);
+	}
+
+	/** 推进事件已读序号；只写单行，供早停判断用。 */
+	async saveEventGlobalSn(globalSn: number): Promise<void> {
+		if (
+			(await bluetoothDatabase.execute(
+				`UPDATE vital_sync_state SET event_global_sn=${globalSn} WHERE id=1`
+			)) == false
+		)
+			throw new Error("保存事件序号失败");
 	}
 
 	/* ===== 游标推进 ===== */

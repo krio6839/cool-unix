@@ -1,5 +1,4 @@
-import { EVENT_QUERY_TYPE_BY_TIME } from "../../bluetooth";
-import { formatHistorySec } from "../../bluetooth/history/baseline";
+import { EVENT_QUERY_TYPE_ALL } from "../../bluetooth";
 import { sleepTimeout } from "../../utils";
 import { repairFromBaseline } from "./history-repair";
 import type { Device } from "./index";
@@ -14,7 +13,6 @@ import { logger } from "../../service/logger";
 import { BROADCAST_TIME_DRIFT_SEC } from "./broadcast";
 import type { ProtocolProbeResult } from "./protocol-probe";
 
-const EVENT_SYNC_WINDOW_SECONDS = 24 * 60 * 60;
 const EVENT_SYNC_MAX_COUNT = 10;
 const EVENT_SYNC_MAX_PAGES = 20;
 const EVENT_SYNC_TIMEOUT_MS = 10000;
@@ -488,16 +486,16 @@ export class DeviceGattScheduler {
 
 	private async runReadEvent(task: GattQueueTask): Promise<void> {
 		const isBackfill = task.eventSeq < 0;
-		const endSec = Math.floor(Date.now() / 1000) + 60;
-		const startSec = endSec - EVENT_SYNC_WINDOW_SECONDS;
 		logger.info(
 			"bluetooth",
-			`[BOOM-EVENT] 开始读取${isBackfill ? "事件兜底" : "新事件"}: device=${task.deviceId}, eventSeq=${task.eventSeq}, window=${formatHistorySec(startSec)}~${formatHistorySec(endSec)}, maxCount=${EVENT_SYNC_MAX_COUNT}`
+			`[BOOM-EVENT] 开始读取${isBackfill ? "事件兜底" : "新事件"}: device=${task.deviceId}, eventSeq=${task.eventSeq}, maxCount=${EVENT_SYNC_MAX_COUNT}`
 		);
+		// 事件读取只按 globalSn 增量：0x3C 用「读全部」(type=0)，不再传时间窗口。
+		// 设备本就不按窗口过滤（倒序从最新全给），早停由已读 sn 水位负责。
 		const result = await this.device.history.readEventDataAuto({
-			type: EVENT_QUERY_TYPE_BY_TIME,
-			startSec,
-			endSec,
+			type: EVENT_QUERY_TYPE_ALL,
+			startSec: 0,
+			endSec: 0,
 			maxCount: EVENT_SYNC_MAX_COUNT,
 			maxPages: EVENT_SYNC_MAX_PAGES,
 			timeoutMs: EVENT_SYNC_TIMEOUT_MS,

@@ -1748,8 +1748,10 @@ test("a sleep result event read from the device lands in sleep_data", async (t) 
 	assert.equal(recent[0].reportTimestamp, 1700000000);
 });
 
-test("automatic event read stops at the lower window bound instead of exhausting pages", async (t) => {
+test("automatic event read stops at the already-read globalSn instead of exhausting pages", async (t) => {
 	const r = await createRuntime(t);
+	// 水位 200：本批出现 globalSn<=200 即停，后续页只会更旧。
+	r.db.prepare("UPDATE vital_sync_state SET event_global_sn=200 WHERE id=1").run();
 	let continueCount = 0;
 	const device = {
 		boundDeviceId: "device",
@@ -1763,11 +1765,10 @@ test("automatic event read stops at the lower window bound instead of exhausting
 			},
 			async continueReadEventData() {
 				continueCount++;
-				// 一页满 10 条，最后一条早于窗口下界；早停生效则不会再有第二页。
 				const items = [];
 				for (let i = 0; i < 9; i++)
-					items.push(logDataItem(9, "6009", { ts: 1700000100 + i, globalSn: 100 + i }));
-				items.push(logDataItem(9, "6009", { ts: 1699990000, globalSn: 200 }));
+					items.push(logDataItem(9, "6009", { ts: 1700000100 + i, globalSn: 210 + i }));
+				items.push(logDataItem(9, "6009", { ts: 1700000100, globalSn: 200 }));
 				reader.handleEventData(eventBatch(...items), 0x3d);
 				return true;
 			}
@@ -1776,19 +1777,167 @@ test("automatic event read stops at the lower window bound instead of exhausting
 	const reader = new r.DeviceHistoryReader(device);
 	reader.sleep = async () => {};
 	const read = await reader.readEventDataAuto({
-		type: 1,
-		startSec: 1700000000,
-		endSec: 1700100000,
+		type: 0,
+		startSec: 0,
+		endSec: 0,
+		maxCount: 10,
+		maxPages: 20,
+		timeoutMs: 3000,
+		pageDelayMs: 0,
+		persistSleepData: true,
+		uploadAfterSave: false
+	});
+	assert.equal(continueCount, 1, "到达已读序号后不应再发 0x3D");
+	assert.equal(read.status, "DONE");
+	assert.equal(read.pages, 1);
+	assert.equal(read.items.length, 10, "本批数据应完整保留在结果里");
+});
+
+test("a manual read does not advance the stored event globalSn", async (t) => {
+	const r = await createRuntime(t);
+	const device = {
+		boundDeviceId: "device",
+		beginGattTask: () => true,
+		endGattTask() {},
+		event: { resetDataIdentifierReassembler() {} },
+		protocol: {
+			async readEventData() {
+				reader.handleEventData(eventHeader(1, 3), 0x3c);
+				return true;
+			},
+			async continueReadEventData() {
+				reader.handleEventData(
+					eventBatch(
+						logDataItem(9, "6009", { globalSn: 3 }),
+						logDataItem(9, "6009", { globalSn: 7 }),
+						logDataItem(9, "6009", { globalSn: 5 })
+					),
+					0x3d
+				);
+				return true;
+			}
+		}
+	};
+	const reader = new r.DeviceHistoryReader(device);
+	reader.sleep = async () => {};
+	await reader.readEventDataAuto({
+		type: 0,
+		startSec: 0,
+		endSec: 0,
 		maxCount: 10,
 		maxPages: 20,
 		timeoutMs: 3000,
 		pageDelayMs: 0,
 		persistSleepData: false
 	});
-	assert.equal(continueCount, 1, "到达窗口下界后不应再发 0x3D");
+	// 手动全量读不该污染增量边界。
+	assert.equal(
+		r.db.prepare("SELECT event_global_sn FROM vital_sync_state WHERE id=1").get().event_global_sn,
+		0
+	);
+});
+
+test("a successful automatic read advances the stored globalSn to the newest seen", async (t) => {
+	const r = await createRuntime(t);
+	const device = {
+		boundDeviceId: "device",
+		beginGattTask: () => true,
+		endGattTask() {},
+		event: { resetDataIdentifierReassembler() {} },
+		protocol: {
+			async readEventData() {
+				reader.handleEventData(eventHeader(1, 7), 0x3c);
+				return true;
+			},
+			async continueReadEventData() {
+				// 不足 maxCount，自然收敛；序号未必有序，代码遍历取 max。
+				reader.handleEventData(
+					eventBatch(
+						logDataItem(9, "6009", { globalSn: 3 }),
+						logDataItem(9, "6009", { globalSn: 7 }),
+						logDataItem(9, "6009", { globalSn: 5 })
+					),
+					0x3d
+				);
+				return true;
+			}
+		}
+	};
+	const reader = new r.DeviceHistoryReader(device);
+	reader.sleep = async () => {};
+	await reader.readEventDataAuto({
+		type: 0,
+		startSec: 0,
+		endSec: 0,
+		maxCount: 10,
+		maxPages: 20,
+		timeoutMs: 3000,
+		pageDelayMs: 0,
+		persistSleepData: true,
+		uploadAfterSave: false
+	});
+	assert.equal(
+		r.db.prepare("SELECT event_global_sn FROM vital_sync_state WHERE id=1").get().event_global_sn,
+		7,
+		"水位应推到本次最大 globalSn"
+	);
+});
+
+test("an event sequence reset clears the stored watermark and keeps reading", async (t) => {
+	const r = await createRuntime(t);
+	r.db.prepare("UPDATE vital_sync_state SET event_global_sn=200 WHERE id=1").run();
+	let continueCount = 0;
+	const device = {
+		boundDeviceId: "device",
+		beginGattTask: () => true,
+		endGattTask() {},
+		event: { resetDataIdentifierReassembler() {} },
+		protocol: {
+			async readEventData() {
+				reader.handleEventData(eventHeader(1, 5), 0x3c);
+				return true;
+			},
+			async continueReadEventData() {
+				continueCount++;
+				// 设备归零后整批序号都远小于旧水位 200：应清零并继续翻页，而不是把它当老事件停掉。
+				// 第一批给满 10 条，否则不足 maxCount 会自然收敛，测不出早停有没有误触发。
+				const items = [];
+				const count = continueCount == 1 ? 10 : 1;
+				for (let i = 0; i < count; i++)
+					items.push(logDataItem(9, "6009", { globalSn: 100 - i }));
+				reader.handleEventData(eventBatch(...items), 0x3d);
+				return true;
+			}
+		}
+	};
+	const reader = new r.DeviceHistoryReader(device);
+	reader.sleep = async () => {};
+	const read = await reader.readEventDataAuto({
+		type: 0,
+		startSec: 0,
+		endSec: 0,
+		maxCount: 10,
+		maxPages: 20,
+		timeoutMs: 3000,
+		pageDelayMs: 0,
+		persistSleepData: true,
+		uploadAfterSave: false
+	});
+	assert.equal(continueCount, 2, "序号回退后应继续翻页读完，而不是第一页就停");
 	assert.equal(read.status, "DONE");
-	assert.equal(read.pages, 1);
-	assert.equal(read.items.length, 10, "本批数据应完整保留在结果里");
+	assert.equal(
+		r.db.prepare("SELECT event_global_sn FROM vital_sync_state WHERE id=1").get().event_global_sn,
+		100,
+		"回退清零后按本批最大序号重建水位"
+	);
+});
+
+test("clearing all data resets the stored event globalSn", async (t) => {
+	const r = await createRuntime(t);
+	r.db.prepare("UPDATE vital_sync_state SET event_global_sn=200 WHERE id=1").run();
+	await r.manager.clearAllData();
+	const row = r.db.prepare("SELECT event_global_sn FROM vital_sync_state WHERE id=1").get();
+	assert.equal(row == null || row.event_global_sn == 0, true);
 });
 
 test("manual all-events read ignores the window bound and keeps reading", async (t) => {
@@ -1806,9 +1955,9 @@ test("manual all-events read ignores the window bound and keeps reading", async 
 			},
 			async continueReadEventData() {
 				continueCount++;
-				if (continueCount === 1) {
-					// 满 10 条且全部远早于任何窗口；startSec=0 时不应触发早停。
-					const items = [];
+			if (continueCount === 1) {
+				// 满 10 条：手动全量读不设水位，不应触发 sn 早停。
+				const items = [];
 					for (let i = 0; i < 10; i++)
 						items.push(logDataItem(9, "6009", { ts: 1600000000 + i, globalSn: 300 + i }));
 					reader.handleEventData(eventBatch(...items), 0x3d);
@@ -1835,7 +1984,7 @@ test("manual all-events read ignores the window bound and keeps reading", async 
 		pageDelayMs: 0,
 		persistSleepData: false
 	});
-	assert.equal(continueCount, 2, "startSec=0 应继续读到设备返回不足 maxCount");
+	assert.equal(continueCount, 2, "手动全量读不设水位，应读到设备返回不足 maxCount");
 	assert.equal(read.status, "DONE");
 	assert.equal(read.items.length, 11);
 });
