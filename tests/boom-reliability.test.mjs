@@ -1971,6 +1971,23 @@ test("a failed sleep insert is reported instead of counted as saved", async (t) 
 	);
 });
 
+test("storing the same sleep event twice only counts the first as a real insert", async (t) => {
+	const r = await createRuntime(t);
+	const sleep = {
+		reportTimestamp: 1700000000,
+		sleepOnsetTime: 25200,
+		awakeTime: 1800,
+		lightSleepPeriod: 14400,
+		deepSleepPeriod: 7200,
+		otherSleepPeriod: 1800,
+		heartRateRest: 55
+	};
+	// 第一次是真新增；第二次同主键被 INSERT OR IGNORE 忽略，不能再算 saved 触发上传。
+	assert.equal(await r.manager.storeSleepData(sleep), true);
+	assert.equal(await r.manager.storeSleepData(sleep), false);
+	assert.equal(r.db.prepare("SELECT COUNT(*) AS n FROM sleep_data").get().n, 1);
+});
+
 test("protocol probe accepts the documented 0x33 timestamp response to a 0x34 read", async (t) => {
 	const r = await createRuntime(t);
 	const { DeviceProtocolProbe } = await r.load(".cool/store/device/protocol-probe.ts");

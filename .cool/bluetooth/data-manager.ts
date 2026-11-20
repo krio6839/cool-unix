@@ -505,10 +505,16 @@ export class BluetoothDataManager {
 	 * 存储睡眠事件
 	 * 用 INSERT OR IGNORE 按主键幂等去重，重复事件不会重置 uploaded。
 	 * @param sleepData 设备事件给出的六个统计值
-	 * @returns SQL 是否执行成功
+	 * @returns 是否为本次真正新增（重复/失败都返回 false，调用方据此决定是否触发上传）
 	 */
 	async storeSleepData(sleepData: SleepData): Promise<boolean> {
 		const reportTimestamp = sleepData.reportTimestamp;
+		// INSERT OR IGNORE 被忽略时 SQL 仍算成功，直接拿 execute 结果会把重复事件计成新增，
+		// 触发无谓上传。先按主键查一次，只有本库还没有这条才写入并报新增。
+		const existed = await this.queryCount(
+			`SELECT COUNT(*) FROM sleep_data WHERE report_timestamp = ${reportTimestamp}`
+		);
+		if (existed > 0) return false;
 		const sleepSql = `INSERT OR IGNORE INTO sleep_data
 			(report_timestamp, sleep_onset_time, awake_time, light_sleep_period, deep_sleep_period, other_sleep_period, heart_rate_rest)
 			VALUES (${reportTimestamp}, ${sleepData.sleepOnsetTime}, ${sleepData.awakeTime}, ${sleepData.lightSleepPeriod}, ${sleepData.deepSleepPeriod}, ${sleepData.otherSleepPeriod}, ${sleepData.heartRateRest})`;
