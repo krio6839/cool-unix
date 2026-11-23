@@ -154,6 +154,22 @@ export function serializeVibration(spec: VibrationSpec): string {
 /* ==================== 0x50 自定义广播解析（24 字节） ==================== */
 
 /**
+ * 从 manufacturerData 的原始 hex 里截出 24B（48 hex 字符）自定义广播段：
+ * 裸 48 字符直用；带 50001800 前缀的取第 8~56 位；其余超长帧取尾部 48 位。
+ * 拿不到返回 null，调用方据此丢弃无效帧。
+ */
+export function extractCustomAdvVHex(hex: string): string | null {
+	if (hex.length == 48) return hex;
+	if (hex.length >= 56 && hex.substring(0, 8).toLowerCase() == "50001800") {
+		return hex.substring(8, 56);
+	}
+	if (hex.length > 48) {
+		return hex.substring(hex.length - 48);
+	}
+	return null;
+}
+
+/**
  * 解析 0x50 自定义广播的 V 数据（24B packed LE）
  * @param vHex 24 字节的 hex 字符串（48 hex 字符）
  * @returns CustomAdvData；长度不足返回 null

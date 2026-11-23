@@ -1,6 +1,8 @@
 import {
 	bluetoothDataManager,
 	bluetoothUploader,
+	encodeU8,
+	extractCustomAdvVHex,
 	formatRealtimeMetric,
 	parseCustomAdvData,
 	toRealtimeBroadcast
@@ -30,6 +32,14 @@ const BROADCAST_HARD_RECOVERY_RESTART_THRESHOLD = 3;
 const BROADCAST_HARD_RECOVERY_COOLDOWN_MS = 60 * 1000;
 const BOUND_BROADCAST_SCAN_NO_CALLBACK_MS = 12 * 1000;
 const BOUND_BROADCAST_SCAN_STALE_MS = 18 * 1000;
+/**
+ * 「设备明确不在场」的静默门槛。超过这么久没收到绑定广播，就把无回调判定为设备离场，
+ * 而不是扫描故障：设备摘走 / 没电是常态，重启或重建扫描栈既救不回广播，又会清空
+ * 插件发现表、制造连接时的 10002。与 device-tick 的在场静默期同量级。
+ */
+const BOUND_BROADCAST_ABSENCE_MS = 5 * 60 * 1000;
+/** 硬恢复的静默门槛：比在场判定短，设备刚消失时不急着重建扫描栈，真扫描故障仍能及时恢复。 */
+const BOUND_BROADCAST_HARD_RECOVERY_MAX_SILENCE_MS = 90 * 1000;
 const BROADCAST_RECOVERY_ERROR_TEXT =
 	"未收到设备广播，请确认设备在附近、电量充足且系统蓝牙权限正常";
 
@@ -72,7 +82,6 @@ export class DeviceBroadcast {
 	private pendingEventSyncDeviceId: string = "";
 	private pendingEventSeq: number = 0;
 	private pendingPreviousEventSeq: number = 0;
-	private lastTimeSyncOkAt: number = 0;
 	/**
 	 * 「第一帧看起来偏了」的时刻与当时的偏差。
 	 *
@@ -235,6 +244,17 @@ export class DeviceBroadcast {
 		this.lastBoundScanDebugAt = 0;
 	}
 
+	/**
+	 * 绑定广播是否已静默超过 `thresholdMs`。watcher 判设备离场、硬恢复判扫描故障
+	 * 共用这一个信号——都用 `lastBroadcastSeenAt`（不随扫描窗口重置），而非本次窗口的
+	 * 回调时间戳（重启就清零，永远得不出「已经静默很久」的结论）。
+	 *
+	 * `-1`（从未见过广播）恒 false：那是冷启动或扫描真没起来，交给原有逻辑处理。
+	 */
+	private isBroadcastSilentFor(thresholdMs: number): boolean {
+		return this.getBroadcastAgeMs() >= thresholdMs;
+	}
+
 	private watchBoundBroadcastScan(generation: number): void {
 		this.watchBoundBroadcastScanAsync(generation);
 	}
@@ -247,8 +267,15 @@ export class DeviceBroadcast {
 			this.lastBoundScanCallbackAt > this.lastBoundBroadcastHandledAt
 				? this.lastBoundScanCallbackAt
 				: this.lastBoundBroadcastHandledAt;
+		// 设备离场是常态：静默过久时无回调/广播陈旧都属正常，重启只空耗并清空发现表。
+		// 提前到分支之前统一判断，比在每个恢复分支里各写一遍更不容易漏。
+		if (this.isBroadcastSilentFor(BOUND_BROADCAST_ABSENCE_MS) == true) {
+			this.watchBoundBroadcastScan(generation);
+			return;
+		}
 		const now = Date.now();
 		if (latestAt == 0) {
+			// 从头到尾一个回调都没有，但设备近期还在广播 → 扫描可能真没起来。
 			logger.warn(
 				"bluetooth",
 				`[BOOM-ADV] 绑定广播扫描 ${BOUND_BROADCAST_SCAN_NO_CALLBACK_MS}ms 内无任何回调，重启扫描`
@@ -301,9 +328,9 @@ export class DeviceBroadcast {
 			}
 			return;
 		}
-		const hex = this.bytesToHex(ad);
-		const vHex = this.extractCustomAdvVHex(hex);
-		if (vHex == "") {
+		const hex = ad.map((b) => encodeU8(b)).join("");
+		const vHex = extractCustomAdvVHex(hex);
+		if (vHex == null) {
 			if (this.boundBroadcastScanning == true) {
 				logger.info(
 					"bluetooth",
@@ -461,6 +488,17 @@ export class DeviceBroadcast {
 	}
 
 	private shouldUseHardBroadcastRecovery(reason: string): boolean {
+		// 连续失败可能是「扫描真坏了」，也可能是「设备离场、周围没有 BLE 帧」。后者重建
+		// 扫描栈/实例/适配器纯属空耗，还会清空发现表制造 10002。用广播静默时长区分：
+		// 设备不久前还在广播却突然没帧 → 扫描故障，照旧硬恢复；已静默很久 → 设备离场，
+		// 不升级。门槛比 watcher 的在场判定短，让真正的扫描故障仍能及时重建。
+		if (this.isBroadcastSilentFor(BOUND_BROADCAST_HARD_RECOVERY_MAX_SILENCE_MS) == true) {
+			logger.warn(
+				"bluetooth",
+				"[BOOM-ADV] 广播已长时间静默，判定设备离场而非扫描故障，不做硬恢复"
+			);
+			return false;
+		}
 		this.consecutiveBroadcastRestartCount = this.consecutiveBroadcastRestartCount + 1;
 		if (this.hardRecoveryPendingValidation == true) {
 			this.reportBroadcastUnavailableAfterHardRecovery(reason);
@@ -701,7 +739,6 @@ export class DeviceBroadcast {
 	}
 
 	markTimeSyncOk(): void {
-		this.lastTimeSyncOkAt = Date.now();
 		this.clearTimeSyncDriftCandidate();
 	}
 
@@ -808,29 +845,4 @@ export class DeviceBroadcast {
 		}
 	}
 
-	/* ===== 小工具 ===== */
-
-	private bytesToHex(bytes: number[]): string {
-		let hex = "";
-		for (let i = 0; i < bytes.length; i++) {
-			hex += this.byteToHex(bytes[i]);
-		}
-		return hex;
-	}
-
-	private byteToHex(value: number): string {
-		const item = (value & 0xff).toString(16);
-		return item.length == 1 ? "0" + item : item;
-	}
-
-	private extractCustomAdvVHex(hex: string): string {
-		if (hex.length == 48) return hex;
-		if (hex.length >= 56 && hex.substring(0, 8).toLowerCase() == "50001800") {
-			return hex.substring(8, 56);
-		}
-		if (hex.length > 48) {
-			return hex.substring(hex.length - 48);
-		}
-		return "";
-	}
 }

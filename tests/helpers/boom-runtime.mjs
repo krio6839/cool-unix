@@ -253,6 +253,7 @@ export async function createRuntime(t) {
 	// 让事件读取永远拿到空批次，同样测不出东西。
 	const btConstants = (await load(".cool/bluetooth/boom-constants.ts")).namespace;
 	const btParser = (await load(".cool/bluetooth/boom-parser.ts")).namespace;
+	const btBytes = (await load(".cool/bluetooth/boom-bytes.ts")).namespace;
 	mocks["../../bluetooth"] = {
 		bluetoothDataManager: manager,
 		bluetoothUploader: uploader,
@@ -268,7 +269,9 @@ export async function createRuntime(t) {
 		parseVitalDataResponse: btParser.parseVitalDataResponse,
 		parseCustomAdvData: btParser.parseCustomAdvData,
 		toRealtimeBroadcast: btParser.toRealtimeBroadcast,
-		formatRealtimeMetric: btParser.formatRealtimeMetric
+		formatRealtimeMetric: btParser.formatRealtimeMetric,
+		extractCustomAdvVHex: btParser.extractCustomAdvVHex,
+		encodeU8: btBytes.encodeU8
 	};
 	state.BluetoothUploader = uploaderModule.namespace.BluetoothUploader;
 	state.uploader = uploader;
