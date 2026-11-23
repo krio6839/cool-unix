@@ -104,22 +104,37 @@ test("quick vital history offers export after retaining all parsed pages", async
 	assert.equal(manual.includes("shouldStop: () => vitalAutoReading.value == false,"), true);
 	assert.equal(manual.includes("direction: direction"), true);
 	assert.equal(manual.includes("minutes: minutes"), true);
-	assert.equal(manual.includes("readOnly: true"), true);
+	assert.equal(manual.includes("readOnly: readOnly"), true);
 	assert.equal(manual.includes("readVitalDataAuto("), false);
 	assert.equal(manual.includes("reachedTarget"), false);
 });
 
-test("quick vital history is read-only and never advances the baseline", async () => {
+test("quick vital history advances the baseline only when linked to B", async () => {
 	const source = await readFile("pages/device/test.uvue", "utf8");
-	// 测试读数据是只读观测：落库照常，但一步都不推进基准 B。
-	assert.equal(source.includes("readOnly: true"), true);
+	// readOnly 由调用方传入，不再写死：挂钩=记账推进 B，纯协议测试=只读。
+	assert.equal(source.includes("readOnly: readOnly"), true);
+	assert.equal(source.includes("挂钩读取，基准 B 已按落库推进，可保存到下载"), true);
 	assert.equal(source.includes("只读读取，不推进基准 B，可保存到下载"), true);
-	// 旧的「起点晚于 B 降级」提示已经删掉——测试入口不再有记账这回事。
+	// 近 N 天：挂钩关掉才只读；从 B 读取固定记账；生命体征协议固定只读。
+	assert.equal(source.includes("payload.linkBaseline == false\n\t);"), true);
+	assert.equal(source.includes("t(\"从基准 B 读取\"),\n\t\tdirection,\n\t\t2,\n\t\tfalse"), true);
+	// 旧的「起点晚于 B 降级」提示已经删掉。
 	assert.equal(source.includes("起点晚于基准 B，本轮只落库不记账"), false);
 	assert.equal(source.includes("result.skippedAccounting"), false);
-	// 「从基准 B 读取」保留为观测入口，但只是拿 B 当起点，不再推进它。
 	assert.equal(source.includes("readHistoryFromBaseline"), true);
 	assert.equal(source.includes("refreshQuickBaseline"), true);
+	// 近 N 天按两个开关算窗口与方向：挂钩时右端取 stableCeiling、否则取当前时间；
+	// 方向开关 true=向后(1)/false=向前(0)。
+	assert.equal(source.includes("payload.linkBaseline == true ? historyBaseline.stableCeiling(nowSec) : nowSec"), true);
+	assert.equal(source.includes("const direction = payload.forward == true ? 1 : 0"), true);
+});
+
+test("quick history popup has both switches defaulting to linked and forward", async () => {
+	const source = await readFile("pages/device/components/HistoryQuickReadPopup.uvue", "utf8");
+	assert.equal(source.includes("<cl-switch v-model=\"linkBaseline\">"), true);
+	assert.equal(source.includes("<cl-switch v-model=\"forward\">"), true);
+	assert.equal(source.includes("ref<boolean>(true)"), true);
+	assert.equal(source.includes("makePayload(days)"), true);
 });
 
 test("Android CSV export writes into the public Download/BOOM directory", async () => {

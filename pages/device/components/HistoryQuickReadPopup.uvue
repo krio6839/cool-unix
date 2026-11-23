@@ -3,10 +3,22 @@
 		<scroll-view class="popup-body" scroll-y="true">
 			<text class="help">{{
 				t(
-					"与自动补录走同一条链路：从窗口起点向更新方向逐页读取、逐页落库、逐页记账。起点就是基准 B 时读到的秒会推进基准；起点晚于 B 时本轮只落库不记账。"
+					"逐页读取、逐页落库供查看导出，读到的页可用「保存到下载」导出 CSV 核对。挂钩 B 时按落库探测进 B；关掉则纯只读观测、一步都不推进 B。"
 				)
 			}}</text>
-			<!-- 读之前先看见 B，才知道随手点一个「近一天」会不会落在基准之前。 -->
+			<cl-list border :pt="{ className: 'mt-5' }">
+				<cl-list-item :label="t('挂钩基准 B')">
+					<cl-switch v-model="linkBaseline"></cl-switch>
+				</cl-list-item>
+				<cl-list-item :label="t('向后读取（关=向前/更早）')">
+					<cl-switch v-model="forward"></cl-switch>
+				</cl-list-item>
+			</cl-list>
+			<text class="switch-hint">{{
+				linkBaseline
+					? t("挂钩：右端取记账上限，读到的数据会推进 B")
+					: t("不挂钩：窗口只按当前时间算，与 B 无关，纯只读")
+			}}</text>
 			<text class="baseline-info">{{ props.baselineInfo }}</text>
 			<view class="range-grid">
 				<cl-button
@@ -17,7 +29,7 @@
 					rounded
 					size="small"
 					:disabled="props.busy"
-					@tap="emit('read-range', days)"
+					@tap="emit('read-range', makePayload(days))"
 					>{{ t("读取近") }} {{ days == 7 ? t("一周") : days + t("天") }}</cl-button
 				>
 				<cl-button
@@ -26,8 +38,8 @@
 					rounded
 					size="small"
 					:disabled="props.busy"
-					@tap="emit('read-from-baseline')"
-					>{{ t("从基准 B 读取") }}</cl-button
+					@tap="emit('read-from-baseline', makePayload(0))"
+					>{{ t("从基准 B 读到上限") }}</cl-button
 				>
 			</view>
 			<view class="status-card">
@@ -62,11 +74,18 @@
 	</cl-popup>
 </template>
 <script lang="ts" setup>
+import { ref } from "vue";
 import { t } from "@/.cool";
-import type { HistoryQuickReadPopupProps } from "./types";
+import type { HistoryQuickReadPayload, HistoryQuickReadPopupProps } from "./types";
 const show = defineModel("show", { default: false });
 const props = defineProps<HistoryQuickReadPopupProps>();
 const emit = defineEmits(["read-range", "read-from-baseline", "stop", "export"]);
+// 两个开关默认挂钩基准、向后读；窗口怎么定由页面按这两个值算。
+const linkBaseline = ref<boolean>(true);
+const forward = ref<boolean>(true);
+function makePayload(days: number): HistoryQuickReadPayload {
+	return { days: days, linkBaseline: linkBaseline.value, forward: forward.value };
+}
 </script>
 <style lang="scss" scoped>
 .popup-body {
@@ -78,6 +97,12 @@ const emit = defineEmits(["read-range", "read-from-baseline", "stop", "export"])
 	color: #9ca3af;
 	font-size: 12px;
 	line-height: 18px;
+}
+.switch-hint {
+	color: #9ca3af;
+	font-size: 12px;
+	line-height: 18px;
+	margin-top: 8px;
 }
 .baseline-info {
 	color: #a7f3d0;

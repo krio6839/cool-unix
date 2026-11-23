@@ -16,10 +16,21 @@ export type HistoryQuickReadPopupProps = {
 	pages: number;
 	seconds: number;
 	days: number;
-	/** 常驻基准行：`B` / 记账上限 / 落后量。起点晚于 `B` 会触发「只落库不记账」。 */
+	/** 常驻基准行：`B` / 记账上限 / 落后量。挂钩开关打开时才有意义。 */
 	baselineInfo: string;
 	busy: boolean;
 	exportCount: number;
+};
+/**
+ * 快速历史读取的两个开关：
+ * - `linkBaseline`：挂钩时窗口右端取记账上限、并按落库推进 B；关掉则用当前时间，
+ *   纯只读观测、不推进 B，完全和 B 无关。
+ * - `forward`：true=向后读（向更新，direction 1）；false=向前读（向更早，direction 0）。
+ */
+export type HistoryQuickReadPayload = {
+	days: number;
+	linkBaseline: boolean;
+	forward: boolean;
 };
 /** 补录只按时间端点走，不再有任务 id：端点是推算出来的，没有可寻址的行。 */
 export type HistoryRepairPayload = { fromSec: number; toSec: number };

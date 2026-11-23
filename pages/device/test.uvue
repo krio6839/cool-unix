@@ -249,6 +249,7 @@ import DeviceControlPopup from "./components/DeviceControlPopup.uvue";
 import type {
 	DevicePopupPayload,
 	EventPopupPayload,
+	HistoryQuickReadPayload,
 	HistoryRepairPayload,
 	VitalPopupPayload,
 	VitalPopupText
@@ -960,9 +961,9 @@ const formPpgPosition = ref<number>(0);
 const formBhr = ref<string>("60");
 
 /**
- * 手动读取的公共实现：各入口只有窗口与协议参数不同，链路复用 `readVitalRangeForward` 的
- * 翻页与落库，但传 `readOnly`——测试读数据是只读观测，一步都不推进基准 B。
- * 正式补录走同一读取器的默认路径，行为不变。
+ * 手动读取的公共实现：各入口只有窗口与协议参数不同，链路复用 `readVitalRangeForward`
+ * 的翻页与落库。`readOnly` 决定动不动基准：挂钩 B 的读取传 false，照常记账推进 B；
+ * 纯协议测试传 true，只读观测、一步都不推进 B。
  *
  * `direction` / `minutes` 是 0x3A 自己的参数（其他入口一律默认：向更新、2 分钟）。窗口始终
  * 写作 `[fromSec, toSec)`，`direction = 0`（向更早）时从 `toSec` 那头往回翻。
@@ -972,7 +973,8 @@ async function runManualHistoryRead(
 	toSec: number,
 	title: string,
 	direction: number,
-	minutes: number
+	minutes: number,
+	readOnly: boolean
 ): Promise<void> {
 	vitalAutoReading.value = true;
 	vitalAutoDetail.value = "-";
@@ -994,7 +996,7 @@ async function runManualHistoryRead(
 			label: readLabel,
 			direction: direction,
 			minutes: minutes,
-			readOnly: true
+			readOnly: readOnly
 		});
 		vitalHistoryExportResponses.value = result.responses;
 		vitalAutoDetail.value = deviceStore.history.formatVitalAutoDetail(result.responses);
@@ -1004,9 +1006,11 @@ async function runManualHistoryRead(
 		quickHistoryPages.value = result.pages;
 		quickHistorySeconds.value = parsedSeconds;
 		const summary = `${historyReadResultText(result)} · ${t("页数")} ${result.pages} · ${t("落库")} ${result.savedRecords}`;
-		// 测试读取一律只读：数据照常落库供查看/导出，但基准 B 一步不动。
-		const readOnlyNote = t("只读读取，不推进基准 B，可保存到下载");
-		quickHistoryStatus.value = `${summary} · ${readOnlyNote}`;
+		// 挂钩 B 的读取照常记账推进基准；纯协议测试只读观测，基准一步不动。
+		const accountNote = readOnly == true
+			? t("只读读取，不推进基准 B，可保存到下载")
+			: t("挂钩读取，基准 B 已按落库推进，可保存到下载");
+		quickHistoryStatus.value = `${summary} · ${accountNote}`;
 		if (result.saveOk == false)
 			ui.showToast({ message: result.message, type: "warn" });
 		setCommandResponse("VITAL", quickHistoryStatus.value);
@@ -1019,20 +1023,38 @@ async function runManualHistoryRead(
 }
 
 /**
- * 手动读取近 N 天：窗口左端是「稳定上界往前 N 天」，走正式补录的翻页/落库链路
- * （`direction=1`），但只读、不推进基准。与「历史补录」只差窗口左端和记账。
+ * 手动读取近 N 天：窗口与方向由弹窗两个开关决定，走正式补录的翻页/落库链路。
+ * 挂钩时右端取记账上限、并按落库探测进 B（readOnly=false）；不挂钩时只按当前时间算、
+ * 与 B 完全无关，纯只读观测（readOnly=true）。向前读从右端往回翻，向后读从左端往前翻。
  */
-async function testVitalHistoryRange(days: number): Promise<void> {
-	const toSec = historyBaseline.stableCeiling(getNowSec());
-	const fromSec = toSec - days * 24 * 60 * 60;
-	quickHistoryDays.value = days;
-	await runManualHistoryRead(fromSec, toSec, `${t("手动读取近")} ${days} ${t("天")}`, 1, 2);
+async function testVitalHistoryRange(payload: HistoryQuickReadPayload): Promise<void> {
+	const nowSec = getNowSec();
+	const right = payload.linkBaseline == true ? historyBaseline.stableCeiling(nowSec) : nowSec;
+	const left = right - payload.days * 24 * 60 * 60;
+	quickHistoryDays.value = payload.days;
+	const direction = payload.forward == true ? 1 : 0;
+	await runManualHistoryRead(
+		left,
+		right,
+		`${t("手动读取近")} ${payload.days} ${t("天")}`,
+		direction,
+		2,
+		payload.linkBaseline == false
+	);
 }
 
-/** 从基准 `B` 读到记账上限。起点恒等于 `B`，所以不会跳过任何没读过的秒。 */
-async function readHistoryFromBaseline(): Promise<void> {
+/** 从基准 `B` 读到记账上限：挂钩特例，照常推进 B；方向跟随弹窗开关。 */
+async function readHistoryFromBaseline(payload: HistoryQuickReadPayload): Promise<void> {
 	const snapshot = await historyBaseline.snapshot(getNowSec());
-	await runManualHistoryRead(snapshot.baseline, snapshot.ceiling, t("从基准 B 读取"), 1, 2);
+	const direction = payload.forward == true ? 1 : 0;
+	await runManualHistoryRead(
+		snapshot.baseline,
+		snapshot.ceiling,
+		t("从基准 B 读取"),
+		direction,
+		2,
+		false
+	);
 }
 
 /** 将本次快速历史读取的全部解析秒写入手机公共 Download/BOOM 目录。 */
@@ -1354,7 +1376,8 @@ async function submitVitalFromPopup(payload: VitalPopupPayload): Promise<void> {
 		toSec,
 		t("生命体征协议手动读取"),
 		payload.direction,
-		payload.minutes
+		payload.minutes,
+		true
 	);
 }
 
