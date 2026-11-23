@@ -127,6 +127,18 @@ test("quick vital history advances the baseline only when linked to B", async ()
 	// 方向开关 true=向后(1)/false=向前(0)。
 	assert.equal(source.includes("payload.linkBaseline == true ? historyBaseline.stableCeiling(nowSec) : nowSec"), true);
 	assert.equal(source.includes("const direction = payload.forward == true ? 1 : 0"), true);
+	// 读取中要有实时进度：逐页回调刷新页数/秒数与状态文案，用户看得到在动。
+	assert.equal(source.includes("onProgress: (pages: number, saved: number): void"), true);
+	assert.equal(source.includes("quickHistoryPages.value = pages"), true);
+	assert.equal(source.includes("读取中"), true);
+});
+
+test("quick history popup shows an in-progress banner while busy", async () => {
+	const source = await readFile("pages/device/components/HistoryQuickReadPopup.uvue", "utf8");
+	assert.equal(source.includes('v-if="props.busy"'), true);
+	assert.equal(source.includes("reading-banner"), true);
+	assert.equal(source.includes("<cl-loading>"), true);
+	assert.equal(source.includes("正在读取设备历史，逐页落库中"), true);
 });
 
 test("quick history popup has both switches defaulting to linked and forward", async () => {
@@ -1595,6 +1607,42 @@ test("forward history starts at the older edge and stops at the newer edge", asy
 		rows(r.db, "SELECT MIN(timestamp) AS first, MAX(timestamp) AS last FROM broadcast_data"),
 		[{ first: 100000, last: 101199 }]
 	);
+});
+
+test("onProgress fires once per page with running page and saved-second counts", async (t) => {
+	const r = await createRuntime(t);
+	let cursor = 0;
+	const deliver = () => {
+		reader.latestVitalDataResponse = page(cursor);
+		reader.vitalDataResponseSeqValue++;
+		cursor += 120;
+		return true;
+	};
+	const device = {
+		boundDeviceId: "device",
+		beginGattTask: () => true,
+		endGattTask() {},
+		event: { resetDataIdentifierReassembler() {} },
+		protocol: {
+			async readVitalData(query) {
+				cursor = query.startSec;
+				return deliver();
+			},
+			async continueReadVitalData() {
+				return deliver();
+			}
+		}
+	};
+	const progress = [];
+	const reader = new r.DeviceHistoryReader(device);
+	reader.sleep = async () => {};
+	await reader.readVitalRangeForward(100000, 101200, {
+		onProgress: (pages, saved) => progress.push([pages, saved])
+	});
+	// 10 页，每页 120 秒：进度递增，最后一页报到 10 页 / 1200 秒。
+	assert.equal(progress.length, 10);
+	assert.deepEqual(progress[0], [1, 120]);
+	assert.deepEqual(progress[9], [10, 1200]);
 });
 
 test("readOnly history reads persist pages but never advance the baseline", async (t) => {

@@ -87,10 +87,15 @@ export type VitalRangeReadOptions = {
 	/** 每页分钟数（`0x3A`/`0x3B` 都只接受 2 或 5）。缺省 2。 */
 	minutes?: number;
 	/**
-	 * 只读观测（测试页的数据读取）：窗口是用户指定的任意区间，与基准 `B` 无关。
-	 * 逐页落库照常，但一步都不推进 `B`——测试不该改动正式补录的记账状态。
+	 * 只读观测：`true` 时逐页落库照常但一步都不推进 `B`（纯协议测试）；
+	 * `false`/缺省时按记账规则推进 `B`（正式补录、挂钩 B 的测试读取）。
 	 */
 	readOnly?: boolean;
+	/**
+	 * 每解析一页报一次进度，供测试页刷新"读取中"UI。参数是已读页数与已落库秒数。
+	 * 自动补录不传——高频回调只为界面服务，不进生产链路。
+	 */
+	onProgress?: ((pages: number, saved: number) => void) | null;
 };
 
 /**
@@ -380,11 +385,13 @@ export class DeviceHistoryReader implements RangeReader {
 		let externalStop: (() => boolean) | null = null;
 		let direction = VITAL_READ_DIRECTION;
 		let minutes = VITAL_READ_MINUTES;
+		let onProgress: ((pages: number, saved: number) => void) | null = null;
 		if (options != null) {
 			if (options.retainResponses == true) retainResponses = true;
 			if (options.shouldStop != null) externalStop = options.shouldStop!;
 			if (options.direction != null) direction = options.direction!;
 			if (options.minutes != null && options.minutes! > 0) minutes = options.minutes!;
+			if (options.onProgress != null) onProgress = options.onProgress!;
 		}
 		const readOlder = direction == VITAL_DIRECTION_OLDER;
 		// 记账判定放在占用 GATT 任务之前：这中间只有一次读库，但它会抛，抛了就没有 finally
@@ -417,6 +424,7 @@ export class DeviceHistoryReader implements RangeReader {
 		let saveOk = true;
 		let stopRead = false;
 		let confirmed = 0;
+		let readPages = 0;
 		let lastStart = 0;
 		let failure = "";
 		let pageStalled = false;
@@ -522,8 +530,10 @@ export class DeviceHistoryReader implements RangeReader {
 							if (response.vitalData[i].valid == true) validSeconds++;
 							else invalidSeconds++;
 						}
-						saved += await this.saveVitalPage(response, startSec, anchor, account);
-						lastStart = response.startSec;
+					saved += await this.saveVitalPage(response, startSec, anchor, account);
+					readPages++;
+					if (onProgress != null) onProgress(readPages, saved);
+					lastStart = response.startSec;
 						// 覆盖边界跟着页走：页声明的范围就是「设备回答过这一段」，哪怕整页
 						// 都是全 FF 也要推进，否则下一轮又来读同一段。向更早读时页终点在
 						// 起点之前，边界要取页起点。

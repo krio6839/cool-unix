@@ -43,6 +43,10 @@
 				>
 			</view>
 			<view class="status-card">
+				<view v-if="props.busy" class="reading-banner">
+					<cl-loading></cl-loading>
+					<text class="reading-text">{{ t("正在读取设备历史，逐页落库中…") }}</text>
+				</view>
 				<text>{{ props.status }}</text>
 				<text>{{ t("目标范围") }}：{{ props.days > 0 ? props.days + t("天") : "-" }}</text>
 				<text
@@ -124,6 +128,20 @@ function makePayload(days: number): HistoryQuickReadPayload {
 	color: #dbeafe;
 	display: flex;
 	flex-direction: column;
+	font-size: 12px;
+	line-height: 18px;
+}
+.reading-banner {
+	flex-direction: row;
+	align-items: center;
+	padding: 6px 8px;
+	margin-bottom: 8px;
+	border-radius: 6px;
+	background-color: #1e40af;
+}
+.reading-text {
+	margin-left: 8px;
+	color: #ffffff;
 	font-size: 12px;
 	line-height: 18px;
 }

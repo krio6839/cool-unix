@@ -996,7 +996,12 @@ async function runManualHistoryRead(
 			label: readLabel,
 			direction: direction,
 			minutes: minutes,
-			readOnly: readOnly
+			readOnly: readOnly,
+			onProgress: (pages: number, saved: number): void => {
+				quickHistoryPages.value = pages;
+				quickHistorySeconds.value = saved;
+				quickHistoryStatus.value = `${title} · ${t("读取中")} ${pages} ${t("页")} · ${t("落库")} ${saved} ${t("秒")}`;
+			}
 		});
 		vitalHistoryExportResponses.value = result.responses;
 		vitalAutoDetail.value = deviceStore.history.formatVitalAutoDetail(result.responses);
