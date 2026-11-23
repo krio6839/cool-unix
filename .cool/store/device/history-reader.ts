@@ -86,6 +86,11 @@ export type VitalRangeReadOptions = {
 	direction?: number;
 	/** 每页分钟数（`0x3A`/`0x3B` 都只接受 2 或 5）。缺省 2。 */
 	minutes?: number;
+	/**
+	 * 只读观测（测试页的数据读取）：窗口是用户指定的任意区间，与基准 `B` 无关。
+	 * 逐页落库照常，但一步都不推进 `B`——测试不该改动正式补录的记账状态。
+	 */
+	readOnly?: boolean;
 };
 
 /**
@@ -385,9 +390,16 @@ export class DeviceHistoryReader implements RangeReader {
 		// 记账判定放在占用 GATT 任务之前：这中间只有一次读库，但它会抛，抛了就没有 finally
 		// 去 `endGattTask`，通道会一直显示为忙。
 		const currentBaseline = await historyBaseline.getBaseline();
+		const readOnly = options != null && options.readOnly == true;
 		// `B` 只向上推进：向更早方向读的整段都在 `B` 以下，一步都不能记账。
-		const account = readOlder == false && startSec <= currentBaseline;
-		if (readOlder == true) {
+		// 只读观测的窗口与 `B` 无关，同样一步都不记账——测试读数据不能改正式补录状态。
+		const account = readOnly == false && readOlder == false && startSec <= currentBaseline;
+		if (readOnly == true) {
+			logger.info(
+				"bluetooth",
+				`[BOOM-HISTORY] ${label}只读观测，不推进基准: window=${formatHistorySec(startSec)}~${formatHistorySec(anchor)}, B=${formatHistorySec(currentBaseline)}`
+			);
+		} else if (readOlder == true) {
 			logger.info(
 				"bluetooth",
 				`[BOOM-HISTORY] ${label}向更早读取，本轮只落库不记账: window=${formatHistorySec(startSec)}~${formatHistorySec(anchor)}, B=${formatHistorySec(currentBaseline)}`

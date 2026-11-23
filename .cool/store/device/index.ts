@@ -97,9 +97,9 @@ export class Device {
 	//#endif
 	//#ifdef H5
 	//@ts-ignore
-	currentDeviceId: string = "D9:4C:37:91:9C:7E";
+	currentDeviceId: string = "FA:CB:28:AE:E9:66";
 	//@ts-ignore
-	boundDeviceId: string = "D9:4C:37:91:9C:7E";
+	boundDeviceId: string = "FA:CB:28:AE:E9:66";
 	//#endif
 
 	/* ===== 设备初始化状态 ===== */

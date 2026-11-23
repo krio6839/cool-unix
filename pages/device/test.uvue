@@ -960,8 +960,9 @@ const formPpgPosition = ref<number>(0);
 const formBhr = ref<string>("60");
 
 /**
- * 手动读取的公共实现：各入口只有窗口与协议参数不同，链路完全一样——`readVitalRangeForward`
- * 内部就是正式补录那一套，所以手动读到的秒同样会推进基准。
+ * 手动读取的公共实现：各入口只有窗口与协议参数不同，链路复用 `readVitalRangeForward` 的
+ * 翻页与落库，但传 `readOnly`——测试读数据是只读观测，一步都不推进基准 B。
+ * 正式补录走同一读取器的默认路径，行为不变。
  *
  * `direction` / `minutes` 是 0x3A 自己的参数（其他入口一律默认：向更新、2 分钟）。窗口始终
  * 写作 `[fromSec, toSec)`，`direction = 0`（向更早）时从 `toSec` 那头往回翻。
@@ -992,7 +993,8 @@ async function runManualHistoryRead(
 			shouldStop: () => vitalAutoReading.value == false,
 			label: readLabel,
 			direction: direction,
-			minutes: minutes
+			minutes: minutes,
+			readOnly: true
 		});
 		vitalHistoryExportResponses.value = result.responses;
 		vitalAutoDetail.value = deviceStore.history.formatVitalAutoDetail(result.responses);
@@ -1002,17 +1004,11 @@ async function runManualHistoryRead(
 		quickHistoryPages.value = result.pages;
 		quickHistorySeconds.value = parsedSeconds;
 		const summary = `${historyReadResultText(result)} · ${t("页数")} ${result.pages} · ${t("落库")} ${result.savedRecords}`;
-		// 只落库不记账有两种来路：起点晚于 `B`，或这一轮本来就是向更早读。都不是失败，
-		// 但读数的人必须知道基准没动，否则会以为这段已经并进去了。
-		const skippedReason =
-			direction == 0
-				? t("向更早读取（direction=0），本轮只落库不记账")
-				: t("起点晚于基准 B，本轮只落库不记账");
-		quickHistoryStatus.value = result.skippedAccounting
-			? `${skippedReason} · ${summary}`
-			: `${summary} · ${t("已保留本次解析数据，可保存到下载")}`;
-		if (result.skippedAccounting)
-			ui.showToast({ message: skippedReason, type: "warn" });
+		// 测试读取一律只读：数据照常落库供查看/导出，但基准 B 一步不动。
+		const readOnlyNote = t("只读读取，不推进基准 B，可保存到下载");
+		quickHistoryStatus.value = `${summary} · ${readOnlyNote}`;
+		if (result.saveOk == false)
+			ui.showToast({ message: result.message, type: "warn" });
 		setCommandResponse("VITAL", quickHistoryStatus.value);
 		return result.saveOk;
 	});
@@ -1023,8 +1019,8 @@ async function runManualHistoryRead(
 }
 
 /**
- * 手动读取近 N 天：窗口左端是「稳定上界往前 N 天」，走的是正式补录那条链路
- * （`direction=1` 逐页读、逐页落库、逐页记账），与「历史补录」只差窗口左端。
+ * 手动读取近 N 天：窗口左端是「稳定上界往前 N 天」，走正式补录的翻页/落库链路
+ * （`direction=1`），但只读、不推进基准。与「历史补录」只差窗口左端和记账。
  */
 async function testVitalHistoryRange(days: number): Promise<void> {
 	const toSec = historyBaseline.stableCeiling(getNowSec());
@@ -1339,9 +1335,9 @@ function stopEventAutoRead(): void {
 /**
  * 生命体征协议弹窗的手动读取：起点 + 方向 + 每页分钟数，就是 0x3A 自己的三个参数。
  *
- * 仍走正式补录那条链路（`readVitalRangeForward`），不另开旁路。窗口按方向定：
- * 向更新读 `[起点, 记账上限)`，向更早读 `[基准 B, 起点)`——`B` 以下的秒已经补过，往回翻
- * 只可能翻到它们，所以那一端就是天然的下界。两种方向的记账都由读取器自己判定并如实报出。
+ * 这是只读的协议测试入口，窗口与基准 B 无关：向更新读 `[起点, 起点 + N天)`，向更早读
+ * `[起点 - N天, 起点)`。两端都由起点推出，不拿 B 当下界、也不因起点晚于 B 拒绝。
+ * 用户给多少读多少，读到设备历史尽头为止。
  */
 async function submitVitalFromPopup(payload: VitalPopupPayload): Promise<void> {
 	const startSec = parseInt(payload.startSec, 10);
@@ -1350,14 +1346,12 @@ async function submitVitalFromPopup(payload: VitalPopupPayload): Promise<void> {
 		return;
 	}
 	const readOlder = payload.direction == 0;
-	const baseline = await historyBaseline.getBaseline();
-	if (readOlder == true && startSec <= baseline) {
-		ui.showToast({ message: t("起点不晚于基准 B，向更早方向没有可读区间"), type: "warn" });
-		return;
-	}
+	const spanSec = 30 * 86400; // 足够长的窗口，让设备侧的历史尽头成为实际终止条件
+	const fromSec = readOlder == true ? Math.max(1, startSec - spanSec) : startSec;
+	const toSec = readOlder == true ? startSec : startSec + spanSec;
 	await runManualHistoryRead(
-		readOlder == true ? baseline : startSec,
-		readOlder == true ? startSec : historyBaseline.stableCeiling(getNowSec()),
+		fromSec,
+		toSec,
 		t("生命体征协议手动读取"),
 		payload.direction,
 		payload.minutes

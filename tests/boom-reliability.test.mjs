@@ -104,16 +104,20 @@ test("quick vital history offers export after retaining all parsed pages", async
 	assert.equal(manual.includes("shouldStop: () => vitalAutoReading.value == false,"), true);
 	assert.equal(manual.includes("direction: direction"), true);
 	assert.equal(manual.includes("minutes: minutes"), true);
+	assert.equal(manual.includes("readOnly: true"), true);
 	assert.equal(manual.includes("readVitalDataAuto("), false);
 	assert.equal(manual.includes("reachedTarget"), false);
 });
 
-test("quick vital history points at the baseline instead of guessing the window", async () => {
+test("quick vital history is read-only and never advances the baseline", async () => {
 	const source = await readFile("pages/device/test.uvue", "utf8");
-	// 起点晚于 `B` 时只落库：把这件事报出来，否则读的人会以为这段已经并进基准了。
-	assert.equal(source.includes("result.skippedAccounting"), true);
-	assert.equal(source.includes("起点晚于基准 B，本轮只落库不记账"), true);
-	// 「从基准 B 读取」是四个窗口里唯一不会跳过没读过的秒的那一个。
+	// 测试读数据是只读观测：落库照常，但一步都不推进基准 B。
+	assert.equal(source.includes("readOnly: true"), true);
+	assert.equal(source.includes("只读读取，不推进基准 B，可保存到下载"), true);
+	// 旧的「起点晚于 B 降级」提示已经删掉——测试入口不再有记账这回事。
+	assert.equal(source.includes("起点晚于基准 B，本轮只落库不记账"), false);
+	assert.equal(source.includes("result.skippedAccounting"), false);
+	// 「从基准 B 读取」保留为观测入口，但只是拿 B 当起点，不再推进它。
 	assert.equal(source.includes("readHistoryFromBaseline"), true);
 	assert.equal(source.includes("refreshQuickBaseline"), true);
 });
@@ -1576,6 +1580,59 @@ test("forward history starts at the older edge and stops at the newer edge", asy
 		rows(r.db, "SELECT MIN(timestamp) AS first, MAX(timestamp) AS last FROM broadcast_data"),
 		[{ first: 100000, last: 101199 }]
 	);
+});
+
+test("readOnly history reads persist pages but never advance the baseline", async (t) => {
+	const r = await createRuntime(t);
+	const queries = [];
+	let cursor = 0;
+	const deliver = () => {
+		reader.latestVitalDataResponse = page(cursor);
+		reader.vitalDataResponseSeqValue++;
+		cursor += 120;
+		return true;
+	};
+	const device = {
+		boundDeviceId: "device",
+		beginGattTask: () => true,
+		endGattTask() {},
+		event: { resetDataIdentifierReassembler() {} },
+		protocol: {
+			async readVitalData(query) {
+				queries.push(query);
+				cursor = query.startSec;
+				return deliver();
+			},
+			async continueReadVitalData() {
+				return deliver();
+			}
+		}
+	};
+	const reader = new r.DeviceHistoryReader(device);
+	reader.sleep = async () => {};
+	// B 落在窗口左端之前：普通读取会一路记账把 B 推到窗口右端。
+	const baseline = (await r.load(".cool/bluetooth/history/baseline.ts")).historyBaseline;
+	r.db.exec(
+		`INSERT OR REPLACE INTO vital_sync_state (id,baseline_sec,classified_until_sec) VALUES (1,90000,90000)`
+	);
+	const before = await baseline.getBaseline();
+	const read = await reader.readVitalRangeForward(100000, 101200, {
+		readOnly: true,
+		retainResponses: true
+	});
+	// 数据照常落库、整段读完，和正式读取一样。
+	assert.equal(queries[0].startSec, 100000);
+	assert.equal(read.pages, 10);
+	assert.equal(read.savedRecords, 1200);
+	assert.equal(
+		r.db.prepare("SELECT MAX(timestamp) AS last FROM broadcast_data").get().last,
+		101199
+	);
+	// 但基准一步不动——测试读数据不改正式补录状态。
+	assert.equal(await baseline.getBaseline(), before);
+	assert.equal(read.skippedAccounting, true);
+	// 起点晚于 B 也不影响：只读模式不拿 B 当下界，窗口完全按用户给的走。
+	assert.ok(100000 > before);
 });
 
 test("recent window queries from the baseline and excludes future seconds", async (t) => {

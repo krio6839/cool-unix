@@ -15,7 +15,7 @@
 				<cl-select class="form-field" v-model="direction" :options="directionOptions" />
 				<cl-select class="form-field" v-model="minutes" :options="minutesOptions" />
 				<text class="protocol-hint">{{
-					t("向前 (0)：从起点往回读到基准 B，只落库不记账；向后 (1)：从起点读到记账上限，并推进基准。")
+					t("只读协议测试，不推进基准 B。向前 (0)：从起点往回读；向后 (1)：从起点往后读。读到设备历史尽头为止。")
 				}}</text>
 				<cl-button
 					class="form-field"
